@@ -50,7 +50,7 @@ pub(super) fn gen_service_js(api: &ApiSurface) -> String {
     let class_name = "App";
     out.push_str(&crate::backends::wasm::template_env::render(
         "service_js_class_open.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             class_name => class_name,
         },
     ));
@@ -77,7 +77,7 @@ pub(super) fn gen_service_js(api: &ApiSurface) -> String {
         .collect();
     out.push_str(&crate::backends::wasm::template_env::render(
         "service_js_constructor.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             constructor_params => constructor_params.join(", "),
             params => constructor_param_names,
         },
@@ -99,7 +99,7 @@ pub(super) fn gen_service_js(api: &ApiSurface) -> String {
 
         out.push_str(&crate::backends::wasm::template_env::render(
             "service_js_configurator.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => &method.name,
                 method_params => method_params.join(", "),
                 doc => method.doc.as_str(),
@@ -179,7 +179,7 @@ fn emit_variant_direct_method_js(
     let doc_lines = variant_doc_lines(doc);
     out.push_str(&crate::backends::wasm::template_env::render(
         "service_js_direct_variant.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             doc_lines => doc_lines,
             variant_name => variant_name,
             full_sig => full_sig,
@@ -208,7 +208,7 @@ fn emit_variant_decorator_factory_js(
     let doc_lines = variant_doc_lines(doc);
     out.push_str(&crate::backends::wasm::template_env::render(
         "service_js_decorator_variant.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             doc_lines => doc_lines,
             variant_name => variant_name,
             sig => sig,

@@ -9,7 +9,7 @@ pub(super) fn emit_from_json_extern_decl(out: &mut String, snake_name: &str, wra
     let fn_name = format!("{snake_name}_from_json");
     out.push_str(&crate::backends::swift::template_env::render(
         "rust_from_json_extern_decl.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             swift_name => fn_name.to_lower_camel_case(),
             fn_name => fn_name,
             wrapper_name => wrapper_name,
@@ -51,7 +51,7 @@ pub(super) fn emit_from_json_shim(
     let fn_name = format!("{snake_name}_from_json");
     out.push_str(&crate::backends::swift::template_env::render(
         "rust_from_json_shim.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             fn_name => fn_name,
             wrapper_name => wrapper_name,
             source_path => source_path,

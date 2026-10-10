@@ -164,7 +164,7 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
     let derived_route_builder_class = format!("{module_prefix}RouteBuilder");
     let derived_server_config_class = format!("{module_prefix}ServerConfig");
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         header => header,
         imports => imports_ref,
         app_class => if !app_class_str.is_empty() { app_class_str } else { derived_app_class.as_str() },
@@ -211,7 +211,7 @@ pub(super) fn render_gemfile(
     };
     crate::e2e::template_env::render(
         "ruby/Gemfile.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             gem_line => gem_line,
             rspec => tv::gem::RSPEC_E2E,
             rubocop => tv::gem::RUBOCOP_E2E,
@@ -349,7 +349,7 @@ end
     } else if has_mock_server_fixtures {
         let mock_server_block = crate::e2e::template_env::render(
             "ruby/spec_helper_mock_server.rb.jinja",
-            minijinja::context! { alt_host => alt_host },
+            crate::alef_context! { alt_host => alt_host },
         );
         out.push_str(&mock_server_block);
     }
@@ -358,7 +358,7 @@ end
 }
 
 pub(super) fn render_rubocop_yaml() -> String {
-    crate::e2e::template_env::render("ruby/rubocop.yml.jinja", minijinja::context! {})
+    crate::e2e::template_env::render("ruby/rubocop.yml.jinja", crate::alef_context! {})
 }
 
 #[cfg(test)]

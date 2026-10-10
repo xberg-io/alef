@@ -61,13 +61,13 @@ fn render_native_php_dto_at(
             let name = crate::codegen::naming::to_php_name(&field.name);
             let field_pointer = format!("{pointer}/{}", field.name);
             let value = render_native_php_value(namespace, value, &field.ty, type_defs, files, &field_pointer)?;
-            Some(minijinja::context! { name => name, value => value })
+            Some(crate::alef_context! { name => name, value => value })
         })
         .collect::<Option<Vec<_>>>()?;
     Some(
         crate::e2e::template_env::render(
             "php/typed_dto.jinja",
-            minijinja::context! { namespace => namespace, type_name => type_name, fields => fields },
+            crate::alef_context! { namespace => namespace, type_name => type_name, fields => fields },
         )
         .trim_end()
         .to_string(),

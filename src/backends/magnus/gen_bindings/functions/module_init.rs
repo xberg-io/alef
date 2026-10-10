@@ -46,7 +46,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         "fn ruby_init(ruby: &Ruby) -> Result<(), Error> {".to_string(),
         crate::backends::magnus::template_env::render(
             "module_define.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 module_name => module_name,
             },
         ),
@@ -60,7 +60,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         for class in &reg.classes {
             lines.push(crate::backends::magnus::template_env::render(
                 "module_class_define.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     binding => "_class",
                     class_name => class,
                 },
@@ -69,7 +69,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         for func in &reg.functions {
             lines.push(crate::backends::magnus::template_env::render(
                 "module_function_register.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     ruby_name => func,
                     function_name => func,
                     arity => 0,
@@ -88,7 +88,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         ] {
             lines.push(crate::backends::magnus::template_env::render(
                 "module_function_register.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     ruby_name => name,
                     function_name => name,
                     arity => arity,
@@ -113,7 +113,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         let binding = if class_used { "class" } else { "_class" };
         lines.push(crate::backends::magnus::template_env::render(
             "module_class_define.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 binding => binding,
                 class_name => &typ.name,
             },
@@ -128,7 +128,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         if !typ.is_opaque && !typ.fields.is_empty() {
             let registration = crate::backends::magnus::template_env::render(
                 "module_class_singleton_method_register.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     ruby_name => "new",
                     type_name => &typ.name,
                     function_name => "new",
@@ -142,7 +142,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
             let arity = ctor_method.params.len() as i32;
             let registration = crate::backends::magnus::template_env::render(
                 "module_class_singleton_method_register.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     ruby_name => "new",
                     type_name => &typ.name,
                     function_name => "new",
@@ -161,7 +161,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
                 registered_field_names.insert(field.name.as_str());
                 let registration = crate::backends::magnus::template_env::render(
                     "module_class_method_register.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         ruby_name => &field.name,
                         type_name => &typ.name,
                         function_name => &field.name,
@@ -177,7 +177,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
             if classes::has_content_string_field(typ) {
                 let registration = crate::backends::magnus::template_env::render(
                     "module_class_method_register.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         ruby_name => "to_s",
                         type_name => &typ.name,
                         function_name => "to_s",
@@ -222,7 +222,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
                 let param_count = method.params.len();
                 let registration = crate::backends::magnus::template_env::render(
                     "module_class_method_register.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         ruby_name => &method_name,
                         type_name => &typ.name,
                         function_name => &method_name,
@@ -288,7 +288,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         }
         lines.push(crate::backends::magnus::template_env::render(
             "module_class_define.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 binding => "class",
                 class_name => &enum_def.name,
             },
@@ -296,7 +296,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         for (ruby_name, function_name, arity) in &registrations {
             lines.push(crate::backends::magnus::template_env::render(
                 "module_class_singleton_method_register.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     ruby_name => ruby_name,
                     type_name => &enum_def.name,
                     function_name => function_name,
@@ -339,7 +339,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         let function_name = crate::backends::magnus::ruby_native_function_name(func);
         let registration = crate::backends::magnus::template_env::render(
             "module_function_register.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 ruby_name => ruby_name,
                 function_name => function_name.as_ref(),
                 arity => param_count,
@@ -356,7 +356,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
             Some(gate) if !gate.is_empty() => {
                 crate::backends::magnus::template_env::render(
                     "cfg_attribute.rs.jinja",
-                    minijinja::context! { predicate => gate },
+                    crate::alef_context! { predicate => gate },
                 ) + &registration
             }
             _ => registration,
@@ -370,7 +370,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
             lines.push(crate::backends::magnus::template_env::render(
                 "module_function_register.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     ruby_name => register_fn,
                     function_name => register_fn,
                     arity => 2,
@@ -380,7 +380,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
             lines.push(crate::backends::magnus::template_env::render(
                 "module_function_register.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     ruby_name => unregister_fn,
                     function_name => unregister_fn,
                     arity => 1,
@@ -390,7 +390,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
             lines.push(crate::backends::magnus::template_env::render(
                 "module_function_register.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     ruby_name => clear_fn,
                     function_name => clear_fn,
                     arity => 0,
@@ -402,7 +402,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
     for adapter in streaming_adapters {
         lines.push(crate::backends::magnus::template_env::render(
             "module_function_register.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 ruby_name => adapter.name,
                 function_name => adapter.name,
                 arity => 2,
@@ -427,7 +427,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
                 let arity = 1 + ep.params.len() as i32;
                 lines.push(crate::backends::magnus::template_env::render(
                     "module_function_register.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         ruby_name => &fn_name,
                         function_name => format!("service::{fn_name}"),
                         arity => arity,

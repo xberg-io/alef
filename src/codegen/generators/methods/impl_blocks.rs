@@ -101,7 +101,7 @@ pub fn gen_impl_block_with_renames(
 
     crate::codegen::template_env::render(
         "generators/methods/impl_block.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             block_attr => cfg.method_block_attr,
             prefixed_name => prefixed_name,
             content => content,

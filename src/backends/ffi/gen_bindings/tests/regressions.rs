@@ -5,11 +5,11 @@ use super::common::*;
 fn emitted_code_blocks_preserve_newline_after_safety_comments() {
     let first = crate::backends::ffi::template_env::render(
         "emitted_code_block.jinja",
-        minijinja::context! { content => "// SAFETY: the pointer was validated." },
+        crate::alef_context! { content => "// SAFETY: the pointer was validated." },
     );
     let second = crate::backends::ffi::template_env::render(
         "emitted_code_block.jinja",
-        minijinja::context! { content => "unsafe { consume(); }" },
+        crate::alef_context! { content => "unsafe { consume(); }" },
     );
     let source = format!("fn boundary() {{\n{first}{second}}}\n");
 
@@ -397,7 +397,7 @@ prefix = "sample"
 fn catch_ffi_panic_preserves_a_more_specific_error_set_before_an_unrelated_panic() {
     let module = crate::backends::ffi::template_env::render(
         "last_error.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             prefix => "sample",
             builtin_prefix => "",
             error_code_impls => Vec::<String>::new(),

@@ -53,7 +53,7 @@ pub(super) fn effective_exclude_types(
 fn emit_sendable_conformance(out: &mut String, type_name: &str, mark: Option<&str>, comments: &[&str]) {
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_sendable_conformance.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             type_name => type_name,
             mark => mark,
             comments => comments,
@@ -316,7 +316,7 @@ impl Backend for SwiftBackend {
         if dto::api_needs_json_value_type(api, &known_dto_names) {
             body.push_str(&crate::backends::swift::template_env::render(
                 "swift_json_value_type.swift.jinja",
-                minijinja::context! {},
+                crate::alef_context! {},
             ));
             body.push('\n');
         }
@@ -365,7 +365,7 @@ impl Backend for SwiftBackend {
             } else {
                 body.push_str(&crate::backends::swift::template_env::render(
                     "typealias.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &ty.name,
                     },
                 ));
@@ -376,14 +376,14 @@ impl Backend for SwiftBackend {
         for type_name in &first_class_struct_names {
             body.push_str(&crate::backends::swift::template_env::render(
                 "typealias.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => &format!("{type_name}Ref"),
                 },
             ));
             body.push('\n');
             body.push_str(&crate::backends::swift::template_env::render(
                 "typealias.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => &format!("{type_name}RefMut"),
                 },
             ));
@@ -603,7 +603,7 @@ impl Backend for SwiftBackend {
         let imports = imports.iter().cloned().collect::<Vec<_>>().join("\n");
         let mut content = crate::backends::swift::template_env::render(
             "swift_module_header.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 imports => imports,
             },
         );

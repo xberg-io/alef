@@ -2141,7 +2141,7 @@ fn render_not_empty_assertion(out: &mut String, ctx: &AssertionFieldContext) {
         // either empty form. ~keep
         let condition = crate::e2e::template_env::render(
             "c/scalar_or_collection_empty.jinja",
-            minijinja::context! { field_expr => field_expr, negate => true, allow_null => false },
+            crate::alef_context! { field_expr => field_expr, negate => true, allow_null => false },
         );
         let _ = writeln!(
             out,
@@ -2164,13 +2164,13 @@ fn render_is_empty_assertion(out: &mut String, ctx: &AssertionFieldContext) {
         // Optional string fields may return NULL — treat NULL as empty.
         let condition = crate::e2e::template_env::render(
             "c/scalar_or_collection_empty.jinja",
-            minijinja::context! { field_expr => field_expr, negate => false, allow_null => true },
+            crate::alef_context! { field_expr => field_expr, negate => false, allow_null => true },
         );
         let _ = writeln!(out, "    assert({} && \"expected empty value\");", condition.trim_end());
     } else {
         let condition = crate::e2e::template_env::render(
             "c/scalar_or_collection_empty.jinja",
-            minijinja::context! { field_expr => field_expr, negate => false, allow_null => false },
+            crate::alef_context! { field_expr => field_expr, negate => false, allow_null => false },
         );
         let _ = writeln!(out, "    assert({} && \"expected empty value\");", condition.trim_end());
     }

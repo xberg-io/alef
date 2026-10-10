@@ -24,7 +24,6 @@
 //! effect, it would fail outright because the handle is already gone. ~keep
 
 use ahash::{AHashMap, AHashSet};
-use minijinja::context;
 
 use crate::codegen::c_consumer;
 use crate::codegen::conversions::core_type_path;
@@ -228,7 +227,7 @@ fn render_presence_param_conversions(
     for p in params {
         out.push_str(&crate::backends::ffi::template_env::render(
             "emitted_code_block.jinja",
-            context! {
+            crate::alef_context! {
                 content => gen_param_conversion_with_enums(p, &ParamConversionContext {
                     has_error,
                     // Forces the param-conversion failure path to `PRESENCE_FAIL_RET` regardless
@@ -253,7 +252,7 @@ fn render_presence_param_conversions(
         {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "ffi_btree_binding.jinja",
-                context! { btree => format!("{}_btree", p.name), rs => format!("{}_rs", p.name) },
+                crate::alef_context! { btree => format!("{}_btree", p.name), rs => format!("{}_rs", p.name) },
             ));
         }
     }
@@ -262,7 +261,7 @@ fn render_presence_param_conversions(
 fn presence_header(fn_name: &str, doc_comment: &str, params: Vec<String>, source_cfg: &str) -> String {
     crate::backends::ffi::template_env::render(
         "method_wrapper_header.jinja",
-        context! {
+        crate::alef_context! {
             doc_comment => doc_comment.trim_end(),
             allow_clippy => Option::<String>::None,
             fn_name => fn_name,
@@ -277,7 +276,7 @@ fn presence_header(fn_name: &str, doc_comment: &str, params: Vec<String>, source
 fn presence_footer() -> String {
     crate::backends::ffi::template_env::render(
         "function_wrapper_footer.jinja",
-        context! { panic_return => PRESENCE_PANIC_RETURN, trivial_call => false },
+        crate::alef_context! { panic_return => PRESENCE_PANIC_RETURN, trivial_call => false },
     )
 }
 
@@ -325,7 +324,7 @@ fn render_handle_acquisition(
     }
     out.push_str(&crate::backends::ffi::template_env::render(
         "handle_acquisition.rs.jinja",
-        context! {
+        crate::alef_context! {
             has_requests => true,
             requests => requests.join(",\n"),
             fail_ret => PRESENCE_FAIL_RET,
@@ -340,7 +339,7 @@ fn render_presence_tail(out: &mut String, has_error: bool) {
     if has_error {
         out.push_str(&crate::backends::ffi::template_env::render(
             "error_match_non_void.jinja",
-            context! {
+            crate::alef_context! {
                 ok_body => "            i32::from(val.is_some())\n",
                 null_ret => PRESENCE_PANIC_RETURN,
             },
@@ -348,7 +347,7 @@ fn render_presence_tail(out: &mut String, has_error: bool) {
     } else {
         out.push_str(&crate::backends::ffi::template_env::render(
             "emitted_code_block.jinja",
-            context! { content => "    i32::from(result.is_some())\n" },
+            crate::alef_context! { content => "    i32::from(result.is_some())\n" },
         ));
     }
     out.push_str(&presence_footer());
@@ -431,7 +430,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_result_presence_wrapper
         let null_check = if typ.has_lifetime_params {
             crate::backends::ffi::template_env::render(
                 "snapshot_handle_self_ref.jinja",
-                context! {
+                crate::alef_context! {
                     fail_ret => PRESENCE_FAIL_RET,
                     qualified => qualified_with_lifetime.clone(),
                     handle_qualified => handle_qualified.clone(),
@@ -441,17 +440,17 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_result_presence_wrapper
             match method.receiver.as_ref().unwrap_or(&ReceiverKind::Ref) {
                 ReceiverKind::RefMut => crate::backends::ffi::template_env::render(
                     "null_check_self_mut.jinja",
-                    context! { fail_ret => PRESENCE_FAIL_RET, qualified => qualified.clone() },
+                    crate::alef_context! { fail_ret => PRESENCE_FAIL_RET, qualified => qualified.clone() },
                 ),
                 _ => crate::backends::ffi::template_env::render(
                     "null_check_self_ref.jinja",
-                    context! { fail_ret => PRESENCE_FAIL_RET, qualified => qualified.clone() },
+                    crate::alef_context! { fail_ret => PRESENCE_FAIL_RET, qualified => qualified.clone() },
                 ),
             }
         };
         out.push_str(&crate::backends::ffi::template_env::render(
             "code_line.jinja",
-            context! { content => null_check },
+            crate::alef_context! { content => null_check },
         ));
     } else {
         render_handle_acquisition(&mut out, None, &method.params, core_import, path_map, enum_names);
@@ -468,18 +467,18 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_result_presence_wrapper
     if method.is_static {
         out.push_str(&crate::backends::ffi::template_env::render(
             "static_method_call_result.jinja",
-            context! { qualified => qualified, method_name => method_name.clone(), call_args => call_args },
+            crate::alef_context! { qualified => qualified, method_name => method_name.clone(), call_args => call_args },
         ));
     } else if method.is_async {
         let call = format!("get_ffi_runtime().block_on(async {{ obj.{method_name}({call_args}).await }})");
         out.push_str(&crate::backends::ffi::template_env::render(
             "call_with_result.jinja",
-            context! { call => call },
+            crate::alef_context! { call => call },
         ));
     } else {
         out.push_str(&crate::backends::ffi::template_env::render(
             "instance_method_call_result.jinja",
-            context! { method_name => method_name.clone(), call_args => call_args },
+            crate::alef_context! { method_name => method_name.clone(), call_args => call_args },
         ));
     }
 
@@ -551,7 +550,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function_result_presence_
     };
     out.push_str(&crate::backends::ffi::template_env::render(
         "call_with_result.jinja",
-        context! { call => call },
+        crate::alef_context! { call => call },
     ));
 
     render_presence_tail(&mut out, has_error);

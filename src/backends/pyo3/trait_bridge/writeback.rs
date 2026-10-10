@@ -55,7 +55,7 @@ pub(super) fn gen_merge_helpers(
                     !crate::codegen::conversions::field_references_excluded_type(&field.ty, &excluded_types)
                 })
                 .map(|field| {
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => crate::codegen::naming::internal_rust_identifier(&field.name),
                         cfg => field.cfg.as_deref(),
                     }
@@ -64,7 +64,7 @@ pub(super) fn gen_merge_helpers(
             let has_fields = !fields.is_empty();
             Some(crate::backends::pyo3::template_env::render(
                 "trait_bridge/mut_writeback_merge_fn.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     merge_fn => writeback.merge_fn,
                     core_type => writeback.core_type,
                     fields => fields,

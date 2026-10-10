@@ -62,7 +62,7 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef, main_class: &str
     ];
     let mut out = crate::backends::java::template_env::render(
         "java_file_header.jinja",
-        minijinja::context! { header => header, package => package, imports => &imports },
+        crate::alef_context! { header => header, package => package, imports => &imports },
     );
     out.push('\n');
 
@@ -110,7 +110,7 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef, main_class: &str
 
     out.push_str(&crate::backends::java::template_env::render(
         "simple_enum_class.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             javadocs => enum_javadocs,
             enum_name => &enum_def.name,
             variants_block => variants_block,
@@ -147,7 +147,7 @@ fn gen_java_untagged_wrapper(package: &str, enum_def: &EnumDef, main_class: &str
     let exception_class = format!("{main_class}Exception");
     crate::backends::java::template_env::render(
         "untagged_union_wrapper.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             header => header,
             package => package,
             class_name => &enum_def.name,
@@ -223,7 +223,7 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
     let header = hash::header(CommentStyle::DoubleSlash);
     let mut out = crate::backends::java::template_env::render(
         "java_file_header.jinja",
-        minijinja::context! { header => header, package => package, imports => &imports },
+        crate::alef_context! { header => header, package => package, imports => &imports },
     );
     out.push('\n');
 

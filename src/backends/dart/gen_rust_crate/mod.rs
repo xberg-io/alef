@@ -251,7 +251,7 @@ fn emit_lib_rs(
                 let rendered_path = path.replace('-', "_");
                 content.push_str(&crate::backends::dart::template_env::render(
                     "rust_pub_use.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         path => rendered_path.as_str(),
                     },
                 ));
@@ -363,7 +363,7 @@ fn emit_lib_rs(
             content.push('\n');
             content.push_str(&crate::backends::dart::template_env::render(
                 "rust_client_constructor_impl.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     type_name => ty.name.as_str(),
                     ctor_body => ctor_body.as_str(),
                 },

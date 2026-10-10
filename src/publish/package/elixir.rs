@@ -192,7 +192,7 @@ fn render_checksum_map(checksums: &BTreeMap<String, String>, line_length: usize)
         })
         .collect();
 
-    super::template_env::render("elixir_checksums.jinja", minijinja::context! { entries => entries })
+    super::template_env::render("elixir_checksums.jinja", crate::alef_context! { entries => entries })
 }
 
 /// Return the native extension suffix for RustlerPrecompiled filenames.

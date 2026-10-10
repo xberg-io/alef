@@ -18,7 +18,6 @@ use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, EntrypointKind, ParamDef, RegistrationDef, ServiceDef, TypeRef};
 use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
-use minijinja::context;
 use std::path::PathBuf;
 
 /// Check if a TypeRef is an opaque (surface-wrapped Named type).
@@ -103,7 +102,7 @@ fn metadata_setup(param: &ParamDef) -> String {
             // owned Rust `String` before returning, so allocating them in the shared arena leaks
             // one buffer per call until `close()`. `callArena` is the per-call confined arena
             // opened by every service downcall template. ~keep
-            context! {
+            crate::alef_context! {
                 cname => format!("c{param_name}"),
                 name => param_name,
                 arena => "callArena",
@@ -286,7 +285,7 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
     for reg in &service.registrations {
         bindings_doc.push_str(&template_env::render(
             "service_binding_doc_registration.jinja",
-            context! {
+            crate::alef_context! {
                 ffi_prefix => &ffi_prefix,
                 service_snake => &service_snake,
                 method_snake => reg.method.to_snake_case(),
@@ -296,7 +295,7 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
     for ep in &service.entrypoints {
         bindings_doc.push_str(&template_env::render(
             "service_binding_doc_entrypoint.jinja",
-            context! {
+            crate::alef_context! {
                 ffi_prefix => &ffi_prefix,
                 service_snake => &service_snake,
                 method_snake => ep.method.to_snake_case(),
@@ -306,7 +305,7 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
 
     out.push_str(&template_env::render(
         "service_class_header.jinja",
-        context! {
+        crate::alef_context! {
             package => package,
             service_name => &service.name,
             service_snake => &service_snake,
@@ -318,7 +317,7 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
 
     out.push_str(&template_env::render(
         "service_constructor.jinja",
-        context! {
+        crate::alef_context! {
             service_name => &service.name,
             class_name => class_name,
             ffi_prefix => &ffi_prefix,
@@ -338,14 +337,14 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
             let param_name = meta_param.name.to_lower_camel_case();
             metadata_docs.push_str(&template_env::render(
                 "service_metadata_param_doc.jinja",
-                context! {
+                crate::alef_context! {
                     param_name => &param_name,
                     java_type => &java_type,
                 },
             ));
             let signature_param = template_env::render(
                 "service_metadata_signature_param.jinja",
-                context! {
+                crate::alef_context! {
                     java_type => &java_type,
                     param_name => &param_name,
                 },
@@ -368,7 +367,7 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
 
         out.push_str(&template_env::render(
             "service_registration_method.jinja",
-            context! {
+            crate::alef_context! {
                 reg_method => reg_method,
                 ffi_prefix => &ffi_prefix,
                 service_snake => &service_snake,
@@ -409,7 +408,7 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
                 .map(|param| metadata_arg_expr(param, api))
                 .collect();
 
-            let ctx = context! {
+            let ctx = crate::alef_context! {
                 method_name => variant_method_name.clone(),
                 variant_name_display => variant.name.to_lower_camel_case(),
                 ffi_symbol => ffi_symbol.clone(),
@@ -471,7 +470,7 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
 
         out.push_str(&template_env::render(
             "service_entrypoint_method.jinja",
-            context! {
+            crate::alef_context! {
                 ep_method => ep_method,
                 ffi_prefix => &ffi_prefix,
                 service_snake => &service_snake,
@@ -489,7 +488,7 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
 
     out.push_str(&template_env::render(
         "service_close.jinja",
-        context! {
+        crate::alef_context! {
             ffi_prefix => &ffi_prefix,
             service_snake => &service_snake,
         },
@@ -502,7 +501,10 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
 ///
 /// A simple interface that handlers must implement to be passed to registration methods.
 fn gen_callable_interface(package: &str) -> String {
-    template_env::render("service_callable_interface.jinja", context! { package => package })
+    template_env::render(
+        "service_callable_interface.jinja",
+        crate::alef_context! { package => package },
+    )
 }
 
 /// Generate all service-API files for the Java backend.

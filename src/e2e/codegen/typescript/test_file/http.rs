@@ -169,7 +169,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_http_test_case(out:
             let checks: Vec<minijinja::Value> = obj
                 .iter()
                 .map(|(key, val)| {
-                    minijinja::context! {
+                    crate::alef_context! {
                         key => escape_js(key),
                         js_val => json_to_js(val),
                     }
@@ -197,7 +197,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_http_test_case(out:
             "<<uuid>>" => ("uuid", String::new()),
             exact => ("exact", escape_js(exact)),
         };
-        header_assertions.push(minijinja::context! {
+        header_assertions.push(crate::alef_context! {
             name => escaped_name,
             assertion_type => assertion_type,
             value => value,
@@ -217,7 +217,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_http_test_case(out:
                         let loc_str = loc_js.join(", ");
                         let expanded_msg = expand_fixture_templates(&ve.msg);
                         let escaped_msg = escape_js(&expanded_msg);
-                        minijinja::context! {
+                        crate::alef_context! {
                             loc_js => loc_str,
                             escaped_msg => escaped_msg,
                         }
@@ -231,7 +231,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_http_test_case(out:
             (false, Vec::new())
         };
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         test_name => test_name,
         description => description,
         method => method,

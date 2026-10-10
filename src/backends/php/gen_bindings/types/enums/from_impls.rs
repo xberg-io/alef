@@ -38,7 +38,7 @@ pub(crate) fn gen_flat_data_enum_from_impls(
 
     out.push_str(&crate::backends::php::template_env::render(
         "php_flat_enum_impl_from_start.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             core_path => &core_path,
             binding_name => &binding_name,
         },
@@ -60,7 +60,7 @@ pub(crate) fn gen_flat_data_enum_from_impls(
         if variant.fields.is_empty() {
             out.push_str(&crate::backends::php::template_env::render(
                 "php_flat_enum_variant_match_empty.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     core_path => &core_path,
                     variant_name => &variant.name,
                     tag_field => tag_field,
@@ -115,7 +115,7 @@ pub(crate) fn gen_flat_data_enum_from_impls(
             out.push_str(&pattern_start);
             out.push_str(&crate::backends::php::template_env::render(
                 "php_flat_enum_tag_assignment.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     tag_field => tag_field,
                     tag_val => &tag_val,
                 },
@@ -130,7 +130,7 @@ pub(crate) fn gen_flat_data_enum_from_impls(
                 let expr = flat_enum_core_to_binding_field_expr(f, &bound_var);
                 out.push_str(&crate::backends::php::template_env::render(
                     "php_flat_enum_variant_field.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         flat_name => &flat_name,
                         expr => &expr,
                     },
@@ -182,7 +182,7 @@ pub(crate) fn gen_flat_data_enum_from_impls(
     // (may have #[serde(rename = "camelCase")] on individual variant fields).
     out.push_str(&crate::backends::php::template_env::render(
         "php_flat_enum_impl_into_start.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             binding_name => &binding_name,
             core_path => &core_path,
             tag_field => tag_field,
@@ -205,7 +205,7 @@ pub(crate) fn gen_flat_data_enum_from_impls(
         if variant.fields.is_empty() {
             out.push_str(&crate::backends::php::template_env::render(
                 "php_flat_enum_variant_match_into_empty.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     tag_val => &tag_val,
                     core_path => &core_path,
                     variant_name => &variant.name,
@@ -236,7 +236,7 @@ pub(crate) fn gen_flat_data_enum_from_impls(
                     .collect();
                 out.push_str(&crate::backends::php::template_env::render(
                     "php_flat_enum_tuple_exprs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         exprs_joined => exprs.join(", "),
                     },
                 ));
@@ -247,7 +247,7 @@ pub(crate) fn gen_flat_data_enum_from_impls(
                     let expr = flat_enum_binding_to_core_field_expr(f, &flat_name);
                     out.push_str(&crate::backends::php::template_env::render(
                         "php_flat_enum_variant_field.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             flat_name => &flat_name,
                             expr => &expr,
                         },
@@ -263,7 +263,7 @@ pub(crate) fn gen_flat_data_enum_from_impls(
     if core_has_default {
         out.push_str(&crate::backends::php::template_env::render(
             "php_flat_enum_default_fallback_match_arm.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 core_path => &core_path,
             },
         ));

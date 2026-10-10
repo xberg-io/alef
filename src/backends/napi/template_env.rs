@@ -286,9 +286,7 @@ static TEMPLATES: &[(&str, &str)] = &[
 
 pub(crate) fn make_env() -> Environment<'static> {
     let mut env = Environment::new();
-    env.set_trim_blocks(true);
-    env.set_lstrip_blocks(true);
-    env.set_keep_trailing_newline(true);
+    crate::template::configure_env(&mut env);
     // Strict: referencing a context key that was never passed is a render-time error
     // instead of minijinja's default Lenient behavior of silently treating it as falsy/empty.
     // Lenient mode let `{% if missing_key %}` branches take the `else` arm unnoticed: the async

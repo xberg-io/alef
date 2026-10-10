@@ -115,7 +115,7 @@ fn emit_handle_wrapper(
 fn append_handle_header(body: &mut String, class_name: &str, bridge_name: &str) {
     body.push_str(&template_env::render(
         "handle_wrapper_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             class_name => class_name,
             bridge_name => bridge_name,
             free_name => format!("nativeFree{}", to_pascal_case(class_name)),
@@ -156,7 +156,7 @@ fn add_streaming_imports(imports: &mut BTreeSet<String>) {
 fn append_streaming_mapper(body: &mut String) {
     body.push_str(&template_env::render(
         "android_streaming_mapper.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             duration_millis_module => crate::backends::kotlin::duration_millis_jackson_module(8),
         },
     ));
@@ -172,7 +172,7 @@ fn append_streaming_method(body: &mut String, adapter: &AdapterConfig, class_nam
         .unwrap_or_else(|| "request".to_string());
     body.push_str(&template_env::render(
         "android_streaming_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => to_lower_camel(&adapter.name),
             params => streaming_params(adapter),
             item_type => adapter.item_type.as_deref().unwrap_or("Any"),

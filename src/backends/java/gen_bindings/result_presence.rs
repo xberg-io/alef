@@ -71,7 +71,7 @@ pub(super) fn presence_handle_declaration(
     }
     Some(crate::backends::java::template_env::render(
         "method_handle_presence.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             handle_name => presence_handle_name(primary_handle_name),
             ffi_name => result_presence_symbol(primary_ffi_name),
             layout => super::marshal::gen_function_descriptor(PRESENCE_RETURN_LAYOUT, param_layouts),
@@ -108,7 +108,7 @@ pub(super) fn presence_capture(
 pub(super) fn presence_capture_line(companion_handle: &str, call_args: &str) -> String {
     crate::backends::java::template_env::render(
         "presence_capture.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             local => PRESENCE_LOCAL,
             handle => companion_handle,
             call_args => call_args,

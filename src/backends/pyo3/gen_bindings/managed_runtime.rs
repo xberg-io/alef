@@ -27,5 +27,5 @@ pub(super) fn rewrite(content: String) -> String {
 }
 
 pub(super) fn support() -> String {
-    crate::backends::pyo3::template_env::render("managed_runtime.rs.jinja", minijinja::context! {})
+    crate::backends::pyo3::template_env::render("managed_runtime.rs.jinja", crate::alef_context! {})
 }

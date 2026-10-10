@@ -62,17 +62,17 @@ fn emit_trait_abstract_class(
 
     out.push_str(&template_env::render(
         "abstract_class_doc_comment.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => trait_name.as_str(),
         },
     ));
     out.push_str(&template_env::render(
         "abstract_class_doc_code_start.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     out.push_str(&template_env::render(
         "abstract_class_doc_code_impl.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => trait_name.as_str(),
         },
     ));
@@ -81,7 +81,7 @@ fn emit_trait_abstract_class(
         out.push_str("///   @override\n");
         out.push_str(&template_env::render(
             "abstract_class_method_doc_line.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 return_type => substitute_excluded_named_types(
                     &dart_return_type_str(&method.return_type, imports),
                     excluded_type_paths,
@@ -94,7 +94,7 @@ fn emit_trait_abstract_class(
     out.push_str("///\n");
     out.push_str(&template_env::render(
         "abstract_class_doc_code_create.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => trait_name.as_str(),
         },
     ));
@@ -102,19 +102,19 @@ fn emit_trait_abstract_class(
         let method_camel = dart_trait_ident(&method.name);
         out.push_str(&template_env::render(
             "trait_method_doc_field.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_camel => method_camel.as_str(),
             },
         ));
     }
     out.push_str(&template_env::render(
         "abstract_class_doc_code_end.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
 
     out.push_str(&template_env::render(
         "abstract_class_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => trait_name.as_str(),
         },
     ));
@@ -137,7 +137,7 @@ fn emit_abstract_method(
         let doc_lines: Vec<String> = method.doc.lines().map(ToString::to_string).collect();
         out.push_str(&template_env::render(
             "doc_comment.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => "  ",
                 lines => doc_lines,
             },
@@ -146,7 +146,7 @@ fn emit_abstract_method(
     if let Some(ref error_ty) = method.error_type {
         out.push_str(&template_env::render(
             "function_throws_annotation.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 error_ty => error_ty.as_str(),
             },
         ));
@@ -175,7 +175,7 @@ fn emit_abstract_method(
 
     out.push_str(&template_env::render(
         "abstract_method_declaration.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             return_ty => return_ty,
             method_camel => method_camel.as_str(),
             params => params.join(", "),

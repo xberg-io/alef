@@ -187,7 +187,7 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
         .collect::<Vec<_>>()
         .join("\n");
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         header => header,
         imports => imports_str,
         app_class => app_class.as_deref().unwrap_or("App"),

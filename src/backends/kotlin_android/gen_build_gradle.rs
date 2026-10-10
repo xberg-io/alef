@@ -23,7 +23,7 @@ fn render_jni_libs_task(config: &ResolvedCrateConfig, jni_manifest_workspace_pat
         .join(", ");
     render(
         "android_jni_libs_task.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             abi_literals => abi_literals,
             jni_lib_name => jni_lib_name,
             jni_manifest_workspace_path => jni_manifest_workspace_path,

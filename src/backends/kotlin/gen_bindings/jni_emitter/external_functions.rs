@@ -15,7 +15,7 @@ fn push_jni_external_fun(
 ) {
     out.push_str(&template_env::render(
         "jni_external_fun.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             native_name => native_name,
             params => params,
             return_type => return_type,
@@ -53,7 +53,7 @@ pub fn emit_streaming_jni_external_funs(out: &mut String, config: &ResolvedCrate
         out.push('\n');
         out.push_str(&template_env::render(
             "jni_streaming_extern_comment.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 owner => owner,
                 adapter_name => to_lower_camel(&adapter.name),
             },

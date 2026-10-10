@@ -175,19 +175,19 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
         }
         out.push_str(&crate::backends::pyo3::template_env::render(
             "typing_import.jinja",
-            minijinja::context! { names => typing_names },
+            crate::alef_context! { names => typing_names },
         ));
     }
     if !runtime_native_imports.is_empty() {
         out.push('\n');
         out.push_str(&crate::backends::pyo3::template_env::render(
             "import_from_module_header.jinja",
-            minijinja::context! { module_name => module_name },
+            crate::alef_context! { module_name => module_name },
         ));
         for name in &runtime_native_imports {
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "import_item.jinja",
-                minijinja::context! { name => name },
+                crate::alef_context! { name => name },
             ));
         }
         out.push_str(")\n");
@@ -195,7 +195,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
     if emits_from_json {
         out.push_str(&crate::backends::pyo3::template_env::render(
             "import_module_relative.jinja",
-            minijinja::context! { module_name => module_name },
+            crate::alef_context! { module_name => module_name },
         ));
     }
     out.push('\n');
@@ -203,12 +203,12 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
         out.push_str("if TYPE_CHECKING:\n");
         out.push_str(&crate::backends::pyo3::template_env::render(
             "type_checking_import_header.jinja",
-            minijinja::context! { module_name => module_name },
+            crate::alef_context! { module_name => module_name },
         ));
         for name in &type_checking_only_imports {
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "type_checking_import_item.jinja",
-                minijinja::context! { name => name },
+                crate::alef_context! { name => name },
             ));
         }
         out.push_str("    )\n");
@@ -231,7 +231,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
         }
         out.push_str(&crate::backends::pyo3::template_env::render(
             "str_enum_class_header.jinja",
-            minijinja::context! { name => &enum_def.name },
+            crate::alef_context! { name => &enum_def.name },
         ));
         let enum_doc = if !enum_def.doc.is_empty() {
             let raw = doc_first_paragraph_joined(&enum_def.doc);
@@ -251,7 +251,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
         };
         out.push_str(&crate::backends::pyo3::template_env::render(
             "enum_docstring.jinja",
-            minijinja::context! { doc => &enum_doc },
+            crate::alef_context! { doc => &enum_doc },
         ));
         out.push('\n');
         for variant in &enum_def.variants {
@@ -261,7 +261,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
                 .unwrap_or_else(|| crate::codegen::naming::pascal_to_snake(&variant.name));
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "enum_variant.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => to_python_enum_variant(&variant.name),
                     value => &value,
                 },
@@ -327,7 +327,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
         out.push_str("@dataclass(frozen=True, slots=True)\n");
         out.push_str(&crate::backends::pyo3::template_env::render(
             "dataclass_header.jinja",
-            minijinja::context! { name => &typ.name },
+            crate::alef_context! { name => &typ.name },
         ));
         let class_doc = if !typ.doc.is_empty() {
             let raw = doc_first_paragraph_joined(&typ.doc);
@@ -347,7 +347,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
         };
         out.push_str(&crate::backends::pyo3::template_env::render(
             "class_docstring.jinja",
-            minijinja::context! { doc => &class_doc },
+            crate::alef_context! { doc => &class_doc },
         ));
         out.push('\n');
 
@@ -387,7 +387,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
                 if field.sensitive {
                     crate::backends::pyo3::template_env::render(
                         "trait_bridge/dataclass_field_with_default.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &safe_name,
                             type_hint => &type_hint,
                             default => "field(repr=False)",
@@ -396,7 +396,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
                 } else {
                     crate::backends::pyo3::template_env::render(
                         "trait_bridge/dataclass_field_no_default.jinja",
-                        minijinja::context! { name => &safe_name, type_hint => &type_hint },
+                        crate::alef_context! { name => &safe_name, type_hint => &type_hint },
                     )
                 }
             } else {
@@ -417,7 +417,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
                 }
                 crate::backends::pyo3::template_env::render(
                     "trait_bridge/dataclass_field_with_default.jinja",
-                    minijinja::context! { name => &safe_name, type_hint => &type_hint_with_none, default => &default },
+                    crate::alef_context! { name => &safe_name, type_hint => &type_hint_with_none, default => &default },
                 )
             };
 
@@ -432,7 +432,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
                 };
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "trait_bridge/python_docstring.jinja",
-                    minijinja::context! { text => &safe_doc },
+                    crate::alef_context! { text => &safe_doc },
                 ));
                 out.push('\n');
             } else {

@@ -25,7 +25,7 @@ impl client::TestClientRenderer for RubyTestClientRenderer {
         let description_literal = ruby_string_literal(description);
         let rendered = crate::e2e::template_env::render(
             "ruby/http_test.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => fn_name,
                 description => description_literal,
                 skip_reason => skip_reason,
@@ -36,7 +36,7 @@ impl client::TestClientRenderer for RubyTestClientRenderer {
 
     /// Close the inner `it` block and the outer `describe` block.
     fn render_test_close(&self, out: &mut String) {
-        let rendered = crate::e2e::template_env::render("ruby/http_test_close.jinja", minijinja::context! {});
+        let rendered = crate::e2e::template_env::render("ruby/http_test_close.jinja", crate::alef_context! {});
         out.push_str(&rendered);
     }
 
@@ -63,7 +63,7 @@ impl client::TestClientRenderer for RubyTestClientRenderer {
                 !(has_body && k.to_lowercase() == "content-type")
             })
             .map(|(k, v)| {
-                minijinja::context! {
+                crate::alef_context! {
                     key_literal => ruby_string_literal(k),
                     value_literal => ruby_string_literal(v),
                 }
@@ -72,7 +72,7 @@ impl client::TestClientRenderer for RubyTestClientRenderer {
 
         let rendered = crate::e2e::template_env::render(
             "ruby/http_request.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_class => method_class,
                 path => ctx.path,
                 has_body => has_body,
@@ -189,7 +189,7 @@ pub(super) fn render_http_example(out: &mut String, fixture: &Fixture) {
             let path = &http.request.path;
             let rendered = crate::e2e::template_env::render(
                 "ruby/http_101_skip.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     method => method,
                     path => path,
                     description => description_literal,
@@ -219,7 +219,7 @@ pub(super) fn render_http_example_sut(out: &mut String, fixture: &Fixture) {
         let path = &http.request.path;
         let rendered = crate::e2e::template_env::render(
             "ruby/http_101_skip.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method => method,
                 path => path,
                 description => description_literal,
@@ -337,7 +337,7 @@ pub(super) fn render_http_example_sut(out: &mut String, fixture: &Fixture) {
                 .iter()
                 .map(|(key, val)| {
                     let ruby_val = json_to_ruby(val);
-                    minijinja::context! {
+                    crate::alef_context! {
                         key => key,
                         value => ruby_val,
                     }
@@ -358,7 +358,7 @@ pub(super) fn render_http_example_sut(out: &mut String, fixture: &Fixture) {
 
     for name in header_names {
         let value = &http.expected_response.headers[&name];
-        header_assertions.push(minijinja::context! {
+        header_assertions.push(crate::alef_context! {
             name => name,
             assertion_type => "eq",
             value => value,
@@ -384,7 +384,7 @@ pub(super) fn render_http_example_sut(out: &mut String, fixture: &Fixture) {
                             // `ruby_string_literal` would choose double-quotes, but the template
                             // embeds the value directly inside `'...'`, so we must escape `'` → `\'`.
                             let escaped = escape_ruby_single(msg);
-                            Some(minijinja::context! {
+                            Some(crate::alef_context! {
                                 loc_ruby => loc_ruby,
                                 escaped_msg => escaped,
                             })
@@ -406,7 +406,7 @@ pub(super) fn render_http_example_sut(out: &mut String, fixture: &Fixture) {
 
     let rendered = crate::e2e::template_env::render(
         "ruby/http_test_sut.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             fn_name => fn_name,
             description => description_literal,
             method => method,

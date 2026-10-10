@@ -69,7 +69,7 @@ pub(super) fn emit_presence_lookup(
 
     out.push_str(&template_env::render(
         "ffi_typedef_native_sig.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             typedef_native => typedef_native.as_str(),
             native_return => PRESENCE_NATIVE_RETURN,
             native_params => primary.native_params,
@@ -77,7 +77,7 @@ pub(super) fn emit_presence_lookup(
     ));
     out.push_str(&template_env::render(
         "ffi_typedef_dart_sig.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             typedef_dart => typedef_dart.as_str(),
             dart_return => PRESENCE_DART_RETURN,
             dart_params => primary.dart_params,
@@ -85,7 +85,7 @@ pub(super) fn emit_presence_lookup(
     ));
     out.push_str(&template_env::render(
         "ffi_function_lookup_sig.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             dart_return => PRESENCE_DART_RETURN,
             dart_params => primary.dart_params,
             fn_name => fn_name.as_str(),
@@ -108,7 +108,7 @@ pub(super) fn emit_presence_lookup(
 pub(super) fn presence_gate(fn_name: &str, call_args: &str, cleanup: &str, checks_error: bool) -> String {
     template_env::render(
         "ffi_result_presence_gate.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             fn_name,
             call_args,
             present => PRESENT,

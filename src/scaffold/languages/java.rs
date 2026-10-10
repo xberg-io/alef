@@ -6,7 +6,6 @@ use crate::core::template_versions::toolchain;
 use crate::scaffold::dependency_versions::{ManagedVersions, override_notice_lines};
 use crate::{scaffold::parse_author, scaffold::scaffold_meta, scaffold::xml_escape};
 use anyhow::Context as _;
-use minijinja::context;
 use std::path::{Path, PathBuf};
 
 /// Build `<dependency>` template values for host-native capsule (Language) passthrough.
@@ -29,7 +28,7 @@ fn java_capsule_dependencies(config: &ResolvedCrateConfig) -> Vec<minijinja::Val
     deps.iter()
         .map(|(coord, ver)| {
             let (group_id, artifact_id) = coord.split_once(':').unwrap_or((coord.as_str(), ""));
-            context! {
+            crate::alef_context! {
                 group_id => group_id,
                 artifact_id => artifact_id,
                 version => ver,
@@ -71,7 +70,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         .iter()
         .map(|a| {
             let (name, email) = parse_author(a);
-            context! {
+            crate::alef_context! {
                 name => xml_escape(name),
                 email => xml_escape(email),
             }
@@ -87,7 +86,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
 
     let content = crate::scaffold::template_env::render(
         "java_pom.xml.jinja",
-        context! {
+        crate::alef_context! {
             group_id => group_id,
             name => name,
             version => version,

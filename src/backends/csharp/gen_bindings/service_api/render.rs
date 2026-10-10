@@ -211,8 +211,8 @@ pub(super) fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: 
     render_configurators(&mut out, api, service, prefix);
     render_registrations(&mut out, api, service, prefix);
     render_entrypoints(&mut out, api, service, prefix);
-    out.push_str(&render("service_dispose_method.jinja", minijinja::context! {}));
-    out.push_str(&render("service_handler_trampoline.jinja", minijinja::context! {}));
+    out.push_str(&render("service_dispose_method.jinja", crate::alef_context! {}));
+    out.push_str(&render("service_handler_trampoline.jinja", crate::alef_context! {}));
     out.push_str("}\n\n}\n");
     out
 }
@@ -220,7 +220,7 @@ pub(super) fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: 
 fn render_service_header(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefix: &str) -> String {
     render(
         "service_class_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             namespace,
             service_name => &service.name,
             class_name => to_csharp_name(&service.name),
@@ -234,7 +234,7 @@ fn render_service_header(api: &ApiSurface, service: &ServiceDef, namespace: &str
 fn render_constructor(out: &mut String, api: &ApiSurface, service: &ServiceDef, prefix: &str) {
     out.push_str(&render(
         "service_constructor.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_name => &service.name,
             class_name => to_csharp_name(&service.name),
             params_decl => param_decl_list(&service.constructor.params, api, false),
@@ -249,7 +249,7 @@ fn render_configurators(out: &mut String, api: &ApiSurface, service: &ServiceDef
         let marshalling = call_marshalling(&method.params, api, "                ");
         out.push_str(&render(
             "service_configurator_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 class_name => to_csharp_name(&service.name),
                 method_name => &method.name,
                 params_decl => param_decl_list(&method.params, api, true),
@@ -283,7 +283,7 @@ fn render_registration(
     let marshalling = call_marshalling(&registration.metadata_params, api, "                ");
     out.push_str(&render(
         "service_registration_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => &registration.method,
             metadata_params => param_decl_list(&registration.metadata_params, api, true),
             native_method => format!("{}_{}_register_{}", prefix.to_lowercase(), service_snake, registration.method.to_snake_case()),
@@ -309,7 +309,7 @@ fn render_registration_variant(
         .unwrap_or_else(|| format!("Register a handler via the {} variant.", variant.name));
     out.push_str(&render(
         "service_variant_registration_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => variant.name.to_upper_camel_case(),
             doc,
             signature_params => param_decl_list(&variant.signature_params, api, true),
@@ -332,7 +332,7 @@ fn render_entrypoints(out: &mut String, api: &ApiSurface, service: &ServiceDef, 
         let opaque = matches!(&entrypoint.return_type, TypeRef::Named(name) if is_opaque(api, name));
         out.push_str(&render(
             "service_entrypoint_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => &entrypoint.method,
                 return_type => if opaque { "ulong" } else { "int" },
                 params_decl => param_decl_list(&entrypoint.params, api, true),
@@ -347,7 +347,10 @@ fn render_entrypoints(out: &mut String, api: &ApiSurface, service: &ServiceDef, 
 }
 
 pub(super) fn gen_native_methods_cs(api: &ApiSurface, namespace: &str, prefix: &str) -> String {
-    let mut out = render("service_native_methods_header.jinja", minijinja::context! { namespace });
+    let mut out = render(
+        "service_native_methods_header.jinja",
+        crate::alef_context! { namespace },
+    );
     for service in &api.services {
         render_native_service(&mut out, api, service, prefix);
     }
@@ -359,7 +362,7 @@ fn render_native_service(out: &mut String, api: &ApiSurface, service: &ServiceDe
     let service_snake = service.name.to_snake_case();
     out.push_str(&render(
         "service_native_ctor_free.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             dll_name => format!("{}_ffi", prefix.to_lowercase()),
             new_method => format!("{}_{}_new", prefix.to_lowercase(), service_snake),
             free_method => format!("{}_{}_free", prefix.to_lowercase(), service_snake),
@@ -479,7 +482,7 @@ fn render_native_declaration(
 ) {
     out.push_str(&render(
         "service_pinvoke_declaration.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             dll_name => format!("{}_ffi", prefix.to_lowercase()),
             return_type => spec.return_type,
             method_name => format!("{}_{}_{}", prefix.to_lowercase(), service_snake, spec.suffix),

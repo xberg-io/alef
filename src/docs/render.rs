@@ -209,9 +209,7 @@ fn render_template_file(
         .to_string();
 
     let mut env = Environment::new();
-    env.set_trim_blocks(true);
-    env.set_lstrip_blocks(true);
-    env.set_keep_trailing_newline(true);
+    crate::template::configure_env(&mut env);
     env.set_loader(move |name: &str| {
         let path = template_dir.join(name);
         match fs::read_to_string(&path) {
@@ -240,7 +238,7 @@ fn render_template_file(
     let tmpl = env
         .get_template(&template_name)
         .map_err(|err| anyhow::anyhow!("failed to load template '{}': {err}", template_path.display()))?;
-    let mut content = tmpl.render(context).map_err(|err| {
+    let mut content = tmpl.render(crate::template::to_value(context)).map_err(|err| {
         anyhow::anyhow!(
             "failed to render template '{}': {}",
             template_path.display(),

@@ -385,7 +385,7 @@ pub(super) fn render_assertion(
 
                 let rendered = crate::e2e::template_env::render(
                     "ruby/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "equals",
                         stripped_field_expr => cmp_expr,
                         is_boolean_val => is_boolean_val,
@@ -401,7 +401,7 @@ pub(super) fn render_assertion(
                 let rb_val = json_to_ruby(expected);
                 let rendered = crate::e2e::template_env::render(
                     "ruby/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "contains",
                         field_expr => field_expr.clone(),
                         field_is_array => field_is_array && expected.is_string(),
@@ -416,7 +416,7 @@ pub(super) fn render_assertion(
                 let values_list: Vec<String> = values.iter().map(json_to_ruby).collect();
                 let rendered = crate::e2e::template_env::render(
                     "ruby/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "contains_all",
                         field_expr => field_expr.clone(),
                         field_is_array => field_is_array,
@@ -431,7 +431,7 @@ pub(super) fn render_assertion(
                 let rb_val = json_to_ruby(expected);
                 let rendered = crate::e2e::template_env::render(
                     "ruby/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "not_contains",
                         field_expr => field_expr.clone(),
                         field_is_array => field_is_array && expected.is_string(),
@@ -444,7 +444,7 @@ pub(super) fn render_assertion(
         "not_empty" => {
             let rendered = crate::e2e::template_env::render(
                 "ruby/assertion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     assertion_type => "not_empty",
                     field_expr => field_expr.clone(),
                 },
@@ -454,7 +454,7 @@ pub(super) fn render_assertion(
         "is_empty" => {
             let rendered = crate::e2e::template_env::render(
                 "ruby/assertion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     assertion_type => "is_empty",
                     field_expr => field_expr.clone(),
                 },
@@ -466,7 +466,7 @@ pub(super) fn render_assertion(
                 let items: Vec<String> = values.iter().map(json_to_ruby).collect();
                 let rendered = crate::e2e::template_env::render(
                     "ruby/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "contains_any",
                         field_expr => field_expr.clone(),
                         values_list => items,
@@ -480,7 +480,7 @@ pub(super) fn render_assertion(
                 let rb_val = json_to_ruby(val);
                 let rendered = crate::e2e::template_env::render(
                     "ruby/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "greater_than",
                         field_expr => field_expr.clone(),
                         expected_val => rb_val,
@@ -494,7 +494,7 @@ pub(super) fn render_assertion(
                 let rb_val = json_to_ruby(val);
                 let rendered = crate::e2e::template_env::render(
                     "ruby/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "less_than",
                         field_expr => field_expr.clone(),
                         expected_val => rb_val,
@@ -508,7 +508,7 @@ pub(super) fn render_assertion(
                 let rb_val = json_to_ruby(val);
                 let rendered = crate::e2e::template_env::render(
                     "ruby/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "greater_than_or_equal",
                         field_expr => field_expr.clone(),
                         expected_val => rb_val,
@@ -522,7 +522,7 @@ pub(super) fn render_assertion(
                 let rb_val = json_to_ruby(val);
                 let rendered = crate::e2e::template_env::render(
                     "ruby/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "less_than_or_equal",
                         field_expr => field_expr.clone(),
                         expected_val => rb_val,
@@ -536,7 +536,7 @@ pub(super) fn render_assertion(
                 let rb_val = json_to_ruby(expected);
                 let rendered = crate::e2e::template_env::render(
                     "ruby/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "starts_with",
                         field_expr => field_expr.clone(),
                         expected_val => rb_val,
@@ -550,7 +550,7 @@ pub(super) fn render_assertion(
                 let rb_val = json_to_ruby(expected);
                 let rendered = crate::e2e::template_env::render(
                     "ruby/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "ends_with",
                         field_expr => field_expr.clone(),
                         expected_val => rb_val,
@@ -565,7 +565,7 @@ pub(super) fn render_assertion(
             {
                 let rendered = crate::e2e::template_env::render(
                     "ruby/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => assertion.assertion_type.as_str(),
                         field_expr => field_expr.clone(),
                         check_n => n,
@@ -581,7 +581,7 @@ pub(super) fn render_assertion(
                 .is_some_and(|f| !f.is_empty() && field_resolver.is_optional(f));
             let rendered = crate::e2e::template_env::render(
                 "ruby/assertion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     assertion_type => "is_true",
                     field_expr => field_expr.clone(),
                     field_is_optional => field_is_optional,
@@ -596,7 +596,7 @@ pub(super) fn render_assertion(
                 .is_some_and(|f| !f.is_empty() && field_resolver.is_optional(f));
             let rendered = crate::e2e::template_env::render(
                 "ruby/assertion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     assertion_type => "is_false",
                     field_expr => field_expr.clone(),
                     field_is_optional => field_is_optional,
@@ -658,7 +658,7 @@ pub(super) fn render_assertion(
 
                 let rendered = crate::e2e::template_env::render(
                     "ruby/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "method_result",
                         call_expr => call_expr,
                         check => check,
@@ -678,7 +678,7 @@ pub(super) fn render_assertion(
                 let rb_val = json_to_ruby(expected);
                 let rendered = crate::e2e::template_env::render(
                     "ruby/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "matches_regex",
                         field_expr => field_expr.clone(),
                         expected_val => rb_val,

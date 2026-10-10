@@ -355,7 +355,7 @@ fn gen_opaque_type_stub(
         let doc_lines: Vec<String> = typ.doc.lines().map(ToString::to_string).collect();
         lines.push(crate::backends::magnus::template_env::render(
             "rbs_doc_block.jinja",
-            minijinja::context! { doc_lines },
+            crate::alef_context! { doc_lines },
         ));
         lines.push("".to_string());
     }
@@ -441,7 +441,7 @@ fn gen_type_stub(
         let doc_lines: Vec<String> = typ.doc.lines().map(ToString::to_string).collect();
         lines.push(crate::backends::magnus::template_env::render(
             "rbs_doc_block.jinja",
-            minijinja::context! { doc_lines },
+            crate::alef_context! { doc_lines },
         ));
         lines.push("".to_string());
     }
@@ -632,7 +632,7 @@ fn gen_method_stub(
     let doc_lines = method.doc.lines().map(str::trim).collect::<Vec<_>>();
     out.push_str(&crate::backends::magnus::template_env::render(
         "rbs_doc_block.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             doc_lines => doc_lines,
         },
     ));
@@ -657,7 +657,7 @@ fn gen_enum_stub(
         let doc_lines: Vec<String> = enum_def.doc.lines().map(ToString::to_string).collect();
         lines.push(crate::backends::magnus::template_env::render(
             "rbs_doc_block.jinja",
-            minijinja::context! { doc_lines },
+            crate::alef_context! { doc_lines },
         ));
     }
 
@@ -685,8 +685,10 @@ fn gen_enum_stub(
         );
         if emit_docstrings && !enum_def.doc.is_empty() {
             let doc_lines: Vec<String> = enum_def.doc.lines().map(ToString::to_string).collect();
-            let docs =
-                crate::backends::magnus::template_env::render("rbs_doc_block.jinja", minijinja::context! { doc_lines });
+            let docs = crate::backends::magnus::template_env::render(
+                "rbs_doc_block.jinja",
+                crate::alef_context! { doc_lines },
+            );
             return format!("{docs}{alias}");
         }
         return alias;
@@ -753,7 +755,7 @@ fn gen_data_enum_variant_constructor_stubs(
                 let optional = p.optional || crate::codegen::shared::is_promoted_optional(&ctor.params, idx);
                 crate::backends::magnus::template_env::render(
                     "rbs_enum_variant_constructor_param.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         rbs_type => rbs_type(&p.ty),
                         name => &p.name,
                         optional => optional,
@@ -765,7 +767,7 @@ fn gen_data_enum_variant_constructor_stubs(
             .collect();
         lines.push(crate::backends::magnus::template_env::render(
             "rbs_enum_variant_constructor.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => &ctor.snake_name,
                 params => params.join(", "),
                 return_type => &enum_def.name,

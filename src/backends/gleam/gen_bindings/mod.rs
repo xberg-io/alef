@@ -178,7 +178,7 @@ impl Backend for GleamBackend {
         for import in &imports {
             content.push_str(&crate::backends::gleam::template_env::render(
                 "import_line.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     import => import,
                 },
             ));

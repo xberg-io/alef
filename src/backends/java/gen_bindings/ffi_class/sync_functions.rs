@@ -101,7 +101,7 @@ fn emit_method_header(out: &mut String, func: &FunctionDef, class_name: &str, re
     emit_javadoc_with_throws(out, &func.doc, "    ", &exception_class_name);
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_method_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             return_type,
             method_name => to_java_name(&func.name),
             params => params.join(", "),
@@ -153,7 +153,7 @@ fn emit_try_and_marshalling(
         .join(";\n");
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_try_finally_block_start.jinja",
-        minijinja::context! { lease_resources },
+        crate::alef_context! { lease_resources },
     ));
     emit_param_marshalling(out, func, prefix, opaque_types, bridge_param_names, bridge_type_aliases);
 }
@@ -430,7 +430,7 @@ fn required_capsule_return_type(out: &mut String, config: &HostCapsuleTypeConfig
         Err(error) => {
             out.push_str(&crate::backends::java::template_env::render(
                 "ffi_alef_error_comment.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     indent => "    ",
                     error => error.to_string(),
                 },
@@ -444,7 +444,7 @@ fn emit_capsule_result_call(out: &mut String, func: &FunctionDef, prefix: &str, 
     let ffi_handle = format!("NativeLib.{}_{}", prefix.to_uppercase(), func.name.to_uppercase());
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_result_ptr_call.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             ffi_handle,
             args => call_args.join(", "),
         },
@@ -456,12 +456,12 @@ fn emit_capsule_construct(out: &mut String, config: &HostCapsuleTypeConfig, clas
     match config.construct_required("resultPtr", "Language", "java") {
         Ok(construct) => out.push_str(&crate::backends::java::template_env::render(
             "ffi_return_expr.jinja",
-            minijinja::context! { expr => construct },
+            crate::alef_context! { expr => construct },
         )),
         Err(error) => {
             out.push_str(&crate::backends::java::template_env::render(
                 "ffi_alef_error_comment.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     indent => "            ",
                     error => error.to_string(),
                 },

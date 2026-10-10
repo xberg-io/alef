@@ -87,7 +87,7 @@ pub fn gen_options_set_bridge(
 
     crate::backends::ffi::template_env::render(
         "options_field_bridge_setter.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             prefix,
             handle_type,
             handle_constructor,
@@ -141,7 +141,7 @@ pub fn gen_function_with_options_field_bridge(
 
     Some(crate::backends::ffi::template_env::render(
         "options_field_bridge_function.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             prefix,
             function_name => func.name.clone(),
             ffi_function_name,
@@ -196,7 +196,7 @@ fn render_vtable_ref_method(
     let arg_list = build_arg_list(method, core_import, type_paths);
     crate::backends::ffi::template_env::render(
         "vtable_ref_delegation_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => &method.name,
             all_params,
             ret => return_type,
@@ -267,7 +267,7 @@ fn render_bridge_null_checks(non_options_params: &[&ParamDef]) -> String {
         if matches!(param.ty, TypeRef::String | TypeRef::Char) {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "ffi_string_bridge_null_check.jinja",
-                minijinja::context! { name => param.name.clone() },
+                crate::alef_context! { name => param.name.clone() },
             ));
         }
     }
@@ -280,7 +280,7 @@ fn render_bridge_param_conversions(non_options_params: &[&ParamDef]) -> String {
         if matches!(param.ty, TypeRef::String | TypeRef::Char) {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "ffi_string_bridge_param_conversion.jinja",
-                minijinja::context! { name => param.name.clone() },
+                crate::alef_context! { name => param.name.clone() },
             ));
         }
     }

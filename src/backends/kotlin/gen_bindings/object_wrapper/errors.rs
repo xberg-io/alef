@@ -58,7 +58,7 @@ pub(crate) fn emit_error_type_with_imports(error: &ErrorDef, out: &mut String, i
     emit_cleaned_kdoc(out, &error.doc, "");
     out.push_str(&crate::backends::kotlin::template_env::render(
         "error_sealed_class_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => &error.name,
         },
     ));
@@ -68,7 +68,7 @@ pub(crate) fn emit_error_type_with_imports(error: &ErrorDef, out: &mut String, i
             let message = interpolate_error_message_template(raw_msg, &[]);
             out.push_str(&crate::backends::kotlin::template_env::render(
                 "error_object_variant.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => &variant.name,
                     parent_name => &error.name,
                     message => message,
@@ -107,7 +107,7 @@ pub(crate) fn emit_error_type_with_imports(error: &ErrorDef, out: &mut String, i
             if use_single_line {
                 out.push_str(&crate::backends::kotlin::template_env::render(
                     "error_variant_inline.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         err_prefix => err_prefix,
                         fields => err_field_strings.join(", "),
                         err_suffix => err_suffix,
@@ -116,21 +116,21 @@ pub(crate) fn emit_error_type_with_imports(error: &ErrorDef, out: &mut String, i
             } else {
                 out.push_str(&crate::backends::kotlin::template_env::render(
                     "error_variant_header.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         err_prefix => err_prefix,
                     },
                 ));
                 for field_str in &err_field_strings {
                     out.push_str(&crate::backends::kotlin::template_env::render(
                         "error_variant_field.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             field => field_str,
                         },
                     ));
                 }
                 out.push_str(&crate::backends::kotlin::template_env::render(
                     "error_variant_close_multiline.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         err_suffix => err_suffix,
                     },
                 ));
@@ -141,7 +141,7 @@ pub(crate) fn emit_error_type_with_imports(error: &ErrorDef, out: &mut String, i
         let default = kotlin_zero_value(&ty_str);
         out.push_str(&crate::backends::kotlin::template_env::render(
             "error_open_property.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 prop_name => prop_name,
                 ty => ty_str,
                 default => default,

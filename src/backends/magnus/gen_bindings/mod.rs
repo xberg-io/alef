@@ -258,7 +258,7 @@ impl Backend for MagnusBackend {
         if api.functions.iter().any(|func| func.is_async) {
             builder.add_item(&crate::backends::magnus::template_env::render(
                 "function_async_gvl_helper.rs.jinja",
-                minijinja::context! {},
+                crate::alef_context! {},
             ));
         }
 
@@ -814,7 +814,7 @@ impl Backend for MagnusBackend {
         content.push_str(
             crate::backends::magnus::template_env::render(
                 "main_rb_wrapper.rb.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     gem_name_snake => gem_name_snake,
                     module_name => module_name,
                     has_services => !api.services.is_empty(),
@@ -878,7 +878,7 @@ impl Backend for MagnusBackend {
         native_content.push_str(
             crate::backends::magnus::template_env::render(
                 "native_rb_wrapper.rb.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     ext_name => ext_name,
                     module_name => module_name,
                     native_module_name => native_module_name,
@@ -912,7 +912,7 @@ impl Backend for MagnusBackend {
         version_content.push_str(
             crate::backends::magnus::template_env::render(
                 "version_rb_wrapper.rb.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     module_name => module_name,
                     version => version,
                 },

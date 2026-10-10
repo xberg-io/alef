@@ -26,14 +26,14 @@ pub(super) fn render_c_docs_json(
     let base = serde_json::to_string(&value).unwrap_or_default();
     let mut setup = crate::e2e::template_env::render(
         "c/docs_json_base.jinja",
-        minijinja::context! { variable => variable, json => escape_c(&base) },
+        crate::alef_context! { variable => variable, json => escape_c(&base) },
     );
     let mut source = format!("{variable}_json_base");
     for (index, marker, path) in reads {
         let output = format!("{variable}_json_{index}");
         setup.push_str(&crate::e2e::template_env::render(
             "c/docs_file_replace.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 variable => variable,
                 index => index,
                 path => escape_c(&path),
@@ -47,7 +47,7 @@ pub(super) fn render_c_docs_json(
         source = output;
     }
     let cleanup =
-        crate::e2e::template_env::render("c/docs_json_cleanup.jinja", minijinja::context! { variable => source });
+        crate::e2e::template_env::render("c/docs_json_cleanup.jinja", crate::alef_context! { variable => source });
     (setup, source, cleanup)
 }
 

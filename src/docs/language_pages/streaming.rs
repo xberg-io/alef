@@ -583,7 +583,7 @@ pub(super) fn render_method(
 
     out.push_str(&template_env::render(
         "heading.jinja",
-        minijinja::context! { marker => "######", title => format!("{mname}()") },
+        crate::alef_context! { marker => "######", title => format!("{mname}()") },
     ));
 
     push_version_annotation(&mut out, &method.version);
@@ -616,7 +616,7 @@ pub(super) fn render_method(
     out.push_str("**Signature:**\n\n");
     out.push_str(&template_env::render(
         "code_block.jinja",
-        minijinja::context! { lang_code => lang_code, body => sig },
+        crate::alef_context! { lang_code => lang_code, body => sig },
     ));
     out.push('\n');
 

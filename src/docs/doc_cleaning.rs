@@ -227,7 +227,7 @@ pub(crate) fn convert_doc_headings_to_bold(doc: &str) -> String {
             if crate::codegen::doc_emission::BOLD_LABEL_ONLY_SECTION_NAMES.contains(&lower.as_str()) {
                 out.push_str(&crate::docs::template_env::render(
                     "bold_heading.jinja",
-                    minijinja::context! { text => heading_text },
+                    crate::alef_context! { text => heading_text },
                 ));
                 continue;
             }

@@ -368,7 +368,7 @@ pub unsafe extern "C" fn {prefix}_visitor_free(visitor: AlefHandle) {{
     if let Some(visitor_function) = visitor_function {
         out.push_str(&render(
             "ffi_visitor_with_callback_function.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 prefix,
                 with_visitor_fn_name => visitor_function.fn_name,
                 pascal_prefix,

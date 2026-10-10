@@ -113,7 +113,7 @@ const ZIG_UNKNOWN_ERROR_NAME: &str = "UnknownFfiError";
 fn render_declared_error_branch(kind: &str, message_expression: &str, expected: &str, skip_line: &str) -> String {
     crate::e2e::template_env::render(
         "zig/declared_error_branch.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             kind => kind,
             message_expression => message_expression,
             expected => expected,

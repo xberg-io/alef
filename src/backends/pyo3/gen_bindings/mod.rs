@@ -541,7 +541,7 @@ impl Backend for Pyo3Backend {
                     let core_type_path = crate::codegen::conversions::core_type_path(typ, &core_import);
                     let from_json_method = crate::backends::pyo3::template_env::render(
                         "from_json_method.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             core_type_path => core_type_path,
                             has_lifetime_params => typ.has_lifetime_params,
                         },
@@ -709,7 +709,7 @@ impl Backend for Pyo3Backend {
                 crate::codegen::conversions::core_to_binding_convertible_types(api, &[]);
             builder.add_item(&crate::backends::pyo3::template_env::render(
                 "trait_bridge/options_from_native_helper.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     options_module => format!("{}.options", config.python_module_name()),
                 },
             ));

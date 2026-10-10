@@ -96,7 +96,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         if matches!(method.return_type, TypeRef::Unit) {
             crate::backends::pyo3::template_env::render(
                 "trait_bridge/sync_method_unit_return.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     method_name => name,
                     call => call,
                     run_args => run_args,
@@ -121,7 +121,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
             };
             crate::backends::pyo3::template_env::render(
                 "trait_bridge/sync_method_non_unit_return.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     method_name => name,
                     call => call,
                     run_args => run_args,
@@ -157,7 +157,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                 .params
                 .iter()
                 .map(|p| {
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &p.name,
                         ty => match &p.ty {
                             TypeRef::Bytes => "Bytes",
@@ -173,7 +173,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                 .collect();
             let param_cloning = crate::backends::pyo3::template_env::render(
                 "trait_bridge/async_param_cloning.jinja",
-                minijinja::context! { params => params },
+                crate::alef_context! { params => params },
             );
             let error_expr = spec.make_error(&format!(
                 "format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e)"
@@ -188,7 +188,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
             let spawn_error_expr = spec.make_error("format!(\"spawn_blocking failed: {}\", e)");
             return crate::backends::pyo3::template_env::render(
                 "trait_bridge/async_method_mut_writeback.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     method_name => name,
                     call => call,
                     run_args => run_args,
@@ -209,7 +209,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
             .params
             .iter()
             .map(|p| {
-                minijinja::context! {
+                crate::alef_context! {
                     name => &p.name,
                     ty => match &p.ty {
                         TypeRef::Bytes => "Bytes",
@@ -232,7 +232,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
 
         let param_cloning = crate::backends::pyo3::template_env::render(
             "trait_bridge/async_param_cloning.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 params => params,
             },
         );
@@ -264,7 +264,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                 crate::codegen::generators::trait_bridge::format_type_ref(&method.return_type, &spec.type_paths);
             crate::backends::pyo3::template_env::render(
                 "trait_bridge/async_method_named_return.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     method_name => name,
                     call => call,
                     run_args => run_args,
@@ -280,7 +280,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         } else if matches!(method.return_type, TypeRef::Unit) {
             crate::backends::pyo3::template_env::render(
                 "trait_bridge/async_method_unit_return.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     method_name => name,
                     call => call,
                     run_args => run_args,
@@ -293,7 +293,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
             let ext = self.extract_ty(&method.return_type);
             crate::backends::pyo3::template_env::render(
                 "trait_bridge/async_method_non_unit_return.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     method_name => name,
                     call => call,
                     run_args => run_args,
@@ -311,7 +311,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         let required_methods = spec.required_methods();
         crate::backends::pyo3::template_env::render(
             "trait_bridge/constructor.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 wrapper => wrapper,
                 required_methods => required_methods,
             },
@@ -326,7 +326,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         let host_symbol = exported_pyfunction_symbol(unregister_fn);
         crate::backends::pyo3::template_env::render(
             "trait_bridge/unregistration_fn.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 unregister_fn => unregister_fn,
                 host_symbol => host_symbol,
                 host_path => host_path,
@@ -342,7 +342,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         let host_symbol = exported_pyfunction_symbol(clear_fn);
         crate::backends::pyo3::template_env::render(
             "trait_bridge/clear_fn.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 clear_fn => clear_fn,
                 host_symbol => host_symbol,
                 host_path => host_path,
@@ -376,7 +376,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
 
         crate::backends::pyo3::template_env::render(
             "trait_bridge/registration_fn.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 register_fn => register_fn,
                 wrapper => wrapper,
                 trait_path => trait_path,

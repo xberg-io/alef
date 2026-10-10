@@ -130,7 +130,7 @@ fn init_prologue_regex() -> &'static Regex {
 pub(super) fn frb_init_prologue_replacement(package_name: &str, module_name: &str, stem: &str) -> String {
     template_env::render(
         "dart_init_prologue_replacement.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             package_name => package_name,
             module_name => module_name,
             stem => stem,

@@ -338,7 +338,7 @@ fn gen_data_enum_variant_constructor_stubs(
                 };
                 crate::backends::pyo3::template_env::render(
                     "stub_enum_variant_constructor_param.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => python_safe_name(&p.name),
                         py_type => py_type,
                         optional => optional,
@@ -348,7 +348,7 @@ fn gen_data_enum_variant_constructor_stubs(
             .collect();
         lines.push(crate::backends::pyo3::template_env::render(
             "stub_enum_variant_constructor.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => python_safe_name(&ctor.snake_name),
                 params => params.join(", "),
                 return_type => &enum_def.name,

@@ -720,7 +720,7 @@ fn emit_python_typed_instance(
 fn docs_file_expression(path: &str) -> String {
     crate::e2e::template_env::render(
         "python/docs_file_expression.py.jinja",
-        minijinja::context! { path => escape_python(path) },
+        crate::alef_context! { path => escape_python(path) },
     )
     .trim_end()
     .to_string()

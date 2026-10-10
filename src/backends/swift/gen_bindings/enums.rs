@@ -62,14 +62,14 @@ fn unit_enum_cases(en: &EnumDef, cfg: &EnumDeclarationCfg<'_>) -> String {
         if raw_value == case_name.trim_matches('`') {
             cases.push_str(&crate::backends::swift::template_env::render(
                 "enum_case_unit.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     case_name => &case_name,
                 },
             ));
         } else {
             cases.push_str(&crate::backends::swift::template_env::render(
                 "enum_case_raw_value.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     case_name => &case_name,
                     raw_value => &raw_value,
                 },
@@ -226,7 +226,7 @@ pub(super) fn emit_serde_external_codable(en: &EnumDef, out: &mut String, mapper
     };
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_external_codable.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             unit_decode => unit_decode,
             keyed_decode => keyed_decode,
             encode_cases => encode_cases,
@@ -292,7 +292,7 @@ pub(super) fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: 
     for (swift_name, rust_name) in field_keys {
         coding_key_cases.push_str(&crate::backends::swift::template_env::render(
             "swift_tagged_coding_key_case.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 swift_name => &swift_name,
                 rust_name => &rust_name,
                 has_custom_wire_name => swift_name != rust_name,
@@ -313,7 +313,7 @@ pub(super) fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: 
         if variant.fields.is_empty() {
             decode_cases.push_str(&crate::backends::swift::template_env::render(
                 "swift_tagged_decode_unit_case.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     variant_tag => &variant_tag,
                     case_name => &case_name,
                 },
@@ -324,7 +324,7 @@ pub(super) fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: 
             let payload_ty = mapper.map_type(&field.ty);
             decode_cases.push_str(&crate::backends::swift::template_env::render(
                 "swift_tagged_decode_payload_case.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     variant_tag => &variant_tag,
                     case_name => &case_name,
                     field_decoders => format!("{label}: try {payload_ty}(from: decoder)"),
@@ -345,7 +345,7 @@ pub(super) fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: 
             }
             decode_cases.push_str(&crate::backends::swift::template_env::render(
                 "swift_tagged_decode_payload_case.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     variant_tag => &variant_tag,
                     case_name => &case_name,
                     field_decoders => field_decoders.join(", "),
@@ -367,7 +367,7 @@ pub(super) fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: 
         if variant.fields.is_empty() {
             encode_cases.push_str(&crate::backends::swift::template_env::render(
                 "swift_tagged_encode_unit_case.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     variant_tag => &variant_tag,
                     tag_key => &tag_ident,
                     case_name => &case_name,
@@ -377,7 +377,7 @@ pub(super) fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: 
             let label = swift_associated_label(&variant.fields[0].name, 0);
             encode_cases.push_str(&crate::backends::swift::template_env::render(
                 "swift_tagged_encode_payload_case.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     variant_tag => &variant_tag,
                     tag_key => &tag_ident,
                     case_name => &case_name,
@@ -401,7 +401,7 @@ pub(super) fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: 
 
                 field_encoders.push_str(&crate::backends::swift::template_env::render(
                     "swift_tagged_encode_field.swift.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         encode_method => encode_method,
                         label => &label,
                     },
@@ -409,7 +409,7 @@ pub(super) fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: 
             }
             encode_cases.push_str(&crate::backends::swift::template_env::render(
                 "swift_tagged_encode_payload_case.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     variant_tag => &variant_tag,
                     tag_key => &tag_ident,
                     case_name => &case_name,
@@ -422,7 +422,7 @@ pub(super) fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: 
 
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_tagged_codable.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             enum_name => &en.name,
             tag_ident => &tag_ident,
             tag_wire => tag_wire,
@@ -456,7 +456,7 @@ pub(super) fn emit_serde_untagged_codable(en: &EnumDef, out: &mut String, mapper
         let label = swift_associated_label(&variant.fields[0].name, 0);
         decode_attempts.push_str(&crate::backends::swift::template_env::render(
             "swift_untagged_decode_attempt.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 payload_type => &payload_ty,
                 case_name => &case_name,
                 label => &label,
@@ -473,7 +473,7 @@ pub(super) fn emit_serde_untagged_codable(en: &EnumDef, out: &mut String, mapper
         let label = swift_associated_label(&variant.fields[0].name, 0);
         encode_cases.push_str(&crate::backends::swift::template_env::render(
             "swift_untagged_encode_case.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 case_name => &case_name,
                 label => &label,
             },
@@ -481,7 +481,7 @@ pub(super) fn emit_serde_untagged_codable(en: &EnumDef, out: &mut String, mapper
     }
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_untagged_codable.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             decode_attempts => decode_attempts,
             encode_cases => encode_cases,
         },
@@ -510,7 +510,7 @@ pub(super) fn emit_enum(
     if !en.has_serde {
         out.push_str(&crate::backends::swift::template_env::render(
             "typealias.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &en.name,
             },
         ));
@@ -523,7 +523,7 @@ pub(super) fn emit_enum(
         let _ = mapper;
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_enum_raw_decl.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &en.name,
                 cases => unit_enum_cases(en, cfg),
             },
@@ -534,7 +534,7 @@ pub(super) fn emit_enum(
     if !all_variants_codable_safe(en, known_dto_names) {
         out.push_str(&crate::backends::swift::template_env::render(
             "typealias.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &en.name,
             },
         ));
@@ -550,7 +550,7 @@ pub(super) fn emit_enum(
     }
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_enum_decl.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => &en.name,
             variants => variants,
             codable_body => serde_codable_body(en, &repr, mapper),
@@ -747,7 +747,7 @@ pub(super) fn emit_enum_without_into_rust(
     if !en.has_serde {
         out.push_str(&crate::backends::swift::template_env::render(
             "typealias.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &en.name,
             },
         ));
@@ -760,7 +760,7 @@ pub(super) fn emit_enum_without_into_rust(
         let _ = mapper;
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_enum_raw_decl.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &en.name,
                 cases => unit_enum_cases(en, cfg),
             },
@@ -775,7 +775,7 @@ pub(super) fn emit_enum_without_into_rust(
         }
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_enum_decl.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &en.name,
                 variants => variants,
                 codable_body => serde_codable_body(en, &serde_enum_repr(en), mapper),
@@ -784,7 +784,7 @@ pub(super) fn emit_enum_without_into_rust(
     } else {
         out.push_str(&crate::backends::swift::template_env::render(
             "typealias.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &en.name,
             },
         ));
@@ -809,7 +809,7 @@ pub(super) fn emit_enum_into_rust_extension(name: &str, out: &mut String) {
     let from_json_fn = format!("{}_from_json", AsSnakeCase(name)).to_lower_camel_case();
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_enum_into_rust.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => name,
             from_json_fn => from_json_fn,
         },
@@ -836,7 +836,7 @@ pub(super) fn emit_variant_with_data(variant: &EnumVariant, out: &mut String, ma
     if variant.fields.is_empty() {
         out.push_str(&crate::backends::swift::template_env::render(
             "enum_case_unit.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 case_name => &case_name,
             },
         ));
@@ -859,7 +859,7 @@ pub(super) fn emit_variant_with_data(variant: &EnumVariant, out: &mut String, ma
             .collect();
         out.push_str(&crate::backends::swift::template_env::render(
             "enum_case_with_data.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 case_name => &case_name,
                 associated_values => assoc.join(", "),
             },

@@ -50,7 +50,7 @@ impl FfiBridgeGenerator {
         if slice_cache_methods.is_empty() {
             return crate::backends::ffi::template_env::render(
                 "constructor_impl.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     bridge_name => &bridge,
                     vtable_name => &vtable,
                 },
@@ -66,7 +66,7 @@ impl FfiBridgeGenerator {
 
             cache_init_blocks.push_str(&crate::backends::ffi::template_env::render(
                 "constructor_slice_cache_init.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     method_name => fname,
                     field_name => &field,
                 },
@@ -74,7 +74,7 @@ impl FfiBridgeGenerator {
 
             field_inits.push_str(&crate::backends::ffi::template_env::render(
                 "constructor_field_init.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     field => &field,
                 },
             ));
@@ -82,7 +82,7 @@ impl FfiBridgeGenerator {
 
         crate::backends::ffi::template_env::render(
             "constructor_impl_with_cache.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 bridge_name => &bridge,
                 vtable_name => &vtable,
                 cache_init_blocks => &cache_init_blocks,
@@ -115,7 +115,7 @@ impl FfiBridgeGenerator {
 
         out.push_str(&crate::backends::ffi::template_env::render(
             "register_fn_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 trait_name => &spec.trait_def.name,
                 full_register_name => &full_register_name,
                 vtable_name => &vtable,
@@ -125,7 +125,7 @@ impl FfiBridgeGenerator {
         for method in spec.required_methods() {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "register_fn_vtable_check.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     method_name => &method.name,
                 },
             ));
@@ -139,7 +139,7 @@ impl FfiBridgeGenerator {
 
         out.push_str(&crate::backends::ffi::template_env::render(
             "register_fn_body.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 bridge_name => &bridge,
                 trait_path => &trait_path,
                 registry_getter => registry_getter,
@@ -151,7 +151,7 @@ impl FfiBridgeGenerator {
 
         out.push_str(&crate::backends::ffi::template_env::render(
             "unregister_fn.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 full_unregister_name => &full_unregister_name,
                 registry_getter => registry_getter,
             },
@@ -163,7 +163,7 @@ impl FfiBridgeGenerator {
             out.push('\n');
             out.push_str(&crate::backends::ffi::template_env::render(
                 "clear_fn.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     full_clear_name => &full_clear_name,
                     host_path => &host_path,
                     free_string_fn => format!("{prefix}_free_string"),
@@ -253,7 +253,7 @@ impl FfiBridgeGenerator {
 
             methods_code.push_str(&crate::backends::ffi::template_env::render(
                 "ffi_trait_method_impl.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     async_kw,
                     method_name => method.name.clone(),
                     all_params,
@@ -275,7 +275,7 @@ impl FfiBridgeGenerator {
         }
         impl_code.push_str(&crate::backends::ffi::template_env::render(
             "ffi_trait_impl.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 trait_path,
                 wrapper_name => wrapper,
                 methods_code,
@@ -346,7 +346,7 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         out.push('\n');
         out.push_str(&crate::backends::ffi::template_env::render(
             "ffi_async_cached_name_init.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 has_cached_name => has_error,
             },
         ));
@@ -363,7 +363,7 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
             };
             out.push_str(&crate::backends::ffi::template_env::render(
                 "ffi_async_capture_param.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     param_name => &p.name,
                     expr => &clone_expr,
                 },
@@ -382,7 +382,7 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         for line in sync_body.lines() {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "ffi_async_body_indent.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     line => line,
                 },
             ));
@@ -405,13 +405,13 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
                 spec.make_error(&format!("format!(\"spawn_blocking failed in {method_name}: {{}}\", e)"));
             out.push_str(&crate::backends::ffi::template_env::render(
                 "ffi_async_map_err_method.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     spawn_error_constructor => &spawn_error_constructor,
                 },
             ));
             out.push_str(&crate::backends::ffi::template_env::render(
                 "ffi_async_box_error_map.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     inner_error_constructor => &inner_error_constructor,
                 },
             ));

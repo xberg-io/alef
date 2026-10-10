@@ -62,7 +62,7 @@ pub(super) fn emit_opaque_method(
 
     out.push_str(&render(
         "opaque_method_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => &method.name,
             params => &params_str,
             return_ty => &return_ty,
@@ -82,7 +82,7 @@ pub(super) fn emit_opaque_method(
 
     let returns_bytes = return_uses_bytes_out_params(&method.return_type);
     if returns_bytes {
-        out.push_str(&render("opaque_bytes_out_vars.jinja", minijinja::context! {}));
+        out.push_str(&render("opaque_bytes_out_vars.jinja", crate::alef_context! {}));
     }
 
     let c_call = method_c_call(
@@ -117,7 +117,7 @@ pub(super) fn emit_opaque_free(ty: &TypeDef, prefix: &str, type_snake: &str, out
     let upper_prefix = c_consumer::export_type_prefix(prefix);
     out.push_str(&render(
         "opaque_free_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             type_name => &ty.name,
             prefix => prefix,
             type_snake => type_snake,
@@ -285,14 +285,14 @@ fn emit_fallible_method_body(
     if !has_return_value {
         out.push_str(&render(
             "opaque_method_call_discard.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 c_call => c_call,
             },
         ));
     } else {
         out.push_str(&render(
             "opaque_method_call_result.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 c_call => c_call,
             },
         ));
@@ -302,7 +302,7 @@ fn emit_fallible_method_body(
 
     out.push_str(&render(
         "opaque_method_error_check.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             prefix => prefix,
             error_type => err_ty,
         },
@@ -315,7 +315,7 @@ fn emit_fallible_method_body(
     if returns_bytes {
         out.push_str(&render(
             "opaque_bytes_return.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 prefix => prefix,
                 is_optional => matches!(method.return_type, TypeRef::Optional(_)),
             },
@@ -324,7 +324,7 @@ fn emit_fallible_method_body(
         let ret_expr = method_unwrap_return_expr("_result", &method.return_type, prefix, struct_names, enum_names);
         out.push_str(&render(
             "opaque_method_return.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 ret_expr => &ret_expr,
             },
         ));
@@ -348,14 +348,14 @@ fn emit_infallible_method_body(
     if returns_bytes {
         out.push_str(&render(
             "opaque_method_call_discard.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 c_call => c_call,
             },
         ));
         emit_consumed_receiver_invalidation(method, out);
         out.push_str(&render(
             "opaque_bytes_return.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 prefix => prefix,
                 is_optional => matches!(method.return_type, TypeRef::Optional(_)),
             },
@@ -363,7 +363,7 @@ fn emit_infallible_method_body(
     } else if matches!(method.return_type, TypeRef::Unit) {
         out.push_str(&render(
             "opaque_method_unit_call.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 c_call => c_call,
             },
         ));
@@ -371,7 +371,7 @@ fn emit_infallible_method_body(
     } else {
         out.push_str(&render(
             "opaque_method_call_result.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 c_call => c_call,
             },
         ));
@@ -379,7 +379,7 @@ fn emit_infallible_method_body(
         let ret_expr = method_unwrap_return_expr("_result", &method.return_type, prefix, struct_names, enum_names);
         out.push_str(&render(
             "opaque_method_return.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 ret_expr => &ret_expr,
             },
         ));
@@ -390,7 +390,7 @@ fn emit_consumed_receiver_invalidation(method: &MethodDef, out: &mut String) {
     if method.receiver == Some(ReceiverKind::Owned) {
         out.push_str(&render(
             "opaque_consumed_handle_invalidate.jinja",
-            minijinja::context! {},
+            crate::alef_context! {},
         ));
     }
 }

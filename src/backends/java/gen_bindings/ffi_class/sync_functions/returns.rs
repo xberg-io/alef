@@ -20,7 +20,7 @@ pub(super) fn emit_sync_return(out: &mut String, invocation: &SyncInvocation<'_>
 fn emit_void_return(out: &mut String, invocation: &SyncInvocation<'_>) {
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_invoke_void.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             ffi_handle => &invocation.ffi_handle,
             args => invocation.call_args.join(", "),
         },
@@ -37,7 +37,7 @@ fn emit_clear_return(out: &mut String, invocation: &SyncInvocation<'_>) {
     out.push_str("            var outErr = arena.allocate(ValueLayout.ADDRESS);\n");
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_invoke_primitive_result.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             cast_type => "int",
             ffi_handle => &invocation.ffi_handle,
             call_args => call_args.join(", "),
@@ -97,7 +97,7 @@ fn emit_opaque_return(out: &mut String, class_name: &str, optional: bool) {
     };
     out.push_str(&crate::backends::java::template_env::render(
         template,
-        minijinja::context! { class_name },
+        crate::alef_context! { class_name },
     ));
 }
 
@@ -118,7 +118,7 @@ fn emit_serializable_return(out: &mut String, invocation: &SyncInvocation<'_>, r
     out.push_str(".invoke(handle));\n");
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_invoke_json_ptr.jinja",
-        minijinja::context! { to_json_handle },
+        crate::alef_context! { to_json_handle },
     ));
     emit_json_null_handling(out, invocation);
     out.push_str("            nativeResources.register(jsonPtr, handle -> NativeLib.");
@@ -152,7 +152,7 @@ fn emit_json_mapper_return(out: &mut String, class_name: &str, optional: bool) {
     };
     out.push_str(&crate::backends::java::template_env::render(
         template,
-        minijinja::context! { class_name },
+        crate::alef_context! { class_name },
     ));
 }
 
@@ -169,7 +169,7 @@ fn emit_vec_return(out: &mut String, invocation: &SyncInvocation<'_>, inner: &Ty
     };
     out.push_str(&crate::backends::java::template_env::render(
         template,
-        minijinja::context! { type_ref },
+        crate::alef_context! { type_ref },
     ));
     emit_catch(out, invocation.class_name);
 }
@@ -183,7 +183,7 @@ fn emit_bytes_return(out: &mut String, invocation: &SyncInvocation<'_>) {
     let free_bytes_handle = format!("NativeLib.{}_FREE_BYTES", invocation.prefix.to_uppercase());
     out.push_str(&crate::backends::java::template_env::render(
         "bytes_result_call.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             ffi_handle => &invocation.ffi_handle,
             args,
             free_bytes_handle,
@@ -206,7 +206,7 @@ fn emit_primitive_return(out: &mut String, invocation: &SyncInvocation<'_>) {
     }
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_invoke_primitive_result.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             cast_type => java_ffi_return_cast(&invocation.dispatch_return_type),
             ffi_handle => &invocation.ffi_handle,
             call_args => &call_args,
@@ -229,7 +229,7 @@ fn emit_primitive_return(out: &mut String, invocation: &SyncInvocation<'_>) {
     };
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_return_primitive_result.jinja",
-        minijinja::context! { return_expr },
+        crate::alef_context! { return_expr },
     ));
     emit_catch(out, invocation.class_name);
 }
@@ -248,7 +248,7 @@ pub(super) fn emit_writeback_return(
 ) {
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_invoke_void.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             ffi_handle => &invocation.ffi_handle,
             args => invocation.call_args.join(", "),
         },
@@ -266,7 +266,7 @@ pub(super) fn emit_writeback_return(
     let exception_class = format!("{}Exception", invocation.class_name);
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_writeback_return.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             to_json_handle,
             handle_var,
             free_string_handle,
@@ -281,7 +281,7 @@ pub(super) fn emit_writeback_return(
 fn emit_result_pointer_call(out: &mut String, invocation: &SyncInvocation<'_>) {
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_result_ptr_call.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             ffi_handle => &invocation.ffi_handle,
             args => invocation.call_args.join(", "),
         },
@@ -291,7 +291,7 @@ fn emit_result_pointer_call(out: &mut String, invocation: &SyncInvocation<'_>) {
 pub(super) fn emit_null_check(out: &mut String, optional: bool) {
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_null_check.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             var => "resultPtr",
             optional,
         },
@@ -306,7 +306,7 @@ fn emit_optional_expression_return(out: &mut String, expression: &str, optional:
     };
     out.push_str(&crate::backends::java::template_env::render(
         template,
-        minijinja::context! { expr => expression },
+        crate::alef_context! { expr => expression },
     ));
 }
 

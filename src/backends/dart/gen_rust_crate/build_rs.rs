@@ -9,7 +9,7 @@ pub(crate) fn emit_build_rs(rust_dir: &str, package_name: &str, module_name: &st
     let cfg_gates_fn = render_cfg_gates_fn();
     let content = template_env::render(
         "rust_build_rs.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             loader_patch => loader_patch.as_str(),
             cfg_gates_fn => cfg_gates_fn.as_str(),
         },
@@ -41,7 +41,7 @@ fn render_loader_patch_fn(package_name: &str, module_name: &str, stem: &str) -> 
     let dart_replacement = dart_init_prologue_replacement(package_name, module_name, stem);
     template_env::render(
         "rust_loader_patch_fn.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             module_name => module_name,
             dart_replacement => dart_replacement.as_str(),
         },
@@ -59,7 +59,7 @@ fn render_loader_patch_fn(package_name: &str, module_name: &str, stem: &str) -> 
 fn dart_init_prologue_replacement(package_name: &str, module_name: &str, stem: &str) -> String {
     template_env::render(
         "dart_init_prologue_replacement.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             package_name => package_name,
             module_name => module_name,
             stem => stem,
@@ -81,14 +81,14 @@ fn dart_init_prologue_replacement(package_name: &str, module_name: &str, stem: &
 /// that opt-in run, mirroring the alef-side logic exactly since the generated
 /// build.rs is a standalone crate with no dependency on alef itself.
 fn render_cfg_gates_fn() -> String {
-    template_env::render("rust_frb_cfg_gates_fn.rs.jinja", minijinja::context! {})
+    template_env::render("rust_frb_cfg_gates_fn.rs.jinja", crate::alef_context! {})
 }
 
 pub(crate) fn emit_frb_yaml(rust_dir: &str, module_name: &str) -> GeneratedFile {
     // correct position (after crate-level #![allow] attrs) to avoid E0753.
     let content = template_env::render(
         "flutter_rust_bridge_yaml.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             module_name => module_name,
         },
     );

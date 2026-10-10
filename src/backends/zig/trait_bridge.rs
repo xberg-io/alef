@@ -162,21 +162,21 @@ pub fn emit_make_vtable(
 
     out.push_str(&crate::backends::zig::template_env::render(
         "vtable_header_doc.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => trait_name,
             snake => &snake,
         },
     ));
     out.push_str(&crate::backends::zig::template_env::render(
         "vtable_impl_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             snake => &snake,
             trait_name => trait_name,
         },
     ));
     out.push_str(&crate::backends::zig::template_env::render(
         "vtable_make_fn_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => trait_name,
         },
     ));
@@ -184,19 +184,19 @@ pub fn emit_make_vtable(
     if has_super_trait {
         out.push_str(&crate::backends::zig::template_env::render(
             "vtable_field_name_fn.jinja",
-            minijinja::context! {},
+            crate::alef_context! {},
         ));
         out.push_str(&crate::backends::zig::template_env::render(
             "vtable_field_version_fn.jinja",
-            minijinja::context! {},
+            crate::alef_context! {},
         ));
         out.push_str(&crate::backends::zig::template_env::render(
             "vtable_field_initialize_fn.jinja",
-            minijinja::context! {},
+            crate::alef_context! {},
         ));
         out.push_str(&crate::backends::zig::template_env::render(
             "vtable_field_shutdown_fn.jinja",
-            minijinja::context! {},
+            crate::alef_context! {},
         ));
     }
 
@@ -217,7 +217,7 @@ pub fn emit_make_vtable(
 
         out.push_str(&crate::backends::zig::template_env::render(
             "vtable_instance_field.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_snake => &method_snake,
                 params_str => &params_str,
                 ret => &ret,
@@ -231,7 +231,7 @@ pub fn emit_make_vtable(
             if matches!(p.ty, TypeRef::Bytes) {
                 out.push_str(&crate::backends::zig::template_env::render(
                     "thunk_discard_bytes_len.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         param_name => &p.name,
                     },
                 ));
@@ -257,7 +257,7 @@ pub fn emit_make_vtable(
             let has_result_out = !matches!(method.return_type, TypeRef::Unit);
             out.push_str(&crate::backends::zig::template_env::render(
                 "thunk_fn_signature.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     method_snake => &method_snake,
                     args_str => &args_str,
                     ok_binding => &ok_binding,
@@ -269,7 +269,7 @@ pub fn emit_make_vtable(
                     TypeRef::Primitive(_) | TypeRef::Unit => {
                         out.push_str(&crate::backends::zig::template_env::render(
                             "thunk_result_assign.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 ok_binding => &ok_binding,
                             },
                         ));
@@ -277,7 +277,7 @@ pub fn emit_make_vtable(
                     _ => {
                         out.push_str(&crate::backends::zig::template_env::render(
                             "thunk_if_fallible.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 ok_binding => &ok_binding,
                                 is_string_like => true,
                                 has_out_error => true,
@@ -289,7 +289,7 @@ pub fn emit_make_vtable(
             } else {
                 out.push_str(&crate::backends::zig::template_env::render(
                     "thunk_if_ok_result.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         ok_binding => &ok_binding,
                     },
                 ));
@@ -300,7 +300,7 @@ pub fn emit_make_vtable(
             out.push_str("                } else |err| {\n");
             out.push_str(&crate::backends::zig::template_env::render(
                 "thunk_error_result.jinja",
-                minijinja::context! {},
+                crate::alef_context! {},
             ));
             out.push_str("                }\n");
         } else if is_infallible_complex {
@@ -313,7 +313,7 @@ pub fn emit_make_vtable(
             out.push_str(");\n");
             out.push_str(&crate::backends::zig::template_env::render(
                 "thunk_owned_string_result.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     ok_binding => &ok_binding,
                     has_out_error => true,
                 },
@@ -323,7 +323,7 @@ pub fn emit_make_vtable(
                 TypeRef::Unit => {
                     out.push_str(&crate::backends::zig::template_env::render(
                         "thunk_if_error.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             method_snake => &method_snake,
                             args_str => &args_str,
                         },
@@ -332,7 +332,7 @@ pub fn emit_make_vtable(
                 TypeRef::Primitive(_) => {
                     out.push_str(&crate::backends::zig::template_env::render(
                         "thunk_infallible_return.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             method_snake => &method_snake,
                             args_str => &args_str,
                         },
@@ -341,7 +341,7 @@ pub fn emit_make_vtable(
                 _ => {
                     out.push_str(&crate::backends::zig::template_env::render(
                         "thunk_infallible_return.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             method_snake => &method_snake,
                             args_str => &args_str,
                         },
@@ -357,7 +357,7 @@ pub fn emit_make_vtable(
 
     out.push_str(&crate::backends::zig::template_env::render(
         "vtable_free_user_data.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
 
     out.push_str("    };\n");
@@ -388,14 +388,14 @@ pub fn emit_trait_bridge(
 
     out.push_str(&crate::backends::zig::template_env::render(
         "trait_vtable_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => trait_name,
             snake => &snake,
         },
     ));
     out.push_str(&crate::backends::zig::template_env::render(
         "trait_struct_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => trait_name,
         },
     ));
@@ -434,7 +434,7 @@ pub fn emit_trait_bridge(
         if !method.doc.is_empty() {
             out.push_str(&crate::backends::zig::template_env::render(
                 "trait_method_doc_lines.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     method_doc_lines => method.doc.lines().collect::<Vec<_>>(),
                 },
             ));
@@ -464,7 +464,7 @@ pub fn emit_trait_bridge(
         let params_str = params.join(", ");
         out.push_str(&crate::backends::zig::template_env::render(
             "trait_method_signature.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_snake => &method_snake,
                 params_str => &params_str,
                 ret => &ret,
@@ -493,21 +493,21 @@ pub fn emit_trait_bridge(
 
         out.push_str(&crate::backends::zig::template_env::render(
             "register_fn_doc1.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 trait_name => trait_name,
                 snake => &snake,
             },
         ));
         out.push_str(&crate::backends::zig::template_env::render(
             "register_fn_signature.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 snake => &snake,
                 trait_name => trait_name,
             },
         ));
         out.push_str(&crate::backends::zig::template_env::render(
             "register_fn_body.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 c_register => &c_register,
                 c_vtable_type => &c_vtable_type,
             },
@@ -517,20 +517,20 @@ pub fn emit_trait_bridge(
 
         out.push_str(&crate::backends::zig::template_env::render(
             "unregister_fn_doc.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 trait_name => trait_name,
             },
         ));
         out.push_str(&crate::backends::zig::template_env::render(
             "unregister_fn_signature.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 snake => &snake,
                 error_type => error_type,
             },
         ));
         out.push_str(&crate::backends::zig::template_env::render(
             "unregister_fn_body.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 c_unregister => &c_unregister,
                 ffi_prefix => prefix,
                 error_type => error_type,
@@ -544,20 +544,20 @@ pub fn emit_trait_bridge(
 
             out.push_str(&crate::backends::zig::template_env::render(
                 "clear_fn_doc.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     trait_name => trait_name,
                 },
             ));
             out.push_str(&crate::backends::zig::template_env::render(
                 "clear_fn_signature.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     clear_fn => clear_fn,
                     error_type => error_type,
                 },
             ));
             out.push_str(&crate::backends::zig::template_env::render(
                 "clear_fn_body.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     c_clear => &c_clear,
                     ffi_prefix => prefix,
                     error_type => error_type,
@@ -572,7 +572,7 @@ pub fn emit_trait_bridge(
             let callbacks_type = format!("c.{}", c_prefixed_type_name(prefix, "VisitorCallbacks"));
             out.push_str(&crate::backends::zig::template_env::render(
                 "trait_options_handle_from_vtable.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     trait_name => trait_name,
                     handle_type => handle_type,
                     prefix => prefix,
@@ -652,19 +652,19 @@ impl TraitBridgeGenerator for ZigTraitBridgeGenerator {
         let mut out = String::new();
         out.push_str(&crate::backends::zig::template_env::render(
             "unregister_fn_doc.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 trait_name => spec.trait_def.name.as_str(),
             },
         ));
         out.push_str(&crate::backends::zig::template_env::render(
             "unregister_fn_configured_signature.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 unregister_fn => unregister_fn,
             },
         ));
         out.push_str(&crate::backends::zig::template_env::render(
             "unregister_fn_body.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 c_unregister => &c_unregister,
             },
         ));
@@ -684,19 +684,19 @@ impl TraitBridgeGenerator for ZigTraitBridgeGenerator {
         let mut out = String::new();
         out.push_str(&crate::backends::zig::template_env::render(
             "clear_fn_doc.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 trait_name => spec.trait_def.name.as_str(),
             },
         ));
         out.push_str(&crate::backends::zig::template_env::render(
             "clear_fn_signature.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 clear_fn => clear_fn,
             },
         ));
         out.push_str(&crate::backends::zig::template_env::render(
             "clear_fn_body.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 c_clear => &c_clear,
             },
         ));

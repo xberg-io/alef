@@ -58,7 +58,7 @@ pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     let web_target = if has("web") { "web" } else { targets[0].as_str() };
     let exports_block = crate::scaffold::template_env::render(
         "wasm_package_exports.json.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             node_target => node_target,
             web_target => web_target,
             crate_file => core_crate_file,
@@ -281,7 +281,7 @@ fn repair_missing_wasm_exports(content: &str) -> Option<String> {
 
     let exports_block = crate::scaffold::template_env::render(
         "wasm_package_exports.json.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             node_target => node_target,
             web_target => web_target,
             crate_file => crate_file,

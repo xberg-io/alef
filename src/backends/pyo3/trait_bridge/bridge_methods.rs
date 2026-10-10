@@ -281,7 +281,7 @@ pub fn gen_bridge_function(
 
     crate::backends::pyo3::template_env::render(
         "trait_bridge/function_wrapper.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             has_error => func.error_type.is_some(),
             attr_inner => attr_inner,
             needs_signature => cfg.needs_signature,

@@ -280,7 +280,7 @@ pub(super) fn render_streaming_test_function(
     );
     out.push_str(&crate::e2e::template_env::render(
         "c/stream_exhausted_branch.jinja",
-        minijinja::context! { result_var => result_var, prefix => prefix },
+        crate::alef_context! { result_var => result_var, prefix => prefix },
     ));
     let _ = writeln!(out, "        chunks_count++;");
     let _ = writeln!(out, "        {prefix}_{item_type_snake}_free({result_var});");

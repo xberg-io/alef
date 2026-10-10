@@ -30,11 +30,11 @@ pub(super) fn emit_inbound_box_files(
         let mut content = String::new();
         content.push_str(&crate::backends::swift::template_env::render(
             "swift_inbound_box_preamble.swift.jinja",
-            minijinja::context! { trait_name => trait_name, },
+            crate::alef_context! { trait_name => trait_name, },
         ));
         content.push_str(&crate::backends::swift::template_env::render(
             "swift_inbound_box_delegate_protocol_open.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 box_name => &box_name,
                 trait_name => trait_name,
                 delegate_protocol_name => &delegate_protocol_name,
@@ -45,7 +45,7 @@ pub(super) fn emit_inbound_box_files(
             let delegate_params = swift_box_params(method);
             content.push_str(&crate::backends::swift::template_env::render(
                 "swift_inbound_box_delegate_method.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     method_name => &method_camel,
                     params => &delegate_params,
                 },
@@ -54,7 +54,7 @@ pub(super) fn emit_inbound_box_files(
         content.push_str("}\n\n");
         content.push_str(&crate::backends::swift::template_env::render(
             "swift_inbound_box_class_open.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 box_name => &box_name,
                 delegate_protocol_name => &delegate_protocol_name,
             },
@@ -68,7 +68,7 @@ pub(super) fn emit_inbound_box_files(
             let method_camel = swift_ident(&method.name.to_lower_camel_case());
             content.push_str(&crate::backends::swift::template_env::render(
                 "swift_inbound_box_method.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     shim_name => &shim_name,
                     params => &box_params,
                     method_name => &method_camel,
@@ -191,14 +191,14 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
 
         content.push_str(&crate::backends::swift::template_env::render(
             "swift_function_param_box_class_open.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 box_name => &box_name,
                 bridge_protocol_name => &bridge_protocol_name,
             },
         ));
         content.push_str(&crate::backends::swift::template_env::render(
             "swift_function_param_box_plugin_shims.swift.jinja",
-            minijinja::context! {},
+            crate::alef_context! {},
         ));
 
         let bridge_exclude_types =
@@ -222,7 +222,7 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
                 let ffi_type = swift_shim_param_ffi_type(&param.ty, param.optional);
                 param_sig.push_str(&crate::backends::swift::template_env::render(
                     "swift_function_param_box_param_signature.swift.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         external => &external,
                         internal => &internal,
                         ffi_type => &ffi_type,
@@ -235,7 +235,7 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
 
             content.push_str(&crate::backends::swift::template_env::render(
                 "swift_function_param_box_method_open.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     shim_name => &shim_name,
                     params => &param_sig,
                     return_type => &return_ffi_type,
@@ -258,7 +258,7 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
                 for setup_line in &setup_lines {
                     setup_body.push_str(&crate::backends::swift::template_env::render(
                         "swift_function_param_box_setup_line.swift.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             indent => "            ",
                             line => setup_line,
                         },
@@ -271,14 +271,14 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
                     match &method.return_type {
                         TypeRef::Unit => crate::backends::swift::template_env::render(
                             "swift_function_param_box_throwing_unit.swift.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 indent => "            ",
                                 bridge_call => &bridge_call,
                             },
                         ),
                         _ => crate::backends::swift::template_env::render(
                             "swift_function_param_box_throwing_result.swift.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 indent => "            ",
                                 bridge_call => &bridge_call,
                             },
@@ -290,7 +290,7 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
                     for line in return_lines {
                         body.push_str(&crate::backends::swift::template_env::render(
                             "swift_function_param_box_setup_line.swift.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 indent => "            ",
                                 line => &line,
                             },
@@ -300,7 +300,7 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
                 };
                 content.push_str(&crate::backends::swift::template_env::render(
                     "swift_function_param_box_catching_body.swift.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         setup_lines => setup_body,
                         body => body,
                     },
@@ -309,7 +309,7 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
                 for setup_line in &setup_lines {
                     content.push_str(&crate::backends::swift::template_env::render(
                         "swift_function_param_box_setup_line.swift.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             indent => "        ",
                             line => setup_line,
                         },
@@ -322,7 +322,7 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
                 for line in return_lines {
                     content.push_str(&crate::backends::swift::template_env::render(
                         "swift_function_param_box_setup_line.swift.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             indent => "        ",
                             line => &line,
                         },
@@ -332,7 +332,7 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
 
             content.push_str(&crate::backends::swift::template_env::render(
                 "swift_function_param_box_method_close.swift.jinja",
-                minijinja::context! {},
+                crate::alef_context! {},
             ));
         }
 

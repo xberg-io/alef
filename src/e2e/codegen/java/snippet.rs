@@ -199,7 +199,7 @@ pub(super) fn render_snippet_body_with_ir(
 
     crate::e2e::template_env::render(
         "java/snippet_body.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             package_name => package_name,
             class_name => call_target_class_name,
             setup_lines => setup_lines,
@@ -290,7 +290,7 @@ fn render_json_object_setup(
             let json = serde_json::to_string(&normalized).unwrap_or_default();
             Some(crate::e2e::template_env::render(
                 "java/snippet_json_object_setup.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     variable => arg.name,
                     // A full Java string-literal expression (quoted, or `+`-chunked when the
                     // fixture body is long enough to threaten the JVM's 65535-byte constant

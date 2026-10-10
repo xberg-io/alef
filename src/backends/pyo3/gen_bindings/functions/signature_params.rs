@@ -10,7 +10,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn emit_param_conversion(
     if optional {
         out.push_str(&crate::backends::pyo3::template_env::render(
             "param_conversion_optional.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 var => var,
                 body => body,
                 pname => pname,
@@ -19,7 +19,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn emit_param_conversion(
     } else {
         out.push_str(&crate::backends::pyo3::template_env::render(
             "param_conversion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 var => var,
                 body => body,
             },

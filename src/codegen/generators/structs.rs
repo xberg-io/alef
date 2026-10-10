@@ -186,7 +186,7 @@ pub fn gen_delegating_deserialize_impl(
     let core_qualified = qualified_core_path(typ, core_import, source_crate_remaps);
     crate::codegen::template_env::render(
         "structs/delegating_deserialize_impl.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             binding_name => binding_name,
             core_path => core_qualified,
         },
@@ -674,7 +674,7 @@ pub fn gen_struct_default_impl(typ: &TypeDef, name_prefix: &str) -> String {
                 TypeRef::Optional(_) => "None".to_string(),
                 _ => "Default::default()".to_string(),
             };
-            Some(minijinja::context! {
+            Some(crate::alef_context! {
                 name => field.name.clone(),
                 default_val => default_val
             })
@@ -683,7 +683,7 @@ pub fn gen_struct_default_impl(typ: &TypeDef, name_prefix: &str) -> String {
 
     crate::codegen::template_env::render(
         "structs/default_impl.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             full_name => full_name,
             fields => fields
         },
@@ -754,7 +754,7 @@ pub fn gen_opaque_struct(typ: &TypeDef, cfg: &RustBindingConfig) -> String {
 
     crate::codegen::template_env::render(
         "structs/opaque_struct.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             struct_name => typ.name.clone(),
             has_derives => has_derives,
             struct_attrs => struct_attrs,
@@ -789,7 +789,7 @@ pub fn gen_opaque_struct_prefixed(typ: &TypeDef, cfg: &RustBindingConfig, prefix
 
     crate::codegen::template_env::render(
         "structs/opaque_struct.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             struct_name => struct_name,
             has_derives => has_derives,
             struct_attrs => struct_attrs,

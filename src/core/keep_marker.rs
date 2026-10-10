@@ -240,7 +240,7 @@ mod rendered_template_tests {
     fn zig_trait_bridge_alias_renders_its_rationale_without_the_keep_marker() {
         let rendered = crate::backends::zig::template_env::render(
             "trait_bridge_alias.jinja",
-            minijinja::context! { alias => "VisitorHandle" },
+            crate::alef_context! { alias => "VisitorHandle" },
         );
 
         assert!(
@@ -261,7 +261,7 @@ mod rendered_template_tests {
     fn napi_error_converter_renders_its_rationale_without_the_parenthesized_keep_marker() {
         let rendered = crate::codegen::template_env::render(
             "error_gen/napi_error_converter.jinja",
-            minijinja::context! { rust_path => "sample_crate::SampleError", fn_name => "sample_error_to_napi" },
+            crate::alef_context! { rust_path => "sample_crate::SampleError", fn_name => "sample_error_to_napi" },
         );
 
         assert!(
@@ -286,7 +286,7 @@ mod rendered_template_tests {
     fn csharp_opaque_handle_header_renders_its_rationale_without_the_keep_marker() {
         let rendered = crate::backends::csharp::template_env::render(
             "opaque_handle_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 namespace => "Sample.Bindings",
                 class_name => "Document",
                 free_method => "sample_document_free",

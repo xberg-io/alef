@@ -403,7 +403,7 @@ pub fn gen_visitor_file(
     let callbacks: Vec<_> = specs
         .iter()
         .map(|spec| {
-            minijinja::Value::from_serialize(serde_json::json!({
+            crate::template::to_value(serde_json::json!({
                 "export_name": spec.export_name,
                 "c_sig": c_signature(spec, &context_c_type),
                 "c_field": spec.c_field,
@@ -413,7 +413,7 @@ pub fn gen_visitor_file(
 
     out.push_str(&crate::backends::go::template_env::render(
         "visitor_preamble.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             pkg_name => pkg_name,
             to_root => to_root,
             ffi_crate_dir => ffi_crate_dir,
@@ -426,7 +426,7 @@ pub fn gen_visitor_file(
     // NOTE: NodeType is defined in binding.go as `type NodeType string`.
     out.push_str(&crate::backends::go::template_env::render(
         "visitor_node_context_and_result.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             context_type => associated_types.context_type.as_str(),
             result_type => associated_types.result_type.as_str(),
             context_fields => codec_metadata.context_fields,
@@ -443,7 +443,7 @@ pub fn gen_visitor_file(
         let param_str = iface_param_str(spec);
         out.push_str(&crate::backends::go::template_env::render(
             "visitor_interface_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 doc => spec.doc,
                 method => spec.go_method,
                 params => param_str,
@@ -467,7 +467,7 @@ pub fn gen_visitor_file(
         let blank_ids: Vec<String> = iface_param_names(spec).into_iter().collect();
         out.push_str(&crate::backends::go::template_env::render(
             "base_visitor_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 doc => spec.go_method,
                 method_name => spec.go_method,
                 params => param_str,
@@ -488,7 +488,7 @@ pub fn gen_visitor_file(
     let context_fields_for_decode = context_fields_for_decode(&codec_metadata.context_fields);
     out.push_str(&crate::backends::go::template_env::render(
         "decode_node_context.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             context_type => associated_types.context_type.as_str(),
             context_c_type => context_c_type.clone(),
             context_fields => context_fields_for_decode,
@@ -498,7 +498,7 @@ pub fn gen_visitor_file(
 
     out.push_str(&crate::backends::go::template_env::render(
         "encode_visit_result.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             result_type => associated_types.result_type.as_str(),
             result_variants => codec_metadata.result_variants,
             default_result_wire_name => codec_metadata.default_result_wire_name,
@@ -538,7 +538,7 @@ pub fn gen_visitor_file(
         .unwrap_or_else(|| "options".to_string());
     out.push_str(&crate::backends::go::template_env::render(
         "convert_with_visitor_helper.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             helper_name => helper_name,
             helper_params => helper_params,
             helper_setup => helper_setup,
@@ -644,13 +644,13 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec, context_c_type: &str) {
 
     out.push_str(&crate::backends::go::template_env::render(
         "export_marker.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => spec.export_name,
         },
     ));
     out.push_str(&crate::backends::go::template_env::render(
         "trampoline_func_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => spec.export_name,
             params => go_params.join(", "),
         },
@@ -663,7 +663,7 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec, context_c_type: &str) {
     for ep in &spec.extra {
         out.push_str(&crate::backends::go::template_env::render(
             "trampoline_param_decode.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => capitalize(&ep.go_name),
                 decode => ep.decode,
             },
@@ -686,7 +686,7 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec, context_c_type: &str) {
 
     out.push_str(&crate::backends::go::template_env::render(
         "trampoline_func_call.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method => spec.go_method,
             args => call_args.join(", "),
         },
@@ -909,7 +909,7 @@ fn helper_c_param_setup(func: &FunctionDef, options_type: &str) -> String {
             let c_name = crate::codegen::naming::go_param_name(&format!("c_{}", param.name));
             out.push_str(&crate::backends::go::template_env::render(
                 "c_string_arg_setup.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     c_name => &c_name,
                     go_name => &go_name,
                 },
@@ -953,7 +953,7 @@ mod tests {
         let handle_c_type = ffi_c_type_name("htm", "AlefHandle");
         let out = crate::backends::go::template_env::render(
             "convert_with_visitor_helper.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 helper_name => "convertWithVisitorHelper",
                 helper_params => "html string, visitor Visitor, options *ConversionOptions",
                 helper_setup => "",

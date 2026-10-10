@@ -14,7 +14,7 @@ pub(super) fn gen_result_decode_arms(
         if seen_codes.insert(variant.code) {
             arms.push_str(&render(
                 "ffi_visitor_result_unit_arm.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     code => variant.code,
                     variant_name => variant.name.clone(),
                 },
@@ -25,7 +25,7 @@ pub(super) fn gen_result_decode_arms(
         if seen_codes.insert(variant.code) {
             arms.push_str(&render(
                 "ffi_visitor_result_string_arm.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     code => variant.code,
                     variant_name => variant.name.clone(),
                 },
@@ -34,7 +34,7 @@ pub(super) fn gen_result_decode_arms(
     }
     arms.push_str(&render(
         "ffi_visitor_result_default_arm.jinja",
-        minijinja::context! { default_result => default_result.to_owned() },
+        crate::alef_context! { default_result => default_result.to_owned() },
     ));
     arms
 }
@@ -52,7 +52,7 @@ pub(super) fn gen_context_struct_fields(fields: &[ContextAbiField]) -> String {
         .map(|field| {
             render(
                 "ffi_visitor_context_field.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     doc => field.doc.as_str(),
                     name => field.name.as_str(),
                     c_type => field.scalar.rust_c_type(),
@@ -68,11 +68,11 @@ pub(super) fn gen_context_setup(fields: &[ContextAbiField]) -> String {
         .filter_map(|field| match field.shape {
             ContextFieldShape::RequiredString => Some(render(
                 "ffi_visitor_context_required_string_setup.jinja",
-                minijinja::context! { name => field.name.as_str() },
+                crate::alef_context! { name => field.name.as_str() },
             )),
             ContextFieldShape::OptionalString => Some(render(
                 "ffi_visitor_context_optional_string_setup.jinja",
-                minijinja::context! { name => field.name.as_str() },
+                crate::alef_context! { name => field.name.as_str() },
             )),
             ContextFieldShape::Bool | ContextFieldShape::Enum | ContextFieldShape::Integer => None,
         })
@@ -90,7 +90,7 @@ pub(super) fn gen_context_inits(fields: &[ContextAbiField]) -> String {
                 ContextFieldShape::Enum => "ffi_visitor_context_enum_init.jinja",
                 ContextFieldShape::Integer => "ffi_visitor_context_passthrough_init.jinja",
             };
-            render(template, minijinja::context! { name => field.name.as_str() })
+            render(template, crate::alef_context! { name => field.name.as_str() })
         })
         .collect()
 }
@@ -108,7 +108,7 @@ pub(super) fn gen_result_constants(
             let constant_name = format!("{}_VISIT_{}", visit_prefix, variant.name.to_shouty_snake_case());
             render(
                 "ffi_visitor_result_constant.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     variant_name => variant.name.as_str(),
                     constant_name,
                     code => variant.code,

@@ -90,7 +90,7 @@ impl Backend for DartBackend {
 
         body.push_str(&crate::backends::dart::template_env::render(
             "dart_bridge_export.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 module_name => module_name.as_str(),
             },
         ));
@@ -112,7 +112,7 @@ impl Backend for DartBackend {
         if !visible_functions.is_empty() || !active_bridge_configs.is_empty() || !dart_wire_enums.is_empty() {
             body.push_str(&crate::backends::dart::template_env::render(
                 "dart_bridge_imports.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     module_name => module_name.as_str(),
                 },
             ));
@@ -122,7 +122,7 @@ impl Backend for DartBackend {
                 let bridge_class = config.dart_bridge_class_name();
                 body.push_str(&crate::backends::dart::template_env::render(
                     "dart_bridge_class_open.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         bridge_class => bridge_class.as_str(),
                     },
                 ));
@@ -199,7 +199,7 @@ impl Backend for DartBackend {
         let barrel_path = PathBuf::from(format!("{barrel_dir}/{barrel_name}.dart"));
         let barrel_content = crate::backends::dart::template_env::render(
             "dart_barrel_file.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 module_name => module_name.as_str(),
             },
         );
@@ -229,7 +229,7 @@ impl Backend for DartBackend {
             if !traits_body.is_empty() {
                 traits_content.push_str(&crate::backends::dart::template_env::render(
                     "dart_bridge_import.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         module_name => module_name.as_str(),
                     },
                 ));
@@ -261,7 +261,7 @@ impl Backend for DartBackend {
         let repo_url = config.github_repo();
         let crate_version = api.version.to_string();
         let package_name = config.dart_pubspec_name();
-        let native_loader_ctx = minijinja::context! {
+        let native_loader_ctx = crate::alef_context! {
             crate_name => config.name.as_str(),
             lib_stem => lib_stem.as_str(),
             version => &crate_version,
@@ -516,7 +516,7 @@ fn emit_streaming_adapter_methods(config: &ResolvedCrateConfig, out: &mut String
 
         out.push_str(&crate::backends::dart::template_env::render(
             "dart_streaming_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => method_name,
                 item_type => item_type,
                 owner_type => owner_type,

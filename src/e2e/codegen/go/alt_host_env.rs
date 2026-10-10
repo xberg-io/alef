@@ -23,7 +23,7 @@ pub(super) fn render_mock_server_spawn_env(
     let env_keys: Vec<&str> = env.keys().map(String::as_str).collect();
     out.push_str(&crate::e2e::template_env::render(
         "go/mock_server_spawn_env.go.jinja",
-        minijinja::context! { alt_host => alt_host, env_keys => env_keys },
+        crate::alef_context! { alt_host => alt_host, env_keys => env_keys },
     ));
 }
 

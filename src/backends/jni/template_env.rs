@@ -207,9 +207,7 @@ pub(crate) fn render(name: &str, context: minijinja::Value) -> String {
 
 fn make_env() -> Environment<'static> {
     let mut env = Environment::new();
-    env.set_trim_blocks(true);
-    env.set_lstrip_blocks(true);
-    env.set_keep_trailing_newline(true);
+    crate::template::configure_env(&mut env);
     for (name, source) in TEMPLATES {
         env.add_template(name, source)
             .unwrap_or_else(|err| panic!("failed to register JNI template {name}: {err}"));
@@ -225,7 +223,7 @@ mod tests {
     fn destructor_template_uses_jni_panic_boundary() {
         let output = render(
             "destructor_shim.rs.jinja",
-            minijinja::context! { symbol => "Java_dev_sample_free", type_name => "Sample" },
+            crate::alef_context! { symbol => "Java_dev_sample_free", type_name => "Sample" },
         );
 
         assert!(output.contains("run_or_throw(env, |_env|"));
@@ -235,9 +233,9 @@ mod tests {
     fn crate_headers_contain_implementation_only_unsafe_lints() {
         let header = render(
             "lib_header.rs.jinja",
-            minijinja::context! { core_crate => "sample", error_class => "SampleError", crate_attributes => Vec::<String>::new() },
+            crate::alef_context! { core_crate => "sample", error_class => "SampleError", crate_attributes => Vec::<String>::new() },
         );
-        let service = render("service_header.rs.jinja", minijinja::context! {});
+        let service = render("service_header.rs.jinja", crate::alef_context! {});
         for output in [header, service] {
             assert!(output.contains("unsafe_op_in_unsafe_fn"), "{output}");
             assert!(output.contains("unsafe_attr_outside_unsafe"), "{output}");

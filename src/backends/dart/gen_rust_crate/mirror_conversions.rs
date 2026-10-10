@@ -146,7 +146,7 @@ pub(super) fn collect_named_types_from_type_ref(ty: &TypeRef) -> Vec<String> {
 fn emit_rust_struct_field(out: &mut String, cfg: Option<&str>, field_name: &str, expr: &str) {
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_struct_field_assignment.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             cfg => cfg,
             field_name => field_name,
             expr => expr,
@@ -176,7 +176,7 @@ pub(super) fn emit_from_impl_for_struct(out: &mut String, ty: &TypeDef, source_c
 
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_from_core_struct_open.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             core_ty => core_ty.as_str(),
             name => name.as_str(),
             source_cfg => ty.cfg.as_deref().unwrap_or(""),
@@ -197,7 +197,7 @@ pub(super) fn emit_from_impl_for_struct(out: &mut String, ty: &TypeDef, source_c
 
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_from_impl_close.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
 }
 
@@ -441,7 +441,7 @@ pub(super) fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, so
     }
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_from_mirror_struct_open.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             core_ty => core_ty.as_str(),
             name => name.as_str(),
             source_cfg => ty.cfg.as_deref().unwrap_or(""),
@@ -472,7 +472,7 @@ pub(super) fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, so
     }
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_from_impl_close.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
 }
 

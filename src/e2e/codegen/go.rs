@@ -873,7 +873,7 @@ fn render_helpers_test_go() -> String {
 // dead-code sweep so the migration diff stays minimal.
 #[allow(dead_code)]
 fn render_harness_main(_e2e_config: &E2eConfig, groups: &[FixtureGroup], go_module_path: &str) -> String {
-    use minijinja::{Environment, context};
+    use minijinja::Environment;
 
     // Collect all HTTP fixtures into a fixtures map JSON.
     let mut fixtures_map = serde_json::Map::new();
@@ -919,7 +919,7 @@ fn render_harness_main(_e2e_config: &E2eConfig, groups: &[FixtureGroup], go_modu
 
     let template = env.get_template("harness").unwrap();
     let output = template
-        .render(context! {
+        .render(crate::alef_context! {
             imports => vec![go_module_path],
             import_alias => import_alias,
             register_route_method => "RegisterRoute",

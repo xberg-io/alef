@@ -289,7 +289,7 @@ fn ts_bridged_setter(field: &FieldDef, js_name_attr: &str, is_optional: bool, va
     };
     crate::backends::wasm::template_env::render(
         "ts_bridged_setter",
-        minijinja::context! {
+        crate::alef_context! {
             js_name_attr => js_name_attr,
             field_name => field.name,
             param_type => param_type,
@@ -338,7 +338,7 @@ fn class_field_setter(field: &FieldDef, env: &AccessorEnv<'_>, js_name_attr: &st
     Some(
         crate::backends::wasm::template_env::render(
             "gen_class_field_setter",
-            minijinja::context! {
+            crate::alef_context! {
                 js_name_attr => js_name_attr,
                 setter_ident => format!("set_{}", field.name),
                 field_ident => field.name,
@@ -441,7 +441,7 @@ pub(super) fn gen_clear_method(
     Some(
         crate::backends::wasm::template_env::render(
             "gen_class_field_clear",
-            minijinja::context! {
+            crate::alef_context! {
                 js_name => to_node_name(&rust_ident),
                 clear_ident => rust_ident,
                 field_ident => field.name,

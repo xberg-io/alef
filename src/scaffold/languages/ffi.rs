@@ -382,7 +382,7 @@ tempfile = "{tempfile}"
     // "cleaner" hand-indented version would trigger on every regen. ~keep
     let cmake_content = crate::scaffold::template_env::render(
         "ffi_config.cmake.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             ffi_name => ffi_name,
             ffi_name_under => ffi_name_under,
             lib_name => lib_name,

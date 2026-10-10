@@ -33,7 +33,7 @@ fn emit_jni_client_method(
 
     out.push_str(&template_env::render(
         "jni_client_method_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             async_kw => async_kw,
             method_name => method_name,
             params => params_with_types.join(", "),
@@ -57,7 +57,7 @@ fn emit_jni_client_method_body(
     if let Some(capsule) = capsule {
         out.push_str(&template_env::render(
             "jni_capsule_body.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 is_async => method.is_async,
                 bridge_call => bridge_call,
                 construct_expr => capsule.construct_expr,
@@ -84,7 +84,7 @@ fn emit_jni_client_method_docs(m: &crate::core::ir::MethodDef, out: &mut String)
 fn emit_jni_client_line_comment(out: &mut String, line: &str) {
     out.push_str(&template_env::render(
         "line_comment.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             indent => "    ",
             line => line,
         },
@@ -192,7 +192,7 @@ fn emit_method_body(
         TypeRef::Unit => {
             out.push_str(&template_env::render(
                 "jni_unit_body.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     is_async => m.is_async,
                     bridge_call => bridge_call,
                 },
@@ -204,7 +204,7 @@ fn emit_method_body(
                 let base_wrapper = wrapper.trim_end_matches('?');
                 out.push_str(&template_env::render(
                     "jni_opaque_optional_body.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         is_async => m.is_async,
                         bridge_call => bridge_call,
                         wrapper_type => base_wrapper,
@@ -216,7 +216,7 @@ fn emit_method_body(
             let kotlin_ty = kotlin_type_with_string_imports(&m.return_type, false, imports);
             out.push_str(&template_env::render(
                 "jni_opaque_body.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     is_async => m.is_async,
                     bridge_call => bridge_call,
                     wrapper_type => kotlin_ty,
@@ -243,7 +243,7 @@ fn emit_method_body(
             };
             out.push_str(&template_env::render(
                 body_template,
-                minijinja::context! {
+                crate::alef_context! {
                     is_async => m.is_async,
                     bridge_call => bridge_call,
                     deserialize_call => deserialize_call,
@@ -253,7 +253,7 @@ fn emit_method_body(
         _ => {
             out.push_str(&template_env::render(
                 "jni_passthrough_body.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     is_async => m.is_async,
                     bridge_call => bridge_call,
                 },
@@ -296,7 +296,7 @@ fn emit_jni_streaming_client_method(
 
     out.push_str(&template_env::render(
         "jni_streaming_client_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => method_name,
             params => params.join(", "),
             item_type => item_type,

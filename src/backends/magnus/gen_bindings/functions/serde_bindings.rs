@@ -141,7 +141,7 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn magnus_serde_let_bin
                 if p.optional {
                     out.push(crate::backends::magnus::template_env::render(
                         "function_serde_named_binding.rs.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             mode => "optional",
                             name => &p.name,
                             core_import => core_import,
@@ -153,7 +153,7 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn magnus_serde_let_bin
                 } else if promoted || is_last_config {
                     out.push(crate::backends::magnus::template_env::render(
                         "function_serde_named_binding.rs.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             mode => "default",
                             name => &p.name,
                             core_import => core_import,
@@ -165,7 +165,7 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn magnus_serde_let_bin
                 } else {
                     out.push(crate::backends::magnus::template_env::render(
                         "function_serde_named_binding.rs.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             mode => "required",
                             name => &p.name,
                             core_import => core_import,
@@ -182,7 +182,7 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn magnus_serde_let_bin
                 if p.optional {
                     out.push(crate::backends::magnus::template_env::render(
                         "function_vec_refs_binding.rs.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                             optional => true,
                         },
@@ -190,7 +190,7 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn magnus_serde_let_bin
                 } else {
                     out.push(crate::backends::magnus::template_env::render(
                         "function_vec_refs_binding.rs.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                             optional => false,
                         },
@@ -203,7 +203,7 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn magnus_serde_let_bin
                 if p.optional {
                     out.push(crate::backends::magnus::template_env::render(
                         "function_sanitized_vec_binding.rs.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                             optional => true,
                             error_expr => err,
@@ -212,7 +212,7 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn magnus_serde_let_bin
                 } else {
                     out.push(crate::backends::magnus::template_env::render(
                         "function_sanitized_vec_binding.rs.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                             optional => false,
                             error_expr => err,
@@ -227,7 +227,7 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn magnus_serde_let_bin
                     if p.optional {
                         out.push(crate::backends::magnus::template_env::render(
                             "function_named_vec_binding.rs.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 name => &p.name,
                                 vec_ty => &vec_ty,
                                 optional => true,
@@ -236,7 +236,7 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn magnus_serde_let_bin
                     } else {
                         out.push(crate::backends::magnus::template_env::render(
                             "function_named_vec_binding.rs.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 name => &p.name,
                                 vec_ty => &vec_ty,
                                 optional => false,

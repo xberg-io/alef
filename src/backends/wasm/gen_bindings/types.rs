@@ -95,12 +95,12 @@ pub(super) fn gen_struct(
     let derives_default = !typ.has_default || !is_core_to_binding_convertible;
     out.push_str(&crate::backends::wasm::template_env::render(
         "gen_struct",
-        minijinja::context! {
+        crate::alef_context! {
             struct_name => js_name,
             unprefixed_name => typ.name,
             derives_default => derives_default,
             fields => fields.iter().map(|(name, ty)| {
-                minijinja::context! {
+                crate::alef_context! {
                     name => name,
                     field_type => ty,
                 }
@@ -449,7 +449,7 @@ fn gen_new_method(
 
     crate::backends::wasm::template_env::render(
         "gen_struct_constructor",
-        minijinja::context! {
+        crate::alef_context! {
             doc_lines => consumed_argument_doc(&filtered_fields, mapper, class_type_names, &borrowed),
             attrs => attrs,
             param_list => param_list_camel,

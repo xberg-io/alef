@@ -1,6 +1,5 @@
 use crate::backends::go::c_symbols;
 use crate::core::ir::{DefaultValue, FieldDef, TypeDef, TypeRef};
-use minijinja::context;
 
 /// Returns true if a field is a tuple struct positional field (e.g., `_0`, `_1`, `0`, `1`).
 /// Go structs require named fields, so these must be skipped.
@@ -191,7 +190,7 @@ pub(in crate::backends::go::gen_bindings) fn primary_go_error<'a>(
 
 /// Generate the `wrapLastError` helper, emitted only into a package whose conversions call it.
 pub(in crate::backends::go::gen_bindings) fn gen_last_error_wrap_helper() -> String {
-    crate::backends::go::template_env::render("last_error_wrap_helper.jinja", context! {})
+    crate::backends::go::template_env::render("last_error_wrap_helper.jinja", crate::alef_context! {})
 }
 
 /// Generate the lastError() helper function.
@@ -251,7 +250,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_last_error_helper(
                             crate::codegen::error_gen::LastErrorFieldKind::Text => "text",
                             crate::codegen::error_gen::LastErrorFieldKind::DurationMillis => "duration",
                         };
-                        context! {
+                        crate::alef_context! {
                             go_field => field.field_name,
                             go_type => field.go_type,
                             kind => kind_name,
@@ -265,7 +264,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_last_error_helper(
 
     crate::backends::go::template_env::render(
         "last_error_helper.jinja",
-        context! {
+        crate::alef_context! {
             last_error_code_fn => c_symbols::last_error_code_symbol(ffi_prefix),
             last_error_context_fn => c_symbols::last_error_context_symbol(ffi_prefix),
             last_error_variant_fn => c_symbols::last_error_variant_symbol(ffi_prefix),
@@ -308,7 +307,7 @@ pub(in crate::backends::go::gen_bindings) fn emit_type_doc(
     if doc.is_empty() {
         out.push_str(&crate::backends::go::template_env::render(
             "type_doc_header.jinja",
-            context! {
+            crate::alef_context! {
                 type_name => type_name,
                 doc => fallback,
             },
@@ -320,7 +319,7 @@ pub(in crate::backends::go::gen_bindings) fn emit_type_doc(
     if summary.is_empty() {
         out.push_str(&crate::backends::go::template_env::render(
             "type_doc_header.jinja",
-            context! {
+            crate::alef_context! {
                 type_name => type_name,
                 doc => fallback,
             },
@@ -359,7 +358,7 @@ fn emit_godoc_summary(out: &mut String, symbol_name: &str, summary: &str) {
     };
     out.push_str(&crate::backends::go::template_env::render(
         "type_doc_header.jinja",
-        context! {
+        crate::alef_context! {
             type_name => symbol_name,
             doc => &body,
         },
@@ -367,7 +366,7 @@ fn emit_godoc_summary(out: &mut String, symbol_name: &str, summary: &str) {
     for line in lines {
         out.push_str(&crate::backends::go::template_env::render(
             "go_doc_comment_line.jinja",
-            context! { line => line.trim() },
+            crate::alef_context! { line => line.trim() },
         ));
     }
 }

@@ -23,7 +23,7 @@ pub(super) fn resolve_core_type_path<'a>(
 pub(super) fn render_deser_line(template_name: &str, name: &str, core_type: &str) -> String {
     template_env::render(
         template_name,
-        minijinja::context! {
+        crate::alef_context! {
             name => name,
             core_type => core_type,
         },
@@ -35,7 +35,7 @@ pub(super) fn render_deser_line(template_name: &str, name: &str, core_type: &str
 pub(super) fn render_named_deser_line(template_name: &str, name: &str) -> String {
     template_env::render(
         template_name,
-        minijinja::context! {
+        crate::alef_context! {
             name => name,
         },
     )
@@ -54,7 +54,7 @@ pub(super) fn render_preamble(lines: &[String]) -> String {
 pub(super) fn render_result_body(preamble: &str, core_call: &str, wrap: &str) -> String {
     template_env::render(
         "nif_result_body.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             preamble => preamble,
             core_call => core_call,
             wrap => wrap,
@@ -65,7 +65,7 @@ pub(super) fn render_result_body(preamble: &str, core_call: &str, wrap: &str) ->
 pub(super) fn render_wrapped_body(preamble: &str, wrap: &str) -> String {
     template_env::render(
         "nif_wrapped_body.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             preamble => preamble,
             wrap => wrap,
         },
@@ -75,7 +75,7 @@ pub(super) fn render_wrapped_body(preamble: &str, wrap: &str) -> String {
 pub(super) fn render_async_body(template_name: &str, preamble: &str, core_call: &str, result_wrap: &str) -> String {
     template_env::render(
         template_name,
-        minijinja::context! {
+        crate::alef_context! {
             preamble => preamble,
             core_call => core_call,
             result_wrap => result_wrap,
@@ -86,7 +86,7 @@ pub(super) fn render_async_body(template_name: &str, preamble: &str, core_call: 
 pub(super) fn render_method_call(template_name: &str, core_path: &str, method_name: &str, call_args: &str) -> String {
     template_env::render(
         template_name,
-        minijinja::context! {
+        crate::alef_context! {
             core_path => core_path,
             method_name => method_name,
             call_args => call_args,
@@ -104,7 +104,7 @@ pub(super) fn render_method_call_with_preamble(
 ) -> String {
     template_env::render(
         "rust_method_static_call_with_preamble.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             preamble => preamble,
             core_path => core_path,
             method_name => method_name,

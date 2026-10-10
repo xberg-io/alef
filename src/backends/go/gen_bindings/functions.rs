@@ -193,7 +193,7 @@ impl FunctionSignature {
         };
         crate::backends::go::template_env::render(
             "function_signature.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 func_name => go_name,
                 params => params,
                 return_type => &ret_type_str,
@@ -382,13 +382,13 @@ fn gen_function_wrapper_impl(
         let wb_handle = go_param_name(&format!("c_{}", wb.name));
         out.push_str(&crate::backends::go::template_env::render(
             "c_call_simple.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 c_call => &c_call,
             },
         ));
         out.push_str(&crate::backends::go::template_env::render(
             "mut_writeback_return.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 ffi_prefix => ffi_prefix,
                 free_string_fn => c_symbols::free_string_symbol(ffi_prefix),
                 type_snake => &wb_type_snake,
@@ -406,7 +406,7 @@ fn gen_function_wrapper_impl(
     if is_bytes_result {
         out.push_str(&crate::backends::go::template_env::render(
             "bytes_result_call.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 c_call => &c_call,
                 ffi_prefix => ffi_prefix,
                 last_error_call => last_error_call,
@@ -427,7 +427,7 @@ fn gen_function_wrapper_impl(
         if matches!(func.return_type, TypeRef::Unit) {
             out.push_str(&crate::backends::go::template_env::render(
                 "c_call_simple.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     c_call => &c_call,
                 },
             ));
@@ -439,7 +439,7 @@ fn gen_function_wrapper_impl(
         } else {
             out.push_str(&crate::backends::go::template_env::render(
                 "c_ptr_assign.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     c_call => &c_call,
                 },
             ));
@@ -452,7 +452,7 @@ fn gen_function_wrapper_impl(
                     out.push_str("\t\tif ptr != nil {\n");
                     out.push_str(&crate::backends::go::template_env::render(
                         "free_string_on_error.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             free_string_fn => c_symbols::free_string_symbol(ffi_prefix),
                         },
                     ));
@@ -463,7 +463,7 @@ fn gen_function_wrapper_impl(
                     out.push_str("\t\tif ptr != 0 {\n");
                     out.push_str(&crate::backends::go::template_env::render(
                         "free_type_on_error.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             ffi_prefix => ffi_prefix,
                             type_snake => &type_snake,
                         },
@@ -473,7 +473,7 @@ fn gen_function_wrapper_impl(
                 let zero_value = crate::backends::go::type_map::go_zero_value(&func.return_type);
                 out.push_str(&crate::backends::go::template_env::render(
                     "return_zero_err.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         zero_value => &zero_value,
                     },
                 ));
@@ -485,7 +485,7 @@ fn gen_function_wrapper_impl(
             ) {
                 out.push_str(&crate::backends::go::template_env::render(
                     "free_string.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         free_string_fn => c_symbols::free_string_symbol(ffi_prefix),
                         ptr => "ptr",
                     },
@@ -497,7 +497,7 @@ fn gen_function_wrapper_impl(
                 let type_snake = c_symbols::type_component(name);
                 out.push_str(&crate::backends::go::template_env::render(
                     "free_type.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         ffi_prefix => ffi_prefix,
                         type_snake => &type_snake,
                         ptr => "ptr",
@@ -511,7 +511,7 @@ fn gen_function_wrapper_impl(
                         let type_snake = c_symbols::type_component(name);
                         out.push_str(&crate::backends::go::template_env::render(
                             "c_json_to_json.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 ffi_prefix => ffi_prefix,
                                 type_snake => &type_snake,
                             },
@@ -521,14 +521,14 @@ fn gen_function_wrapper_impl(
                         out.push_str("\t}\n");
                         out.push_str(&crate::backends::go::template_env::render(
                             "free_string.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 free_string_fn => c_symbols::free_string_symbol(ffi_prefix),
                                 ptr => "jsonPtr",
                             },
                         ));
                         out.push_str(&crate::backends::go::template_env::render(
                             "var_decl_type.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 type_name => name.as_str(),
                             },
                         ));
@@ -548,7 +548,7 @@ fn gen_function_wrapper_impl(
                         );
                         out.push_str(&crate::backends::go::template_env::render(
                             "method_return_simple.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 value => return_values,
                             },
                         ));
@@ -561,14 +561,14 @@ fn gen_function_wrapper_impl(
                         out.push_str("\t}\n");
                         out.push_str(&crate::backends::go::template_env::render(
                             "free_string.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 free_string_fn => c_symbols::free_string_symbol(ffi_prefix),
                                 ptr => "ptr",
                             },
                         ));
                         out.push_str(&crate::backends::go::template_env::render(
                             "var_decl_slice.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 element_type => &go_elem,
                             },
                         ));
@@ -577,7 +577,7 @@ fn gen_function_wrapper_impl(
                         out.push_str("\t}\n");
                         out.push_str(&crate::backends::go::template_env::render(
                             "method_return_simple.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 value => "result, nil",
                             },
                         ));
@@ -592,7 +592,7 @@ fn gen_function_wrapper_impl(
                     );
                     out.push_str(&crate::backends::go::template_env::render(
                         "method_return_simple.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             value => return_values,
                         },
                     ));
@@ -601,7 +601,7 @@ fn gen_function_wrapper_impl(
                 let return_expr = go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names, value_only_types);
                 out.push_str(&crate::backends::go::template_env::render(
                     "method_return_simple.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         value => return_expr,
                     },
                 ));
@@ -610,14 +610,14 @@ fn gen_function_wrapper_impl(
     } else if matches!(func.return_type, TypeRef::Unit) {
         out.push_str(&crate::backends::go::template_env::render(
             "c_call_simple.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 c_call => &c_call,
             },
         ));
     } else {
         out.push_str(&crate::backends::go::template_env::render(
             "c_ptr_assign.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 c_call => &c_call,
             },
         ));
@@ -627,7 +627,7 @@ fn gen_function_wrapper_impl(
         ) {
             out.push_str(&crate::backends::go::template_env::render(
                 "free_string.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     free_string_fn => c_symbols::free_string_symbol(ffi_prefix),
                     ptr => "ptr",
                 },
@@ -639,7 +639,7 @@ fn gen_function_wrapper_impl(
             let type_snake = c_symbols::type_component(name);
             out.push_str(&crate::backends::go::template_env::render(
                 "free_type.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     ffi_prefix => ffi_prefix,
                     type_snake => &type_snake,
                     ptr => "ptr",
@@ -649,7 +649,7 @@ fn gen_function_wrapper_impl(
         let return_expr = go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names, value_only_types);
         out.push_str(&crate::backends::go::template_env::render(
             "method_return_simple.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 value => return_expr,
             },
         ));

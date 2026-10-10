@@ -222,7 +222,7 @@ fn build_variant_untagged_string_enum_ts_plans(
         let value_type_name = format!("{ts_type_name}Value");
         let extern_type_declaration = crate::backends::wasm::template_env::render(
             "ts_extern_value_type",
-            minijinja::context! {
+            crate::alef_context! {
                 ts_type_name => ts_type_name,
                 value_type_name => value_type_name.clone(),
             },
@@ -246,7 +246,7 @@ fn build_variant_untagged_string_enum_ts_plans(
     } else {
         crate::backends::wasm::template_env::render(
             "ts_custom_section",
-            minijinja::context! {
+            crate::alef_context! {
                 const_name => "ALEF_VARIANT_UNTAGGED_STRING_ENUMS_TS",
                 ts_body => ts_body.clone(),
             },
@@ -358,7 +358,7 @@ fn build_flattened_internal_enum_ts_plans(
         let value_type_name = format!("{ts_type_name}Value");
         let extern_type_declaration = crate::backends::wasm::template_env::render(
             "ts_extern_value_type",
-            minijinja::context! {
+            crate::alef_context! {
                 ts_type_name => ts_type_name,
                 value_type_name => value_type_name.clone(),
             },
@@ -382,7 +382,7 @@ fn build_flattened_internal_enum_ts_plans(
     } else {
         crate::backends::wasm::template_env::render(
             "ts_custom_section",
-            minijinja::context! {
+            crate::alef_context! {
                 const_name => "ALEF_FLATTENED_INTERNAL_ENUMS_TS",
                 ts_body => ts_body.clone(),
             },
@@ -460,7 +460,7 @@ pub(super) fn build_untagged_enum_ts_plans(
         let value_type_name = format!("{ts_type_name}Value");
         let extern_type_declaration = crate::backends::wasm::template_env::render(
             "ts_extern_value_type",
-            minijinja::context! {
+            crate::alef_context! {
                 ts_type_name => ts_type_name,
                 value_type_name => value_type_name.clone(),
             },
@@ -484,7 +484,7 @@ pub(super) fn build_untagged_enum_ts_plans(
     } else {
         crate::backends::wasm::template_env::render(
             "ts_custom_section",
-            minijinja::context! {
+            crate::alef_context! {
                 const_name => "ALEF_UNTAGGED_UNIONS_TS",
                 ts_body => ts_body.clone(),
             },
@@ -501,7 +501,7 @@ pub(super) fn build_untagged_enum_ts_plans(
 fn render_alias(name: &str, members: &[String]) -> String {
     crate::backends::wasm::template_env::render(
         "ts_type_alias",
-        minijinja::context! { name => name, members => members },
+        crate::alef_context! { name => name, members => members },
     )
     .trim_end()
     .to_string()
@@ -517,9 +517,9 @@ fn render_aux_decl(decl: &TsAuxDecl) -> String {
 fn render_interface(name: &str, fields: &[TsField]) -> String {
     crate::backends::wasm::template_env::render(
         "ts_interface",
-        minijinja::context! {
+        crate::alef_context! {
             name => name,
-            fields => fields.iter().map(|f| minijinja::context! {
+            fields => fields.iter().map(|f| crate::alef_context! {
                 name => f.name,
                 ts_type => f.ts_type,
             }).collect::<Vec<_>>(),
@@ -532,8 +532,8 @@ fn render_interface(name: &str, fields: &[TsField]) -> String {
 fn render_inline_object(fields: &[TsField]) -> String {
     crate::backends::wasm::template_env::render(
         "ts_inline_object",
-        minijinja::context! {
-            fields => fields.iter().map(|f| minijinja::context! {
+        crate::alef_context! {
+            fields => fields.iter().map(|f| crate::alef_context! {
                 name => f.name,
                 ts_type => f.ts_type,
             }).collect::<Vec<_>>(),

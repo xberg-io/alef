@@ -90,7 +90,7 @@ pub(crate) fn emit_streaming_adapter_shims(
 
         out.push_str(&crate::backends::swift::template_env::render(
             "rust_stream_handle_struct.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 item_type => &item_type,
                 fn_start => &fn_start,
                 handle_name => &handle_name,
@@ -100,7 +100,7 @@ pub(crate) fn emit_streaming_adapter_shims(
 
         out.push_str(&crate::backends::swift::template_env::render(
             "rust_stream_handle_start.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 owner_type => owner_type,
                 adapter_name => &adapter.name,
                 handle_name => &handle_name,
@@ -115,7 +115,7 @@ pub(crate) fn emit_streaming_adapter_shims(
         // #[allow(clippy::should_implement_trait)] — the method name `next` deliberately
         out.push_str(&crate::backends::swift::template_env::render(
             "rust_stream_handle_next.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 handle_name => &handle_name,
             },
         ));

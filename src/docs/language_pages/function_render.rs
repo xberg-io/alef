@@ -16,7 +16,7 @@ pub(super) fn push_version_annotation(out: &mut String, version: &VersionAnnotat
         let since = version_labels::major_minor(since);
         out.push_str(&template_env::render(
             "since_badge.jinja",
-            minijinja::context! { since => since },
+            crate::alef_context! { since => since },
         ));
         out.push('\n');
         out.push('\n');
@@ -29,7 +29,7 @@ pub(super) fn push_version_annotation(out: &mut String, version: &VersionAnnotat
             .unwrap_or_default();
         out.push_str(&template_env::render(
             "deprecated_notice.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 since => since,
                 note => dep.note.as_deref().unwrap_or(""),
             },
@@ -76,7 +76,7 @@ pub(super) fn render_function(
 
     out.push_str(&template_env::render(
         "heading.jinja",
-        minijinja::context! { marker => "####", title => format!("{fn_name}()") },
+        crate::alef_context! { marker => "####", title => format!("{fn_name}()") },
     ));
 
     push_version_annotation(&mut out, &func.version);
@@ -101,7 +101,7 @@ pub(super) fn render_function(
     let sig = render_function_signature(func, lang, ffi_prefix, &api.crate_name, api);
     out.push_str(&template_env::render(
         "code_block.jinja",
-        minijinja::context! { lang_code => lang_code, body => sig },
+        crate::alef_context! { lang_code => lang_code, body => sig },
     ));
     out.push('\n');
 
@@ -167,7 +167,7 @@ pub(super) fn push_parameters_table(
             .unwrap_or_else(|| generate_param_description(&param.name, &param.ty));
         out.push_str(&template_env::render(
             "param_row.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => escape_table_cell(&pname),
                 ty => escape_table_cell(&pty),
                 required => required,
@@ -222,7 +222,7 @@ pub(super) fn push_returns_with_override(out: &mut String, render: &ReturnsRende
         if let Some(override_ty) = return_type_override {
             out.push_str(&template_env::render(
                 "returns.jinja",
-                minijinja::context! { ty => override_ty },
+                crate::alef_context! { ty => override_ty },
             ));
             out.push('\n');
             return;
@@ -260,7 +260,7 @@ pub(super) fn push_returns_with_override(out: &mut String, render: &ReturnsRende
     } else {
         out.push_str(&template_env::render(
             "returns.jinja",
-            minijinja::context! { ty => ret_ty },
+            crate::alef_context! { ty => ret_ty },
         ));
         out.push('\n');
     }
@@ -277,7 +277,7 @@ pub(super) fn push_errors(
         let error_phrase = format_error_phrase(err, return_type, lang, crate_name);
         out.push_str(&template_env::render(
             "errors_phrase.jinja",
-            minijinja::context! { phrase => error_phrase },
+            crate::alef_context! { phrase => error_phrase },
         ));
         out.push('\n');
     }

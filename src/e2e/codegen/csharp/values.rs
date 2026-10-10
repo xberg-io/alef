@@ -143,7 +143,7 @@ pub(super) fn render_collection_literal(prefix: &str, items: Vec<String>) -> Str
     }
     crate::e2e::template_env::render(
         "csharp/wrapped_collection_literal.jinja",
-        minijinja::context! { prefix => prefix, items => items },
+        crate::alef_context! { prefix => prefix, items => items },
     )
     .trim_end_matches('\n')
     .to_string()

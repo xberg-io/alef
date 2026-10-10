@@ -45,7 +45,7 @@ pub(super) fn gen_visitor_bridge(
     );
     let helper_fn = crate::backends::pyo3::template_env::render(
         "trait_bridge/nodecontext_to_py_object.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             context_type_path => context_helper.type_path,
             context_field_lines => context_helper.field_lines,
             binding_type_name => binding_class.map(|typ| typ.name.clone()),
@@ -55,7 +55,7 @@ pub(super) fn gen_visitor_bridge(
 
     let struct_def = crate::backends::pyo3::template_env::render(
         "trait_bridge/visitor_struct.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             struct_name => struct_name,
         },
     );
@@ -76,7 +76,7 @@ pub(super) fn gen_visitor_bridge(
     out.push_str(&struct_def);
     out.push_str(&crate::backends::pyo3::template_env::render(
         "trait_bridge/impl_header.jinja",
-        minijinja::context! { trait_path => trait_path, struct_name => struct_name },
+        crate::alef_context! { trait_path => trait_path, struct_name => struct_name },
     ));
     out.push_str(&methods_code);
     out.push_str("}\n");
@@ -179,7 +179,7 @@ fn gen_visitor_method(out: &mut String, method: &MethodDef, context: &VisitorMet
 
     let method_code = crate::backends::pyo3::template_env::render(
         "trait_bridge/visitor_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             wrapper => struct_name,
             method_name => name,
             sig => sig,
@@ -254,7 +254,7 @@ fn build_visitor_py_args(
                 let arg_name = collision_free_local_name(&format!("{}_py", p.name), &mut reserved_names);
                 setup.push_str(&crate::backends::pyo3::template_env::render(
                     "trait_bridge/visitor_context_arg.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         arg_name => arg_name,
                         borrow_expr => borrow_expr,
                         wrapper => struct_name,

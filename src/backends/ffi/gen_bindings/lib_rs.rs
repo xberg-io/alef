@@ -171,7 +171,7 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
 
     builder.add_item(&crate::backends::ffi::template_env::render(
         "handle_registry.rs.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
 
     builder.add_item(&gen_free_string(prefix));

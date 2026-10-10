@@ -26,13 +26,13 @@ fn emit_streaming_shims(
         let param_type = first_param.ty.rsplit("::").next().unwrap_or(&first_param.ty);
         request_unmarshal.push_str(&template_env::render(
             "stream_request_unmarshal.rs.jinja",
-            context! {
+            crate::alef_context! {
                 param_type => param_type,
             },
         ));
         stream_call_block = template_env::render(
             "stream_call_block.rs.jinja",
-            context! {
+            crate::alef_context! {
                 adapter_method => adapter_method,
                 request_arg => "request",
             },
@@ -40,7 +40,7 @@ fn emit_streaming_shims(
     } else {
         stream_call_block = template_env::render(
             "stream_call_block.rs.jinja",
-            context! {
+            crate::alef_context! {
                 adapter_method => adapter_method,
                 request_arg => "",
             },
@@ -49,7 +49,7 @@ fn emit_streaming_shims(
 
     out.push_str(&template_env::render(
         "streaming_shims.rs.jinja",
-        context! {
+        crate::alef_context! {
             stream_item_alias => stream_item_alias,
             stream_box_alias => stream_box_alias,
             stream_handle_type => stream_handle_type,

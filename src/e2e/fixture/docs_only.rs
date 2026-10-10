@@ -449,7 +449,7 @@ fn yaml_quoted(value: &str) -> String {
 fn render_docs_only_markdown(fixture: &DocsOnlyFixture) -> String {
     let rendered = crate::e2e::template_env::render(
         "snippets/docs_only_file.md.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             id => format!("docs_only_{}", fixture.id),
             topic => &fixture.topic,
             title_yaml => fixture.title.as_deref().map(yaml_quoted),

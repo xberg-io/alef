@@ -55,7 +55,7 @@ pub(super) fn emit_serde_adjacent_codable(
 
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_adjacent_codable.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             enum_name => &en.name,
             tag_ident => &tag_ident,
             tag_wire => tag,
@@ -92,7 +92,7 @@ fn payload_key_cases(en: &EnumDef) -> String {
     for (swift_name, wire_name) in keys {
         cases.push_str(&crate::backends::swift::template_env::render(
             "swift_adjacent_payload_key_case.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 swift_name => &swift_name,
                 wire_name => &wire_name,
             },
@@ -126,7 +126,7 @@ fn emit_decode_case(
     if variant.fields.is_empty() {
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_adjacent_decode_unit_case.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 variant_wire => variant_wire,
                 case_name => case_name,
             },
@@ -139,7 +139,7 @@ fn emit_decode_case(
         let optional = is_optional_field(field);
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_adjacent_decode_newtype_case.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 variant_wire => variant_wire,
                 case_name => case_name,
                 label => swift_associated_label(&field.name, 0),
@@ -171,7 +171,7 @@ fn emit_decode_case(
         .collect();
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_adjacent_decode_struct_case.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             variant_wire => variant_wire,
             case_name => case_name,
             content_ident => content_ident,
@@ -191,7 +191,7 @@ fn emit_encode_case(
     if variant.fields.is_empty() {
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_adjacent_encode_unit_case.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 variant_wire => variant_wire,
                 case_name => case_name,
                 tag_ident => tag_ident,
@@ -204,7 +204,7 @@ fn emit_encode_case(
         let field = &variant.fields[0];
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_adjacent_encode_newtype_case.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 variant_wire => variant_wire,
                 case_name => case_name,
                 tag_ident => tag_ident,
@@ -224,7 +224,7 @@ fn emit_encode_case(
         bindings.push(format!("let {label}"));
         field_encoders.push_str(&crate::backends::swift::template_env::render(
             "swift_adjacent_encode_field.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 label => &label,
                 key => &label,
                 encode_method => if is_optional_field(field) { "encodeIfPresent" } else { "encode" },
@@ -233,7 +233,7 @@ fn emit_encode_case(
     }
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_adjacent_encode_struct_case.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             variant_wire => variant_wire,
             case_name => case_name,
             tag_ident => tag_ident,

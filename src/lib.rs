@@ -40,6 +40,7 @@ pub mod publish;
 pub mod readme;
 pub mod scaffold;
 pub mod snippets;
+pub mod template;
 #[cfg(test)]
 pub(crate) mod test_support;
 

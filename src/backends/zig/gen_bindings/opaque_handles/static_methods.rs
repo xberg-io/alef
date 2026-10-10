@@ -64,7 +64,7 @@ pub(super) fn emit_opaque_static_method(
 
     out.push_str(&render(
         "opaque_static_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_snake => &method_snake,
             type_snake => &type_snake,
             params => &params_str,
@@ -87,7 +87,7 @@ pub(super) fn emit_opaque_static_method(
 
     out.push_str(&render(
         "opaque_static_body.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             c_call => &c_call,
             upper_prefix => &upper_prefix,
             type_name => &ty.name,

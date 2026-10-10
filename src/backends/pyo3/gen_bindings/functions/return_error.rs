@@ -37,7 +37,7 @@ pub(super) fn emit_function_return_call(out: &mut String, inputs: FunctionReturn
         };
         out.push_str(&crate::backends::pyo3::template_env::render(
             template,
-            minijinja::context! {
+            crate::alef_context! {
                 converter => converter,
                 return_prefix => return_prefix,
                 name => name,
@@ -50,7 +50,7 @@ pub(super) fn emit_function_return_call(out: &mut String, inputs: FunctionReturn
     if is_void_return {
         out.push_str(&crate::backends::pyo3::template_env::render(
             "function_call_statement.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 return_prefix => return_prefix,
                 name => name,
                 kwargs => kwargs.join(", "),
@@ -74,7 +74,7 @@ pub(super) fn emit_function_return_call(out: &mut String, inputs: FunctionReturn
         };
         out.push_str(&crate::backends::pyo3::template_env::render(
             "function_cast_return.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 cast_target => cast_target,
                 return_prefix => return_prefix,
                 name => name,
@@ -84,7 +84,7 @@ pub(super) fn emit_function_return_call(out: &mut String, inputs: FunctionReturn
     } else {
         out.push_str(&crate::backends::pyo3::template_env::render(
             "function_call.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 return_prefix => return_prefix,
                 name => name,
                 kwargs => kwargs.join(", "),

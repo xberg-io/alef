@@ -219,7 +219,7 @@ fn result_presence_companion_distinguishes_none_from_zero_valued_some_at_runtime
 
     let last_error = crate::backends::ffi::template_env::render(
         "last_error.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             prefix => "smp",
             builtin_prefix => "",
             error_code_impls => Vec::<String>::new(),
@@ -237,7 +237,7 @@ fn result_presence_companion_distinguishes_none_from_zero_valued_some_at_runtime
     // serde/serde_json, unneeded here (SampleConfig has no lifetime params) and unavailable to a
     // bare `rustc` invocation with no Cargo dependency graph.
     let mut handle_registry =
-        crate::backends::ffi::template_env::render("handle_registry.rs.jinja", minijinja::context! {});
+        crate::backends::ffi::template_env::render("handle_registry.rs.jinja", crate::alef_context! {});
     let serialized_start = handle_registry
         .find("struct SerializedHandle")
         .expect("serialized helper start");

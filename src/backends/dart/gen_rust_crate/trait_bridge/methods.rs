@@ -61,7 +61,7 @@ pub(super) fn emit_trait_bridge_method(
     let async_kw = if method.is_async { "async " } else { "" };
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_method_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             async_kw => async_kw,
             method_name => method_name.as_str(),
             params => params_sig.join(", "),
@@ -74,7 +74,7 @@ pub(super) fn emit_trait_bridge_method(
         if !conv.is_empty() {
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_trait_method_param_conversion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     conversion => conv,
                 },
             ));
@@ -149,7 +149,7 @@ pub(super) fn emit_trait_bridge_method(
             if method.error_type.is_some() {
                 out.push_str(&crate::backends::dart::template_env::render(
                     "rust_trait_excluded_async_result_return.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         carrier_type => carrier_type.as_str(),
                         call_expr => call_expr.as_str(),
                         core_path => core_path.as_str(),
@@ -158,7 +158,7 @@ pub(super) fn emit_trait_bridge_method(
             } else {
                 out.push_str(&crate::backends::dart::template_env::render(
                     "rust_trait_excluded_async_plain_return.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         carrier_type => carrier_type.as_str(),
                         call_expr => call_expr.as_str(),
                         core_path => core_path.as_str(),
@@ -168,7 +168,7 @@ pub(super) fn emit_trait_bridge_method(
         } else {
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_trait_method_block_on.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     call_expr => call_expr.as_str(),
                     result_var => "__ret_bridge",
                     has_error => method.error_type.is_some(),
@@ -180,14 +180,14 @@ pub(super) fn emit_trait_bridge_method(
             if method.error_type.is_some() {
                 out.push_str(&crate::backends::dart::template_env::render(
                     "rust_trait_excluded_block_on_result_return.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         core_path => core_path.as_str(),
                     },
                 ));
             } else {
                 out.push_str(&crate::backends::dart::template_env::render(
                     "rust_trait_excluded_block_on_plain_return.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         core_path => core_path.as_str(),
                     },
                 ));
@@ -207,7 +207,7 @@ pub(super) fn emit_trait_bridge_method(
             if named_return_default {
                 out.push_str(&crate::backends::dart::template_env::render(
                     "rust_trait_method_default_await.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         call_expr => call_expr.as_str(),
                         return_expr => "Ok(Default::default())",
                     },
@@ -215,14 +215,14 @@ pub(super) fn emit_trait_bridge_method(
             } else if ret_conv.is_empty() {
                 out.push_str(&crate::backends::dart::template_env::render(
                     "rust_trait_method_ok_await.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         call_expr => call_expr.as_str(),
                     },
                 ));
             } else {
                 out.push_str(&crate::backends::dart::template_env::render(
                     "rust_trait_method_await_result.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         call_expr => call_expr.as_str(),
                         ret_conv => ret_conv.as_str(),
                     },
@@ -231,7 +231,7 @@ pub(super) fn emit_trait_bridge_method(
         } else {
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_trait_method_block_on.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     call_expr => call_expr.as_str(),
                     result_var => "__result",
                     has_error => true,
@@ -242,14 +242,14 @@ pub(super) fn emit_trait_bridge_method(
             if named_return_default {
                 out.push_str(&crate::backends::dart::template_env::render(
                     "rust_trait_method_default_from_result.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         return_expr => "Ok(Default::default())",
                     },
                 ));
             } else {
                 out.push_str(&crate::backends::dart::template_env::render(
                     "rust_trait_method_ok_block_on.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         ret_conv => ret_conv.as_str(),
                     },
                 ));
@@ -259,7 +259,7 @@ pub(super) fn emit_trait_bridge_method(
         if named_return_default {
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_trait_method_default_await.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     call_expr => call_expr.as_str(),
                     return_expr => "Default::default()",
                 },
@@ -267,14 +267,14 @@ pub(super) fn emit_trait_bridge_method(
         } else if ret_conv.is_empty() {
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_trait_method_await_plain.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     call_expr => call_expr.as_str(),
                 },
             ));
         } else {
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_trait_method_await_result.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     call_expr => call_expr.as_str(),
                     ret_conv => ret_conv.as_str(),
                 },
@@ -283,7 +283,7 @@ pub(super) fn emit_trait_bridge_method(
     } else {
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_trait_method_block_on.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 call_expr => call_expr.as_str(),
                 result_var => "__result",
                 has_error => false,
@@ -294,7 +294,7 @@ pub(super) fn emit_trait_bridge_method(
         if named_return_default {
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_trait_method_default_from_result.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     return_expr => "Default::default()",
                 },
             ));
@@ -310,7 +310,7 @@ pub(super) fn emit_trait_bridge_method(
         } else {
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_trait_method_plain_block_on_result.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     ret_conv => ret_conv.as_str(),
                 },
             ));

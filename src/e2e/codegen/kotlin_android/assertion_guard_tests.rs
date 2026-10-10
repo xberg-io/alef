@@ -272,9 +272,9 @@ fn an_explicitly_disabled_test_is_not_reported_as_assertion_free() {
         path: std::path::PathBuf::from("src/test/kotlin/dev/sample/e2e/ExcludedBindingsTest.kt"),
         content: crate::e2e::template_env::render(
             "kotlin_android/excluded_fixtures.kt.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 package_name => "dev.sample",
-                entries => vec![minijinja::context! {
+                entries => vec![crate::alef_context! {
                     name => "visitor_round_trip",
                     reason => "visitor is excluded by crates.kotlin_android.exclude_functions",
                 }],

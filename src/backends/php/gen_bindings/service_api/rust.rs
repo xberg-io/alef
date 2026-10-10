@@ -3,7 +3,6 @@ use super::type_mapping::{find_contract, typeref_to_rust_type};
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, HandlerContractDef, ServiceDef};
 use heck::{ToSnakeCase, ToUpperCamelCase};
-use minijinja::context;
 
 /// Generate the Rust ext-php-rs glue module (`service.rs`).
 ///
@@ -112,7 +111,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 
     out.push_str(&render(
         "php_service_handler_bridge.jinja",
-        context! {
+        crate::alef_context! {
             trait_name => trait_name,
             bridge_name => &bridge_name,
             core_import => core_import,
@@ -158,7 +157,7 @@ fn gen_run_php_function(
 
     out.push_str(&render(
         "php_service_rust_function_start.jinja",
-        context! {
+        crate::alef_context! {
             owner_path => owner_path,
             ep_method => ep_method,
             fn_name => &fn_name,
@@ -169,7 +168,7 @@ fn gen_run_php_function(
     let ctor_call = build_ctor_call(service, owner_path, core_import);
     out.push_str(&render(
         "php_service_rust_owner_init.jinja",
-        context! { ctor_call => &ctor_call },
+        crate::alef_context! { ctor_call => &ctor_call },
     ));
 
     out.push_str("    // Register all handlers with the owner\n");
@@ -195,7 +194,7 @@ fn gen_run_php_function(
 
             out.push_str(&render(
                 "php_service_rust_registration_match_start.jinja",
-                context! { reg_method => reg_method },
+                crate::alef_context! { reg_method => reg_method },
             ));
 
             out.push_str("                        let handler_index = PHP_HANDLER_REGISTRY.with(|registry| {\n");
@@ -217,7 +216,7 @@ fn gen_run_php_function(
 
             out.push_str(&render(
                 "php_service_rust_bridge_binding.jinja",
-                context! {
+                crate::alef_context! {
                     bridge_name => &bridge_name,
                     core_import => core_import,
                     contract_name => contract_name,
@@ -230,7 +229,7 @@ fn gen_run_php_function(
                     let rust_ty = typeref_to_rust_type(&meta_param.ty, core_import);
                     out.push_str(&render(
                         "php_service_rust_metadata_binding.jinja",
-                        context! {
+                        crate::alef_context! {
                             name => &meta_param.name,
                             rust_ty => &rust_ty,
                             index => i,
@@ -240,7 +239,7 @@ fn gen_run_php_function(
                 let meta_args: Vec<String> = reg.metadata_params.iter().map(|p| p.name.clone()).collect();
                 out.push_str(&render(
                     "php_service_rust_owner_registration_call.jinja",
-                    context! {
+                    crate::alef_context! {
                         reg_method => reg_method,
                         args => &meta_args.join(", "),
                     },
@@ -248,7 +247,7 @@ fn gen_run_php_function(
             } else {
                 out.push_str(&render(
                     "php_service_rust_owner_registration_call.jinja",
-                    context! {
+                    crate::alef_context! {
                         reg_method => reg_method,
                         args => "",
                     },

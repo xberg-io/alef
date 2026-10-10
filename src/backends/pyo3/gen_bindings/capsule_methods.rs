@@ -66,7 +66,7 @@ pub(super) fn rewrite_capsule_methods(
                 if let TypeRef::Named(capsule_name) = &p.ty {
                     capsule_param_extract.push_str(&crate::backends::pyo3::template_env::render(
                         "pyo3_capsule_param_extract.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             param_name => p.name.as_str(),
                             capsule_name => capsule_name,
                         },

@@ -47,7 +47,7 @@ pub(crate) fn emit_trait_bridge_shims(
 
     out.push_str(&crate::backends::gleam::template_env::render(
         "trait_bridge_doc_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => trait_name,
         },
     ));
@@ -56,25 +56,25 @@ pub(crate) fn emit_trait_bridge_shims(
     {
         out.push_str(&crate::backends::gleam::template_env::render(
             "trait_type_doc_lines.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 doc_lines => ty.doc.lines().collect::<Vec<_>>(),
             },
         ));
         out.push_str(&crate::backends::gleam::template_env::render(
             "trait_bridge_empty_comment_line.jinja",
-            minijinja::context! {},
+            crate::alef_context! {},
         ));
     }
     out.push_str(&crate::backends::gleam::template_env::render(
         "trait_scope_cap.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
 
     if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
         imports.insert("import gleam/dynamic.{type Dynamic}");
         out.push_str(&crate::backends::gleam::template_env::render(
             "register_fn.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 nif_module => nif_module,
                 register_fn => register_fn,
                 gleam_register_fn => gleam_register_fn_name(trait_name),
@@ -86,7 +86,7 @@ pub(crate) fn emit_trait_bridge_shims(
     if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
         out.push_str(&crate::backends::gleam::template_env::render(
             "unregister_fn.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 nif_module => nif_module,
                 unregister_fn => unregister_fn,
             },
@@ -97,7 +97,7 @@ pub(crate) fn emit_trait_bridge_shims(
     if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
         out.push_str(&crate::backends::gleam::template_env::render(
             "clear_fn.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 nif_module => nif_module,
                 clear_fn => clear_fn,
             },
@@ -126,13 +126,13 @@ pub(crate) fn emit_trait_bridge_shims(
 
             out.push_str(&crate::backends::gleam::template_env::render(
                 "method_doc_header.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     method_snake => &method_snake,
                 },
             ));
             out.push_str(&crate::backends::gleam::template_env::render(
                 "method_doc_usage.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     method_snake => &method_snake,
                     nif_fn_name => &nif_fn_name,
                 },
@@ -141,14 +141,14 @@ pub(crate) fn emit_trait_bridge_shims(
             imports.insert("import gleam/dynamic.{type Dynamic}");
             out.push_str(&crate::backends::gleam::template_env::render(
                 "method_external.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     nif_module => nif_module,
                     nif_fn_name => &nif_fn_name,
                 },
             ));
             out.push_str(&crate::backends::gleam::template_env::render(
                 "method_signature.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     nif_fn_name => &nif_fn_name,
                     ok_type => &ok_type,
                     err_type => &err_type,
@@ -184,12 +184,12 @@ fn gleam_public_member_name(name: &str) -> String {
 pub(crate) fn emit_trait_support_nifs(nif_module: &str, out: &mut String) {
     out.push_str(&crate::backends::gleam::template_env::render(
         "support_nif_doc.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     out.push('\n');
     out.push_str(&crate::backends::gleam::template_env::render(
         "support_nif_complete.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             nif_module => nif_module,
         },
     ));
@@ -198,11 +198,11 @@ pub(crate) fn emit_trait_support_nifs(nif_module: &str, out: &mut String) {
 
     out.push_str(&crate::backends::gleam::template_env::render(
         "support_nif_fail_doc.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     out.push_str(&crate::backends::gleam::template_env::render(
         "support_nif_fail.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             nif_module => nif_module,
         },
     ));

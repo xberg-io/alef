@@ -41,7 +41,7 @@ pub(crate) fn emit_inbound_wrapper(
     if emit_plugin {
         out.push_str(&crate::backends::swift::template_env::render(
             "inbound_wrapper_struct.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 trait_name => trait_name,
                 wrapper_name => &wrapper_name,
                 box_name => &box_name,
@@ -50,7 +50,7 @@ pub(crate) fn emit_inbound_wrapper(
     } else {
         out.push_str(&crate::backends::swift::template_env::render(
             "inbound_plain_wrapper_struct.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 trait_name => trait_name,
                 wrapper_name => &wrapper_name,
                 box_name => &box_name,
@@ -63,7 +63,7 @@ pub(crate) fn emit_inbound_wrapper(
         {
             out.push_str(&crate::backends::swift::template_env::render(
                 "inbound_plain_wrapper_debug.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     wrapper_name => &wrapper_name,
                 },
             ));
@@ -74,7 +74,7 @@ pub(crate) fn emit_inbound_wrapper(
         if let Some(plugin_path) = plugin_path.as_deref() {
             out.push_str(&crate::backends::swift::template_env::render(
                 "inbound_plugin_impl.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     plugin_path => plugin_path,
                     wrapper_name => &wrapper_name,
                     result_type => result_type(source_crate, error_type, "()"),
@@ -83,7 +83,7 @@ pub(crate) fn emit_inbound_wrapper(
         } else {
             out.push_str(&crate::backends::swift::template_env::render(
                 "inbound_plugin_path_compile_error.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     trait_name => trait_name,
                 },
             ));
@@ -94,7 +94,7 @@ pub(crate) fn emit_inbound_wrapper(
     let has_async = trait_def.methods.iter().any(|m| m.is_async);
     out.push_str(&crate::backends::swift::template_env::render(
         "inbound_trait_impl_open.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             has_async => has_async,
             trait_path => &trait_path,
             wrapper_name => &wrapper_name,
@@ -131,7 +131,7 @@ pub(crate) fn emit_inbound_wrapper(
             .unwrap_or_default();
         out.push_str(&crate::backends::swift::template_env::render(
             "inbound_register_fn.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 trait_name => trait_name,
                 register_fn => register_fn,
                 box_name => &box_name,
@@ -225,7 +225,7 @@ pub(crate) fn emit_plugin_error_helper(source_crate: &str, error_type: &str, err
     let plugin_error_constructor = error_constructor.replace("{msg}", "message");
     crate::backends::swift::template_env::render(
         "plugin_error_helper.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             error_type_path => &error_type_path,
             plugin_error_constructor => &plugin_error_constructor,
         },

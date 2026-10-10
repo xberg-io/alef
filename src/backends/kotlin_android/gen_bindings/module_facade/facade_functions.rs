@@ -57,7 +57,7 @@ pub(super) fn emit_facade(params: FacadeParams, files: &mut Vec<GeneratedFile>) 
     let imports = facade_imports(functions, &context);
     let mut body = template_env::render(
         "module_object_header.jinja",
-        minijinja::context! { module_name => module_name },
+        crate::alef_context! { module_name => module_name },
     );
     if context.needs_jackson {
         append_jackson_configuration(&mut body);
@@ -141,7 +141,7 @@ fn jackson_imports() -> [&'static str; 9] {
 fn append_jackson_configuration(body: &mut String) {
     body.push_str(&template_env::render(
         "android_facade_jackson_config.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             duration_millis_module => crate::backends::kotlin::duration_millis_jackson_module(8),
         },
     ));
@@ -231,7 +231,7 @@ fn emit_optional_opaque_wrapper(
     let expression = format!("{}.takeIf {{ it != 0L }}?.let(::{type_name})", projection.bridge_call);
     body.push_str(&template_env::render(
         "android_facade_expr_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => projection.method_name,
             params => projection.params,
             return_type => format!("{type_name}?"),
@@ -255,7 +255,7 @@ fn emit_dto_method(body: &mut String, function: &FunctionDef, projection: &Funct
     if !projection.method_already_async {
         body.push_str(&template_env::render(
             "android_facade_dto_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => projection.method_name,
                 params => projection.params,
                 return_type => projection.return_type,
@@ -277,7 +277,7 @@ fn emit_dto_suspend_method(body: &mut String, projection: &FunctionProjection, r
     }
     body.push_str(&template_env::render(
         "android_facade_dto_async_impl.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => projection.method_name,
             params => projection.params,
             return_type => projection.return_type,
@@ -297,7 +297,7 @@ fn emit_generic_method(
     if !projection.method_already_async {
         body.push_str(&template_env::render(
             "android_facade_generic_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => projection.method_name,
                 params => projection.params,
                 return_type => projection.return_type,
@@ -319,7 +319,7 @@ fn emit_generic_suspend_method(body: &mut String, projection: &FunctionProjectio
     }
     body.push_str(&template_env::render(
         "android_facade_generic_async_impl.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => projection.method_name,
             params => projection.params,
             return_type => projection.return_type,
@@ -332,7 +332,7 @@ fn emit_generic_suspend_method(body: &mut String, projection: &FunctionProjectio
 fn emit_async_delegate(body: &mut String, projection: &FunctionProjection) {
     body.push_str(&template_env::render(
         "android_facade_async_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => projection.method_name,
             params => projection.params,
             return_type => projection.return_type,
@@ -351,7 +351,7 @@ fn emit_opaque_method(body: &mut String, function: &FunctionDef, projection: &Fu
 fn emit_expression_method(body: &mut String, projection: &FunctionProjection, expression: String) {
     body.push_str(&template_env::render(
         "android_facade_expr_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => projection.method_name,
             params => projection.params,
             return_type => projection.return_type,

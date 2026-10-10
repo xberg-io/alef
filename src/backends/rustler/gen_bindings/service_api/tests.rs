@@ -302,7 +302,7 @@ fn genserver_template_matches_mix_format_when_available() {
 
     let rendered = crate::backends::rustler::template_env::render(
         "service_api_genserver.ex.jinja",
-        minijinja::context! { server_module => "TestService.Handler" },
+        crate::alef_context! { server_module => "TestService.Handler" },
     );
     let code = format!("defmodule Wrapper do\n{rendered}end\n");
 

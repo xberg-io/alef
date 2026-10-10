@@ -9,7 +9,7 @@ pub fn gen_pyo3_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef)
         .join(", ");
     let fields: Vec<_> = constructor_fields(typ)
         .map(|field| {
-            minijinja::context! {
+            crate::alef_context! {
                 name => field.name.clone(),
                 type => type_mapper(&field.ty),
             }
@@ -18,7 +18,7 @@ pub fn gen_pyo3_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef)
 
     crate::codegen::template_env::render(
         "config_gen/pyo3_kwargs_constructor.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             signature_defaults => signature_defaults,
             fields => fields,
         },

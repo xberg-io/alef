@@ -184,7 +184,7 @@ fn visitor_handle_alias_is_u64_backed_not_a_pointer() {
     // not a raw pointer — the alias type must match that ABI.
     let out = crate::backends::zig::template_env::render(
         "trait_bridge_alias.jinja",
-        minijinja::context! { alias => "VisitorHandle" },
+        crate::alef_context! { alias => "VisitorHandle" },
     );
     assert!(
         out.contains("pub const VisitorHandle = u64;"),

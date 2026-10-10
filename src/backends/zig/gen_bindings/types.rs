@@ -20,7 +20,7 @@ pub(crate) fn emit_type(ty: &TypeDef, enums: &[EnumDef], config: &ResolvedCrateC
     emit_cleaned_zig_doc(out, &ty.doc, "");
     out.push_str(&crate::backends::zig::template_env::render(
         "type_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             type_name => &ty.name,
         },
     ));
@@ -30,7 +30,7 @@ pub(crate) fn emit_type(ty: &TypeDef, enums: &[EnumDef], config: &ResolvedCrateC
         let field_default = zig_field_default(field, enums);
         out.push_str(&crate::backends::zig::template_env::render(
             "type_field.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 field_name => zig_field_identifier(ty, field, config),
                 field_type => ty_str,
                 field_default => field_default,
@@ -89,7 +89,7 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
     if all_unit {
         out.push_str(&crate::backends::zig::template_env::render(
             "enum_unit_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 enum_name => &en.name,
             },
         ));
@@ -102,7 +102,7 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
             );
             out.push_str(&crate::backends::zig::template_env::render(
                 "enum_unit_variant.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     variant_name => public_host_identifier(Language::Zig, PublicIdentifierKind::EnumVariant, &tag_value),
                 },
             ));
@@ -111,7 +111,7 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
     } else {
         out.push_str(&crate::backends::zig::template_env::render(
             "enum_tagged_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 enum_name => &en.name,
             },
         ));
@@ -126,7 +126,7 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
             if variant.fields.is_empty() {
                 out.push_str(&crate::backends::zig::template_env::render(
                     "enum_variant_void.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         tag => &tag,
                     },
                 ));
@@ -134,7 +134,7 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
                 let ty_str = zig_field_type(&variant.fields[0].ty, variant.fields[0].optional);
                 out.push_str(&crate::backends::zig::template_env::render(
                     "enum_variant_single.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         tag => &tag,
                         type_str => ty_str,
                     },
@@ -142,7 +142,7 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
             } else {
                 out.push_str(&crate::backends::zig::template_env::render(
                     "enum_variant_struct_header.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         tag => &tag,
                     },
                 ));
@@ -155,7 +155,7 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
                     let ty_str = zig_field_type(&f.ty, f.optional);
                     out.push_str(&crate::backends::zig::template_env::render(
                         "enum_variant_struct_field.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             field_name => name,
                             field_type => ty_str,
                         },

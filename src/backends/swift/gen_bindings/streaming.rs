@@ -6,7 +6,7 @@ pub(super) fn render_streaming_chunk_decode(
 ) -> String {
     crate::backends::swift::template_env::render(
         "swift_streaming_chunk_decode.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             item_type => item_type,
             item_type_from_json => item_type_from_json,
             is_first_class => is_first_class,

@@ -197,7 +197,7 @@ pub(super) fn gen_wrapper_function(
             let optional_text = if param.optional { "Optional." } else { "" };
             out.push_str(&render(
                 "param_doc.jinja",
-                minijinja::context! { param_name, optional_text },
+                crate::alef_context! { param_name, optional_text },
             ));
         }
     }
@@ -210,7 +210,7 @@ pub(super) fn gen_wrapper_function(
         } else {
             let return_type = csharp_type(&func.return_type);
             out.push_str(
-                render("async_task_return_type.jinja", minijinja::context! { return_type }).trim_end_matches('\n'),
+                render("async_task_return_type.jinja", crate::alef_context! { return_type }).trim_end_matches('\n'),
             );
         }
     } else if func.return_type == TypeRef::Unit {
@@ -236,7 +236,7 @@ pub(super) fn gen_wrapper_function(
             out.push_str(
                 render(
                     "param_decl_optional.jinja",
-                    minijinja::context! { param_type, param_name },
+                    crate::alef_context! { param_type, param_name },
                 )
                 .trim_end_matches('\n'),
             );
@@ -244,7 +244,7 @@ pub(super) fn gen_wrapper_function(
             out.push_str(
                 render(
                     "param_decl_required.jinja",
-                    minijinja::context! { param_type, param_name },
+                    crate::alef_context! { param_type, param_name },
                 )
                 .trim_end_matches('\n'),
             );
@@ -261,7 +261,7 @@ pub(super) fn gen_wrapper_function(
         let is_enum = matches!(&param.ty, TypeRef::Named(n) if enum_names.contains(n.as_str()));
         if !param.optional && !is_enum && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes) {
             let param_name = param.name.to_lower_camel_case();
-            out.push_str(&render("null_check.jinja", minijinja::context! { param_name }));
+            out.push_str(&render("null_check.jinja", crate::alef_context! { param_name }));
         }
     }
 
@@ -282,12 +282,12 @@ pub(super) fn gen_wrapper_function(
             let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
             args_block.push_str(&render(
                 "native_arg_line.jinja",
-                minijinja::context! { indent => "            ", arg },
+                crate::alef_context! { indent => "            ", arg },
             ));
             if matches!(param.ty, TypeRef::Bytes) {
                 args_block.push_str(&render(
                     "native_bytes_len_arg_line.jinja",
-                    minijinja::context! { indent => "            ", param_name, optional => param.optional },
+                    crate::alef_context! { indent => "            ", param_name, optional => param.optional },
                 ));
             }
         }
@@ -301,7 +301,7 @@ pub(super) fn gen_wrapper_function(
         );
         out.push_str(&render(
             "bytes_result_call.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 native_method_name => &cs_native_name,
                 args_block => &args_block,
                 cleanup_block => &cleanup_block,
@@ -483,7 +483,7 @@ pub(super) fn gen_wrapper_method(
             let optional_text = if param.optional { "Optional." } else { "" };
             out.push_str(&render(
                 "param_doc.jinja",
-                minijinja::context! { param_name, optional_text },
+                crate::alef_context! { param_name, optional_text },
             ));
         }
     }
@@ -496,7 +496,7 @@ pub(super) fn gen_wrapper_method(
         } else {
             let return_type = csharp_type(&method.return_type);
             out.push_str(
-                render("async_task_return_type.jinja", minijinja::context! { return_type }).trim_end_matches('\n'),
+                render("async_task_return_type.jinja", crate::alef_context! { return_type }).trim_end_matches('\n'),
             );
         }
     } else if method.return_type == TypeRef::Unit {
@@ -531,7 +531,7 @@ pub(super) fn gen_wrapper_method(
             out.push_str(
                 render(
                     "param_decl_optional.jinja",
-                    minijinja::context! { param_type, param_name },
+                    crate::alef_context! { param_type, param_name },
                 )
                 .trim_end_matches('\n'),
             );
@@ -539,7 +539,7 @@ pub(super) fn gen_wrapper_method(
             out.push_str(
                 render(
                     "param_decl_required.jinja",
-                    minijinja::context! { param_type, param_name },
+                    crate::alef_context! { param_type, param_name },
                 )
                 .trim_end_matches('\n'),
             );
@@ -556,7 +556,7 @@ pub(super) fn gen_wrapper_method(
         let is_enum = matches!(&param.ty, TypeRef::Named(n) if enum_names.contains(n.as_str()));
         if !param.optional && !is_enum && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes) {
             let param_name = param.name.to_lower_camel_case();
-            out.push_str(&render("null_check.jinja", minijinja::context! { param_name }));
+            out.push_str(&render("null_check.jinja", crate::alef_context! { param_name }));
         }
     }
 
@@ -576,7 +576,7 @@ pub(super) fn gen_wrapper_method(
         if has_receiver {
             args_block.push_str(&render(
                 "native_arg_line.jinja",
-                minijinja::context! { indent => "            ", arg => "handle" },
+                crate::alef_context! { indent => "            ", arg => "handle" },
             ));
         }
         for param in visible_params.iter() {
@@ -584,12 +584,12 @@ pub(super) fn gen_wrapper_method(
             let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
             args_block.push_str(&render(
                 "native_arg_line.jinja",
-                minijinja::context! { indent => "            ", arg },
+                crate::alef_context! { indent => "            ", arg },
             ));
             if matches!(param.ty, TypeRef::Bytes) {
                 args_block.push_str(&render(
                     "native_bytes_len_arg_line.jinja",
-                    minijinja::context! { indent => "            ", param_name, optional => param.optional },
+                    crate::alef_context! { indent => "            ", param_name, optional => param.optional },
                 ));
             }
         }
@@ -603,7 +603,7 @@ pub(super) fn gen_wrapper_method(
         );
         out.push_str(&render(
             "bytes_result_call.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 native_method_name => &cs_native_name,
                 args_block => &args_block,
                 cleanup_block => &cleanup_block,

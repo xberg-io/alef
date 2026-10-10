@@ -140,7 +140,7 @@ pub fn gen_php_error_converter(error: &ErrorDef, core_import: &str) -> String {
 
     crate::codegen::template_env::render(
         "error_gen/php_error_converter.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             rust_path => rust_path.as_str(),
             fn_name => fn_name.as_str(),
             variants => variants,
@@ -260,7 +260,7 @@ pub fn gen_magnus_error_converter(error: &ErrorDef, core_import: &str) -> String
 
     crate::codegen::template_env::render(
         "error_gen/magnus_error_converter.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             rust_path => rust_path.as_str(),
             fn_name => fn_name.as_str(),
         },
@@ -284,7 +284,7 @@ pub fn gen_rustler_error_converter(error: &ErrorDef, core_import: &str) -> Strin
 
     crate::codegen::template_env::render(
         "error_gen/rustler_error_converter.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             rust_path => rust_path.as_str(),
             fn_name => fn_name.as_str(),
         },
@@ -312,7 +312,7 @@ pub fn gen_ffi_error_codes(error: &ErrorDef) -> String {
 
     crate::codegen::template_env::render(
         "error_gen/ffi_error_codes.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             error_name => error.name.as_str(),
             prefix => prefix.as_str(),
             prefix_lower => prefix_lower.as_str(),

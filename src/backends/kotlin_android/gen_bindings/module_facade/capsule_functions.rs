@@ -36,7 +36,7 @@ pub(super) fn emit_capsule_function_wrapper(
     match capsule_function_projection(function, bridge_name, capsule) {
         Ok(projection) => body.push_str(&template_env::render(
             "capsule_function_wrapper.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => projection.method_name,
                 params => projection.params,
                 host_type => projection.host_type,
@@ -49,7 +49,7 @@ pub(super) fn emit_capsule_function_wrapper(
         )),
         Err(error) => body.push_str(&template_env::render(
             "generation_error.jinja",
-            minijinja::context! { error => error.to_string() },
+            crate::alef_context! { error => error.to_string() },
         )),
     }
 }

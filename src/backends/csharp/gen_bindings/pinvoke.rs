@@ -65,14 +65,14 @@ fn param_declarations(
         }
         let param_name = param.name.to_lower_camel_case();
         out.push_str(
-            render("pinvoke_param.jinja", minijinja::context! { pinvoke_ty, param_name }).trim_end_matches('\n'),
+            render("pinvoke_param.jinja", crate::alef_context! { pinvoke_ty, param_name }).trim_end_matches('\n'),
         );
         out.push_str(",\n");
         if matches!(param.ty, TypeRef::Bytes) {
             let len_param_name = format!("{param_name}Len");
             out.push_str(&render(
                 "pinvoke_bytes_len_param.jinja",
-                minijinja::context! { len_param_name },
+                crate::alef_context! { len_param_name },
             ));
         }
     }
@@ -89,10 +89,10 @@ fn param_declarations(
 
 /// One `[DllImport]` declaration, plus the presence companion's when the FFI crate exports one.
 fn declaration(entry_point: &str, cs_name: &str, return_type: &str, params: &str) -> String {
-    let mut out = render("dll_import_attr.jinja", minijinja::context! { entry_point });
+    let mut out = render("dll_import_attr.jinja", crate::alef_context! { entry_point });
     out.push_str(&render(
         "pinvoke_declaration.jinja",
-        minijinja::context! { return_type, cs_name, params },
+        crate::alef_context! { return_type, cs_name, params },
     ));
     out
 }

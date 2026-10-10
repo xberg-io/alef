@@ -36,7 +36,7 @@ pub(super) fn emit_typealiases(
         if ty.is_trait {
             body.push_str(&crate::backends::kotlin::template_env::render(
                 "typealias_trait.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => &ty.name,
                     java_package => java_package,
                 },
@@ -49,7 +49,7 @@ pub(super) fn emit_typealiases(
             // spellings across a `typealias`, which does not compile. ~keep
             body.push_str(&crate::backends::kotlin::template_env::render(
                 "typealias_type.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => &ty.name,
                     java_package => java_package,
                 },
@@ -68,7 +68,7 @@ pub(super) fn emit_typealiases(
     for en in &visible_enums {
         body.push_str(&crate::backends::kotlin::template_env::render(
             "typealias_type.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &en.name,
                 java_package => java_package,
             },
@@ -81,7 +81,7 @@ pub(super) fn emit_typealiases(
     for error in &api.errors {
         body.push_str(&crate::backends::kotlin::template_env::render(
             "typealias_error.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &error.name,
                 java_package => java_package,
             },

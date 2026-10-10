@@ -78,7 +78,7 @@ pub(super) fn gen_service_rb(api: &ApiSurface, native_module_name: &str, gem_req
 
     out.push_str(&render(
         "service_rb_header.rb.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             gem_require_name => gem_require_name,
             has_services => !api.services.is_empty(),
             native_module_name => native_module_name,
@@ -102,7 +102,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
     let class_name = &service.name;
     out.push_str(&render(
         "service_rb_class_header.rb.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             doc_comment => format_ruby_comment(&service.doc, 2),
             class_name => class_name,
         },
@@ -131,7 +131,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
 
         out.push_str(&render(
             "service_rb_initialize.rb.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 param_sig => param_sig,
                 doc_comment => format_ruby_comment(&ctor.doc, 6),
                 stored_args => stored_args,
@@ -158,7 +158,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
         let params: Vec<&str> = method.params.iter().map(|p| p.name.as_str()).collect();
         out.push_str(&render(
             "service_rb_configurator.rb.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => method_name,
                 param_sig => param_sig,
                 doc_comment => format_ruby_comment(&method.doc, 6),
@@ -193,7 +193,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
                 let call_args = ep.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
                 out.push_str(&render(
                     "service_rb_entrypoint.rb.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         method_name => ep_name,
                         param_sig => param_sig,
                         doc_comment => format_ruby_comment(&ep.doc, 6),
@@ -208,7 +208,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
                 let call_args = ep.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
                 out.push_str(&render(
                     "service_rb_entrypoint.rb.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         method_name => ep_name,
                         param_sig => param_sig,
                         doc_comment => format_ruby_comment(&ep.doc, 6),
@@ -265,7 +265,7 @@ fn gen_registration_method(
 
     out.push_str(&render(
         "service_rb_registration_method.rb.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => method_name,
             param_sig => param_sig,
             doc_comment => format_ruby_comment(&reg.doc, 6),
@@ -283,7 +283,7 @@ fn gen_registration_method(
         };
         out.push_str(&render(
             "service_rb_direct_registration_method.rb.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 direct_name => direct_name,
                 direct_param_sig => direct_param_sig,
                 method_name => method_name,
@@ -358,7 +358,7 @@ fn gen_registration_variant(
     };
     out.push_str(&render(
         "service_rb_registration_variant.rb.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             variant_name => variant_name,
             param_sig => param_sig,
             doc_comment => doc_comment,
@@ -380,7 +380,7 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     let core_import = config.core_import_name();
     let mut out = String::new();
 
-    out.push_str(&render("service_rs_header.rs.jinja", minijinja::context! {}));
+    out.push_str(&render("service_rs_header.rs.jinja", crate::alef_context! {}));
 
     let referenced_contracts: Vec<&HandlerContractDef> = {
         let mut names: Vec<&str> = api
@@ -463,7 +463,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 
     out.push_str(&render(
         "service_rs_handler_bridge.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => trait_name,
             bridge_name => bridge_name,
             core_import => core_import,
@@ -481,7 +481,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 
     out.push_str(&render(
         "service_rs_ruby_proc_gvl_helpers.rs.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
 }
 
@@ -504,7 +504,7 @@ fn gen_variant_match_arm(
 
     out.push_str(&render(
         "service_rs_variant_match_arm_header.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             variant_name => variant_name,
             bridge_name => bridge_name,
             core_import => core_import,
@@ -523,7 +523,7 @@ fn gen_variant_match_arm(
         if !free_params.is_empty() {
             out.push_str(&render(
                 "service_rs_meta_array_extract.rs.jinja",
-                minijinja::context! {},
+                crate::alef_context! {},
             ));
 
             for (i, param) in free_params.iter().enumerate() {
@@ -553,7 +553,7 @@ fn gen_variant_match_arm(
         );
         out.push_str(&render(
             "service_rs_wrapper_owner_call.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 metadata_param => &wc.metadata_param,
                 wrapper_type_path => &wc.wrapper_type_path,
                 call_expr => &call_expr,
@@ -563,7 +563,7 @@ fn gen_variant_match_arm(
     } else {
         out.push_str(&render(
             "service_rs_owner_call.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => base_method,
                 args => "",
                 fallible => base_reg.error_type.is_some(),
@@ -592,7 +592,7 @@ fn render_metadata_param_extract(
     match &param.ty {
         TypeRef::String | TypeRef::Char => out.push_str(&render(
             "service_rs_metadata_extract_entry.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 param_name => &param.name,
                 rust_ty => &rust_ty,
                 extract_ty => "String",
@@ -608,7 +608,7 @@ fn render_metadata_param_extract(
             };
             out.push_str(&render(
                 "service_rs_metadata_extract_entry.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     param_name => &param.name,
                     rust_ty => &rust_ty,
                     extract_ty => extract_ty,
@@ -620,7 +620,7 @@ fn render_metadata_param_extract(
             let clone_expr = format!("{}.inner.as_ref().clone()", param.name);
             out.push_str(&render(
                 "service_rs_metadata_extract_try_convert.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     param_name => &param.name,
                     binding_ty => format!("&crate::{n}"),
                     index => index as isize,
@@ -632,7 +632,7 @@ fn render_metadata_param_extract(
             let clone_expr = format!("(*{}).clone()", param.name);
             out.push_str(&render(
                 "service_rs_metadata_extract_try_convert.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     param_name => &param.name,
                     binding_ty => format!("&{rust_ty}"),
                     index => index as isize,
@@ -642,7 +642,7 @@ fn render_metadata_param_extract(
         }
         _ => out.push_str(&render(
             "service_rs_metadata_extract_try_convert.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 param_name => &param.name,
                 binding_ty => &rust_ty,
                 index => index as isize,
@@ -687,7 +687,7 @@ fn gen_run_function(
     let ctor_call = build_ctor_call(service, owner_path, core_import);
     out.push_str(&render(
         "service_rs_run_function_header.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             owner_path => owner_path,
             ep_method => ep_method,
             fn_name => fn_name,
@@ -705,7 +705,7 @@ fn gen_run_function(
 
             out.push_str(&render(
                 "service_rs_registration_match_arm_header.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     reg_method => reg_method,
                     bridge_name => bridge_name,
                     core_import => core_import,
@@ -716,7 +716,7 @@ fn gen_run_function(
             if meta_count > 0 {
                 out.push_str(&render(
                     "service_rs_meta_array_extract.rs.jinja",
-                    minijinja::context! {},
+                    crate::alef_context! {},
                 ));
 
                 for (i, meta_param) in reg.metadata_params.iter().enumerate() {
@@ -726,7 +726,7 @@ fn gen_run_function(
                 let meta_args: Vec<String> = reg.metadata_params.iter().map(|p| p.name.clone()).collect();
                 out.push_str(&render(
                     "service_rs_owner_call.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         method_name => reg_method,
                         args => meta_args.join(", "),
                         fallible => reg.error_type.is_some(),
@@ -735,7 +735,7 @@ fn gen_run_function(
             } else {
                 out.push_str(&render(
                     "service_rs_owner_call.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         method_name => reg_method,
                         args => "",
                         fallible => reg.error_type.is_some(),
@@ -752,7 +752,7 @@ fn gen_run_function(
     let ep_call = build_ep_call(ep, service, core_import);
     out.push_str(&render(
         "service_rs_run_function_footer.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             ep_call => ep_call,
         },
     ));
@@ -792,7 +792,7 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, service: &ServiceDef, _cor
         // SAFETY: called on a Ruby thread (GVL held); `rb_thread_call_without_gvl` releases
         render(
             "service_rs_async_entrypoint_call.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => fn_name,
                 owner_path => owner_path,
                 ep_method => ep_method,

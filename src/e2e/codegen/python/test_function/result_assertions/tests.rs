@@ -209,7 +209,7 @@ fn tool_calls_deep_path_without_a_typeddict_map_stays_dotted() {
 fn call_statement_omits_binding_when_the_result_is_unused() {
     let rendered = crate::e2e::template_env::render(
         "python/call_statement.py.jinja",
-        minijinja::context! { result_binding => Option::<&str>::None, call_expr => "await process(value)" },
+        crate::alef_context! { result_binding => Option::<&str>::None, call_expr => "await process(value)" },
     );
 
     assert_eq!(rendered, "    await process(value)\n");

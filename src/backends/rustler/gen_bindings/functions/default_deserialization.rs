@@ -131,7 +131,7 @@ fn json_deserialization_lines(parameter: &ParamDef, operation: &str) -> Vec<Stri
 fn render_let_binding(variable_name: &str, variable_type: &str, expression: &str) -> String {
     template_env::render(
         "rust_let_binding.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             var_name => variable_name,
             var_type => variable_type,
             expr => expression,
@@ -142,7 +142,7 @@ fn render_let_binding(variable_name: &str, variable_type: &str, expression: &str
 }
 
 pub(super) fn render_json_string_param(name: &str) -> String {
-    template_env::render("rust_json_string_param.rs.jinja", minijinja::context! { name => name })
+    template_env::render("rust_json_string_param.rs.jinja", crate::alef_context! { name => name })
         .trim_end()
         .to_string()
 }
@@ -150,7 +150,7 @@ pub(super) fn render_json_string_param(name: &str) -> String {
 pub(super) fn render_ok_expression(expression: &str) -> String {
     template_env::render(
         "rust_ok_expression.rs.jinja",
-        minijinja::context! { expression => expression },
+        crate::alef_context! { expression => expression },
     )
     .trim_end()
     .to_string()
@@ -165,7 +165,7 @@ pub(super) fn render_fallible_deser_line(
 ) -> String {
     template_env::render(
         "default_deser_without_error.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => name,
             output_name => output_name,
             core_type => core_type,

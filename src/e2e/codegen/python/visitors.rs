@@ -22,7 +22,7 @@ pub(super) fn emit_python_visitor_context_probes(out: &mut String, probes: &[&Vi
     }
     out.push_str(&crate::e2e::template_env::render(
         "python/visitor_context_probe.jinja",
-        minijinja::context! { probes => probes },
+        crate::alef_context! { probes => probes },
     ));
 }
 
@@ -30,7 +30,7 @@ pub(super) fn emit_python_visitor_context_probes(out: &mut String, probes: &[&Vi
 pub(super) fn emit_python_visitor_context_assertions(out: &mut String) {
     out.push_str(&crate::e2e::template_env::render(
         "python/visitor_context_assertions.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
 }
 
@@ -107,7 +107,7 @@ pub(super) fn emit_python_visitor_method(
 
     let rendered = crate::e2e::template_env::render(
         "python/visitor_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => method_name,
             params => params,
             needs_a002 => needs_a002,

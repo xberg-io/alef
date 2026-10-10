@@ -528,7 +528,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_test_case(
     // generated test.
     let unrenderable_error_assertions = crate::e2e::codegen::error_path_assertions::render(fixture, "\t\t// ", lang);
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         test_name => test_name,
         description => description,
         async_kw => async_kw,

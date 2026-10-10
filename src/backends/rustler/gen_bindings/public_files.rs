@@ -65,7 +65,7 @@ pub(super) fn append_stream_error_exception(content: &mut String, config: &Resol
     let exception_module = format!("{app_module}.StreamError");
     let rendered = template_env::render(
         "elixir_stream_error_exception.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             exception_module => &exception_module,
         },
     );

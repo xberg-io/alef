@@ -204,7 +204,7 @@ fn pyo3_field_line(field: &FieldDef, shape: FieldShape) -> String {
     };
     crate::codegen::template_env::render(
         "visitor_context/pyo3_dict_set_item.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             host_name => host_name,
             value_expr => value_expr,
         },

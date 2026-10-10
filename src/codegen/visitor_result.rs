@@ -201,7 +201,7 @@ pub(crate) fn variant_contexts(variants: &[VisitorResultVariant]) -> Vec<minijin
     variants
         .iter()
         .map(|variant| {
-            minijinja::context! {
+            crate::alef_context! {
                 name => variant.name.clone(),
                 wire_name => variant.wire_name.clone(),
                 code => variant.code,

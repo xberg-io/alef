@@ -50,7 +50,7 @@ pub(super) fn gen_async_wrapper_method(
 
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_async_method_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             return_type => &return_type,
             async_method_name => &async_method_name,
             params => params.join(", "),

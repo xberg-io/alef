@@ -90,7 +90,7 @@ pub(crate) fn emit_wrappers(
         let rust_path = source_path.replace('-', "_");
         let wrapper = crate::backends::pyo3::template_env::render(
             "config_opaque_wrapper.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => name,
                 rust_path => rust_path,
             },

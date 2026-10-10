@@ -68,7 +68,7 @@ fn emit_method_shim_header(
 ) {
     out.push_str(&template_env::render(
         "method_shim_open.rs.jinja",
-        context! {
+        crate::alef_context! {
             symbol => symbol,
             request_param => method_request_param(&method.params),
             ret_decl => method_return_declaration(&method.return_type, shape),
@@ -76,7 +76,7 @@ fn emit_method_shim_header(
     ));
     out.push_str(&template_env::render(
         "method_client_handle.rs.jinja",
-        context! {
+        crate::alef_context! {
             receiver_owned => receiver.receiver_owned,
             receiver_is_mut => receiver.receiver_is_mut,
             type_name => receiver.type_name,
@@ -213,7 +213,7 @@ fn method_newtype_call_arg(out: &mut String, param: &ParamDef, rust_name: &str, 
 fn emit_multi_method_call_args(out: &mut String, params: &[ParamDef], return_null: &str) -> String {
     out.push_str(&template_env::render(
         "request_map_unmarshal.rs.jinja",
-        context! { ret_null => return_null },
+        crate::alef_context! { ret_null => return_null },
     ));
     params
         .iter()
@@ -238,7 +238,7 @@ fn emit_map_method_param_unmarshal(out: &mut String, param: &ParamDef, return_nu
     };
     out.push_str(&template_env::render(
         "request_map_param_unmarshal.rs.jinja",
-        context! {
+        crate::alef_context! {
             name => rust_name,
             type_path => type_path,
             ret_null => return_null,
@@ -326,7 +326,7 @@ fn render_method_capsule_return(
     let inner_value = capsule_owned_value("inner", returns_ref, returns_cow);
     template_env::render(
         "method_capsule_return.rs.jinja",
-        context! {
+        crate::alef_context! {
             indent => indent,
             into_raw_type => capsule.into_raw_type,
             optional => optional,
@@ -362,7 +362,7 @@ fn render_call_result_body(out: &mut String, call_expr: &str, shape: &CallResult
     let async_call_expr = format!("runtime().block_on({call_expr})");
     out.push_str(&template_env::render(
         "call_result_body.rs.jinja",
-        context! {
+        crate::alef_context! {
             call_expr => call_expr,
             async_call_expr => async_call_expr,
             is_async => shape.is_async,

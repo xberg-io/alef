@@ -99,7 +99,7 @@ fn sanitized_field_parse_or_warn(access: &str, variant_name: &str, field_name: &
     let context = format!("variant = \"{variant_name}\", field = \"{field_name}\"");
     crate::codegen::template_env::render(
         "conversions/sanitized_json_parse_or_warn",
-        minijinja::context! {
+        crate::alef_context! {
             access => access,
             context => context,
             message => "binding provided unparseable JSON for enum variant field; substituting default",

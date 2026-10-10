@@ -363,7 +363,7 @@ pub(super) fn gen_function(
     );
     crate::backends::napi::template_env::render(
         "function_wrapper.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             attrs => attrs,
             js_name_attr => js_name_attr,
             async_kw => async_kw,

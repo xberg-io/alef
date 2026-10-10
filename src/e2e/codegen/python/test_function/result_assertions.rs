@@ -210,7 +210,7 @@ pub(super) fn emit_result_and_assertions(
             (result_var_used || fixture.has_docs_presentation() || force_bind_result).then_some(result_var);
         out.push_str(&crate::e2e::template_env::render(
             "python/call_statement.py.jinja",
-            minijinja::context! { result_binding => result_binding, call_expr => call_expr },
+            crate::alef_context! { result_binding => result_binding, call_expr => call_expr },
         ));
         out.push_str(&temp_assertions);
     }

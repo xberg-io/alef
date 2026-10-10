@@ -165,7 +165,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_method(
     doc_emission::emit_rustdoc(&mut out, &method.doc, "");
     out.push_str(&template_env::render(
         "dirty_cpu_nif_function.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             func_name => &method_fn_name,
             params_str => &params.join(", "),
             ret => &return_annotation,

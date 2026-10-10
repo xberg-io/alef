@@ -182,7 +182,7 @@ impl FfiBridgeGenerator {
 
 /// Generate the shared FFI error-setting helper function (once per module).
 pub fn gen_ffi_set_out_error_helper() -> String {
-    crate::backends::ffi::template_env::render("ffi_set_out_error_helper.jinja", minijinja::context! {})
+    crate::backends::ffi::template_env::render("ffi_set_out_error_helper.jinja", crate::alef_context! {})
 }
 
 /// The C symbols a consumer calls to register, unregister, and clear implementations of each

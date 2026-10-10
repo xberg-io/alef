@@ -249,7 +249,7 @@ pub(super) fn gen_extendr_enum_variant_constructors(
 
             template_env::render(
                 "enum_variant_constructor.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     snake => &ctor.snake_name,
                     params_str => &params_str,
                     name => name,
@@ -347,7 +347,7 @@ pub(super) fn gen_extendr_bridge_field_function(
 
     template_env::render(
         "bridge_field_function.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             func_name => func_name,
             params_str => params_str,
             return_type => return_type,
@@ -438,14 +438,14 @@ pub(super) fn gen_extendr_flat_data_enum_struct(
     derives.push("serde::Deserialize");
     out.push_str(&template_env::render(
         "flat_enum_derive.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             derives => derives.join(", "),
         },
     ));
 
     out.push_str(&template_env::render(
         "flat_enum_struct_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => name,
         },
     ));
@@ -457,7 +457,7 @@ pub(super) fn gen_extendr_flat_data_enum_struct(
     };
     out.push_str(&template_env::render(
         "flat_enum_discriminator_field.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             disc_ident => &disc_ident,
             serde_rename => serde_rename_disc,
         },
@@ -482,7 +482,7 @@ pub(super) fn gen_extendr_flat_data_enum_struct(
             let inner_ty = mapper.map_type(&first_field.ty);
             out.push_str(&template_env::render(
                 "flat_enum_variant_field.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     field_name => &field_name,
                     inner_ty => &inner_ty,
                 },
@@ -492,7 +492,7 @@ pub(super) fn gen_extendr_flat_data_enum_struct(
 
     out.push_str(&template_env::render(
         "flat_enum_struct_footer.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     out
 }
@@ -511,7 +511,7 @@ pub(super) fn gen_extendr_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
 
     out.push_str(&template_env::render(
         "flat_enum_from_core_impl.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             core_path => &core_path,
             name => name,
         },
@@ -530,7 +530,7 @@ pub(super) fn gen_extendr_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
         if variant.fields.is_empty() {
             out.push_str(&template_env::render(
                 "flat_enum_from_core_variant_unit.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     core_path => &core_path,
                     vname => &variant.name,
                     disc_ident => &disc_ident,
@@ -557,7 +557,7 @@ pub(super) fn gen_extendr_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
             };
             out.push_str(&template_env::render(
                 "flat_enum_from_core_variant_tuple.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     core_path => &core_path,
                     vname => &variant.name,
                     disc_ident => &disc_ident,
@@ -570,7 +570,7 @@ pub(super) fn gen_extendr_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
         } else {
             out.push_str(&template_env::render(
                 "flat_enum_from_core_variant_struct.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     core_path => &core_path,
                     vname => &variant.name,
                     disc_ident => &disc_ident,
@@ -583,12 +583,12 @@ pub(super) fn gen_extendr_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
 
     out.push_str(&template_env::render(
         "flat_enum_from_core_impl_catch_all.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
 
     out.push_str(&template_env::render(
         "flat_enum_from_core_impl_footer.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     out
 }
@@ -603,7 +603,7 @@ pub(super) fn gen_extendr_flat_data_enum_to_core(enum_def: &EnumDef, core_import
 
     out.push_str(&template_env::render(
         "flat_enum_from_binding_impl.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => name,
             core_path => &core_path,
             disc_ident => &disc_ident,
@@ -624,7 +624,7 @@ pub(super) fn gen_extendr_flat_data_enum_to_core(enum_def: &EnumDef, core_import
         if variant.fields.is_empty() {
             out.push_str(&template_env::render(
                 "flat_enum_from_binding_variant_unit.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     wire => &wire_name,
                     vname => &variant.name,
                     cfg => variant_cfg,
@@ -633,7 +633,7 @@ pub(super) fn gen_extendr_flat_data_enum_to_core(enum_def: &EnumDef, core_import
         } else if variant.is_tuple {
             out.push_str(&template_env::render(
                 "flat_enum_from_binding_variant_tuple.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     needs_conversion => !is_plain_string_payload(&variant.fields[0]),
                     wire => &wire_name,
                     vname => &variant.name,
@@ -646,7 +646,7 @@ pub(super) fn gen_extendr_flat_data_enum_to_core(enum_def: &EnumDef, core_import
 
     out.push_str(&template_env::render(
         "flat_enum_from_binding_impl_footer.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     out
 }

@@ -36,7 +36,7 @@ fn iterate_operation(fields: Vec<&str>) -> PresentationOperation {
 fn render(operation: PresentationOperation) -> String {
     crate::e2e::template_env::render(
         "python/snippet_body.py.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             imports => Vec::<String>::new(),
             body => vec!["result = client.list_items()".to_string()],
             is_async => false,

@@ -117,7 +117,7 @@ pub(crate) fn emit_options_field_from_impls(
         already_emitted.insert(alias_key);
         out.push_str(&crate::backends::swift::template_env::render(
             "rust_bidirectional_newtype_from_impls.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 wrapper_type => type_alias,
                 inner_type => inner_path,
             },
@@ -129,7 +129,7 @@ pub(crate) fn emit_options_field_from_impls(
         already_emitted.insert(opts_key);
         out.push_str(&crate::backends::swift::template_env::render(
             "rust_newtype_from_impl.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 wrapper_type => options_type,
                 inner_type => core_options_path,
             },

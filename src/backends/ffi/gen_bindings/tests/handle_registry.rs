@@ -3,7 +3,7 @@ use crate::core::backend::Backend;
 
 #[test]
 fn generated_registry_uses_typed_generational_tokens() {
-    let source = template_env::render("handle_registry.rs.jinja", minijinja::context! {});
+    let source = template_env::render("handle_registry.rs.jinja", crate::alef_context! {});
 
     assert!(source.contains("type AlefHandle = u64"));
     assert!(source.contains("generation: u32"));
@@ -18,7 +18,7 @@ fn generated_registry_uses_typed_generational_tokens() {
 
 #[test]
 fn registry_does_not_reconstruct_boxes_from_host_values() {
-    let source = template_env::render("handle_registry.rs.jinja", minijinja::context! {});
+    let source = template_env::render("handle_registry.rs.jinja", crate::alef_context! {});
 
     assert!(!source.contains("Box::from_raw"));
     assert!(!source.contains("unsafe"));
@@ -27,7 +27,7 @@ fn registry_does_not_reconstruct_boxes_from_host_values() {
 #[test]
 fn registry_rejects_stale_forged_and_wrong_type_handles() {
     let mut source = String::from("const ALEF_INVALID_HANDLE_ERROR: i32 = 4;\nfn set_last_error(_: i32, _: &str) {}\n");
-    let mut registry = template_env::render("handle_registry.rs.jinja", minijinja::context! {});
+    let mut registry = template_env::render("handle_registry.rs.jinja", crate::alef_context! {});
     let serialized_start = registry
         .find("struct SerializedHandle")
         .expect("serialized helper start");
@@ -99,7 +99,7 @@ fn main() {
 #[test]
 fn a_busy_entry_never_stalls_the_registry_and_can_be_freed_under_a_running_call() {
     let mut source = String::from("const ALEF_INVALID_HANDLE_ERROR: i32 = 4;\nfn set_last_error(_: i32, _: &str) {}\n");
-    let mut registry = template_env::render("handle_registry.rs.jinja", minijinja::context! {});
+    let mut registry = template_env::render("handle_registry.rs.jinja", crate::alef_context! {});
     let serialized_start = registry
         .find("struct SerializedHandle")
         .expect("serialized helper start");
@@ -172,7 +172,7 @@ fn main() {
 
 fn run_registry_main(name: &str, main_body: &str) {
     let mut source = String::from("const ALEF_INVALID_HANDLE_ERROR: i32 = 4;\nfn set_last_error(_: i32, _: &str) {}\n");
-    let mut registry = template_env::render("handle_registry.rs.jinja", minijinja::context! {});
+    let mut registry = template_env::render("handle_registry.rs.jinja", crate::alef_context! {});
     let serialized_start = registry
         .find("struct SerializedHandle")
         .expect("serialized helper start");
@@ -274,7 +274,7 @@ fn freeing_a_handle_during_a_call_defers_the_drop_until_the_call_returns() {
 
 #[test]
 fn acquisition_rejects_aliases_and_never_locks_an_entry_under_the_registry_lock() {
-    let source = template_env::render("handle_registry.rs.jinja", minijinja::context! {});
+    let source = template_env::render("handle_registry.rs.jinja", crate::alef_context! {});
 
     let acquire = source.split("fn acquire_handles").nth(1).expect("acquisition helper");
     let acquire = acquire.split("\nfn ").next().expect("acquisition helper body");
@@ -604,7 +604,7 @@ fn borrowed_types_keep_owned_lifecycle_and_accessor_exports() {
 fn owned_receiver_alias_check_has_concrete_request_type() {
     let source = crate::backends::ffi::template_env::render(
         "handle_acquisition.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             has_requests => false,
             requests => "",
             fail_ret => "return 0;",

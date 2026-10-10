@@ -42,7 +42,7 @@ pub(super) fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -
         core_crate,
         crate::codegen::visitor_context::VisitorContextBackend::Rustler,
     )?;
-    let ctx_helper = minijinja::context! {
+    let ctx_helper = crate::alef_context! {
         context_type_path => context_helper.type_path,
         context_field_lines => context_helper.field_lines,
     };
@@ -53,10 +53,10 @@ pub(super) fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -
 
     out.push_str(&crate::backends::rustler::template_env::render(
         "visitor_bridge_globals.rs.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
 
-    let ctx_struct = minijinja::context! {
+    let ctx_struct = crate::alef_context! {
         struct_name => struct_name
     };
     out.push_str(&crate::backends::rustler::template_env::render(
@@ -64,7 +64,7 @@ pub(super) fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -
         ctx_struct,
     ));
 
-    let ctx_debug = minijinja::context! {
+    let ctx_debug = crate::alef_context! {
         struct_name => struct_name
     };
     out.push_str(&crate::backends::rustler::template_env::render(
@@ -72,7 +72,7 @@ pub(super) fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -
         ctx_debug,
     ));
 
-    let ctx_constructors = minijinja::context! {
+    let ctx_constructors = crate::alef_context! {
         struct_name => struct_name
     };
     out.push_str(&crate::backends::rustler::template_env::render(
@@ -80,7 +80,7 @@ pub(super) fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -
         ctx_constructors,
     ));
 
-    let ctx_send_wait = minijinja::context! {
+    let ctx_send_wait = crate::alef_context! {
         struct_name => struct_name
     };
     out.push_str(&crate::backends::rustler::template_env::render(
@@ -90,12 +90,12 @@ pub(super) fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -
 
     out.push_str(&crate::backends::rustler::template_env::render(
         "visitor_reply_nif.rs.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
 
     out.push_str(&crate::backends::rustler::template_env::render(
         "trait_impl_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_path => trait_path,
             struct_name => struct_name,
         },
@@ -158,7 +158,7 @@ fn gen_visitor_method_async(
     let args: Vec<minijinja::Value> = build_native_args(&method.params, struct_param_types)
         .into_iter()
         .map(|a| {
-            minijinja::context! {
+            crate::alef_context! {
                 key => a.key,
                 binding => a.binding,
                 owned_expr => a.owned_expr,
@@ -166,7 +166,7 @@ fn gen_visitor_method_async(
         })
         .collect();
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         method_name => name,
         sig => sig,
         ret_ty => ret_ty,

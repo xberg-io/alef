@@ -35,7 +35,7 @@ pub(super) fn emit_php_visitor_method(setup_lines: &mut Vec<String>, method_name
 
     let rendered = crate::e2e::template_env::render(
         "php/visitor_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => method_name,
             params => params,
             action_type => action_type,

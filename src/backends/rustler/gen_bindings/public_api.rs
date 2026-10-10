@@ -86,7 +86,7 @@ pub(super) fn generate_public_api(
     let mut content = crate::core::hash::header(crate::core::hash::CommentStyle::Hash);
     content.push_str(&template_env::render(
         "elixir_module_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             app_module => &app_module,
             moduledoc => &format!("High-level API for {app_name}"),
         },
@@ -221,7 +221,7 @@ pub(super) fn generate_public_api(
             }
             content.push_str(&template_env::render(
                 "elixir_doc_line.jinja",
-                minijinja::context! { doc_line => doc_line },
+                crate::alef_context! { doc_line => doc_line },
             ));
 
             let mut spec_types: Vec<String> = required_types.to_vec();
@@ -238,7 +238,7 @@ pub(super) fn generate_public_api(
                 } else {
                     content.push_str(&template_env::render(
                         "elixir_spec_multiline.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             func_name => &public_fn_name,
                             param_types => &spec_types,
                             return_spec => &return_spec,
@@ -267,7 +267,7 @@ pub(super) fn generate_public_api(
             let nif_call_str = nif_call_parts.join(",\n      ");
             content.push_str(&template_env::render(
                 "elixir_def_simple.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     func_name => &public_fn_name,
                     params => &def_params,
                 },
@@ -299,7 +299,7 @@ pub(super) fn generate_public_api(
             }
             content.push_str(&template_env::render(
                 "elixir_doc_line.jinja",
-                minijinja::context! { doc_line => doc_line },
+                crate::alef_context! { doc_line => doc_line },
             ));
             let spec_inline = format!("  @spec {public_fn_name}({}) :: {return_spec}", param_types.join(", "));
             if spec_inline.len() > 98 {
@@ -313,7 +313,7 @@ pub(super) fn generate_public_api(
                 } else {
                     content.push_str(&template_env::render(
                         "elixir_spec_multiline.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             func_name => &public_fn_name,
                             param_types => &param_types,
                             return_spec => &return_spec,
@@ -327,7 +327,7 @@ pub(super) fn generate_public_api(
 
             content.push_str(&template_env::render(
                 "elixir_def_simple.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     func_name => &public_fn_name,
                     params => &param_with_defaults.join(", "),
                 },
@@ -372,7 +372,7 @@ pub(super) fn generate_public_api(
             }
             content.push_str(&template_env::render(
                 "elixir_doc_line.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     doc_line => doc_line,
                 },
             ));
@@ -388,7 +388,7 @@ pub(super) fn generate_public_api(
                 } else {
                     content.push_str(&template_env::render(
                         "elixir_spec_multiline.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             func_name => &public_fn_name,
                             param_types => &arity_types,
                             return_spec => &return_spec,
@@ -418,7 +418,7 @@ pub(super) fn generate_public_api(
                 let opts_param = &all_params[opts_idx];
                 content.push_str(&template_env::render(
                     "elixir_def_with_guard.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         func_name => &public_fn_name,
                         params => &arity_params.join(", "),
                         guard_param => opts_param,
@@ -426,7 +426,7 @@ pub(super) fn generate_public_api(
                 ));
                 content.push_str(&template_env::render(
                     "elixir_map_pop_unpack.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         opts_param => opts_param,
                         field_name => field_name,
                     },
@@ -451,7 +451,7 @@ pub(super) fn generate_public_api(
                 if single_line.len() > 98 {
                     content.push_str(&template_env::render(
                         "elixir_visitor_call_multiline.ex.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             native_mod => &native_mod,
                             func_name => &nif_fn_name,
                             args => &with_visitor_args,
@@ -463,7 +463,7 @@ pub(super) fn generate_public_api(
                 content.push('\n');
                 content.push_str(&template_env::render(
                     "elixir_visitor_receive.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         visitor_param => "visitor",
                     },
                 ));
@@ -503,7 +503,7 @@ pub(super) fn generate_public_api(
                     .collect();
                 content.push_str(&template_env::render(
                     "elixir_def_simple.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         func_name => &public_fn_name,
                         params => &nil_clause_params.join(", "),
                     },
@@ -526,7 +526,7 @@ pub(super) fn generate_public_api(
                 let vis_param = &all_params[vis_idx];
                 content.push_str(&template_env::render(
                     "elixir_def_with_guard.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         func_name => &public_fn_name,
                         params => &arity_params.join(", "),
                         guard_param => vis_param,
@@ -535,7 +535,7 @@ pub(super) fn generate_public_api(
                 let with_visitor_args = nif_call_args.join(", ");
                 content.push_str(&template_env::render(
                     "elixir_visitor_call.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         native_mod => &native_mod,
                         func_name => &nif_fn_name,
                         args => &with_visitor_args,
@@ -543,14 +543,14 @@ pub(super) fn generate_public_api(
                 ));
                 content.push_str(&template_env::render(
                     "elixir_visitor_receive.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         visitor_param => vis_param,
                     },
                 ));
                 content.push_str("  end\n\n");
                 content.push_str(&template_env::render(
                     "elixir_doc_line.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         doc_line => &doc_line,
                     },
                 ));
@@ -565,7 +565,7 @@ pub(super) fn generate_public_api(
                     } else {
                         content.push_str(&template_env::render(
                             "elixir_spec_multiline.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 func_name => &public_fn_name,
                                 param_types => &arity_types,
                                 return_spec => &return_spec,
@@ -578,7 +578,7 @@ pub(super) fn generate_public_api(
                 content.push('\n');
                 content.push_str(&template_env::render(
                     "elixir_def_simple.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         func_name => &public_fn_name,
                         params => &arity_params.join(", "),
                     },
@@ -598,7 +598,7 @@ pub(super) fn generate_public_api(
             if arity_params.is_empty() {
                 content.push_str(&template_env::render(
                     "elixir_def_zero_arity.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         func_name => &public_fn_name,
                     },
                 ));
@@ -613,7 +613,7 @@ pub(super) fn generate_public_api(
             } else {
                 content.push_str(&template_env::render(
                     "elixir_def_simple.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         func_name => &public_fn_name,
                         params => &arity_params.join(", "),
                     },
@@ -649,27 +649,27 @@ pub(super) fn generate_public_api(
             };
             content.push_str(&template_env::render(
                 "elixir_doc_line.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     doc_line => &doc_line,
                 },
             ));
             content.push_str(&template_env::render(
                 "elixir_error_spec.ex.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     func_name => &nif_fn_name,
                     return_spec => &return_spec,
                 },
             ));
             content.push_str(&template_env::render(
                 "elixir_def_simple.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     func_name => &nif_fn_name,
                     params => "msg",
                 },
             ));
             content.push_str(&template_env::render(
                 "elixir_def_nif_call.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     native_mod => &native_mod,
                     func_name => &nif_fn_name,
                     args => "msg",
@@ -702,7 +702,7 @@ pub(super) fn generate_public_api(
 
         content.push_str(&template_env::render(
             "elixir_streaming_start_wrapper.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 core_path => &adapter.core_path,
                 start_fn => &start_fn,
                 start_call_args => &start_call_args,
@@ -713,7 +713,7 @@ pub(super) fn generate_public_api(
 
         content.push_str(&template_env::render(
             "elixir_streaming_next_wrapper.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 next_fn => &next_fn,
                 native_mod => &native_mod,
             },
@@ -728,7 +728,7 @@ pub(super) fn generate_public_api(
         let exception_module = format!("{app_module}.StreamError");
         content.push_str(&template_env::render(
             "elixir_streaming_unfold_wrapper.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 core_path => &adapter.core_path,
                 stream_fn => &stream_fn,
                 req_param => &req_param,

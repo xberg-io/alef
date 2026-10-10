@@ -31,7 +31,7 @@ fn gen_impl_body(spec: &CallbackSpec, _core_import: &str, protocol: &VisitorProt
             ParamKind::Str(n) => {
                 bindings.push_str(&render(
                     "ffi_visitor_cstring_param_setup.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => n.as_str(),
                         default_result,
                     },
@@ -41,14 +41,14 @@ fn gen_impl_body(spec: &CallbackSpec, _core_import: &str, protocol: &VisitorProt
             ParamKind::OptStr(n) => {
                 bindings.push_str(&render(
                     "ffi_visitor_optional_string_param_setup.jinja",
-                    minijinja::context! { name => n.as_str() },
+                    crate::alef_context! { name => n.as_str() },
                 ));
                 cb_args.push(format!("{n}_ptr"));
             }
             ParamKind::Bool(n) => {
                 bindings.push_str(&render(
                     "ffi_visitor_bool_param_setup.jinja",
-                    minijinja::context! { name => n.as_str() },
+                    crate::alef_context! { name => n.as_str() },
                 ));
                 cb_args.push(format!("{n}_i"));
             }
@@ -58,7 +58,7 @@ fn gen_impl_body(spec: &CallbackSpec, _core_import: &str, protocol: &VisitorProt
             ParamKind::CellSlice(n) => {
                 bindings.push_str(&render(
                     "ffi_visitor_string_list_param_setup.jinja",
-                    minijinja::context! { name => n.as_str() },
+                    crate::alef_context! { name => n.as_str() },
                 ));
                 cb_args.push(format!("{n}_ptrs.as_ptr()"));
                 cb_args.push("cell_count".to_string());
@@ -74,7 +74,7 @@ fn gen_impl_body(spec: &CallbackSpec, _core_import: &str, protocol: &VisitorProt
 
     render(
         "ffi_visitor_impl_body.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => spec.name.as_str(),
             default_result,
             bindings,
@@ -96,7 +96,7 @@ pub(super) fn gen_impl_methods(
     for spec in specs {
         out.push_str(&render(
             "ffi_visitor_impl_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => spec.name.as_str(),
                 params => rust_param_list(spec, protocol),
                 result_path => result_path.as_str(),
@@ -138,7 +138,7 @@ pub(super) fn gen_visitor_ref_methods(
         let args = visitor_ref_args(spec);
         out.push_str(&render(
             "vtable_delegation_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => spec.name.as_str(),
                 all_params => params,
                 ret => result_path.as_str(),

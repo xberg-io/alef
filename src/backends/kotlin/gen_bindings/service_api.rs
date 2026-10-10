@@ -161,7 +161,7 @@ fn gen_registration_variant(
         args.join(", ")
     };
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         variant_method_kt => variant_method_kt,
         params => params,
         base_method_kt => base_method_kt,
@@ -194,7 +194,7 @@ fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, jav
 
     body.push_str(&template_env::render(
         "service_class_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             java_fqn => java_fqn,
             class_name => class_name,
         },
@@ -228,7 +228,7 @@ fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, jav
             for line in reg.doc.lines() {
                 body.push_str(&template_env::render(
                     "line_comment.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         indent => "    ",
                         line => line,
                     },
@@ -237,7 +237,7 @@ fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, jav
         }
         body.push_str(&template_env::render(
             "service_registration_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => reg_method_kt,
                 params => params.join(", "),
                 java_method => java_method,
@@ -284,7 +284,7 @@ fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, jav
             for line in ep.doc.lines() {
                 body.push_str(&template_env::render(
                     "line_comment.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         indent => "    ",
                         line => line,
                     },
@@ -296,7 +296,7 @@ fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, jav
             EntrypointKind::Run => {
                 body.push_str(&template_env::render(
                     "service_run_method.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         method_name => ep_method_kt,
                         params => params.join(", "),
                         args => args.join(", "),
@@ -307,7 +307,7 @@ fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, jav
                 let ret = kotlin_return_type(&ep.return_type, api);
                 body.push_str(&template_env::render(
                     "service_finalize_method.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         method_name => ep_method_kt,
                         params => params.join(", "),
                         args => args.join(", "),

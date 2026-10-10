@@ -177,14 +177,14 @@ fn collect_wrapper_constructor_externs(service: &ServiceDef) -> Vec<minijinja::V
                         } else {
                             value_expr.clone()
                         };
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => param_name,
                             rust_type => format!("&{rust_type}"),
                         }
                     }
                     WrapperConstructorArg::Free { param } => {
                         let rust_type = typeref_to_rust_ffi_type(&param.ty);
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &param.name,
                             rust_type => rust_type,
                         }
@@ -199,7 +199,7 @@ fn collect_wrapper_constructor_externs(service: &ServiceDef) -> Vec<minijinja::V
             let raw_ptr_fn_snake = format!("{}_raw_ptr", wc.wrapper_type_name.to_snake_case());
             let raw_ptr_swift_name = format!("{}RawPtr", wc.wrapper_type_name.to_snake_case().to_lower_camel_case());
 
-            result.push(minijinja::context! {
+            result.push(crate::alef_context! {
                 fn_snake => &fn_snake,
                 fn_camel => fn_camel,
                 wrapper_type_name => &wc.wrapper_type_name,
@@ -229,7 +229,7 @@ fn gen_service_rust_extern_blocks(service: &ServiceDef, api: &ApiSurface) -> Str
         .map(|config| {
             let config_snake = config.name.to_snake_case();
             let config_camel = config_snake.to_lower_camel_case();
-            minijinja::context! {
+            crate::alef_context! {
                 name => &config_snake,
                 camel => &config_camel,
             }
@@ -254,7 +254,7 @@ fn gen_service_rust_extern_blocks(service: &ServiceDef, api: &ApiSurface) -> Str
                 .params
                 .iter()
                 .map(|p| {
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &p.name,
                         rust_type => typeref_to_rust_ffi_type(&p.ty),
                     }
@@ -273,7 +273,7 @@ fn gen_service_rust_extern_blocks(service: &ServiceDef, api: &ApiSurface) -> Str
                 _ => "String".to_owned(),
             };
 
-            minijinja::context! {
+            crate::alef_context! {
                 snake => &ep_snake,
                 camel => &ep_camel,
                 params => params,
@@ -284,7 +284,7 @@ fn gen_service_rust_extern_blocks(service: &ServiceDef, api: &ApiSurface) -> Str
 
     let mut out = crate::backends::swift::template_env::render(
         "rust_extern_service_type_and_constructor.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_name => &service.name,
         },
     );
@@ -296,7 +296,7 @@ fn gen_service_rust_extern_blocks(service: &ServiceDef, api: &ApiSurface) -> Str
 
     out.push_str(&crate::backends::swift::template_env::render(
         "rust_extern_service_methods.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_name => &service.name,
             service_snake => &service_snake,
             service_camel => &service_camel,
@@ -349,7 +349,7 @@ fn gen_rust_callback_c_functions_for_service(api: &ApiSurface, service: &Service
             .iter()
             .map(|mp| {
                 let is_opaque_wrapper = matches!(&mp.ty, TypeRef::Named(_));
-                minijinja::context! {
+                crate::alef_context! {
                     name => &mp.name,
                     rust_type => typeref_to_rust_ffi_type(&mp.ty),
                     is_opaque_wrapper => is_opaque_wrapper,
@@ -359,7 +359,7 @@ fn gen_rust_callback_c_functions_for_service(api: &ApiSurface, service: &Service
 
         out.push_str(&crate::backends::swift::template_env::render(
             "rust_extern_c_register_via_callback.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 service_snake => &service_snake,
                 reg_snake => &reg_snake,
                 method_name => &reg.method,
@@ -449,7 +449,7 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef, config: 
                     TypeRef::Named(n) => format!("{}RawPtr", n.to_snake_case().to_lower_camel_case()),
                     _ => String::new(),
                 };
-                minijinja::context! {
+                crate::alef_context! {
                     name => &mp.name,
                     swift_type => bridge_ty,
                     is_opaque_wrapper => is_opaque_wrapper,
@@ -460,7 +460,7 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef, config: 
 
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_silgen_callback.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 service_snake => &service_snake,
                 reg_snake => &reg_snake,
                 metadata_params => metadata_params,
@@ -475,7 +475,7 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef, config: 
     };
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_class_header.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             class_name => class_name,
             doc => &doc,
         },
@@ -483,7 +483,7 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef, config: 
 
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_init.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_snake => &service_snake,
             service_camel => &service_camel,
             service_name => class_name,
@@ -506,7 +506,7 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef, config: 
 
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_configurator.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 service_snake => &service_snake,
                 config_name => config_name,
                 config_camel => &config_camel,
@@ -523,7 +523,7 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef, config: 
         .to_string();
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_config_method.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_snake => &service_snake,
             ffi_prefix => &ffi_prefix,
         },
@@ -590,7 +590,7 @@ fn gen_registration_method(
                 TypeRef::Named(n) => format!("{}RawPtr", n.to_snake_case().to_lower_camel_case()),
                 _ => String::new(),
             };
-            minijinja::context! {
+            crate::alef_context! {
                 name => &mp.name,
                 is_opaque_wrapper => is_opaque_wrapper,
                 raw_ptr_swift_name => raw_ptr_swift_name,
@@ -601,7 +601,7 @@ fn gen_registration_method(
     let service_camel = service_snake.to_lower_camel_case();
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_registration.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             doc => &doc,
             method_camel => &method_camel,
             meta_params => &meta_sig,
@@ -637,7 +637,7 @@ fn gen_registration_variant(
                 TypeRef::Named(n) => format!("RustBridge.{n}"),
                 _ => typeref_to_swift_type(&p.ty),
             };
-            minijinja::context! {
+            crate::alef_context! {
                 name => &p.name,
                 swift_type => swift_type,
             }
@@ -714,7 +714,7 @@ fn gen_registration_variant(
                 };
                 let bridge_fn_camel = format!("{}_{}", wrapper_call.wrapper_type_name.to_snake_case(), option.method)
                     .to_lower_camel_case();
-                minijinja::context! {
+                crate::alef_context! {
                     name => param_name,
                     swift_type => swift_type,
                     bridge_fn_camel => bridge_fn_camel,
@@ -725,7 +725,7 @@ fn gen_registration_variant(
 
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_registration_variant_delegate.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 doc => &doc,
                 variant_name => variant_name,
                 signature_params => signature_params,
@@ -747,7 +747,7 @@ fn gen_registration_variant(
                     TypeRef::Named(n) => format!("{}RawPtr", n.to_snake_case().to_lower_camel_case()),
                     _ => String::new(),
                 };
-                minijinja::context! {
+                crate::alef_context! {
                     name => &p.name,
                     is_opaque_wrapper => is_opaque_wrapper,
                     raw_ptr_swift_name => raw_ptr_swift_name,
@@ -757,7 +757,7 @@ fn gen_registration_variant(
 
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_registration_variant.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 doc => &doc,
                 variant_name => variant_name,
                 signature_params => signature_params,
@@ -812,7 +812,7 @@ fn gen_entrypoint_method(
         .params
         .iter()
         .map(|p| {
-            minijinja::context! {
+            crate::alef_context! {
                 name => &p.name,
             }
         })
@@ -820,7 +820,7 @@ fn gen_entrypoint_method(
 
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_entrypoint.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             doc => &doc,
             ep_camel => &ep_camel,
             param_sig => &param_sig,

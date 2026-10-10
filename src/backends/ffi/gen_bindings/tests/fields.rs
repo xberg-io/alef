@@ -929,7 +929,7 @@ fn presence_companion_distinguishes_none_from_zero_valued_some_at_runtime() {
 
     let last_error = crate::backends::ffi::template_env::render(
         "last_error.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             prefix => "smp",
             builtin_prefix => "",
             error_code_impls => Vec::<String>::new(),
@@ -948,7 +948,7 @@ fn presence_companion_distinguishes_none_from_zero_valued_some_at_runtime() {
     // Cargo dependency graph. Strip it, matching the same excision `handle_registry.rs`'s own
     // compile-and-run regression test uses for the identical reason.
     let mut handle_registry =
-        crate::backends::ffi::template_env::render("handle_registry.rs.jinja", minijinja::context! {});
+        crate::backends::ffi::template_env::render("handle_registry.rs.jinja", crate::alef_context! {});
     let serialized_start = handle_registry
         .find("struct SerializedHandle")
         .expect("serialized helper start");

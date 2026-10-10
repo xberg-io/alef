@@ -33,14 +33,14 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
     out.push_str("using System.Text.Json;\n");
     out.push_str("using System.Text.Json.Serialization;\n\n");
 
-    out.push_str(&render("namespace_decl.jinja", minijinja::context! { namespace }));
+    out.push_str(&render("namespace_decl.jinja", crate::alef_context! { namespace }));
     out.push('\n');
 
     let typ_doc_lines = super::super::sanitize_doc_lines_for_csharp(&typ.doc);
     if !typ_doc_lines.is_empty() {
         out.push_str(&render(
             "doc_comment_block.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 has_doc => true,
                 indent => "",
                 doc_lines => typ_doc_lines,
@@ -49,7 +49,10 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
     }
 
     let class_name = csharp_type_name(&typ.name);
-    out.push_str(&render("record_class_header.jinja", minijinja::context! { class_name }));
+    out.push_str(&render(
+        "record_class_header.jinja",
+        crate::alef_context! { class_name },
+    ));
     out.push_str("{\n");
 
     for field in binding_fields(&typ.fields) {
@@ -61,7 +64,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
         if !field_doc_lines.is_empty() {
             out.push_str(&render(
                 "doc_comment_block.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     has_doc => true,
                     indent => "    ",
                     doc_lines => field_doc_lines,
@@ -95,7 +98,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
         if let Some(ref base) = field_base_type
             && custom_converter_enums.contains(base)
         {
-            out.push_str(&render("json_converter_attr.jinja", minijinja::context! { base }));
+            out.push_str(&render("json_converter_attr.jinja", crate::alef_context! { base }));
         }
 
         // `#[serde(flatten)]` on a `serde_json::Value` field: emit
@@ -106,7 +109,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
             out.push_str("    [JsonExtensionData]\n");
             out.push_str(&render(
                 "json_extension_data_property.jinja",
-                minijinja::context! { cs_name },
+                crate::alef_context! { cs_name },
             ));
             out.push('\n');
             continue;
@@ -120,7 +123,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
             let json_name = field.serde_rename.clone().unwrap_or_else(|| field.name.clone());
             out.push_str(&render(
                 "json_property_name_attr.jinja",
-                minijinja::context! { json_name },
+                crate::alef_context! { json_name },
             ));
         }
 
@@ -138,7 +141,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
                 .unwrap_or_else(|| "IVisitor".to_string());
             out.push_str(&render(
                 "visitor_bridge_property.jinja",
-                minijinja::context! { cs_name, interface_name },
+                crate::alef_context! { cs_name, interface_name },
             ));
             out.push('\n');
             continue;
@@ -160,7 +163,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
             }
             out.push_str(&render(
                 "property_with_default.jinja",
-                minijinja::context! { field_type, cs_name, default_val => "null" },
+                crate::alef_context! { field_type, cs_name, default_val => "null" },
             ));
         } else if matches!(
             &field.typed_default,
@@ -186,7 +189,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
             }
             out.push_str(&render(
                 "property_required_init.jinja",
-                minijinja::context! { field_type, cs_name },
+                crate::alef_context! { field_type, cs_name },
             ));
         } else if field.default.is_some()
             || carries_renderable_default(field, is_complex)
@@ -209,7 +212,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
                 }
                 out.push_str(&render(
                     "property_with_default.jinja",
-                    minijinja::context! { field_type => nullable_type, cs_name, default_val => "null" },
+                    crate::alef_context! { field_type => nullable_type, cs_name, default_val => "null" },
                 ));
                 out.push('\n');
                 continue;
@@ -301,7 +304,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
 
             out.push_str(&render(
                 "property_with_default.jinja",
-                minijinja::context! { field_type, cs_name, default_val },
+                crate::alef_context! { field_type, cs_name, default_val },
             ));
         } else {
             let field_type = if is_complex {
@@ -325,7 +328,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
                 }
                 out.push_str(&render(
                     "property_required_init.jinja",
-                    minijinja::context! { field_type, cs_name },
+                    crate::alef_context! { field_type, cs_name },
                 ));
             } else {
                 // `is_complex` degrades the property to the `JsonElement` struct, whose
@@ -338,7 +341,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
                 };
                 out.push_str(&render(
                     "property_with_default.jinja",
-                    minijinja::context! { field_type, cs_name, default_val },
+                    crate::alef_context! { field_type, cs_name, default_val },
                 ));
             }
         }
@@ -348,9 +351,9 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
 
     out.push_str(&render(
         "record_from_json_method.jinja",
-        minijinja::context! { class_name, exception_class },
+        crate::alef_context! { class_name, exception_class },
     ));
-    out.push_str(&render("record_json_options.jinja", minijinja::context! {}));
+    out.push_str(&render("record_json_options.jinja", crate::alef_context! {}));
 
     emit_record_methods(
         &mut out,
@@ -441,7 +444,7 @@ pub(super) fn emit_record_methods(
         let sanitized_method_doc = super::super::sanitize_rust_syntax_for_csharp(&method.doc);
         if !sanitized_method_doc.trim().is_empty() {
             let first_line = sanitized_method_doc.lines().next().unwrap_or("").replace('"', "\\\"");
-            out.push_str(&render("record_method_doc.jinja", minijinja::context! { first_line }));
+            out.push_str(&render("record_method_doc.jinja", crate::alef_context! { first_line }));
         } else {
             out.push('\n');
         }
@@ -449,7 +452,7 @@ pub(super) fn emit_record_methods(
         let params_sig = params_sig.join(", ");
         out.push_str(&render(
             "record_method_signature.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 is_static => !has_receiver,
                 class_name,
                 method_cs_name,
@@ -461,7 +464,7 @@ pub(super) fn emit_record_methods(
             if has_receiver {
                 out.push_str(&render(
                     "record_self_handle_checked.jinja",
-                    minijinja::context! { native_type_prefix, exception_class, class_name },
+                    crate::alef_context! { native_type_prefix, exception_class, class_name },
                 ));
                 out.push_str("        try\n        {\n");
                 emit_named_param_setup(
@@ -490,7 +493,7 @@ pub(super) fn emit_record_methods(
                 let args_str = call_args.join(", ");
                 out.push_str(&render(
                     "record_native_result_checked.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         indent => "            ",
                         native_method_name,
                         args_str,
@@ -500,13 +503,13 @@ pub(super) fn emit_record_methods(
                 ));
                 out.push_str(&render(
                     "record_json_return.jinja",
-                    minijinja::context! { indent => "            ", native_type_prefix, class_name },
+                    crate::alef_context! { indent => "            ", native_type_prefix, class_name },
                 ));
                 out.push_str("        }\n        finally\n        {\n");
                 emit_named_param_teardown_indented(out, &method.params, "            ", true_opaque_types, enum_names);
                 out.push_str(&render(
                     "record_self_handle_free.jinja",
-                    minijinja::context! { native_type_prefix },
+                    crate::alef_context! { native_type_prefix },
                 ));
                 out.push_str("        }\n");
             } else {
@@ -555,7 +558,7 @@ pub(super) fn emit_record_methods(
                 };
                 out.push_str(&render(
                     "record_native_result_checked.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         indent,
                         native_method_name,
                         args_str,
@@ -565,7 +568,7 @@ pub(super) fn emit_record_methods(
                 ));
                 out.push_str(&render(
                     "record_json_return.jinja",
-                    minijinja::context! { indent, native_type_prefix, class_name },
+                    crate::alef_context! { indent, native_type_prefix, class_name },
                 ));
 
                 if needs_handle_params {
@@ -584,7 +587,7 @@ pub(super) fn emit_record_methods(
             if has_receiver {
                 out.push_str(&render(
                     "record_self_handle.jinja",
-                    minijinja::context! { native_type_prefix },
+                    crate::alef_context! { native_type_prefix },
                 ));
                 out.push_str("        try\n        {\n");
                 emit_named_param_setup(
@@ -613,17 +616,17 @@ pub(super) fn emit_record_methods(
                 let args_str = call_args.join(", ");
                 out.push_str(&render(
                     "record_native_result.jinja",
-                    minijinja::context! { indent => "            ", native_method_name, args_str },
+                    crate::alef_context! { indent => "            ", native_method_name, args_str },
                 ));
                 out.push_str(&render(
                     "record_json_return.jinja",
-                    minijinja::context! { indent => "            ", native_type_prefix, class_name },
+                    crate::alef_context! { indent => "            ", native_type_prefix, class_name },
                 ));
                 out.push_str("        }\n        finally\n        {\n");
                 emit_named_param_teardown_indented(out, &method.params, "            ", true_opaque_types, enum_names);
                 out.push_str(&render(
                     "record_self_handle_free.jinja",
-                    minijinja::context! { native_type_prefix },
+                    crate::alef_context! { native_type_prefix },
                 ));
                 out.push_str("        }\n");
             } else {
@@ -672,11 +675,11 @@ pub(super) fn emit_record_methods(
                 };
                 out.push_str(&render(
                     "record_native_result.jinja",
-                    minijinja::context! { indent, native_method_name, args_str },
+                    crate::alef_context! { indent, native_method_name, args_str },
                 ));
                 out.push_str(&render(
                     "record_json_return.jinja",
-                    minijinja::context! { indent, native_type_prefix, class_name },
+                    crate::alef_context! { indent, native_type_prefix, class_name },
                 ));
 
                 if needs_handle_params {

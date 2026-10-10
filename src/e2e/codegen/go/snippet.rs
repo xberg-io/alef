@@ -285,14 +285,14 @@ pub(super) fn render_snippet_body(
     imports.sort_by(|left, right| left.0.cmp(&right.0));
     let imports = imports
         .into_iter()
-        .map(|(path, alias)| minijinja::context! { path => path, alias => alias })
+        .map(|(path, alias)| crate::alef_context! { path => path, alias => alias })
         .collect::<Vec<_>>();
 
     let presentation =
         crate::e2e::codegen::presentation::resolve(fixture, e2e_config, lang, type_defs, enums, functions);
     Ok(crate::e2e::template_env::render(
         "go/snippet_body.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             imports => imports,
             package_decls => package_decls, setup_lines => setup_lines, client_setup => client_setup,
             call_expr => call_expr, result_var => call.effective_result_var(), returns_error => returns_error,

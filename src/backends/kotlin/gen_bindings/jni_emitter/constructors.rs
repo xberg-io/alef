@@ -126,7 +126,7 @@ fn emit_jni_client_factory(
     let call_args_str = call_args.join(", ");
     out.push_str(&template_env::render(
         "jni_client_constructor.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             params => params_str,
             class_name => class_name,
             bridge_name => bridge_name,

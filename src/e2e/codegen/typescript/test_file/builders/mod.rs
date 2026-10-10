@@ -870,7 +870,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn ts_builder_expression_inne
             stmts.push(
                 crate::e2e::template_env::render(
                     "typescript/docs_file_assignment.jinja",
-                    minijinja::context! { target => format!("{var}.{camel_key}"), path => escape_js(&file.path) },
+                    crate::alef_context! { target => format!("{var}.{camel_key}"), path => escape_js(&file.path) },
                 )
                 .trim_end()
                 .to_string(),
@@ -998,7 +998,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn ts_builder_expression_inne
     let body = stmts.join(" ");
     crate::e2e::template_env::render(
         "typescript/builder_iife.jinja",
-        minijinja::context! { body => body, is_async => !docs_files.is_empty() || needs_async },
+        crate::alef_context! { body => body, is_async => !docs_files.is_empty() || needs_async },
     )
     .trim_end()
     .to_string()
@@ -1023,7 +1023,7 @@ fn node_value_expression(
     if let Some(file) = docs_files.iter().find(|file| file.field == pointer) {
         return crate::e2e::template_env::render(
             "typescript/docs_file_expression.jinja",
-            minijinja::context! { path => escape_js(&file.path) },
+            crate::alef_context! { path => escape_js(&file.path) },
         )
         .trim_end()
         .to_string();

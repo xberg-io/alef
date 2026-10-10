@@ -78,7 +78,7 @@ fn a_configured_unregister_wrapper_deletes_from_the_registry_the_declaration_nam
 
     let declared = crate::backends::go::template_env::render(
         "handle_registry_var.jinja",
-        minijinja::context! { trait_snake => super::helpers::registry_var_stem("OcrBackend") },
+        crate::alef_context! { trait_snake => super::helpers::registry_var_stem("OcrBackend") },
     );
     let registry_var = declared
         .split_whitespace()

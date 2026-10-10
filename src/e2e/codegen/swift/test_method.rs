@@ -640,7 +640,7 @@ pub(super) fn render_test_method(
         };
         body_buffer.push_str(&crate::e2e::template_env::render(
             template,
-            minijinja::context! { call_expr => call_expr },
+            crate::alef_context! { call_expr => call_expr },
         ));
     }
     // ~keep Order relative to the call-emission decision below no longer matters -- that

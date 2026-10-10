@@ -88,7 +88,7 @@ fn gen_service_go(api: &ApiSurface, config: &ResolvedCrateConfig, pkg_name: &str
 
     out.push_str(&crate::backends::go::template_env::render(
         "service_file_preamble.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             pkg_name => pkg_name,
             ffi_header => ffi_header,
         },
@@ -123,13 +123,13 @@ fn gen_service_c_imports_comment(out: &mut String, service: &ServiceDef, _api: &
                 .metadata_params
                 .iter()
                 .map(|meta_param| {
-                    minijinja::context! {
+                    crate::alef_context! {
                         c_type => typeref_to_c_type(&meta_param.ty),
                         name => &meta_param.name,
                     }
                 })
                 .collect::<Vec<_>>();
-            minijinja::context! {
+            crate::alef_context! {
                 symbol => c_symbols::service_register_symbol(ffi_prefix, &service.name, &reg.method),
                 params => params,
             }
@@ -143,13 +143,13 @@ fn gen_service_c_imports_comment(out: &mut String, service: &ServiceDef, _api: &
                 .params
                 .iter()
                 .map(|ep_param| {
-                    minijinja::context! {
+                    crate::alef_context! {
                         c_type => typeref_to_c_type(&ep_param.ty),
                         name => &ep_param.name,
                     }
                 })
                 .collect::<Vec<_>>();
-            minijinja::context! {
+            crate::alef_context! {
                 return_c_type => typeref_to_c_type(&ep.return_type),
                 symbol => c_symbols::service_entrypoint_symbol(ffi_prefix, &service.name, &ep.method),
                 params => params,
@@ -159,7 +159,7 @@ fn gen_service_c_imports_comment(out: &mut String, service: &ServiceDef, _api: &
 
     out.push_str(&crate::backends::go::template_env::render(
         "service_c_imports_comment.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_name => &service.name,
             new_symbol => c_symbols::service_new_symbol(ffi_prefix, &service.name),
             free_symbol => c_symbols::service_free_symbol(ffi_prefix, &service.name),
@@ -268,7 +268,7 @@ fn service_c_arg_expr_with_marshal(
 fn emit_service_call_arg(out: &mut String, expr: &str) {
     out.push_str(&crate::backends::go::template_env::render(
         "service_call_arg_line.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             expr => expr,
         },
     ));
@@ -278,7 +278,7 @@ fn emit_service_call_arg(out: &mut String, expr: &str) {
 fn gen_handler_registry(out: &mut String) {
     out.push_str(&crate::backends::go::template_env::render(
         "service_handler_registry.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
 }
 
@@ -295,7 +295,7 @@ fn go_doc_block(doc: &str) -> String {
         } else {
             out.push_str(&crate::backends::go::template_env::render(
                 "go_doc_block_line.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     line => line,
                 },
             ));
@@ -321,21 +321,21 @@ fn gen_service_struct(
     };
     out.push_str(&crate::backends::go::template_env::render(
         "service_struct.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_name => service_name,
             doc_block => doc_block,
         },
     ));
     out.push_str(&crate::backends::go::template_env::render(
         "service_constructor.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_name => service_name,
             new_symbol => c_symbols::service_new_symbol(ffi_prefix, service_name),
         },
     ));
     out.push_str(&crate::backends::go::template_env::render(
         "service_close_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_name => service_name,
             free_symbol => c_symbols::service_free_symbol(ffi_prefix, service_name),
         },
@@ -388,7 +388,7 @@ fn gen_registration_method(
 
     out.push_str(&crate::backends::go::template_env::render(
         "service_register_comment.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name_pascal => &method_name_pascal,
             method_name => method_name,
         },
@@ -415,7 +415,7 @@ fn gen_registration_method(
     };
     out.push_str(&crate::backends::go::template_env::render(
         "service_method_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_name => service_name,
             method_name => format!("Register{method_name_pascal}"),
             params => &param_sig,
@@ -428,7 +428,7 @@ fn gen_registration_method(
 
     out.push_str(&crate::backends::go::template_env::render(
         "service_registration_call_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             symbol => c_symbols::service_register_symbol(ffi_prefix, service_name, method_name),
             service_name => service_name,
         },
@@ -442,7 +442,7 @@ fn gen_registration_method(
 
     out.push_str(&crate::backends::go::template_env::render(
         "service_registration_return.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             returns_error => reg.error_type.is_some(),
         },
     ));
@@ -469,7 +469,7 @@ fn gen_registration_variant(
 
     out.push_str(&crate::backends::go::template_env::render(
         "service_variant_comment.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             variant_name_pascal => &variant_name_pascal,
             variant_name => &variant.name,
         },
@@ -496,7 +496,7 @@ fn gen_registration_variant(
     };
     out.push_str(&crate::backends::go::template_env::render(
         "service_method_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_name => service_name,
             method_name => &variant_name_pascal,
             params => &param_sig,
@@ -509,7 +509,7 @@ fn gen_registration_variant(
 
     out.push_str(&crate::backends::go::template_env::render(
         "service_variant_call_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             symbol => c_symbols::service_method_symbol(ffi_prefix, service_name, &variant.name),
             service_name => service_name,
         },
@@ -535,7 +535,7 @@ fn gen_registration_variant(
 
     out.push_str(&crate::backends::go::template_env::render(
         "service_registration_return.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             returns_error => reg.error_type.is_some(),
         },
     ));
@@ -574,7 +574,7 @@ fn gen_configurator_method(
 
     out.push_str(&crate::backends::go::template_env::render(
         "service_configurator_comment.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             cfg_method_pascal => &cfg_method_pascal,
             cfg_name => &cfg.name,
         },
@@ -585,7 +585,7 @@ fn gen_configurator_method(
 
     out.push_str(&crate::backends::go::template_env::render(
         "service_method_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_name => service_name,
             method_name => &cfg_method_pascal,
             params => &param_sig,
@@ -597,14 +597,14 @@ fn gen_configurator_method(
     let mut cfg_args = Vec::new();
     let mut preprocessing = String::new();
 
-    cfg_args.push(minijinja::context! {
+    cfg_args.push(crate::alef_context! {
         expr => "s.owner",
     });
 
     for cfg_param in &cfg.params {
         let (pre, expr) = service_c_arg_expr_with_marshal(&cfg_param.name, &cfg_param.ty, api, ffi_prefix);
         preprocessing.push_str(&pre);
-        cfg_args.push(minijinja::context! {
+        cfg_args.push(crate::alef_context! {
             expr => expr,
         });
     }
@@ -615,7 +615,7 @@ fn gen_configurator_method(
 
     out.push_str(&crate::backends::go::template_env::render(
         "service_configurator_call.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             symbol => c_symbols::service_method_symbol(ffi_prefix, service_name, &cfg.name),
             service_name => service_name,
             args => cfg_args,
@@ -664,7 +664,7 @@ fn gen_entrypoint_method(
 
     out.push_str(&crate::backends::go::template_env::render(
         "service_entrypoint_comment.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             ep_method_pascal => &ep_method_pascal,
             ep_method => ep_method,
         },
@@ -681,7 +681,7 @@ fn gen_entrypoint_method(
     };
     out.push_str(&crate::backends::go::template_env::render(
         "service_method_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_name => service_name,
             method_name => &ep_method_pascal,
             params => &param_sig,
@@ -697,7 +697,7 @@ fn gen_entrypoint_method(
     };
     out.push_str(&crate::backends::go::template_env::render(
         "service_entrypoint_call_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             capture => capture,
             symbol => c_symbols::service_entrypoint_symbol(ffi_prefix, service_name, ep_method),
             service_name => service_name,
@@ -713,7 +713,7 @@ fn gen_entrypoint_method(
         (Some(t), true) => {
             out.push_str(&crate::backends::go::template_env::render(
                 "service_entrypoint_return_opaque_err.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     ep_method => ep_method,
                     return_type => t,
                 },
@@ -722,7 +722,7 @@ fn gen_entrypoint_method(
         (Some(t), false) => {
             out.push_str(&crate::backends::go::template_env::render(
                 "service_entrypoint_return_opaque.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     return_type => t,
                 },
             ));
@@ -730,7 +730,7 @@ fn gen_entrypoint_method(
         (None, true) => {
             out.push_str(&crate::backends::go::template_env::render(
                 "service_entrypoint_return_err.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     ep_method => ep_method,
                 },
             ));
@@ -782,7 +782,7 @@ fn gen_start_background_method(out: &mut String, service: &ServiceDef, _ffi_pref
     let service_name = &service.name;
     out.push_str(&crate::backends::go::template_env::render(
         "service_start_background.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_name => service_name,
         },
     ));

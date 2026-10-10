@@ -17,7 +17,7 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     let inputs = jni_bridge_inputs(api, config);
     let mut body = template_env::render(
         "jni_bridge_object_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             bridge_name => inputs.bridge_name,
             lib_name => inputs.lib_name,
         },
@@ -310,7 +310,7 @@ fn render_jni_bridge_file(
     body.push_str("}\n");
     let content = template_env::render(
         "jni_bridge_file.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             package => inputs.package,
             body => body,
         },

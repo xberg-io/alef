@@ -81,7 +81,7 @@ pub fn gen_pyo3_data_enum_with_coercion(
     let has_default = enum_def.has_default || enum_def.variants.iter().any(|v| v.is_default);
     let string_methods_content = crate::codegen::template_env::render(
         "generators/enums/enum_string_methods.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => name,
             value_expr => "&self.inner",
             redact => crate::codegen::generators::enum_has_sensitive_representation(enum_def),
@@ -105,7 +105,7 @@ pub fn gen_pyo3_data_enum_with_coercion(
 
     crate::codegen::template_env::render(
         "generators/enums/pyo3_data_enum.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => name,
             core_path => core_path,
             has_sanitized => has_sanitized,
@@ -269,7 +269,7 @@ fn json_field_parse_or_warn(access: &str, field_name: &str) -> String {
     let context = format!("field = \"{field_name}\"");
     crate::codegen::template_env::render(
         "conversions/sanitized_json_parse_or_warn",
-        minijinja::context! {
+        crate::alef_context! {
             access => access,
             context => context,
             message => "constructor argument was not valid JSON; substituting default",
@@ -437,7 +437,7 @@ fn gen_pyo3_enum_variant_constructors_content(
         let body_lines = vec![
             crate::codegen::template_env::render(
                 "generators/enums/pyo3_variant_constructor_body.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     core_path => core_path,
                     variant_name => ctor.variant_name,
                     field_inits => field_inits,
@@ -459,7 +459,7 @@ fn gen_pyo3_enum_variant_constructors_content(
 
         out.push_str(&crate::codegen::template_env::render(
             "generators/enums/pyo3_factory_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 doc_lines => Vec::<String>::new(),
                 has_pyo3_name => true,
                 pyo3_name => ctor.snake_name,
@@ -601,7 +601,7 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig, configured_features
                 .serde_rename
                 .clone()
                 .unwrap_or_else(|| apply_rename_all(&v.name, serde_rename_all));
-            minijinja::context! {
+            crate::alef_context! {
                 name => v.name.clone(),
                 idx => idx,
                 is_default => idx == default_idx,
@@ -616,7 +616,7 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig, configured_features
     let string_methods = if is_pyo3 {
         crate::codegen::template_env::render(
             "generators/enums/enum_string_methods.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => enum_def.name,
                 value_expr => "self",
                 redact => crate::codegen::generators::enum_has_sensitive_representation(enum_def),
@@ -628,7 +628,7 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig, configured_features
 
     crate::codegen::template_env::render(
         "generators/enums/enum_definition.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             enum_name => enum_def.name,
             derives => derives.join(", "),
             serde_rename_all => serde_rename_all,
@@ -721,7 +721,7 @@ pub(crate) fn write_pyo3_variant_accessors(out: &mut String, enum_def: &EnumDef,
             out.push_str("    #[getter]\n");
             out.push_str(&crate::codegen::template_env::render(
                 "generators/enums/getter_accessor.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     fn_name => &fn_name,
                     inner_type_name => inner_type_name,
                 },
@@ -753,7 +753,7 @@ pub(crate) fn write_pyo3_variant_accessors(out: &mut String, enum_def: &EnumDef,
             if keep_arm {
                 out.push_str(&crate::codegen::template_env::render(
                     "generators/enums/match_variant.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         core_path => &core_path,
                         variant_pascal => variant_pascal,
                         clone_expr => &clone_expr,
@@ -784,7 +784,7 @@ pub(crate) fn write_pyo3_variant_accessors(out: &mut String, enum_def: &EnumDef,
         out.push_str("    #[getter]\n");
         out.push_str(&crate::codegen::template_env::render(
             "generators/enums/py_dict_getter.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => &fn_name,
             },
         ));
@@ -799,14 +799,14 @@ pub(crate) fn write_pyo3_variant_accessors(out: &mut String, enum_def: &EnumDef,
         if let Some(tag_field) = repr.tag() {
             out.push_str(&crate::codegen::template_env::render(
                 "generators/enums/tag_field_check.jinja",
-                minijinja::context! { tag_field => tag_field },
+                crate::alef_context! { tag_field => tag_field },
             ));
             out.push_str("        let tag_value = json.get(tag_field)\n");
             out.push_str("            .and_then(|v| v.as_str())\n");
             out.push_str("            .unwrap_or(\"\");\n");
             out.push_str(&crate::codegen::template_env::render(
                 "generators/enums/variant_tag_match.jinja",
-                minijinja::context! { variant_name_lower => &wire_variant },
+                crate::alef_context! { variant_name_lower => &wire_variant },
             ));
             out.push_str("            return Ok(None);\n");
             out.push_str("        }\n");
@@ -815,7 +815,7 @@ pub(crate) fn write_pyo3_variant_accessors(out: &mut String, enum_def: &EnumDef,
                 // whole document would return the tag envelope instead of the payload. ~keep
                 Some(content_field) => out.push_str(&crate::codegen::template_env::render(
                     "generators/enums/adjacent_variant_payload.jinja",
-                    minijinja::context! { content_field => content_field },
+                    crate::alef_context! { content_field => content_field },
                 )),
                 // serde's internal form has the payload's fields flat beside the tag, so the
                 // document *is* the payload.
@@ -824,7 +824,7 @@ pub(crate) fn write_pyo3_variant_accessors(out: &mut String, enum_def: &EnumDef,
         } else {
             out.push_str(&crate::codegen::template_env::render(
                 "generators/enums/external_variant_payload.jinja",
-                minijinja::context! { wire_variant => &wire_variant },
+                crate::alef_context! { wire_variant => &wire_variant },
             ));
         }
         out.push_str("        let json_str = payload.to_string();\n");
@@ -851,7 +851,7 @@ fn write_pyo3_untagged_variant_accessor(
     out.push_str("    #[getter]\n");
     out.push_str(&crate::codegen::template_env::render(
         "generators/enums/py_dict_getter.jinja",
-        minijinja::context! { fn_name => fn_name },
+        crate::alef_context! { fn_name => fn_name },
     ));
     out.push_str("        match &self.inner {\n");
     // Same foreign-cfg drop policy as the typed accessor arm above: a host-owned cfg re-emits
@@ -876,7 +876,7 @@ fn write_pyo3_untagged_variant_accessor(
     if keep_arm {
         out.push_str(&crate::codegen::template_env::render(
             "generators/enums/untagged_variant_match.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 core_path => core_path,
                 variant_pascal => &variant.name,
                 cfg => variant.cfg.as_deref(),
@@ -894,7 +894,7 @@ pub(crate) fn write_pyo3_serde_tag_getter(out: &mut String, tag_field: &str) {
     out.push_str("    #[getter]\n");
     out.push_str(&crate::codegen::template_env::render(
         "generators/enums/tag_getter_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             fn_name => &fn_name,
         },
     ));
@@ -902,7 +902,7 @@ pub(crate) fn write_pyo3_serde_tag_getter(out: &mut String, tag_field: &str) {
     out.push_str("            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;\n");
     out.push_str(&crate::codegen::template_env::render(
         "generators/enums/json_get_field.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             tag_field => tag_field,
         },
     ));
@@ -910,7 +910,7 @@ pub(crate) fn write_pyo3_serde_tag_getter(out: &mut String, tag_field: &str) {
     out.push_str("            .map(String::from)\n");
     out.push_str(&crate::codegen::template_env::render(
         "generators/enums/json_get_error.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             tag_field => tag_field,
         },
     ));

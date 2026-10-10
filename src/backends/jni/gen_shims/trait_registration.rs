@@ -76,7 +76,7 @@ fn emit_trait_bridge_shims(
 fn emit_trait_unregister_shim(out: &mut String, symbol: &str, unregister_fn: &str) {
     out.push_str(&template_env::render(
         "trait_unregister_shim.rs.jinja",
-        context! {
+        crate::alef_context! {
             symbol => symbol,
             unregister_fn => unregister_fn,
         },
@@ -88,7 +88,7 @@ fn emit_trait_unregister_shim(out: &mut String, symbol: &str, unregister_fn: &st
 fn emit_trait_clear_shim(out: &mut String, symbol: &str, clear_fn: &str) {
     out.push_str(&template_env::render(
         "trait_clear_shim.rs.jinja",
-        context! {
+        crate::alef_context! {
             symbol => symbol,
             clear_fn => clear_fn,
         },

@@ -23,7 +23,7 @@ fn render_synthetic_bool_assertion(out: &mut String, field: &str, assertion_type
     };
     out.push_str(&crate::e2e::template_env::render(
         "csharp/assertion.jinja",
-        minijinja::context! { assertion_type => "synthetic_assertion", synthetic_pred => pred, synthetic_pred_type => pred_type },
+        crate::alef_context! { assertion_type => "synthetic_assertion", synthetic_pred => pred, synthetic_pred_type => pred_type },
     ));
     true
 }
@@ -102,7 +102,7 @@ pub(super) fn render_assertion(
                 .is_some_and(|skipped_reason| {
                     out.push_str(&crate::e2e::template_env::render(
                         "csharp/assertion.jinja",
-                        minijinja::context! { skipped_reason => skipped_reason },
+                        crate::alef_context! { skipped_reason => skipped_reason },
                     ));
                     true
                 }) =>
@@ -160,7 +160,7 @@ pub(super) fn render_assertion(
                         {
                             let rendered = crate::e2e::template_env::render(
                                 "csharp/assertion.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     assertion_type => "synthetic_embeddings_count_equals",
                                     synthetic_pred => format!("{result_var}.Count"),
                                     n => n,
@@ -175,7 +175,7 @@ pub(super) fn render_assertion(
                         {
                             let rendered = crate::e2e::template_env::render(
                                 "csharp/assertion.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     assertion_type => "synthetic_embeddings_count_min",
                                     synthetic_pred => format!("{result_var}.Count"),
                                     n => n,
@@ -187,7 +187,7 @@ pub(super) fn render_assertion(
                     "not_empty" => {
                         let rendered = crate::e2e::template_env::render(
                             "csharp/assertion.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 assertion_type => "synthetic_embeddings_not_empty",
                                 synthetic_pred => result_var.to_string(),
                             },
@@ -197,7 +197,7 @@ pub(super) fn render_assertion(
                     "is_empty" => {
                         let rendered = crate::e2e::template_env::render(
                             "csharp/assertion.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 assertion_type => "synthetic_embeddings_is_empty",
                                 synthetic_pred => result_var.to_string(),
                             },
@@ -221,7 +221,7 @@ pub(super) fn render_assertion(
                         {
                             let rendered = crate::e2e::template_env::render(
                                 "csharp/assertion.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     assertion_type => "synthetic_embedding_dimensions_equals",
                                     synthetic_pred => expr,
                                     n => n,
@@ -236,7 +236,7 @@ pub(super) fn render_assertion(
                         {
                             let rendered = crate::e2e::template_env::render(
                                 "csharp/assertion.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     assertion_type => "synthetic_embedding_dimensions_greater_than",
                                     synthetic_pred => expr,
                                     n => n,
@@ -281,7 +281,7 @@ pub(super) fn render_assertion(
                 };
                 let rendered = crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "synthetic_assertion",
                         synthetic_pred => synthetic_pred,
                         synthetic_pred_type => synthetic_pred_type,
@@ -296,7 +296,7 @@ pub(super) fn render_assertion(
                 let skipped_reason = FieldSkip::NotAvailableOnGeneratedCsharpResultType.message(f);
                 let rendered = crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         skipped_reason => skipped_reason,
                     },
                 );
@@ -315,7 +315,7 @@ pub(super) fn render_assertion(
         let skipped_reason = FieldSkip::NotAvailableOnResultType.message(f);
         let rendered = crate::e2e::template_env::render(
             "csharp/assertion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 skipped_reason => skipped_reason,
             },
         );
@@ -495,7 +495,7 @@ pub(super) fn render_assertion(
 
                 let rendered = crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "equals",
                         // Use the text-accessor expression for display_as_text fields so that
                         // `Assert.Equal(expected, field_expr!.Trim())` calls `.Text()` instead
@@ -517,7 +517,7 @@ pub(super) fn render_assertion(
 
                 let rendered = crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "contains",
                         field_as_str => field_as_str.clone(),
                         cs_val => cs_val,
@@ -532,7 +532,7 @@ pub(super) fn render_assertion(
 
                 let rendered = crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "contains_all",
                         field_as_str => field_as_str.clone(),
                         values_cs_lower => values_cs_lower,
@@ -547,7 +547,7 @@ pub(super) fn render_assertion(
 
                 let rendered = crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "not_contains",
                         field_as_str => field_as_str.clone(),
                         cs_val => cs_val,
@@ -561,7 +561,7 @@ pub(super) fn render_assertion(
             // nullability guess to stay compilable.
             let rendered = crate::e2e::template_env::render(
                 "csharp/assertion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     assertion_type => "not_empty",
                     field_expr => field_expr.clone(),
                     field_needs_json_serialize => field_needs_json_serialize,
@@ -574,7 +574,7 @@ pub(super) fn render_assertion(
             let field_is_nullable = !field_expr.contains('!') && !field_expr.contains(")");
             let rendered = crate::e2e::template_env::render(
                 "csharp/assertion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     assertion_type => "is_empty",
                     field_expr => field_expr.clone(),
                     field_needs_json_serialize => field_needs_json_serialize,
@@ -596,7 +596,7 @@ pub(super) fn render_assertion(
 
                 let rendered = crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "contains_any",
                         contains_any_expr => contains_any_expr,
                     },
@@ -610,7 +610,7 @@ pub(super) fn render_assertion(
 
                 let rendered = crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "greater_than",
                         field_expr => field_expr.clone(),
                         cs_val => cs_val,
@@ -625,7 +625,7 @@ pub(super) fn render_assertion(
 
                 let rendered = crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "less_than",
                         field_expr => field_expr.clone(),
                         cs_val => cs_val,
@@ -640,7 +640,7 @@ pub(super) fn render_assertion(
 
                 let rendered = crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "greater_than_or_equal",
                         field_expr => field_expr.clone(),
                         cs_val => cs_val,
@@ -655,7 +655,7 @@ pub(super) fn render_assertion(
 
                 let rendered = crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "less_than_or_equal",
                         field_expr => field_expr.clone(),
                         cs_val => cs_val,
@@ -670,7 +670,7 @@ pub(super) fn render_assertion(
 
                 let rendered = crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "starts_with",
                         field_expr => field_expr.clone(),
                         cs_val => cs_val,
@@ -685,7 +685,7 @@ pub(super) fn render_assertion(
 
                 let rendered = crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "ends_with",
                         field_expr => field_expr.clone(),
                         cs_val => cs_val,
@@ -700,7 +700,7 @@ pub(super) fn render_assertion(
             {
                 let rendered = crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "min_length",
                         field_expr => field_expr.clone(),
                         n => n,
@@ -715,7 +715,7 @@ pub(super) fn render_assertion(
             {
                 let rendered = crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "max_length",
                         field_expr => field_expr.clone(),
                         n => n,
@@ -730,7 +730,7 @@ pub(super) fn render_assertion(
             {
                 let rendered = crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "count_min",
                         field_expr => field_expr.clone(),
                         n => n,
@@ -745,7 +745,7 @@ pub(super) fn render_assertion(
             {
                 let rendered = crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "count_equals",
                         field_expr => field_expr.clone(),
                         n => n,
@@ -768,7 +768,7 @@ pub(super) fn render_assertion(
             let rendered = if is_complex_or_object {
                 crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "not_empty",
                         field_expr => field_expr.clone(),
                         field_needs_json_serialize => false,
@@ -777,7 +777,7 @@ pub(super) fn render_assertion(
             } else {
                 crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "is_true",
                         field_expr => field_expr.clone(),
                     },
@@ -796,7 +796,7 @@ pub(super) fn render_assertion(
                 // For complex types, is_false means "is empty/null"
                 crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "is_empty",
                         field_expr => field_expr.clone(),
                         field_needs_json_serialize => false,
@@ -805,7 +805,7 @@ pub(super) fn render_assertion(
             } else {
                 crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "is_false",
                         field_expr => field_expr.clone(),
                     },
@@ -838,7 +838,7 @@ pub(super) fn render_assertion(
             // Handled at the test method level.
             let rendered = crate::e2e::template_env::render(
                 "csharp/assertion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     assertion_type => "error",
                 },
             );
@@ -858,7 +858,7 @@ pub(super) fn render_assertion(
 
                             let rendered = crate::e2e::template_env::render(
                                 "csharp/assertion.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     assertion_type => "method_result",
                                     check => "equals",
                                     call_expr => call_expr.clone(),
@@ -873,7 +873,7 @@ pub(super) fn render_assertion(
                     "is_true" => {
                         let rendered = crate::e2e::template_env::render(
                             "csharp/assertion.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 assertion_type => "method_result",
                                 check => "is_true",
                                 call_expr => call_expr.clone(),
@@ -884,7 +884,7 @@ pub(super) fn render_assertion(
                     "is_false" => {
                         let rendered = crate::e2e::template_env::render(
                             "csharp/assertion.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 assertion_type => "method_result",
                                 check => "is_false",
                                 call_expr => call_expr.clone(),
@@ -898,7 +898,7 @@ pub(super) fn render_assertion(
 
                             let rendered = crate::e2e::template_env::render(
                                 "csharp/assertion.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     assertion_type => "method_result",
                                     check => "greater_than_or_equal",
                                     call_expr => call_expr.clone(),
@@ -914,7 +914,7 @@ pub(super) fn render_assertion(
 
                             let rendered = crate::e2e::template_env::render(
                                 "csharp/assertion.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     assertion_type => "method_result",
                                     check => "count_min",
                                     call_expr => call_expr.clone(),
@@ -927,7 +927,7 @@ pub(super) fn render_assertion(
                     "is_error" => {
                         let rendered = crate::e2e::template_env::render(
                             "csharp/assertion.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 assertion_type => "method_result",
                                 check => "is_error",
                                 call_expr => call_expr.clone(),
@@ -942,7 +942,7 @@ pub(super) fn render_assertion(
 
                             let rendered = crate::e2e::template_env::render(
                                 "csharp/assertion.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     assertion_type => "method_result",
                                     check => "contains",
                                     call_expr => call_expr.clone(),
@@ -966,7 +966,7 @@ pub(super) fn render_assertion(
 
                 let rendered = crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "matches_regex",
                         field_expr => field_expr.clone(),
                         cs_val => cs_val,

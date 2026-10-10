@@ -41,7 +41,7 @@ pub(super) fn emit_trait_bridge_methods(bridge_cfg: &TraitBridgeConfig, out: &mu
         let dart_name = dart_bridge_method_name(register_fn);
         out.push_str(&crate::backends::dart::template_env::render(
             "dart_trait_register_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 trait_name => trait_name.as_str(),
                 dart_name => dart_name.as_str(),
                 impl_type => impl_type.as_str(),
@@ -53,7 +53,7 @@ pub(super) fn emit_trait_bridge_methods(bridge_cfg: &TraitBridgeConfig, out: &mu
         let dart_name = dart_bridge_method_name(unregister_fn);
         out.push_str(&crate::backends::dart::template_env::render(
             "dart_trait_unregister_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 trait_name => trait_name.as_str(),
                 dart_name => dart_name.as_str(),
             },
@@ -64,7 +64,7 @@ pub(super) fn emit_trait_bridge_methods(bridge_cfg: &TraitBridgeConfig, out: &mu
         let dart_name = dart_bridge_method_name(clear_fn);
         out.push_str(&crate::backends::dart::template_env::render(
             "dart_trait_clear_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 trait_name => trait_name.as_str(),
                 dart_name => dart_name.as_str(),
             },

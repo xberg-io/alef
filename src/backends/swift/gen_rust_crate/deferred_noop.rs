@@ -24,7 +24,7 @@ pub(super) fn emit_shims(deferred_empty_handle_types: &BTreeSet<String>, visible
         }
         out.push_str(&crate::backends::swift::template_env::render(
             "rust_wrapper_free_fn.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => &noop_fn_name,
                 params => format!("client: &{ty_name}"),
                 return_clause => "",

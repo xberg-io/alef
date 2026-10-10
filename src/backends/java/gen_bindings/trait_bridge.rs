@@ -260,7 +260,7 @@ pub fn gen_trait_adapter_bridge_file(
         imports.push("java.util.Map");
     }
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         package => package,
         imports => imports,
         bridge_class => &bridge_class,
@@ -289,7 +289,7 @@ pub fn gen_unregistration_fn(
     }
     template_env::render(
         "bridge_unregister_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_pascal => trait_pascal,
             trait_snake_upper => trait_snake_upper,
             prefix_upper => prefix_upper,
@@ -323,7 +323,7 @@ pub fn gen_clear_fn(
 
     template_env::render(
         "bridge_clear_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_pascal => trait_pascal,
             trait_snake_upper => trait_snake_upper,
             prefix_upper => prefix_upper,
@@ -365,7 +365,7 @@ fn gen_interface_file(
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
-            minijinja::context! {
+            crate::alef_context! {
                 javadoc => format!("/** {}. */", m.name),
                 signature => format!("{} {}({}) throws Exception", return_type_str, m.name, params_str),
             }
@@ -382,7 +382,7 @@ fn gen_interface_file(
     let needs_list = methods_body.contains("List<");
     let needs_map = methods_body.contains("Map<");
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         package => package,
         needs_list => needs_list,
         needs_map => needs_map,
@@ -428,28 +428,28 @@ fn gen_bridge_file(
 
     let lifecycle_methods: Vec<Value> = if has_super_trait {
         vec![
-            minijinja::context! {
+            crate::alef_context! {
                 signature => "int handleName(MemorySegment userData, MemorySegment outName, MemorySegment outError)",
                 body => "outName.set(ValueLayout.ADDRESS, 0, arena.allocateFrom(impl.name()))",
                 error_return => "1",
                 void_call => true,
                 success_return => "0",
             },
-            minijinja::context! {
+            crate::alef_context! {
                 signature => "int handleVersion(MemorySegment userData, MemorySegment outVersion, MemorySegment outError)",
                 body => "outVersion.set(ValueLayout.ADDRESS, 0, arena.allocateFrom(impl.version()))",
                 error_return => "1",
                 void_call => true,
                 success_return => "0",
             },
-            minijinja::context! {
+            crate::alef_context! {
                 signature => "int handleInitialize(MemorySegment userData, MemorySegment outError)",
                 body => "impl.initialize()",
                 error_return => "1",
                 void_call => true,
                 success_return => "0",
             },
-            minijinja::context! {
+            crate::alef_context! {
                 signature => "int handleShutdown(MemorySegment userData, MemorySegment outError)",
                 body => "impl.shutdown()",
                 error_return => "1",
@@ -495,7 +495,7 @@ fn gen_bridge_file(
             } else {
                 ""
             };
-            stubs.push(minijinja::context! {
+            stubs.push(crate::alef_context! {
                 var_name => &var_name,
                 pascal_name => pascal,
                 handle_name => &handle,
@@ -567,7 +567,7 @@ fn gen_bridge_file(
         }
 
         match direct {
-            Some(d) => stubs.push(minijinja::context! {
+            Some(d) => stubs.push(crate::alef_context! {
                 var_name => &stub_name,
                 pascal_name => &method_pascal,
                 handle_name => &handle_name,
@@ -577,7 +577,7 @@ fn gen_bridge_file(
                 descriptor_params => func_desc_params.join(", "),
                 returns_void => d.returns_void,
             }),
-            None => stubs.push(minijinja::context! {
+            None => stubs.push(crate::alef_context! {
                 var_name => &stub_name,
                 pascal_name => &method_pascal,
                 handle_name => &handle_name,
@@ -690,7 +690,7 @@ fn gen_bridge_file(
                 None => (false, "", String::new(), String::new()),
             };
 
-            minijinja::context! {
+            crate::alef_context! {
                 name => &method.name,
                 handle_name => &handle,
                 sig_params => sig_params.join(", "),
@@ -711,7 +711,7 @@ fn gen_bridge_file(
 
     let num_methods = bridge_methods.len();
     let num_super_slots = if has_super_trait { 4usize } else { 0usize };
-    stubs.push(minijinja::context! {
+    stubs.push(crate::alef_context! {
         var_name => "stubFreeString",
         pascal_name => "FreeString",
         handle_name => "freeString",
@@ -722,7 +722,7 @@ fn gen_bridge_file(
         returns_void => true,
     });
 
-    stubs.push(minijinja::context! {
+    stubs.push(crate::alef_context! {
         var_name => "stubFreeUserData",
         pascal_name => "FreeUserData",
         handle_name => "freeUserData",
@@ -781,7 +781,7 @@ fn gen_bridge_file(
     let needs_list = methods_body.contains("List<");
     let needs_map = methods_body.contains("Map<");
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         package => package,
         needs_list => needs_list,
         needs_map => needs_map,

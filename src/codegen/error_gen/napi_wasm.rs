@@ -16,7 +16,7 @@ pub fn gen_napi_error_types(error: &ErrorDef) -> String {
 
     crate::codegen::template_env::render(
         "error_gen/napi_error_types.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             variants => variants,
         },
     )
@@ -34,7 +34,7 @@ pub fn gen_napi_error_converter(error: &ErrorDef, core_import: &str) -> String {
 
     crate::codegen::template_env::render(
         "error_gen/napi_error_converter.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             rust_path => rust_path.as_str(),
             fn_name => fn_name.as_str(),
         },
@@ -123,7 +123,7 @@ pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str, source_rema
 
     let code_fn = crate::codegen::template_env::render(
         "error_gen/wasm_error_code_fn.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             rust_path => rust_path.as_str(),
             code_fn_name => code_fn_name.as_str(),
             variants => code_variants,
@@ -133,7 +133,7 @@ pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str, source_rema
 
     let converter_fn = crate::codegen::template_env::render(
         "error_gen/wasm_error_converter.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             rust_path => rust_path.as_str(),
             fn_name => fn_name.as_str(),
             code_fn_name => code_fn_name.as_str(),

@@ -90,7 +90,7 @@ pub(super) fn emit_typescript_visitor_method(out: &mut String, method_name: &str
 
     let rendered = crate::e2e::template_env::render(
         "typescript/visitor_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             camel_method => camel_method,
             params => params,
             action_type => action_type,

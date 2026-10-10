@@ -63,7 +63,7 @@ pub fn gen_private_field_from_impl(spec: &PrivateFieldImpl) -> String {
 
     crate::codegen::template_env::render(
         "conversions/private_field_from_impl",
-        minijinja::context! {
+        crate::alef_context! {
             core_path => spec.core_path,
             binding_name => spec.binding_name,
             param => spec.param,

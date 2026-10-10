@@ -8,7 +8,6 @@ use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 use ahash::AHashSet;
 use heck::ToLowerCamelCase;
-use minijinja::context;
 
 use super::super::helpers::{
     gen_php_call_args, gen_php_call_args_with_let_bindings, gen_php_function_params,
@@ -67,7 +66,7 @@ pub(crate) fn gen_instance_method(
             if matches!(method.return_type, TypeRef::Unit) {
                 crate::backends::php::template_env::render(
                     "php_result_unit_body.jinja",
-                    context! {
+                    crate::alef_context! {
                         core_call => &core_call,
                     },
                 )
@@ -88,7 +87,7 @@ pub(crate) fn gen_instance_method(
                 );
                 crate::backends::php::template_env::render(
                     "php_result_wrapped_body.jinja",
-                    context! {
+                    crate::alef_context! {
                         core_call => &core_call,
                         wrap => &wrap,
                     },
@@ -123,7 +122,7 @@ pub(crate) fn gen_instance_method(
             if matches!(method.return_type, TypeRef::Unit) {
                 crate::backends::php::template_env::render(
                     "php_result_unit_body_with_let_bindings.jinja",
-                    context! {
+                    crate::alef_context! {
                         let_bindings => &let_bindings,
                         core_call => &core_call,
                     },
@@ -145,7 +144,7 @@ pub(crate) fn gen_instance_method(
                 );
                 crate::backends::php::template_env::render(
                     "php_result_wrapped_body_with_let_bindings.jinja",
-                    context! {
+                    crate::alef_context! {
                         let_bindings => &let_bindings,
                         core_call => &core_call,
                         wrap => &wrap,
@@ -199,7 +198,7 @@ pub(crate) fn gen_instance_method(
     if params_str.is_empty() {
         out.push_str(&crate::backends::php::template_env::render(
             "php_method_definition_no_params.jinja",
-            context! {
+            crate::alef_context! {
                 name => &rust_name,
                 ret_sig => &ret_sig,
                 body => &body,
@@ -208,7 +207,7 @@ pub(crate) fn gen_instance_method(
     } else {
         out.push_str(&crate::backends::php::template_env::render(
             "php_method_definition_with_params.jinja",
-            context! {
+            crate::alef_context! {
                 name => &rust_name,
                 params => &params_str,
                 ret_sig => &ret_sig,
@@ -283,7 +282,7 @@ pub(crate) fn gen_instance_method_non_opaque(
             if is_enum_return {
                 crate::backends::php::template_env::render(
                     "php_result_debug_body_with_let_bindings.jinja",
-                    context! {
+                    crate::alef_context! {
                         let_bindings => &field_conversions,
                         core_call => &core_call,
                     },
@@ -303,7 +302,7 @@ pub(crate) fn gen_instance_method_non_opaque(
                 );
                 crate::backends::php::template_env::render(
                     "php_result_wrapped_body_with_let_bindings.jinja",
-                    context! {
+                    crate::alef_context! {
                         let_bindings => &field_conversions,
                         core_call => &core_call,
                         wrap => &wrap,
@@ -313,7 +312,7 @@ pub(crate) fn gen_instance_method_non_opaque(
         } else if is_enum_return {
             crate::backends::php::template_env::render(
                 "php_debug_body_with_let_bindings.jinja",
-                context! {
+                crate::alef_context! {
                     let_bindings => &field_conversions,
                     core_call => &core_call,
                 },
@@ -321,7 +320,7 @@ pub(crate) fn gen_instance_method_non_opaque(
         } else {
             crate::backends::php::template_env::render(
                 "php_wrapped_body_with_let_bindings.jinja",
-                context! {
+                crate::alef_context! {
                     let_bindings => &field_conversions,
                     wrapped_call => &wrapped_call,
                 },
@@ -467,7 +466,7 @@ pub(crate) fn gen_static_method(
     if params.is_empty() {
         out.push_str(&crate::backends::php::template_env::render(
             "php_static_method_definition_no_params.jinja",
-            context! {
+            crate::alef_context! {
                 name => &method.name,
                 php_name => &php_name,
                 ret_sig => &ret_sig,
@@ -477,7 +476,7 @@ pub(crate) fn gen_static_method(
     } else {
         out.push_str(&crate::backends::php::template_env::render(
             "php_static_method_definition_with_params.jinja",
-            context! {
+            crate::alef_context! {
                 name => &method.name,
                 php_name => &php_name,
                 params => &params,
@@ -545,7 +544,7 @@ pub(crate) fn gen_function_as_static_method(
     if params.is_empty() {
         out.push_str(&crate::backends::php::template_env::render(
             "php_static_method_definition_no_params.jinja",
-            context! {
+            crate::alef_context! {
                 name => &func.name,
                 php_name => &php_name,
                 ret_sig => &ret_sig,
@@ -555,7 +554,7 @@ pub(crate) fn gen_function_as_static_method(
     } else {
         out.push_str(&crate::backends::php::template_env::render(
             "php_static_method_definition_with_params.jinja",
-            context! {
+            crate::alef_context! {
                 name => &func.name,
                 php_name => &php_name,
                 params => &params,
@@ -623,7 +622,7 @@ fn gen_function_body(
             if is_enum_return {
                 crate::backends::php::template_env::render(
                     "php_result_debug_body_with_let_bindings.jinja",
-                    context! {
+                    crate::alef_context! {
                         let_bindings => &let_bindings,
                         core_call => &core_call,
                     },
@@ -643,7 +642,7 @@ fn gen_function_body(
                 );
                 crate::backends::php::template_env::render(
                     "php_result_wrapped_body_with_let_bindings.jinja",
-                    context! {
+                    crate::alef_context! {
                         let_bindings => &let_bindings,
                         core_call => &core_call,
                         wrap => &wrap,
@@ -653,7 +652,7 @@ fn gen_function_body(
         } else if is_enum_return {
             crate::backends::php::template_env::render(
                 "php_debug_body_with_let_bindings.jinja",
-                context! {
+                crate::alef_context! {
                     let_bindings => &let_bindings,
                     core_call => &core_call,
                 },
@@ -678,7 +677,7 @@ fn gen_function_body(
             };
             crate::backends::php::template_env::render(
                 body_template,
-                context! {
+                crate::alef_context! {
                     let_bindings => &let_bindings,
                     wrapped_call => &wrapped_call,
                 },
@@ -721,7 +720,7 @@ fn gen_function_body(
             if func.error_type.is_some() {
                 crate::backends::php::template_env::render(
                     "php_result_wrapped_body_with_let_bindings.jinja",
-                    context! {
+                    crate::alef_context! {
                         let_bindings => &let_bindings,
                         core_call => &core_call,
                         wrap => &wrap_expr,
@@ -731,7 +730,7 @@ fn gen_function_body(
                 let wrapped_call = format!("{core_call};\n    {wrap_expr}");
                 crate::backends::php::template_env::render(
                     "php_wrapped_body_with_let_bindings.jinja",
-                    context! {
+                    crate::alef_context! {
                         let_bindings => &let_bindings,
                         wrapped_call => &wrapped_call,
                     },
@@ -752,7 +751,7 @@ fn gen_function_body(
             );
             crate::backends::php::template_env::render(
                 "php_result_wrapped_body_with_let_bindings.jinja",
-                context! {
+                crate::alef_context! {
                     let_bindings => &let_bindings,
                     core_call => &core_call,
                     wrap => &wrap,
@@ -778,7 +777,7 @@ fn gen_function_body(
             };
             crate::backends::php::template_env::render(
                 body_template,
-                context! {
+                crate::alef_context! {
                     let_bindings => &let_bindings,
                     wrapped_call => &wrapped_call,
                 },

@@ -108,7 +108,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
 
         out.push_str(&render(
             "service_r_constructor.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 class_name => class_name,
                 description => if !service.doc.is_empty() {
                     service.doc.trim().to_owned()
@@ -142,7 +142,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
 
         out.push_str(&render(
             "service_r_configurator.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => method_name,
                 class_name => class_name,
                 description => if !method.doc.is_empty() {
@@ -232,7 +232,7 @@ fn gen_service_entrypoint_r(
 
     out.push_str(&render(
         "service_r_entrypoint.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             title => title,
             description => description,
             class_name => class_name,
@@ -277,7 +277,7 @@ fn gen_registration_method(out: &mut String, reg: &RegistrationDef, service: &Se
 
     out.push_str(&render(
         "service_r_registration.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => method_name,
             class_name => class_name,
             callback_param => callback_param,
@@ -335,17 +335,17 @@ fn gen_registration_variant(
 
     let rendered = crate::backends::extendr::template_env::render(
         "registration_variant.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             variant_name => variant_name,
             class_name => class_name,
             callback_param => callback_param,
             base_method => base_method,
             doc => variant.doc.as_deref().unwrap_or(""),
-            signature_params => variant.signature_params.iter().map(|p| minijinja::context! {
+            signature_params => variant.signature_params.iter().map(|p| crate::alef_context! {
                 name => p.name.as_str(),
                 ty_annotation => r_type_annotation(&p.ty),
             }).collect::<Vec<_>>(),
-            overrides => variant.overrides.iter().map(|o| minijinja::context! {
+            overrides => variant.overrides.iter().map(|o| crate::alef_context! {
                 param_name => o.param_name.as_str(),
                 value_expr => o.value_expr.as_str(),
             }).collect::<Vec<_>>(),
@@ -445,7 +445,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 
     out.push_str(&render(
         "service_rs_handler_bridge.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => trait_name,
             bridge_name => bridge_name,
             core_import => core_import,
@@ -484,7 +484,7 @@ fn gen_run_extendr_function(
     let ctor_call = build_ctor_call(service, owner_path, core_import);
     out.push_str(&render(
         "service_rs_run_function_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             owner_path => owner_path,
             ep_method => ep_method,
             fn_name => fn_name,
@@ -520,7 +520,7 @@ fn gen_run_extendr_function(
 
             out.push_str(&render(
                 "service_rs_registration_match_arm.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     reg_method => reg_method,
                     bridge_name => bridge_name,
                     core_import => core_import,
@@ -536,7 +536,7 @@ fn gen_run_extendr_function(
     let ep_call = build_ep_call(ep, service, core_import);
     out.push_str(&render(
         "service_rs_run_function_footer.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             ep_call => ep_call,
         },
     ));

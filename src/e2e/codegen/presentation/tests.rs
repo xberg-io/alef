@@ -134,7 +134,7 @@ fn show_display_flag_selects_the_human_readable_rust_formatter() {
     let render = |operations| {
         crate::e2e::template_env::render(
             "rust/snippet_body.rs.jinja",
-            minijinja::context! { imports => Vec::<String>::new(), body => vec!["let result = process();"],
+            crate::alef_context! { imports => Vec::<String>::new(), body => vec!["let result = process();"],
             is_async => false, presentation => operations },
         )
     };
@@ -168,17 +168,17 @@ fn presentation_templates_emit_idiomatic_python_rust_and_typescript() {
 
     let python_output = crate::e2e::template_env::render(
         "python/snippet_body.py.jinja",
-        minijinja::context! { imports => Vec::<String>::new(), body => vec!["result = process()"],
+        crate::alef_context! { imports => Vec::<String>::new(), body => vec!["result = process()"],
         is_async => false, presentation => python },
     );
     let rust_output = crate::e2e::template_env::render(
         "rust/snippet_body.rs.jinja",
-        minijinja::context! { imports => Vec::<String>::new(), body => vec!["let result = process();"],
+        crate::alef_context! { imports => Vec::<String>::new(), body => vec!["let result = process();"],
         is_async => false, presentation => rust },
     );
     let typescript_output = crate::e2e::template_env::render(
         "typescript/snippet_body.jinja",
-        minijinja::context! { imports => vec!["process"], module => "@example/library",
+        crate::alef_context! { imports => vec!["process"], module => "@example/library",
         setup_lines => Vec::<String>::new(), client_setup => "", call_expr => "process()",
         result_var => "result", is_async => false, expects_error => false,
         presentation => typescript },
@@ -256,7 +256,7 @@ fn resolve_iterate_treats_path_optional_when_fixture_flag_is_stale() {
 
     let typescript_output = crate::e2e::template_env::render(
         "typescript/snippet_body.jinja",
-        minijinja::context! { imports => vec!["process"], module => "@example/library",
+        crate::alef_context! { imports => vec!["process"], module => "@example/library",
         setup_lines => Vec::<String>::new(), client_setup => "", call_expr => "process()",
         result_var => "result", is_async => false, expects_error => false,
         presentation => operations },
@@ -391,7 +391,7 @@ fn resolve_downgrades_display_true_against_an_ir_struct_field_but_keeps_it_for_a
 
     let rust_output = crate::e2e::template_env::render(
         "rust/snippet_body.rs.jinja",
-        minijinja::context! { imports => Vec::<String>::new(), body => vec!["let result = process();"],
+        crate::alef_context! { imports => Vec::<String>::new(), body => vec!["let result = process();"],
         is_async => false, presentation => operations },
     );
     assert!(

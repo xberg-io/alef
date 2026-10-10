@@ -30,7 +30,7 @@ pub(super) fn gen_bridge_field_wrapper_function(
             let optional_text = if param.optional { "Optional." } else { "" };
             out.push_str(&render(
                 "bridge_field_param_doc.jinja",
-                minijinja::context! { param_name, optional_text },
+                crate::alef_context! { param_name, optional_text },
             ));
         }
     }
@@ -43,7 +43,7 @@ pub(super) fn gen_bridge_field_wrapper_function(
         } else {
             let return_type = csharp_type(&func.return_type);
             out.push_str(
-                render("async_task_generic.jinja", minijinja::context! { return_type }).trim_end_matches('\n'),
+                render("async_task_generic.jinja", crate::alef_context! { return_type }).trim_end_matches('\n'),
             );
         }
     } else if func.return_type == TypeRef::Unit {
@@ -69,7 +69,7 @@ pub(super) fn gen_bridge_field_wrapper_function(
             out.push_str(
                 render(
                     "param_decl_inline_optional.jinja",
-                    minijinja::context! { param_type, param_name },
+                    crate::alef_context! { param_type, param_name },
                 )
                 .trim_end_matches('\n'),
             );
@@ -77,7 +77,7 @@ pub(super) fn gen_bridge_field_wrapper_function(
             out.push_str(
                 render(
                     "param_decl_inline_required.jinja",
-                    minijinja::context! { param_type, param_name },
+                    crate::alef_context! { param_type, param_name },
                 )
                 .trim_end_matches('\n'),
             );
@@ -106,7 +106,7 @@ pub(super) fn gen_bridge_field_wrapper_function(
 
     out.push_str(&render(
         "bridge_field_setup.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             field_name,
             options_param_camel,
             field_name_pascal,
@@ -120,7 +120,7 @@ pub(super) fn gen_bridge_field_wrapper_function(
     } else {
         "bridge_field_register.jinja"
     };
-    out.push_str(&render(register_template, minijinja::context! { trait_pascal }));
+    out.push_str(&render(register_template, crate::alef_context! { trait_pascal }));
     // Both register branches hand back an `AlefHandle`, so one sentinel is now correct for both:
     // `VisitorCreate` is declared `HANDLE_PINVOKE_TYPE` in `native_methods_visitor.jinja`,
     // mirroring `{prefix}_visitor_create -> AlefHandle`
@@ -138,7 +138,7 @@ pub(super) fn gen_bridge_field_wrapper_function(
     let cs_native_name = to_csharp_name(&func.name);
     out.push_str(&render(
         "bridge_field_inject.jinja",
-        minijinja::context! { options_pascal, field_name_pascal, options_param_camel },
+        crate::alef_context! { options_pascal, field_name_pascal, options_param_camel },
     ));
 
     if func.return_type != TypeRef::Unit || func.error_type.is_some() {
@@ -150,7 +150,7 @@ pub(super) fn gen_bridge_field_wrapper_function(
     out.push_str(
         render(
             "native_call_start.jinja",
-            minijinja::context! { method_name => &cs_native_name },
+            crate::alef_context! { method_name => &cs_native_name },
         )
         .trim_end_matches('\n'),
     );
@@ -178,7 +178,7 @@ pub(super) fn gen_bridge_field_wrapper_function(
     if func.return_type == TypeRef::Unit && func.error_type.is_some() {
         out.push_str(&render(
             "status_error_throw.jinja",
-            minijinja::context! { indent => "                    " },
+            crate::alef_context! { indent => "                    " },
         ));
     }
 
@@ -192,7 +192,7 @@ pub(super) fn gen_bridge_field_wrapper_function(
     if func.return_type != TypeRef::Unit {
         out.push_str(&render(
             "bridge_field_json_return.jinja",
-            minijinja::context! { indent => "                    ", result_pascal },
+            crate::alef_context! { indent => "                    ", result_pascal },
         ));
     }
 
@@ -204,7 +204,7 @@ pub(super) fn gen_bridge_field_wrapper_function(
     } else {
         "bridge_field_unregister.jinja"
     };
-    out.push_str(&render(unregister_template, minijinja::context! { trait_pascal }));
+    out.push_str(&render(unregister_template, crate::alef_context! { trait_pascal }));
     out.push_str("                }\n");
     out.push_str("            }\n");
     out.push_str("            else\n");
@@ -219,7 +219,7 @@ pub(super) fn gen_bridge_field_wrapper_function(
     out.push_str(
         render(
             "native_call_start.jinja",
-            minijinja::context! { method_name => &cs_native_name },
+            crate::alef_context! { method_name => &cs_native_name },
         )
         .trim_end_matches('\n'),
     );
@@ -234,7 +234,7 @@ pub(super) fn gen_bridge_field_wrapper_function(
     if func.return_type == TypeRef::Unit && func.error_type.is_some() {
         out.push_str(&render(
             "status_error_throw.jinja",
-            minijinja::context! { indent => "                " },
+            crate::alef_context! { indent => "                " },
         ));
     }
 
@@ -245,7 +245,7 @@ pub(super) fn gen_bridge_field_wrapper_function(
         ));
         out.push_str(&render(
             "bridge_field_json_return.jinja",
-            minijinja::context! { indent => "                ", result_pascal },
+            crate::alef_context! { indent => "                ", result_pascal },
         ));
     }
 
@@ -255,7 +255,7 @@ pub(super) fn gen_bridge_field_wrapper_function(
     out.push_str("        {\n");
     out.push_str(&render(
         "bridge_field_free_options.jinja",
-        minijinja::context! { options_pascal, options_param_camel },
+        crate::alef_context! { options_pascal, options_param_camel },
     ));
     out.push_str("        }\n");
     out.push_str("    }\n\n");

@@ -75,7 +75,7 @@ pub fn gen_trait_bridge_files(
 /// This protocol declares the four Plugin trait super-methods that all plugins must implement:
 /// name(), version(), initialize() throws, and shutdown() throws.
 fn emit_swift_plugin_bridge_protocol() -> String {
-    crate::backends::swift::template_env::render("swift_plugin_bridge_protocol.swift.jinja", minijinja::context! {})
+    crate::backends::swift::template_env::render("swift_plugin_bridge_protocol.swift.jinja", crate::alef_context! {})
 }
 
 /// Collect all Named type references recursively from a TypeRef.
@@ -149,7 +149,7 @@ fn gen_single_trait_bridge_file(
 
         protocol_methods.push_str(&crate::backends::swift::template_env::render(
             "swift_trait_protocol_method.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => method_camel,
                 params => params_sig,
                 throws_clause => throws,
@@ -179,7 +179,7 @@ fn gen_single_trait_bridge_file(
             let success_body = trait_adapter_success_body(&method.return_type, &bridge_exclude_types);
             crate::backends::swift::template_env::render(
                 "swift_trait_adapter_error_body.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     method_name => &method_camel,
                     call_args => &call_args_str,
                     success_body => success_body,
@@ -190,7 +190,7 @@ fn gen_single_trait_bridge_file(
             // NOTE: async is removed, all methods are now sync
             crate::backends::swift::template_env::render(
                 "swift_trait_adapter_direct_body.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     method_name => &method_camel,
                     call_args => &call_args_str,
                     binds_result => adapter_binds_result(&method.return_type),
@@ -200,7 +200,7 @@ fn gen_single_trait_bridge_file(
 
         adapter_methods.push_str(&crate::backends::swift::template_env::render(
             "swift_trait_adapter_method.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => method_camel,
                 params => params_sig,
                 throws_clause => throws_kw,
@@ -214,7 +214,7 @@ fn gen_single_trait_bridge_file(
 
     crate::backends::swift::template_env::render(
         "swift_trait_bridge_file.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => trait_name,
             adapter_class => format!("Swift{trait_name}Adapter"),
             protocol => protocol,
@@ -251,14 +251,14 @@ fn trait_adapter_success_body(return_type: &TypeRef, bridge_exclude_types: &Hash
     if let Some(expression) = expression {
         crate::backends::swift::template_env::render(
             "swift_trait_adapter_success.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 expression => expression,
             },
         )
     } else {
         crate::backends::swift::template_env::render(
             "swift_trait_adapter_excluded_success.swift.jinja",
-            minijinja::context! {},
+            crate::alef_context! {},
         )
     }
 }
@@ -477,7 +477,7 @@ pub fn gen_bridge_registration_overloads_file(
         let protocol = bridge_protocol_name(trait_name);
         protocol_aliases.push_str(&crate::backends::swift::template_env::render(
             "typealias.jinja",
-            minijinja::context! { name => &protocol },
+            crate::alef_context! { name => &protocol },
         ));
     }
 
@@ -486,7 +486,7 @@ pub fn gen_bridge_registration_overloads_file(
         let pascal_name = trait_bridge_pascal_name(trait_name);
         unregister_overloads.push_str(&crate::backends::swift::template_env::render(
             "swift_trait_unregister_overload.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 pascal_name => &pascal_name,
             },
         ));
@@ -497,7 +497,7 @@ pub fn gen_bridge_registration_overloads_file(
         let pascal_name = trait_bridge_pascal_name(trait_name);
         register_overloads.push_str(&crate::backends::swift::template_env::render(
             "swift_trait_register_overload.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 pascal_name => &pascal_name,
             },
         ));
@@ -505,7 +505,7 @@ pub fn gen_bridge_registration_overloads_file(
 
     let content = crate::backends::swift::template_env::render(
         "swift_trait_bridge_overloads.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             protocol_aliases => protocol_aliases,
             unregister_overloads => unregister_overloads,
             register_overloads => register_overloads,

@@ -411,7 +411,7 @@ fn render_test_file(
         }
     }
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         header => hash::e2e_header(CommentStyle::DoubleSlash),
         using_imports => using_imports,
         category => category,
@@ -463,7 +463,7 @@ fn render_test_method(
     if fixture.mock_response.is_none() && !fixture_has_csharp_callable(fixture, e2e_config) {
         let skip_reason =
             "non-HTTP fixture: C# binding does not expose a callable for the configured `[e2e.call]` function";
-        let ctx = minijinja::context! {
+        let ctx = crate::alef_context! {
             is_skipped => true,
             skip_reason => skip_reason,
             description => description,
@@ -960,7 +960,7 @@ fn render_test_method(
     let unrenderable_error_assertions =
         crate::e2e::codegen::error_path_assertions::render(fixture, "        // ", "csharp");
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         is_skipped => false,
         expects_error => expects_error,
         description => description,

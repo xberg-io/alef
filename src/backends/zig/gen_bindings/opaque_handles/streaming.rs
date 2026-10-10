@@ -76,7 +76,7 @@ pub(super) fn emit_streaming_struct(method: &MethodDef, streaming: &StreamingCon
 
     out.push_str(&render(
         "opaque_stream_struct.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             item_type => item_type,
             struct_name => &struct_name,
             zig_error_type => &zig_error_type,
@@ -128,7 +128,7 @@ pub(super) fn emit_opaque_streaming_method(method: &MethodDef, streaming: &Strea
 
     out.push_str(&render(
         "opaque_stream_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => &method.name,
             type_name => &ty.name,
             req_param => req_param,
@@ -150,7 +150,7 @@ mod tests {
     fn stream_template_checks_json_and_releases_every_native_value() {
         let rendered = crate::backends::zig::template_env::render(
             "opaque_stream_struct.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 struct_name => "RecordStream",
                 item_type => "Record",
                 zig_error_type => "RequestError",

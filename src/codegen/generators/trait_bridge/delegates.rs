@@ -88,7 +88,7 @@ pub fn gen_bridge_default_delegates(spec: &TraitBridgeSpec, generator: &dyn Trai
                     format!("self.0, {}", sig.arg_names)
                 };
                 let await_suffix = if m.is_async { ".await" } else { "" };
-                minijinja::context! {
+                crate::alef_context! {
                     async_kw => sig.async_kw,
                     name => &m.name,
                     all_params => sig.all_params,
@@ -102,7 +102,7 @@ pub fn gen_bridge_default_delegates(spec: &TraitBridgeSpec, generator: &dyn Trai
 
         out.push_str(&crate::codegen::template_env::render(
             "generators/trait_bridge/default_delegate.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 delegate_name => default_delegate_name(spec, defaulted),
                 method_name => &defaulted.name,
                 wrapper_name => &wrapper,

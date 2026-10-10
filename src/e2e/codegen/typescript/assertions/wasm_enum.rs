@@ -19,7 +19,7 @@ pub(super) fn render_wasm_enum_assertion(
     match assertion.assertion_type.as_str() {
         "equals" => render_equals(out, assertion, field_expr, field, field_resolver),
         "not_empty" | "is_not_empty" => {
-            out.push_str(&render(minijinja::context! {
+            out.push_str(&render(crate::alef_context! {
                 kind => "presence",
                 actual => field_expr,
             }));
@@ -45,12 +45,12 @@ fn render_equals(
     let representation = field_resolver.wasm_enum_representation(field);
     let carries_data = field_resolver.ir_enum_is_data_carrying(field).unwrap_or(false);
     if carries_data && representation == Some(WasmEnumRepresentation::Untagged) {
-        out.push_str(&render(minijinja::context! { kind => "untagged", field => field }));
+        out.push_str(&render(crate::alef_context! { kind => "untagged", field => field }));
         return true;
     }
     let actual = actual_expression(field_expr, representation, carries_data);
     let expected = json_to_js(&serde_json::Value::String(wire.to_string()));
-    out.push_str(&render(minijinja::context! {
+    out.push_str(&render(crate::alef_context! {
         kind => "equals",
         actual => actual,
         expected => expected,

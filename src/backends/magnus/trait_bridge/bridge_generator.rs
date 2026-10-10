@@ -179,7 +179,7 @@ impl MagnusBridgeGenerator {
     fn runtime_dispatcher_support(&self, spec: &TraitBridgeSpec) -> String {
         crate::backends::magnus::template_env::render(
             "trait_bridge_runtime_dispatcher.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 dispatcher_name => self.runtime_dispatcher_name(spec),
                 job_name => self.runtime_job_name(spec),
             },
@@ -279,7 +279,7 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
 
         let mut callback_body = crate::backends::magnus::template_env::render(
             "sync_method_body.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 wrapper => spec.wrapper_name(),
                 method_name => name,
                 call => call,
@@ -361,7 +361,7 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         };
         let mut callback_body = crate::backends::magnus::template_env::render(
             "sync_method_body.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 wrapper => spec.wrapper_name(),
                 method_name => name,
                 call => call,
@@ -432,7 +432,7 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
 
         crate::backends::magnus::template_env::render(
             "trait_bridge_constructor.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 wrapper => wrapper,
                 required_methods => required_methods,
                 optional_methods => optional_methods,
@@ -505,7 +505,7 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
 
         crate::backends::magnus::template_env::render(
             "trait_bridge_registration_fn.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 register_fn => register_fn,
                 wrapper => wrapper,
                 trait_path => trait_path,
@@ -615,7 +615,7 @@ impl MagnusBridgeGenerator {
 
         crate::backends::magnus::template_env::render(
             "trait_bridge_return_conversion.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 wrapper => spec.wrapper_name(),
                 method_name => &method.name,
                 has_error => has_error,

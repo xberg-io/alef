@@ -27,14 +27,14 @@ pub(super) fn render_trait_bridges(api: &ApiSurface, config: &ResolvedCrateConfi
     let mut out = String::new();
     out.push_str(&template_env::render(
         "heading.jinja",
-        minijinja::context! { marker => "###", title => "Trait Bridges" },
+        crate::alef_context! { marker => "###", title => "Trait Bridges" },
     ));
     out.push_str("| Trait | Register | Unregister | Clear |\n");
     out.push_str("|-------|----------|------------|-------|\n");
     for surface in &surfaces {
         out.push_str(&template_env::render(
             "trait_bridge_row.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 trait_name => &surface.trait_name,
                 register => surface.register_symbol.as_deref().unwrap_or("—"),
                 unregister => surface.unregister_symbol.as_deref().unwrap_or("—"),

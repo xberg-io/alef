@@ -97,7 +97,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str, text_types: &[String
             let pascal_name = csharp_variant_name(&v.name);
             let doc_lines = super::sanitize_doc_lines_for_csharp(&v.doc);
             let has_doc = !doc_lines.is_empty();
-            Value::from_serialize(serde_json::json!({
+            crate::template::to_value(serde_json::json!({
                 "json_name": json_name,
                 "pascal_name": pascal_name,
                 "doc": has_doc,
@@ -111,7 +111,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str, text_types: &[String
 
     let mut out = render(
         "enum_header.jinja",
-        Value::from_serialize(serde_json::json!({
+        crate::template::to_value(serde_json::json!({
             "namespace": namespace,
             "enum_pascal": enum_pascal,
             "needs_custom_converter": needs_custom_converter,
@@ -124,7 +124,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str, text_types: &[String
 
     out.push_str(&render(
         "enum_custom_converter.jinja",
-        Value::from_serialize(serde_json::json!({
+        crate::template::to_value(serde_json::json!({
             "enum_pascal": enum_pascal,
             "variants": variant_list.iter().map(|(json_name, pascal_name)| {
                 serde_json::json!({
@@ -177,7 +177,7 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
     out.push_str("using System.IO;\n");
     out.push_str("using System.Text.Json;\n");
     out.push_str("using System.Text.Json.Serialization;\n\n");
-    out.push_str(&render("namespace_decl.jinja", minijinja::context! { namespace }));
+    out.push_str(&render("namespace_decl.jinja", crate::alef_context! { namespace }));
     out.push('\n');
 
     let variant_names: std::collections::HashSet<String> =
@@ -200,7 +200,7 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
     if !enum_doc_lines.is_empty() {
         out.push_str(&render(
             "doc_comment_block.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 has_doc => true,
                 indent => "",
                 doc_lines => enum_doc_lines,
@@ -210,11 +210,11 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
 
     out.push_str(&render(
         "json_converter_attr.jinja",
-        minijinja::context! { base => enum_pascal },
+        crate::alef_context! { base => enum_pascal },
     ));
     out.push_str(&render(
         "abstract_record_header.jinja",
-        minijinja::context! { enum_pascal },
+        crate::alef_context! { enum_pascal },
     ));
     out.push_str("{\n");
 
@@ -225,7 +225,7 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         if !variant_doc_lines.is_empty() {
             out.push_str(&render(
                 "doc_comment_block.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     has_doc => true,
                     indent => "    ",
                     doc_lines => variant_doc_lines,
@@ -239,7 +239,7 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         if variant.fields.is_empty() || is_unit_tuple {
             out.push_str(&render(
                 "unit_variant_record.jinja",
-                minijinja::context! { pascal, enum_pascal },
+                crate::alef_context! { pascal, enum_pascal },
             ));
             out.push('\n');
         } else {
@@ -253,18 +253,18 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
                 let qualified_cs_type = format!("global::{ns}.{cs_type}");
                 out.push_str(&render(
                     "variant_record_body_header.jinja",
-                    minijinja::context! { pascal, enum_pascal },
+                    crate::alef_context! { pascal, enum_pascal },
                 ));
                 out.push_str("    {\n");
                 out.push_str(&render(
                     "required_value_property.jinja",
-                    minijinja::context! { qualified_cs_type },
+                    crate::alef_context! { qualified_cs_type },
                 ));
                 out.push_str("    }\n\n");
             } else {
                 out.push_str(&render(
                     "variant_record_params_header.jinja",
-                    minijinja::context! { pascal },
+                    crate::alef_context! { pascal },
                 ));
                 for (i, field) in variant.fields.iter().enumerate() {
                     let cs_type = if field.sanitized && field.type_rust_path.is_some() {
@@ -288,7 +288,7 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
                     if is_tuple_field(field) {
                         out.push_str(&render(
                             "variant_field_tuple.jinja",
-                            minijinja::context! { cs_type, comma },
+                            crate::alef_context! { cs_type, comma },
                         ));
                     } else {
                         let raw_field_name = field.name.trim_start_matches('_');
@@ -310,19 +310,19 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
                         if clashes {
                             out.push_str(&render(
                                 "variant_field_json_value.jinja",
-                                minijinja::context! { json_name, cs_type, comma },
+                                crate::alef_context! { json_name, cs_type, comma },
                             ));
                         } else {
                             out.push_str(&render(
                                 "variant_field_json_named.jinja",
-                                minijinja::context! { json_name, cs_type, cs_name, comma },
+                                crate::alef_context! { json_name, cs_type, cs_name, comma },
                             ));
                         }
                     }
                 }
                 out.push_str(&render(
                     "variant_record_close.jinja",
-                    minijinja::context! { enum_pascal },
+                    crate::alef_context! { enum_pascal },
                 ));
                 out.push('\n');
             }
@@ -333,11 +333,11 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         let return_type_nullable = format!("{return_type}?");
         out.push_str(&render(
             "variant_accessor_summary.jinja",
-            minijinja::context! { pascal },
+            crate::alef_context! { pascal },
         ));
         out.push_str(&render(
             "variant_accessor_property.jinja",
-            minijinja::context! { pascal, return_type_nullable },
+            crate::alef_context! { pascal, return_type_nullable },
         ));
         out.push('\n');
     }
@@ -389,7 +389,7 @@ fn gen_sealed_union_converter(out: &mut String, _namespace: &str, enum_def: &Enu
             let is_unit = v.fields.is_empty() || is_unit_tuple;
             let is_tuple = !is_unit && v.fields.len() == 1 && is_tuple_field(&v.fields[0]);
             let is_excluded = v.binding_excluded;
-            Value::from_serialize(serde_json::json!({
+            crate::template::to_value(serde_json::json!({
                 "pascal": pascal,
                 "pascal_lower": pascal.to_lowercase(),
                 "discriminator": discriminator,
@@ -402,7 +402,7 @@ fn gen_sealed_union_converter(out: &mut String, _namespace: &str, enum_def: &Enu
         .collect();
     out.push_str(&render(
         "sealed_union_converter.jinja",
-        Value::from_serialize(serde_json::json!({
+        crate::template::to_value(serde_json::json!({
             "class_name": class_name,
             "tag_field": repr.tag().unwrap_or(DEFAULT_TAG_FIELD),
             "content_field": repr.content(),
@@ -434,7 +434,6 @@ fn gen_sealed_union_converter(out: &mut String, _namespace: &str, enum_def: &Enu
 /// anything else returns `""`.
 fn gen_untagged_wrapper(enum_def: &EnumDef, namespace: &str, emit_text: bool) -> String {
     use crate::backends::csharp::template_env::render;
-    use minijinja::Value;
 
     let class_name = csharp_type_name(&enum_def.name);
     let doc_lines = super::sanitize_doc_lines_for_csharp(&enum_def.doc);
@@ -442,7 +441,7 @@ fn gen_untagged_wrapper(enum_def: &EnumDef, namespace: &str, emit_text: bool) ->
 
     render(
         "untagged_union_wrapper.jinja",
-        Value::from_serialize(serde_json::json!({
+        crate::template::to_value(serde_json::json!({
             "namespace": namespace,
             "class_name": class_name,
             "doc": has_doc,

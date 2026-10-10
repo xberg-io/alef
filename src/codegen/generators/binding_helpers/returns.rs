@@ -33,7 +33,7 @@ fn arc_wrap(val: &str, name: &str, mutex_types: &AHashSet<String>) -> String {
     let needs_mutex = mutex_types.contains(name);
     crate::codegen::template_env::render(
         "binding_helpers/arc_wrap.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             val => val,
             needs_mutex => needs_mutex,
         },

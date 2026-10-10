@@ -1,5 +1,3 @@
-use minijinja::context;
-
 use crate::codegen::doc_emission::{DocTarget, sanitize_rust_idioms};
 use crate::codegen::generators::trait_bridge::is_native_marshalled_struct;
 use crate::core::config::TraitBridgeConfig;
@@ -182,13 +180,13 @@ pub fn gen_visitor_interface(
     out.push_str("declare(strict_types=1);\n\n");
     out.push_str(&crate::backends::php::template_env::render(
         "php_namespace.jinja",
-        context! { namespace => namespace },
+        crate::alef_context! { namespace => namespace },
     ));
     out.push('\n');
 
     out.push_str(&crate::backends::php::template_env::render(
         "php_visitor_interface_start.jinja",
-        context! {
+        crate::alef_context! {
             interface_name => &interface_name,
             default_result_expr => &default_result_expr,
         },
@@ -241,7 +239,7 @@ pub fn gen_visitor_interface(
 
         out.push_str(&crate::backends::php::template_env::render(
             "php_visitor_interface_method.jinja",
-            context! {
+            crate::alef_context! {
                 method_name => name,
                 method_params => &method_params,
                 doc_lines => &doc_lines,
@@ -285,13 +283,13 @@ pub fn gen_registration_interface(
     out.push_str("declare(strict_types=1);\n\n");
     out.push_str(&crate::backends::php::template_env::render(
         "php_namespace.jinja",
-        context! { namespace => namespace },
+        crate::alef_context! { namespace => namespace },
     ));
     out.push('\n');
 
     out.push_str(&crate::backends::php::template_env::render(
         "php_interface_start.jinja",
-        context! {
+        crate::alef_context! {
             interface_name => interface_name,
         },
     ));
@@ -345,7 +343,7 @@ pub fn gen_registration_interface(
 
         out.push_str(&crate::backends::php::template_env::render(
             "php_interface_method.jinja",
-            context! {
+            crate::alef_context! {
                 method_name => name,
                 method_params => &method_params,
                 return_type => &return_type,

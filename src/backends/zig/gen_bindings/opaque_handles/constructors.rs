@@ -22,7 +22,7 @@ pub(crate) fn emit_opaque_constructor(
 
     out.push_str(&render(
         "opaque_constructor_doc.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             type_name => &ty.name,
         },
     ));
@@ -53,7 +53,7 @@ pub(crate) fn emit_opaque_constructor(
         .join(", ");
     out.push_str(&render(
         "opaque_constructor_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             type_snake => &type_snake,
             alloc_param => alloc_param,
             params => &params_str,
@@ -66,7 +66,7 @@ pub(crate) fn emit_opaque_constructor(
             let c_name = format!("{}_z", p.name);
             out.push_str(&render(
                 "opaque_constructor_string_param.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     c_name => &c_name,
                     param_name => renamed_name,
                 },
@@ -89,7 +89,7 @@ pub(crate) fn emit_opaque_constructor(
 
     out.push_str(&render(
         "opaque_constructor_body.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             prefix => prefix,
             type_snake => &type_snake,
             c_args => &c_args,

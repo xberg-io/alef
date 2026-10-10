@@ -632,7 +632,7 @@ fn emit_call_and_assertions(out: &mut String, ctx: &CallEmissionContext<'_>) {
         if call_config.returns_void && void_not_error {
             out.push_str(&crate::e2e::template_env::render(
                 "dart/void_not_error_call.jinja",
-                minijinja::context! { receiver => receiver, function_name => function_name, args => args_str },
+                crate::alef_context! { receiver => receiver, function_name => function_name, args => args_str },
             ));
         } else if call_config.returns_void {
             let _ = writeln!(out, "    await {receiver}.{function_name}({args_str});");

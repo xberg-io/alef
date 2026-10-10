@@ -333,7 +333,7 @@ pub(super) fn build_args_and_setup(
                                 let rb_val = if let Some(file) = docs_files.iter().find(|file| file.field == pointer) {
                                     crate::e2e::template_env::render(
                                         "ruby/docs_file_read.jinja",
-                                        minijinja::context! { path => ruby_string_literal(&file.path) },
+                                        crate::alef_context! { path => ruby_string_literal(&file.path) },
                                     )
                                     .trim_end()
                                     .to_string()

@@ -64,7 +64,7 @@ pub(crate) fn emit_opaque_handle(ty: &TypeDef, prefix: &str, context: &OpaqueHan
     emit_cleaned_zig_doc(out, &ty.doc, "");
     out.push_str(&render(
         "opaque_handle_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             type_name => &ty.name,
         },
     ));

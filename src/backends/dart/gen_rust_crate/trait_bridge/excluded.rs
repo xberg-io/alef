@@ -92,7 +92,7 @@ pub(crate) fn emit_excluded_bridge_types(out: &mut String, api: &ApiSurface) {
     for (type_name, carrier_name) in carriers {
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_excluded_carrier.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_name => type_name.as_str(),
                 carrier_name => carrier_name.as_str(),
             },

@@ -129,7 +129,7 @@ fn emit_common(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     if !visible_functions.is_empty() {
         body.push_str(&crate::backends::kotlin::template_env::render(
             "expect_object_declaration.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => module_name,
             },
         ));
@@ -149,7 +149,7 @@ fn emit_expect_function(f: &FunctionDef, out: &mut String, imports: &mut BTreeSe
         let doc_lines: Vec<String> = f.doc.lines().map(ToString::to_string).collect();
         out.push_str(&crate::backends::kotlin::template_env::render(
             "doc_comment.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => "    ",
                 lines => doc_lines,
             },
@@ -161,7 +161,7 @@ fn emit_expect_function(f: &FunctionDef, out: &mut String, imports: &mut BTreeSe
     let func_name_camel = to_lower_camel(&f.name);
     out.push_str(&crate::backends::kotlin::template_env::render(
         "expect_function_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             async_kw => async_kw,
             name => func_name_camel,
             params => params.join(", "),
@@ -200,7 +200,7 @@ fn emit_jvm_actual(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
 
         body.push_str(&crate::backends::kotlin::template_env::render(
             "actual_object_declaration.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => module_name,
             },
         ));
@@ -241,7 +241,7 @@ fn emit_native_actual(api: &ApiSurface, config: &ResolvedCrateConfig) -> String 
     if !visible_functions.is_empty() {
         body.push_str(&crate::backends::kotlin::template_env::render(
             "actual_object_declaration.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => module_name,
             },
         ));
@@ -383,7 +383,7 @@ fn render_kt_file(package: &str, imports: &BTreeSet<String>, body: &str) -> Stri
     content.push_str("\n\n");
     content.push_str(&crate::backends::kotlin::template_env::render(
         "package_declaration.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             package => package,
         },
     ));

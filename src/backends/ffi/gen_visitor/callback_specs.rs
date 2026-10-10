@@ -207,7 +207,7 @@ pub(super) fn gen_struct_fields(specs: &[CallbackSpec], pascal_prefix: &str) -> 
         let params = callback_arg_fields(spec, pascal_prefix);
         out.push_str(&render(
             "ffi_visitor_callback_field.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 doc_lines,
                 name => spec.name.as_str(),
                 params,

@@ -113,7 +113,7 @@ pub(super) fn emit_static_method_param_conversion(
     {
         out.push_str(&render(
             "opaque_param_enum_i32.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => "    ",
                 name => name,
             },
@@ -124,7 +124,7 @@ pub(super) fn emit_static_method_param_conversion(
     if matches!(&p.ty, TypeRef::String | TypeRef::Path) {
         out.push_str(&render(
             "opaque_param_dupez.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => "    ",
                 name => name,
             },
@@ -141,7 +141,7 @@ pub(super) fn emit_static_method_param_conversion(
     {
         out.push_str(&render(
             "opaque_param_optional_dupez.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => "    ",
                 name => name,
                 capture => "s",
@@ -156,7 +156,7 @@ pub(super) fn emit_static_method_param_conversion(
         let snake = AsSnakeCase(n).to_string();
         out.push_str(&render(
             "opaque_param_named_from_json.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => "    ",
                 name => name,
                 prefix => prefix,
@@ -174,7 +174,7 @@ pub(super) fn emit_static_method_param_conversion(
         let snake = AsSnakeCase(n).to_string();
         out.push_str(&render(
             "opaque_param_optional_named_from_json.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => "    ",
                 name => name,
                 prefix => prefix,
@@ -254,7 +254,7 @@ pub(super) fn emit_method_param_conversion(
     {
         out.push_str(&render(
             "opaque_param_enum_i32.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => "        ",
                 name => name,
             },
@@ -280,7 +280,7 @@ pub(super) fn emit_method_param_conversion(
     {
         out.push_str(&render(
             "opaque_param_optional_dupez.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => "        ",
                 name => name,
                 capture => "s",
@@ -301,7 +301,7 @@ pub(super) fn emit_method_param_conversion(
         let snake = AsSnakeCase(n).to_string();
         out.push_str(&render(
             "opaque_param_optional_named_from_json.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => "        ",
                 name => name,
                 prefix => prefix,
@@ -316,7 +316,7 @@ pub(super) fn emit_method_param_conversion(
         TypeRef::String | TypeRef::Path | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             out.push_str(&render(
                 "opaque_param_dupez.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     indent => "        ",
                     name => name,
                 },
@@ -326,7 +326,7 @@ pub(super) fn emit_method_param_conversion(
             let snake = AsSnakeCase(n).to_string();
             out.push_str(&render(
                 "opaque_param_named_from_json.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     indent => "        ",
                     name => name,
                     prefix => prefix,
@@ -339,7 +339,7 @@ pub(super) fn emit_method_param_conversion(
             if let TypeRef::Vec(_) | TypeRef::Map(_, _) = inner.as_ref() {
                 out.push_str(&render(
                     "opaque_param_optional_dupez.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         indent => "        ",
                         name => name,
                         capture => "v",

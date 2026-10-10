@@ -301,7 +301,7 @@ pub(super) fn append_docs_file_setup(
         setup_lines.push(
             crate::e2e::template_env::render(
                 "kotlin/docs_file_read.jinja",
-                minijinja::context! { variable => variable, index => index, path => escape_kotlin(path) },
+                crate::alef_context! { variable => variable, index => index, path => escape_kotlin(path) },
             )
             .trim_end()
             .to_string(),
@@ -311,7 +311,7 @@ pub(super) fn append_docs_file_setup(
     setup_lines.push(
         crate::e2e::template_env::render(
             "kotlin/snippet_json_object_setup.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 variable => variable,
                 json_literal => super::super::values::kotlin_string_literal(&json),
                 replacements => replacements,

@@ -40,7 +40,7 @@ pub(super) fn render_error(err: &ErrorDef, all_errors: &[ErrorDef], lang: Langua
 
     out.push_str(&template_env::render(
         "heading.jinja",
-        minijinja::context! { marker => "####", title => &ename },
+        crate::alef_context! { marker => "####", title => &ename },
     ));
 
     let doc = clean_doc(&err.doc, lang);
@@ -63,7 +63,7 @@ pub(super) fn render_error(err: &ErrorDef, all_errors: &[ErrorDef], lang: Langua
     if lang == Language::Python {
         out.push_str(&template_env::render(
             "base_class.jinja",
-            minijinja::context! { name => &ename },
+            crate::alef_context! { name => &ename },
         ));
         out.push('\n');
         out.push_str("| Exception | Description |\n");
@@ -79,7 +79,7 @@ pub(super) fn render_error(err: &ErrorDef, all_errors: &[ErrorDef], lang: Langua
             };
             out.push_str(&template_env::render(
                 "exception_row.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     variant => escape_table_cell(&vname),
                     error => escape_table_cell(&ename),
                     doc => escape_table_cell(&vdoc),
@@ -101,7 +101,7 @@ pub(super) fn render_error(err: &ErrorDef, all_errors: &[ErrorDef], lang: Langua
             };
             out.push_str(&template_env::render(
                 "variant_row.jinja",
-                minijinja::context! { name => escape_table_cell(&vname), doc => escape_table_cell(&vdoc) },
+                crate::alef_context! { name => escape_table_cell(&vname), doc => escape_table_cell(&vdoc) },
             ));
         }
     }

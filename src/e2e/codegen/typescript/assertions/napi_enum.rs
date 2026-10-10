@@ -30,7 +30,7 @@ pub(super) fn render_napi_enum_assertion(
                 .enum_wire_value_for_variant(field, expected)
                 .unwrap_or(expected);
             let tag_key = json_to_js(&serde_json::Value::String(tag.to_string()));
-            out.push_str(&render(minijinja::context! {
+            out.push_str(&render(crate::alef_context! {
                 kind => "equals",
                 actual => format!("{field_expr}?.[{tag_key}]"),
                 expected => json_to_js(&serde_json::Value::String(wire.to_string())),
@@ -39,7 +39,7 @@ pub(super) fn render_napi_enum_assertion(
         }
         "not_empty" | "is_not_empty" => {
             let tag_key = json_to_js(&serde_json::Value::String(tag.to_string()));
-            out.push_str(&render(minijinja::context! {
+            out.push_str(&render(crate::alef_context! {
                 kind => "presence",
                 actual => format!("{field_expr}?.[{tag_key}]"),
             }));

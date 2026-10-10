@@ -116,7 +116,7 @@ pub(super) fn render_snippet_body_with_ir(
         crate::e2e::codegen::presentation::resolve(fixture, e2e_config, lang, type_defs, enums, functions);
     Ok(crate::e2e::template_env::render(
         "elixir/snippet_body.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             setup_lines => setup_lines, call_expr => call_expr, result_var => call.effective_result_var(),
             returns_void => call.returns_void, is_streaming => is_streaming,
             expects_error => expects_error, presentation => presentation,
@@ -249,10 +249,10 @@ fn render_http_snippet(fixture: &Fixture) -> Result<String> {
     });
     Ok(crate::e2e::template_env::render(
         "elixir/http_snippet.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method => http.request.method.to_lowercase(),
             path => format!("/fixtures/{}{}", fixture.id, http.request.path),
-            headers => headers.iter().map(|(key, value)| minijinja::context! {
+            headers => headers.iter().map(|(key, value)| crate::alef_context! {
                 key => crate::e2e::escape::escape_elixir(key), value => crate::e2e::escape::escape_elixir(value),
             }).collect::<Vec<_>>(),
             body => plan.body.as_ref().map(super::values::json_to_elixir),

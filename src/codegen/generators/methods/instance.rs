@@ -584,7 +584,7 @@ pub fn gen_method(
 
     crate::codegen::template_env::render(
         "generators/methods/method_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             has_too_many_arguments => total_params > 7,
             has_missing_errors_doc => method.error_type.is_some(),
             has_should_implement_trait => is_trait_method_name(&method.name),

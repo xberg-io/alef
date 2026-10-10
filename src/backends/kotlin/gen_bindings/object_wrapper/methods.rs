@@ -46,7 +46,7 @@ pub(crate) fn emit_function(
 
     out.push_str(&crate::backends::kotlin::template_env::render(
         "function_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             async_kw => async_kw,
             name => func_name_camel,
             params => params.join(", "),
@@ -66,7 +66,7 @@ pub(crate) fn emit_function(
             let wrapper = return_ty.trim_end_matches('?');
             out.push_str(&crate::backends::kotlin::template_env::render(
                 "async_bridge_client_return.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     wrapper => wrapper,
                     name => func_name_camel,
                     args => call_args,
@@ -75,7 +75,7 @@ pub(crate) fn emit_function(
         } else {
             out.push_str(&crate::backends::kotlin::template_env::render(
                 "async_bridge_return.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => func_name_camel,
                     args => call_args,
                     optional_suffix => optional_suffix,
@@ -85,7 +85,7 @@ pub(crate) fn emit_function(
     } else if matches!(f.return_type, TypeRef::Unit) && writeback.is_none() {
         out.push_str(&crate::backends::kotlin::template_env::render(
             "bridge_call_unit.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => func_name_camel,
                 args => call_args,
             },
@@ -95,7 +95,7 @@ pub(crate) fn emit_function(
         let wrapper = return_ty.trim_end_matches('?');
         out.push_str(&crate::backends::kotlin::template_env::render(
             "bridge_client_return.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 wrapper => wrapper,
                 name => func_name_camel,
                 args => call_args,
@@ -104,7 +104,7 @@ pub(crate) fn emit_function(
     } else {
         out.push_str(&crate::backends::kotlin::template_env::render(
             "bridge_return.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => func_name_camel,
                 args => call_args,
                 optional_suffix => optional_suffix,

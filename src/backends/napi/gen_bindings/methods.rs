@@ -229,7 +229,7 @@ pub(super) fn gen_tagged_enum_binding_to_core(
             let is_empty = variant.fields.is_empty();
 
             Some(if is_empty {
-                minijinja::context! {
+                crate::alef_context! {
                     name => variant.name.clone(),
                     tag_value => tag_value.to_string(),
                     is_empty => true,
@@ -253,7 +253,7 @@ pub(super) fn gen_tagged_enum_binding_to_core(
                     .unwrap_or_else(|| inner_name.to_string());
                 let field_exprs = vec![format!("{inner_path} {{ {} }}", inner_field_inits.join(", "))];
 
-                minijinja::context! {
+                crate::alef_context! {
                     name => variant.name.clone(),
                     tag_value => tag_value,
                     is_empty => false,
@@ -289,7 +289,7 @@ pub(super) fn gen_tagged_enum_binding_to_core(
                     .map(|(f, expr)| format!("{}: {expr}", f.name))
                     .collect();
 
-                minijinja::context! {
+                crate::alef_context! {
                     name => variant.name.clone(),
                     tag_value => tag_value,
                     is_empty => false,
@@ -317,7 +317,7 @@ pub(super) fn gen_tagged_enum_binding_to_core(
             let is_empty = first.fields.is_empty();
 
             if is_empty {
-                minijinja::context! {
+                crate::alef_context! {
                     name => first.name.clone(),
                     is_empty => true,
                     is_tuple => false,
@@ -328,7 +328,7 @@ pub(super) fn gen_tagged_enum_binding_to_core(
                     .iter()
                     .map(super::transparent_newtypes::default_to_core)
                     .collect();
-                minijinja::context! {
+                crate::alef_context! {
                     name => first.name.clone(),
                     is_empty => false,
                     is_tuple => true,
@@ -340,7 +340,7 @@ pub(super) fn gen_tagged_enum_binding_to_core(
                     .iter()
                     .map(|f| format!("{}: {}", f.name, super::transparent_newtypes::default_to_core(f)))
                     .collect();
-                minijinja::context! {
+                crate::alef_context! {
                     name => first.name.clone(),
                     is_empty => false,
                     is_tuple => false,
@@ -351,7 +351,7 @@ pub(super) fn gen_tagged_enum_binding_to_core(
 
     crate::backends::napi::template_env::render(
         "gen_tagged_enum_binding_to_core.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             binding_name => binding_name,
             core_path => core_path,
             tag_field => tag_field,
@@ -507,7 +507,7 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                 for sf in &synth_field_names {
                     all_fields_none.push(format!("{sf}: None"));
                 }
-                Some(minijinja::context! {
+                Some(crate::alef_context! {
                     name => variant.name.clone(),
                     tag_value => tag_value.to_string(),
                     is_empty => true,
@@ -594,7 +594,7 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                     }
                 }
 
-                Some(minijinja::context! {
+                Some(crate::alef_context! {
                     name => variant.name.clone(),
                     tag_value => tag_value,
                     is_empty => false,
@@ -628,7 +628,7 @@ pub(super) fn gen_tagged_enum_core_to_binding(
 
     crate::backends::napi::template_env::render(
         "gen_tagged_enum_core_to_binding.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             binding_name => binding_name,
             core_path => core_path,
             tag_field => tag_field,

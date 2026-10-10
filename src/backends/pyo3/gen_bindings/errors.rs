@@ -49,7 +49,7 @@ pub(crate) fn is_dataclass_backed_config(
 fn render_relative_import(module_name: &str, imports: &[String]) -> String {
     crate::backends::pyo3::template_env::render(
         "import_from_module.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             module_name => module_name,
             imports => imports.join(", "),
         },
@@ -59,7 +59,7 @@ fn render_relative_import(module_name: &str, imports: &[String]) -> String {
 fn render_absolute_import(module_name: &str, imports: &[String]) -> String {
     crate::backends::pyo3::template_env::render(
         "import_from_absolute_module.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             module_name => module_name,
             imports => imports.join(", "),
         },
@@ -126,12 +126,12 @@ pub(super) fn gen_exceptions_py(api: &ApiSurface, module_name: &str) -> String {
     if is_long_import(&import_statement) {
         out.push_str(&crate::backends::pyo3::template_env::render(
             "import_from_relative_module_header.jinja",
-            minijinja::context! { module_name => module_name },
+            crate::alef_context! { module_name => module_name },
         ));
         for name in &exc_names {
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "trait_bridge/indented_import_item.jinja",
-                minijinja::context! { name => name },
+                crate::alef_context! { name => name },
             ));
         }
         out.push_str(")\n");
@@ -181,7 +181,7 @@ pub(super) fn gen_init_py(
     out.push_str(&hash::header(CommentStyle::Hash));
     out.push_str(&crate::backends::pyo3::template_env::render(
         "init_header.jinja",
-        minijinja::context! { module_name => module_name, version => version },
+        crate::alef_context! { module_name => module_name, version => version },
     ));
     out.push('\n');
 
@@ -366,12 +366,12 @@ pub(super) fn gen_init_py(
         if is_long_import(&import_statement) {
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "import_from_relative_module_header.jinja",
-                minijinja::context! { module_name => module_name },
+                crate::alef_context! { module_name => module_name },
             ));
             for name in &imports_from_native {
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "trait_bridge/indented_import_item.jinja",
-                    minijinja::context! { name => name },
+                    crate::alef_context! { name => name },
                 ));
             }
             out.push_str(")\n");
@@ -386,7 +386,7 @@ pub(super) fn gen_init_py(
             for name in &imports_from_api {
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "trait_bridge/indented_import_item.jinja",
-                    minijinja::context! { name => name },
+                    crate::alef_context! { name => name },
                 ));
             }
             out.push_str(")\n");
@@ -401,7 +401,7 @@ pub(super) fn gen_init_py(
             for name in &imports_from_exceptions {
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "trait_bridge/indented_import_item.jinja",
-                    minijinja::context! { name => name },
+                    crate::alef_context! { name => name },
                 ));
             }
             out.push_str(")\n");
@@ -416,7 +416,7 @@ pub(super) fn gen_init_py(
             for name in &imports_from_options {
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "trait_bridge/indented_import_item.jinja",
-                    minijinja::context! { name => name },
+                    crate::alef_context! { name => name },
                 ));
             }
             out.push_str(")\n");
@@ -435,7 +435,7 @@ pub(super) fn gen_init_py(
             for name in &service_owners {
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "trait_bridge/indented_import_item.jinja",
-                    minijinja::context! { name => name },
+                    crate::alef_context! { name => name },
                 ));
             }
             out.push_str(")\n");
@@ -453,12 +453,12 @@ pub(super) fn gen_init_py(
         if is_long_import(&import_statement) {
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "import_from_module_header.jinja",
-                minijinja::context! { module_name => module },
+                crate::alef_context! { module_name => module },
             ));
             for name in symbols {
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "trait_bridge/indented_import_item.jinja",
-                    minijinja::context! { name => name },
+                    crate::alef_context! { name => name },
                 ));
             }
             out.push_str(")\n");
@@ -510,13 +510,13 @@ pub(super) fn gen_init_py(
     for name in &all_items {
         out.push_str(&crate::backends::pyo3::template_env::render(
             "init_all_entry.jinja",
-            minijinja::context! { name => name },
+            crate::alef_context! { name => name },
         ));
     }
     out.push_str("]\n\n");
     out.push_str(&crate::backends::pyo3::template_env::render(
         "version_declaration.jinja",
-        minijinja::context! { version => version },
+        crate::alef_context! { version => version },
     ));
 
     out

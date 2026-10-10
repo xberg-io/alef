@@ -321,7 +321,7 @@ fn test_registration_function_exists() {
 fn registration_dispatch_preserves_domain_error_type_and_compiles() {
     let dispatch = render(
         "service_api_registration_dispatch_result.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => "route",
             meta_args => "",
             opaque_name => "ServiceOpaque",
@@ -388,7 +388,7 @@ fn main() {{
 fn entrypoint_result_status_reports_domain_error_and_compiles() {
     let return_body = render(
         "service_api_entrypoint_return_result_status.rs.jinja",
-        minijinja::context! { call => "call()" },
+        crate::alef_context! { call => "call()" },
     );
     let source = format!(
         r#"
@@ -440,7 +440,7 @@ fn main() {{
 fn entrypoint_opaque_result_reports_domain_error_and_compiles() {
     let return_body = render(
         "service_api_entrypoint_return_opaque_result.rs.jinja",
-        minijinja::context! { call => "call()" },
+        crate::alef_context! { call => "call()" },
     );
     let source = format!(
         r#"

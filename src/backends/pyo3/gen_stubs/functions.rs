@@ -109,18 +109,18 @@ pub(super) fn gen_function_stub(func: &FunctionDef, env: &FunctionStubEnv<'_>) -
             if is_python_builtin_name(name) {
                 wrapped.push_str(&crate::backends::pyo3::template_env::render(
                     "stub_param_wrapped_noqa.jinja",
-                    minijinja::context! { param => param, indent => "    " },
+                    crate::alef_context! { param => param, indent => "    " },
                 ));
             } else {
                 wrapped.push_str(&crate::backends::pyo3::template_env::render(
                     "stub_param_wrapped.jinja",
-                    minijinja::context! { param => param, indent => "    " },
+                    crate::alef_context! { param => param, indent => "    " },
                 ));
             }
         }
         wrapped.push_str(&crate::backends::pyo3::template_env::render(
             "stub_method_signature_end.jinja",
-            minijinja::context! { return_type => &return_type },
+            crate::alef_context! { return_type => &return_type },
         ));
         wrapped
     }

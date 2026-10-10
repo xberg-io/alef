@@ -256,7 +256,7 @@ fn render_vec_string_refs_binding(name: &str) -> String {
     let refs_name = format!("{name}_refs");
     template_env::render(
         "vec_string_refs.rs.jinja",
-        context! {
+        crate::alef_context! {
             refs_name => refs_name,
             source_name => name,
         },

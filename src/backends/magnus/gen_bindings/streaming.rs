@@ -213,14 +213,14 @@ pub(super) fn gen_iterator_registration(adapter: &StreamingAdapter<'_>) -> Vec<S
     vec![
         render(
             "module_class_define.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 binding => "class",
                 class_name => iter_name,
             },
         ),
         render(
             "module_class_method_register.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 ruby_name => "next_chunk",
                 type_name => iter_name,
                 function_name => "next_chunk",
@@ -229,14 +229,14 @@ pub(super) fn gen_iterator_registration(adapter: &StreamingAdapter<'_>) -> Vec<S
         ),
         render(
             "module_class_method_register.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 ruby_name => "each",
                 type_name => iter_name,
                 function_name => "each",
                 arity => 0,
             },
         ),
-        render("module_class_include_enumerable.rs.jinja", minijinja::context! {}),
+        render("module_class_include_enumerable.rs.jinja", crate::alef_context! {}),
     ]
 }
 
@@ -247,7 +247,7 @@ pub(super) fn gen_streaming_method_registration(adapter: &StreamingAdapter<'_>) 
     let owner = adapter.owner_type;
     render(
         "module_class_method_register.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             ruby_name => name,
             type_name => owner,
             function_name => name,

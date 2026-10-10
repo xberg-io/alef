@@ -5,7 +5,6 @@ use crate::core::ir::{
     TypeRef,
 };
 use heck::{ToLowerCamelCase, ToSnakeCase};
-use minijinja::context;
 
 /// Generate the idiomatic PHP service class (`service.php`).
 pub(in crate::backends::php::gen_bindings) fn gen_service_php(api: &ApiSurface, _extension_name: &str) -> String {
@@ -59,7 +58,7 @@ fn gen_configurator(out: &mut String, method: &crate::core::ir::MethodDef) {
     let params = param_decl_list(&method.params);
     out.push_str(&render(
         "php_service_method_start.jinja",
-        context! {
+        crate::alef_context! {
             method_name => &method.name,
             param_sig => &params,
             return_type => "self",
@@ -107,7 +106,7 @@ fn gen_base_registration(out: &mut String, registration: &RegistrationDef) {
     out.push_str(&format!("        if (${} !== null) {{\n", registration.callback_param));
     out.push_str(&render(
         "php_service_registration_store.jinja",
-        context! {
+        crate::alef_context! {
             method_name => &registration.method,
             meta_tuple => metadata_array(&registration.metadata_params),
             callback_param => &registration.callback_param,
@@ -117,7 +116,7 @@ fn gen_base_registration(out: &mut String, registration: &RegistrationDef) {
     out.push_str("        }\n\n");
     out.push_str(&render(
         "php_service_registration_factory_body.jinja",
-        context! {
+        crate::alef_context! {
             method_name => &registration.method,
             meta_tuple => metadata_array(&registration.metadata_params),
             callback_param => &registration.callback_param,
@@ -157,7 +156,7 @@ fn gen_variant_direct(out: &mut String, registration: &RegistrationDef, variant:
     } else {
         out.push_str(&render(
             "php_service_variant_direct_body.jinja",
-            context! {
+            crate::alef_context! {
                 base_method => &registration.method,
                 vars => variant_metadata_values(registration, variant).join(", "),
                 callback_param => &registration.callback_param,
@@ -185,7 +184,7 @@ fn gen_variant_factory(out: &mut String, registration: &RegistrationDef, variant
             .metadata_param;
         out.push_str(&render(
             "php_service_variant_wrapper_factory_body.jinja",
-            context! {
+            crate::alef_context! {
                 callback_param => &registration.callback_param,
                 stmt => stmt,
                 base_method => &registration.method,
@@ -195,7 +194,7 @@ fn gen_variant_factory(out: &mut String, registration: &RegistrationDef, variant
     } else {
         out.push_str(&render(
             "php_service_variant_factory_body.jinja",
-            context! {
+            crate::alef_context! {
                 callback_param => &registration.callback_param,
                 base_method => &registration.method,
                 call_sig => variant_metadata_values(registration, variant).join(", "),
@@ -222,7 +221,7 @@ fn gen_entrypoint(out: &mut String, service: &ServiceDef, entrypoint: &crate::co
             }
             out.push_str(&render(
                 "php_service_method_start.jinja",
-                context! {
+                crate::alef_context! {
                     method_name => &entrypoint.method,
                     param_sig => &params,
                     return_type => "void",
@@ -230,7 +229,7 @@ fn gen_entrypoint(out: &mut String, service: &ServiceDef, entrypoint: &crate::co
             ));
             out.push_str(&render(
                 "php_service_native_call.jinja",
-                context! {
+                crate::alef_context! {
                     native_fn => native_fn,
                     args => args,
                 },
@@ -243,7 +242,7 @@ fn gen_entrypoint(out: &mut String, service: &ServiceDef, entrypoint: &crate::co
             }
             out.push_str(&render(
                 "php_service_method_start.jinja",
-                context! {
+                crate::alef_context! {
                     method_name => &entrypoint.method,
                     param_sig => &params,
                     return_type => php_type_annotation(&entrypoint.return_type),
@@ -251,7 +250,7 @@ fn gen_entrypoint(out: &mut String, service: &ServiceDef, entrypoint: &crate::co
             ));
             out.push_str(&render(
                 "php_service_native_return.jinja",
-                context! {
+                crate::alef_context! {
                     native_fn => native_fn,
                     args => args,
                 },

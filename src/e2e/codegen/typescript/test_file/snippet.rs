@@ -339,7 +339,7 @@ pub(crate) fn render_snippet_body(context: SnippetContext<'_>) -> String {
     }
     crate::e2e::template_env::render(
         "typescript/snippet_body.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             imports => imports.into_iter().collect::<Vec<_>>(), module => module,
             setup_lines => setup_lines, client_setup => client_setup, call_expr => call_expr,
             result_var => call.effective_result_var(),

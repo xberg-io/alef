@@ -58,7 +58,7 @@ fn variant_contexts(en: &EnumDef) -> Vec<minijinja::Value> {
             } else {
                 String::new()
             };
-            minijinja::context! {
+            crate::alef_context! {
                 name => &variant.name,
                 discriminator => discriminator,
                 is_unit => is_unit_variant(variant),
@@ -76,7 +76,7 @@ fn variant_contexts(en: &EnumDef) -> Vec<minijinja::Value> {
 /// lazily through a local function, because a unit variant's document has no content key at all.
 fn codec_context(en: &EnumDef, repr: &SerdeEnumRepr) -> minijinja::Value {
     let is_adjacent = repr.content().is_some();
-    minijinja::context! {
+    crate::alef_context! {
         class_name => &en.name,
         tag_field => repr.tag().unwrap_or_default(),
         content_field => repr.content(),

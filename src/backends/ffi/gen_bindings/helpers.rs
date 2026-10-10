@@ -70,7 +70,7 @@ pub(super) fn gen_value_to_c(
             };
             crate::backends::ffi::template_env::render(
                 "value_to_c_conversion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     type_class => type_class,
                     expr => expr,
                     indent => indent,
@@ -79,7 +79,7 @@ pub(super) fn gen_value_to_c(
         }
         TypeRef::String | TypeRef::Char => crate::backends::ffi::template_env::render(
             "value_to_c_conversion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_class => "string",
                 expr => expr,
                 indent => indent,
@@ -87,7 +87,7 @@ pub(super) fn gen_value_to_c(
         ),
         TypeRef::Path => crate::backends::ffi::template_env::render(
             "value_to_c_conversion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_class => "path",
                 expr => expr,
                 indent => indent,
@@ -95,7 +95,7 @@ pub(super) fn gen_value_to_c(
         ),
         TypeRef::Json => crate::backends::ffi::template_env::render(
             "value_to_c_conversion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_class => "json_or_vec_or_map",
                 expr => expr,
                 indent => indent,
@@ -107,7 +107,7 @@ pub(super) fn gen_value_to_c(
                 let copy = copy_expr(expr);
                 crate::backends::ffi::template_env::render(
                     "value_to_c_conversion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         type_class => "named_enum",
                         expr => expr,
                         copy_expr => &copy,
@@ -117,7 +117,7 @@ pub(super) fn gen_value_to_c(
             } else if clone_names.contains(name.as_str()) {
                 crate::backends::ffi::template_env::render(
                     "value_to_c_conversion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         type_class => "named_clone",
                         expr => expr,
                         indent => indent,
@@ -126,7 +126,7 @@ pub(super) fn gen_value_to_c(
             } else {
                 crate::backends::ffi::template_env::render(
                     "value_to_c_conversion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         type_class => "named_non_clone",
                         expr => expr,
                         indent => indent,
@@ -136,7 +136,7 @@ pub(super) fn gen_value_to_c(
         }
         TypeRef::Vec(_) | TypeRef::Map(_, _) => crate::backends::ffi::template_env::render(
             "value_to_c_conversion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_class => "json_or_vec_or_map",
                 expr => expr,
                 indent => indent,
@@ -144,7 +144,7 @@ pub(super) fn gen_value_to_c(
         ),
         TypeRef::Bytes => crate::backends::ffi::template_env::render(
             "value_to_c_conversion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_class => "bytes",
                 expr => expr,
                 indent => indent,
@@ -152,7 +152,7 @@ pub(super) fn gen_value_to_c(
         ),
         TypeRef::Duration => crate::backends::ffi::template_env::render(
             "value_to_c_conversion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_class => "duration",
                 expr => expr,
                 indent => indent,
@@ -164,7 +164,7 @@ pub(super) fn gen_value_to_c(
             let null_value = null_return_value(&TypeRef::Optional(inner.clone()));
             crate::backends::ffi::template_env::render(
                 "value_to_c_conversion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     type_class => "optional",
                     expr => expr,
                     indent => indent,
@@ -238,14 +238,14 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum
         TypeRef::Primitive(prim) => match prim {
             crate::core::ir::PrimitiveType::Bool => crate::backends::ffi::template_env::render(
                 "owned_value_to_c_bool.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     expr => expr,
                     indent => indent,
                 },
             ),
             _ => crate::backends::ffi::template_env::render(
                 "value_to_c_conversion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     type_class => "primitive_other",
                     expr => expr,
                     indent => indent,
@@ -254,7 +254,7 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum
         },
         TypeRef::String | TypeRef::Char => crate::backends::ffi::template_env::render(
             "value_to_c_conversion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_class => "string",
                 expr => expr,
                 indent => indent,
@@ -262,7 +262,7 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum
         ),
         TypeRef::Json => crate::backends::ffi::template_env::render(
             "value_to_c_conversion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_class => "json_or_vec_or_map",
                 expr => expr,
                 indent => indent,
@@ -270,7 +270,7 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum
         ),
         TypeRef::Path => crate::backends::ffi::template_env::render(
             "value_to_c_conversion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_class => "path",
                 expr => expr,
                 indent => indent,
@@ -278,7 +278,7 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum
         ),
         TypeRef::Named(_) => crate::backends::ffi::template_env::render(
             "value_to_c_conversion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_class => "named_owned",
                 expr => expr,
                 indent => indent,
@@ -286,7 +286,7 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum
         ),
         TypeRef::Vec(_) | TypeRef::Map(_, _) => crate::backends::ffi::template_env::render(
             "value_to_c_conversion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_class => "json_or_vec_or_map",
                 expr => expr,
                 indent => indent,
@@ -294,7 +294,7 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum
         ),
         TypeRef::Bytes => crate::backends::ffi::template_env::render(
             "value_to_c_conversion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_class => "bytes",
                 expr => expr,
                 indent => indent,
@@ -312,7 +312,7 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum
             let null_value = null_return_value(&TypeRef::Optional(inner.clone()));
             crate::backends::ffi::template_env::render(
                 "value_to_c_conversion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     type_class => "optional_owned",
                     expr => expr,
                     indent => indent,
@@ -323,7 +323,7 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum
         }
         TypeRef::Duration => crate::backends::ffi::template_env::render(
             "value_to_c_conversion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_class => "duration",
                 expr => expr,
                 indent => indent,
@@ -466,7 +466,7 @@ pub(super) fn gen_cbindgen_toml(
 
     crate::backends::ffi::template_env::render(
         "cbindgen_toml.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             prefix_upper => &prefix_upper,
             after_includes => &after_includes,
             feature_defines => feature_defines,
@@ -612,7 +612,7 @@ pub(super) fn gen_build_rs(
     };
     Ok(crate::backends::ffi::template_env::render(
         "build_rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             header_name => &escaped_header_name,
             lib_name => lib_name,
             prefix_upper => &prefix_upper,
@@ -625,7 +625,7 @@ pub(super) fn gen_build_rs(
 pub(super) fn gen_free_string(prefix: &str) -> String {
     crate::backends::ffi::template_env::render(
         "free_string.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             prefix => prefix,
         },
     )
@@ -634,20 +634,20 @@ pub(super) fn gen_free_string(prefix: &str) -> String {
 pub(super) fn gen_version(prefix: &str) -> String {
     crate::backends::ffi::template_env::render(
         "version_fn.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             prefix => prefix,
         },
     )
 }
 
 pub(super) fn gen_free_bytes(prefix: &str) -> String {
-    crate::backends::ffi::template_env::render("free_bytes.jinja", minijinja::context! { prefix => prefix })
+    crate::backends::ffi::template_env::render("free_bytes.jinja", crate::alef_context! { prefix => prefix })
 }
 
 /// Generate a lazily-initialized tokio runtime helper for blocking on async
 /// functions from synchronous FFI entry points.
 pub(super) fn gen_ffi_tokio_runtime() -> String {
-    crate::backends::ffi::template_env::render("ffi_tokio_runtime.jinja", minijinja::context! {})
+    crate::backends::ffi::template_env::render("ffi_tokio_runtime.jinja", crate::alef_context! {})
 }
 
 /// Generate the cancel-token API and the cancellable `block_on` helpers every `*_cancellable`
@@ -655,7 +655,7 @@ pub(super) fn gen_ffi_tokio_runtime() -> String {
 pub(super) fn gen_ffi_cancel_token(prefix: &str) -> String {
     crate::backends::ffi::template_env::render(
         "ffi_cancel_token.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             prefix => prefix,
             builtin_prefix => crate::codegen::naming::ffi_builtin_error_code_prefix(prefix),
             new_symbol => c_consumer::cancel_token_new_symbol(prefix),

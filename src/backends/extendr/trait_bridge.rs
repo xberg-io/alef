@@ -148,7 +148,7 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
 
         crate::backends::extendr::template_env::render(
             template_name,
-            minijinja::context! {
+            crate::alef_context! {
                 wrapper => spec.wrapper_name(),
                 method_name => name,
                 has_error => has_error,
@@ -207,7 +207,7 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
             };
             let clone_stmt = crate::backends::extendr::template_env::render(
                 template_name,
-                minijinja::context! {
+                crate::alef_context! {
                     name => &p.name,
                 },
             );
@@ -257,7 +257,7 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
 
         crate::backends::extendr::template_env::render(
             template_name,
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => name,
                 params_to_clone => params_to_clone,
                 empty_args => empty_args,
@@ -313,7 +313,7 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
 
         crate::backends::extendr::template_env::render(
             "bridge_constructor.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 wrapper => wrapper,
                 required_methods => required_methods,
                 optional_methods => optional_methods,
@@ -328,7 +328,7 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
         let host_path = crate::codegen::generators::trait_bridge::host_function_path(spec, unregister_fn);
         crate::backends::extendr::template_env::render(
             "unregistration_fn.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 unregister_fn => unregister_fn,
                 host_path => host_path,
             },
@@ -342,7 +342,7 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
         let host_path = crate::codegen::generators::trait_bridge::host_function_path(spec, clear_fn);
         crate::backends::extendr::template_env::render(
             "clear_fn.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 clear_fn => clear_fn,
                 host_path => host_path,
             },
@@ -369,7 +369,7 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
 
         crate::backends::extendr::template_env::render(
             "registration_fn.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 register_fn => register_fn,
                 wrapper => wrapper,
                 trait_path => trait_path,
@@ -606,7 +606,7 @@ fn gen_visitor_bridge(
 
     out.push_str(&crate::backends::extendr::template_env::render(
         "visitor_bridge.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             core_crate => core_crate,
             context_type_path => context_helper.type_path,
             context_field_lines => context_helper.field_lines,
@@ -660,7 +660,7 @@ fn gen_visitor_method_extendr(
 
     out.push_str(&crate::backends::extendr::template_env::render(
         "visitor_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => name,
             signature => signature,
             return_type => return_type,
@@ -863,7 +863,7 @@ pub fn gen_bridge_function(
             };
             crate::backends::extendr::template_env::render(
                 template_name,
-                minijinja::context! {
+                crate::alef_context! {
                     name => name,
                     core_path => core_path,
                     err_conv => err_conv,
@@ -944,7 +944,7 @@ pub fn gen_bridge_function(
     let func_name = &func.name;
     crate::backends::extendr::template_env::render(
         "bridge_function.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             has_error => func.error_type.is_some(),
             func_name => func_name,
             params_str => params_str,

@@ -23,7 +23,7 @@ pub fn emit_jni_client_class(
     }
     let content = template_env::render(
         "jni_client_file.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             package => inputs.package,
             imports => imports.into_iter().collect::<Vec<_>>(),
             body => body,
@@ -142,7 +142,7 @@ fn emit_jni_client_type(
 ) {
     body.push_str(&template_env::render(
         "jni_client_class_header.jinja",
-        minijinja::context! { class_name => type_def.name },
+        crate::alef_context! { class_name => type_def.name },
     ));
     emit_jni_client_companion(type_def, api, config, &inputs.bridge_name, body);
     emit_jni_client_methods(type_def, config, inputs, body, imports);
@@ -150,7 +150,7 @@ fn emit_jni_client_type(
     let free_name = format!("nativeFree{}", to_pascal_case(&type_def.name));
     body.push_str(&template_env::render(
         "jni_client_close_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             bridge_name => inputs.bridge_name,
             free_name => free_name,
         },

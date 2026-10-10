@@ -183,7 +183,7 @@ pub fn render_rust_arg(
             let binding = if docs_files.iter().any(|file| file.field.is_empty()) {
                 crate::e2e::template_env::render(
                     "rust/docs_file_read.rs.jinja",
-                    minijinja::context! { name => name, path => rust_raw_string(path_str) },
+                    crate::alef_context! { name => name, path => rust_raw_string(path_str) },
                 )
                 .trim_end()
                 .to_string()
@@ -323,7 +323,7 @@ fn render_json_object_arg(
         lines.extend(
             crate::e2e::template_env::render(
                 "rust/docs_json_file.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     binding => binding,
                     path => rust_raw_string(&file.path),
                     json_name => format!("{name}_json"),

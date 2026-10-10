@@ -115,7 +115,7 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_input_dto_for_type_with_cfg_a
     let code = if !fields.is_empty() || !type_def.fields.is_empty() {
         crate::backends::wasm::template_env::render(
             "gen_input_dto",
-            minijinja::context! {
+            crate::alef_context! {
                 input_name => &input_name,
                 core_path => config.core_path,
                 fields => &fields,
@@ -149,7 +149,7 @@ fn input_dto_field_context(field: &crate::core::ir::FieldDef, config: &InputDtoC
     let wire_name = field.serde_rename.clone().unwrap_or_else(|| to_node_name(&field.name));
     let conversion = input_dto_field_conversion(field);
 
-    minijinja::context! {
+    crate::alef_context! {
         name => &field.name,
         ty => &dto_ty,
         core_name => &field.name,

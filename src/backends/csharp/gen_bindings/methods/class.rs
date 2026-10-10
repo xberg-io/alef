@@ -64,14 +64,13 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
     capsule_types: &std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
 ) -> String {
     use crate::backends::csharp::template_env::render;
-    use minijinja::Value;
 
     let has_async =
         api.functions.iter().any(|f| f.is_async) || api.types.iter().flat_map(|t| t.methods.iter()).any(|m| m.is_async);
 
     let mut out = render(
         "wrapper_class_header.jinja",
-        Value::from_serialize(serde_json::json!({
+        crate::template::to_value(serde_json::json!({
             "namespace": namespace,
             "class_name": class_name,
             "has_async": has_async,
@@ -196,7 +195,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
             let register_method_name = format!("Register{trait_pascal}");
             out.push_str(&render(
                 "trait_register_facade.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     trait_name => trait_pascal,
                     method_name => register_method_name,
                     has_super,
@@ -209,7 +208,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
             let unregister_method_name = format!("Unregister{trait_pascal}");
             out.push_str(&render(
                 "trait_unregister_facade.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     trait_name => trait_pascal,
                     method_name => unregister_method_name,
                     exception_name,
@@ -225,7 +224,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
 
             out.push_str(&render(
                 "trait_clear_facade.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     trait_name => trait_pascal,
                     method_name => clear_method_name,
                 },
@@ -241,7 +240,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
     // reach the same dispatcher too.
     out.push_str(&render(
         "error_helper_method.jinja",
-        Value::from_serialize(serde_json::json!({
+        crate::template::to_value(serde_json::json!({
             "exception_name": exception_name,
         })),
     ));

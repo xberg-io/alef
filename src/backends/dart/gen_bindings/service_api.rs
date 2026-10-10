@@ -85,7 +85,7 @@ pub fn gen_service_rust(api: &ApiSurface, config: &ResolvedCrateConfig) -> Strin
 
     out.push_str(&crate::backends::dart::template_env::render(
         "service_api/file_header.rs.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     out.push_str("\n\n");
 
@@ -126,7 +126,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 
     out.push_str(&crate::backends::dart::template_env::render(
         "service_api/handler_bridge_doc.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => trait_name.as_str(),
         },
     ));
@@ -136,7 +136,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 
     out.push_str(&crate::backends::dart::template_env::render(
         "service_api/handler_bridge_struct.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             bridge_name => bridge_name.as_str(),
         },
     ));
@@ -144,7 +144,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 
     out.push_str(&crate::backends::dart::template_env::render(
         "service_api/handler_bridge_constructor.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             bridge_name => bridge_name.as_str(),
         },
     ));
@@ -187,7 +187,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 
     out.push_str(&crate::backends::dart::template_env::render(
         "service_api/handler_bridge_impl_open.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             core_import => core_import,
             trait_name => trait_name.as_str(),
             bridge_name => bridge_name.as_str(),
@@ -219,7 +219,7 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
         let doc_lines = format_dart_comment(&service.doc, 0);
         out.push_str(&crate::backends::dart::template_env::render(
             "service_api/service_owner_doc.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 service_name => service_name.as_str(),
                 doc => service.doc.as_str(),
                 doc_lines => doc_lines.as_str(),
@@ -228,7 +228,7 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
     } else {
         out.push_str(&crate::backends::dart::template_env::render(
             "service_api/default_service_owner_doc.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 service_name => service_name.as_str(),
             },
         ));
@@ -237,7 +237,7 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
     out.push('\n');
     out.push_str(&crate::backends::dart::template_env::render(
         "service_api/service_owner_struct.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_name => service_name.as_str(),
             owner_path => owner_path.as_str(),
         },
@@ -249,7 +249,7 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
 
     out.push_str(&crate::backends::dart::template_env::render(
         "service_api/service_owner_impl_open.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_name => service_name.as_str(),
             owner_path => owner_path.as_str(),
             ctor_params => ctor_params.as_str(),
@@ -271,7 +271,7 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
                     }
                     _ => (false, false),
                 };
-                minijinja::context! {
+                crate::alef_context! {
                     name => p.name.as_str(),
                     rust_type => typeref_to_rust_type(&p.ty).as_str(),
                     is_opaque => is_opaque,
@@ -284,7 +284,7 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
 
         out.push_str(&crate::backends::dart::template_env::render(
             "service_api/configurator_method.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 config_name => config.name.as_str(),
                 method_params => method_params.as_str(),
                 configurator_params => configurator_params,
@@ -301,7 +301,7 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
             .map(|p| {
                 let is_opaque = matches!(&p.ty, TypeRef::Named(n)
                     if api.types.iter().any(|t| t.name == *n && t.is_opaque));
-                minijinja::context! {
+                crate::alef_context! {
                     name => p.name.as_str(),
                     rust_type => typeref_to_rust_type(&p.ty).as_str(),
                     is_opaque => is_opaque,
@@ -322,7 +322,7 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
 
         out.push_str(&crate::backends::dart::template_env::render(
             "service_api/registration_method.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => reg.method.as_str(),
                 callback_param => reg.callback_param.as_str(),
                 metadata_params => metadata_params,
@@ -337,7 +337,7 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
                 .signature_params
                 .iter()
                 .map(|p| {
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => p.name.as_str(),
                         rust_type => typeref_to_rust_type(&p.ty).as_str(),
                     }
@@ -353,13 +353,13 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
                             crate::core::ir::WrapperConstructorArg::Fixed {
                                 param_name: _,
                                 value_expr,
-                            } => minijinja::context! {
+                            } => crate::alef_context! {
                                 kind => "fixed",
                                 value_expr => value_expr.as_str(),
                             },
-                            crate::core::ir::WrapperConstructorArg::Free { param } => minijinja::context! {
+                            crate::core::ir::WrapperConstructorArg::Free { param } => crate::alef_context! {
                                 kind => "free",
-                                param => minijinja::context! {
+                                param => crate::alef_context! {
                                     name => param.name.as_str(),
                                     rust_type => typeref_to_rust_type(&param.ty).as_str(),
                                 },
@@ -378,7 +378,7 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
 
             out.push_str(&crate::backends::dart::template_env::render(
                 "service_api/registration_variant.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     variant_name => variant.name.as_str(),
                     signature_params => signature_params,
                     base_method_name => reg.method.as_str(),
@@ -400,7 +400,7 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
 
     out.push_str(&crate::backends::dart::template_env::render(
         "service_api/service_owner_impl_close.rs.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
 }
 
@@ -428,7 +428,7 @@ fn gen_entrypoint_method(
         .params
         .iter()
         .map(|p| {
-            minijinja::context! {
+            crate::alef_context! {
                 name => p.name.as_str(),
                 rust_type => typeref_to_rust_type(&p.ty).as_str(),
             }
@@ -439,7 +439,7 @@ fn gen_entrypoint_method(
         .registrations
         .iter()
         .map(|r| {
-            minijinja::context! {
+            crate::alef_context! {
                 method => r.method.as_str(),
             }
         })
@@ -447,7 +447,7 @@ fn gen_entrypoint_method(
 
     out.push_str(&crate::backends::dart::template_env::render(
         "service_api/entrypoint_method.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => method_name.as_str(),
             is_async => is_async,
             return_type => return_type.as_str(),
@@ -494,7 +494,7 @@ fn format_method_params(method: &crate::core::ir::MethodDef) -> String {
         let ty = typeref_to_rust_type(&param.ty);
         out.push_str(&crate::backends::dart::template_env::render(
             "service_api/method_param.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => param.name.as_str(),
                 ty => ty.as_str(),
             },

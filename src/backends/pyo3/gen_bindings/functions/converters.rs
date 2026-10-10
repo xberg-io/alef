@@ -127,7 +127,7 @@ pub(super) fn emit_converters(
         let overloads_start_pos = out.len();
         out.push_str(&crate::backends::pyo3::template_env::render(
             "converters/overload_none.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 snake => &snake,
                 type_name => type_name,
                 has_visitor_override => has_visitor_override,
@@ -136,7 +136,7 @@ pub(super) fn emit_converters(
         ));
         out.push_str(&crate::backends::pyo3::template_env::render(
             "converters/overload_some.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 snake => &snake,
                 type_name => type_name,
                 has_visitor_override => has_visitor_override,
@@ -147,7 +147,7 @@ pub(super) fn emit_converters(
         if bridge_visitor_field.is_some() {
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "converters/signature_with_visitor.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     snake => &snake,
                     type_name => type_name,
                     bridge_visitor_type => bridge_visitor_type,
@@ -158,7 +158,7 @@ pub(super) fn emit_converters(
             if sig_len > 100 {
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "converters/signature_multiline.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         snake => &snake,
                         type_name => type_name,
                     },
@@ -166,7 +166,7 @@ pub(super) fn emit_converters(
             } else {
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "converters/signature_singleline.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         snake => &snake,
                         type_name => type_name,
                     },
@@ -175,7 +175,7 @@ pub(super) fn emit_converters(
         }
         out.push_str(&crate::backends::pyo3::template_env::render(
             "converters/docstring.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_name => type_name,
             },
         ));
@@ -221,14 +221,14 @@ pub(super) fn emit_converters(
             let mut helper = String::new();
             helper.push_str(&crate::backends::pyo3::template_env::render(
                 "converters/dict_coercer_header.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     snake => &snake,
                     type_name => type_name,
                 },
             ));
             helper.push_str(&crate::backends::pyo3::template_env::render(
                 "converters/dict_coercer_docstring.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     type_name => type_name,
                 },
             ));
@@ -240,7 +240,7 @@ pub(super) fn emit_converters(
                     let nested_snake = nested_name.to_snake_case();
                     helper.push_str(&crate::backends::pyo3::template_env::render(
                         "converters/struct_coercion_entry.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             field_name => &field.name,
                             nested_snake => &nested_snake,
                         },
@@ -259,7 +259,7 @@ pub(super) fn emit_converters(
                     let enum_name = get_inner_name(&field.ty).unwrap();
                     helper.push_str(&crate::backends::pyo3::template_env::render(
                         "converters/enum_coercion_entry.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             field_name => &field.name,
                             enum_name => enum_name,
                         },
@@ -278,7 +278,7 @@ pub(super) fn emit_converters(
                     let enum_name = get_inner_name(&field.ty).unwrap();
                     helper.push_str(&crate::backends::pyo3::template_env::render(
                         "converters/enum_coercion_entry.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             field_name => &field.name,
                             enum_name => enum_name,
                         },
@@ -293,7 +293,7 @@ pub(super) fn emit_converters(
 
             helper.push_str(&crate::backends::pyo3::template_env::render(
                 "converters/return_coerced_type.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     type_name => type_name,
                     is_typeddict => is_typeddict,
                 },
@@ -314,7 +314,7 @@ pub(super) fn emit_converters(
             for (field_name, serde_name) in &serde_renamed_fields {
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "converters/serde_alias.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         field_name => field_name,
                         serde_name => serde_name,
                     },
@@ -325,7 +325,7 @@ pub(super) fn emit_converters(
         if use_dict_helper {
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "converters/call_dict_helper.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     snake => &snake,
                     is_typeddict => is_typeddict,
                 },
@@ -337,7 +337,7 @@ pub(super) fn emit_converters(
                     let enum_name = get_inner_name(&field.ty).unwrap();
                     out.push_str(&crate::backends::pyo3::template_env::render(
                         "converters/inline_enum_coerce.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             field_name => &field.name,
                             enum_name => enum_name,
                         },
@@ -350,7 +350,7 @@ pub(super) fn emit_converters(
                     let nested_snake = nested_name.to_snake_case();
                     out.push_str(&crate::backends::pyo3::template_env::render(
                         "converters/inline_struct_coerce.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             field_name => &field.name,
                             nested_snake => &nested_snake,
                         },
@@ -363,7 +363,7 @@ pub(super) fn emit_converters(
                     let enum_name = get_inner_name(&field.ty).unwrap();
                     out.push_str(&crate::backends::pyo3::template_env::render(
                         "converters/inline_data_enum_coerce.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             field_name => &field.name,
                             enum_name => enum_name,
                         },
@@ -372,7 +372,7 @@ pub(super) fn emit_converters(
             }
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "converters/construct_type.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     type_name => type_name,
                 },
             ));
@@ -381,7 +381,7 @@ pub(super) fn emit_converters(
         if let Some((kwarg_name, _field_name, _)) = bridge_visitor_field {
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "visitor_override_none_case.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     type_name => type_name,
                     kwarg_name => kwarg_name,
                 },
@@ -393,7 +393,7 @@ pub(super) fn emit_converters(
             out.push_str("    value = cast(dict[str, Any], value)\n");
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "converters/typeddict_splat_return.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     type_name => type_name,
                 },
             ));
@@ -402,7 +402,7 @@ pub(super) fn emit_converters(
         }
         out.push_str(&crate::backends::pyo3::template_env::render(
             "converters/cast_value.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_name => type_name,
             },
         ));
@@ -412,7 +412,7 @@ pub(super) fn emit_converters(
         }
         out.push_str(&crate::backends::pyo3::template_env::render(
             "converters/return_constructed.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_name => type_name,
             },
         ));
@@ -438,7 +438,7 @@ pub(super) fn emit_converters(
                     let accessor = field_access(&field.name);
                     out.push_str(&crate::backends::pyo3::template_env::render(
                         "converters/field_accessor.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             field_name => &field.name,
                             accessor => format!("_to_rust_{nested_snake}({accessor})"),
                         },
@@ -453,7 +453,7 @@ pub(super) fn emit_converters(
                         if needs_none_guard {
                             out.push_str(&crate::backends::pyo3::template_env::render(
                                 "data_enum_dict_coerce_guard.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     name => &field.name,
                                     accessor => &accessor,
                                     enum_name => nested_name,
@@ -465,7 +465,7 @@ pub(super) fn emit_converters(
                             if defers_to_rust_default(field) {
                                 out.push_str(&crate::backends::pyo3::template_env::render(
                                     "data_enum_dict_coerce_optional_default.jinja",
-                                    minijinja::context! {
+                                    crate::alef_context! {
                                         name => &field.name,
                                         accessor => &accessor,
                                         enum_name => nested_name,
@@ -474,7 +474,7 @@ pub(super) fn emit_converters(
                             } else {
                                 out.push_str(&crate::backends::pyo3::template_env::render(
                                     "data_enum_dict_coerce_no_guard.jinja",
-                                    minijinja::context! {
+                                    crate::alef_context! {
                                         name => &field.name,
                                         accessor => &accessor,
                                         enum_name => nested_name,
@@ -514,7 +514,7 @@ pub(super) fn emit_converters(
                         if is_optional || is_typeddict {
                             out.push_str(&crate::backends::pyo3::template_env::render(
                                 "simple_enum_dict_coerce_guard.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     name => &field.name,
                                     enum_name => nested_name,
                                     accessor => &accessor,
@@ -536,7 +536,7 @@ pub(super) fn emit_converters(
                             );
                             out.push_str(&crate::backends::pyo3::template_env::render(
                                 "simple_enum_dict_coerce_optional_default.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     name => &field.name,
                                     enum_name => nested_name,
                                     accessor => &accessor,
@@ -546,7 +546,7 @@ pub(super) fn emit_converters(
                         } else {
                             out.push_str(&crate::backends::pyo3::template_env::render(
                                 "simple_enum_dict_coerce.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     name => &field.name,
                                     enum_name => nested_name,
                                     accessor => &accessor,
@@ -574,7 +574,7 @@ pub(super) fn emit_converters(
                 if data_enum_names.contains(&enum_name.as_str()) {
                     out.push_str(&crate::backends::pyo3::template_env::render(
                         "data_enum_vec_coerce.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &field.name,
                             enum_name => enum_name.as_str(),
                             accessor => &accessor,
@@ -584,7 +584,7 @@ pub(super) fn emit_converters(
                 } else {
                     out.push_str(&crate::backends::pyo3::template_env::render(
                         "simple_enum_vec_coerce.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &field.name,
                             enum_name => enum_name.as_str(),
                             accessor => &accessor,
@@ -602,7 +602,7 @@ pub(super) fn emit_converters(
                 let struct_snake = struct_name.to_snake_case();
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "struct_vec_coerce.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &field.name,
                         struct_snake => &struct_snake,
                         accessor => &accessor,
@@ -617,7 +617,7 @@ pub(super) fn emit_converters(
             {
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "visitor_override_param.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         field_name => field_name,
                         accessor => field_access(field_name),
                     },
@@ -722,7 +722,7 @@ pub(super) fn emit_converters(
                     emit_optional_kwarg_helper(&mut optional_kwarg_helpers, type_name, &snake, field, &pyo3_param_name);
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "field_kwarg_optional_default.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &pyo3_param_name,
                         raw_accessor => &raw_field_accessor,
                         final_accessor => &final_accessor,
@@ -732,7 +732,7 @@ pub(super) fn emit_converters(
             } else {
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "field_kwarg.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &pyo3_param_name,
                         accessor => &final_accessor,
                     },

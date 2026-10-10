@@ -564,7 +564,7 @@ fn render_json_assertion_template(
 
     crate::e2e::template_env::render(
         "zig/json_assertion.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             assertion_type => assertion.assertion_type.as_str(),
             field_expr => field_expr,
             field_is_optional => field_is_optional,

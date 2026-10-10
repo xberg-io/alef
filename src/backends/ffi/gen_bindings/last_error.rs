@@ -142,14 +142,14 @@ pub(super) fn gen_last_error(api: &ApiSurface, prefix: &str, core_import: &str) 
         .collect();
     crate::backends::ffi::template_env::render(
         "last_error.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             prefix => prefix,
             builtin_prefix => crate::codegen::naming::ffi_builtin_error_code_prefix(prefix),
             error_code_impls => error_code_impls,
             has_error_code_impls => has_error_code_impls,
             error_fields => error_fields,
             has_duration_fields => has_duration_fields,
-            taxonomy => taxonomy.iter().map(|entry| minijinja::context! {
+            taxonomy => taxonomy.iter().map(|entry| crate::alef_context! {
                 code => entry.code,
                 enum_variant => crate::codegen::naming::ffi_error_code_variant_name(&entry.error_type, &entry.variant),
             }).collect::<Vec<_>>(),

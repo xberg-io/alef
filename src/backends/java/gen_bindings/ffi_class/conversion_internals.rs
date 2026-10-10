@@ -142,19 +142,19 @@ fn emit_visitor_handle_setup(
 ) {
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_visitor_create.jinja",
-        minijinja::context! { pu => prefix_upper },
+        crate::alef_context! { pu => prefix_upper },
     ));
     out.push_str("            if (visitorHandle.equals(MemorySegment.NULL)) {\n                if (!");
     out.push_str(&bridge.options_param_c);
     out.push_str(".equals(MemorySegment.NULL)) {\n");
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_options_free.jinja",
-        minijinja::context! { pu => prefix_upper, options_ptr => &bridge.options_param_c, options_type_handle => &bridge.options_type_handle },
+        crate::alef_context! { pu => prefix_upper, options_ptr => &bridge.options_param_c, options_type_handle => &bridge.options_type_handle },
     ));
     out.push_str("                }\n");
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_throw_on_null.jinja",
-        minijinja::context! { exception_class },
+        crate::alef_context! { exception_class },
     ));
     out.push_str("            }\n\n");
 }
@@ -172,7 +172,7 @@ fn emit_visitor_result_conversion(out: &mut String, func: &FunctionDef, prefix_u
     out.push_str("_FREE.invoke(handle));\n");
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_result_to_json.jinja",
-        minijinja::context! { pu => prefix_upper, result_type_handle },
+        crate::alef_context! { pu => prefix_upper, result_type_handle },
     ));
     out.push_str("                // CPD-OFF\n");
     out.push_str("                if (jsonPtr.equals(MemorySegment.NULL)) {\n");
@@ -188,7 +188,7 @@ fn emit_visitor_cleanup(out: &mut String, prefix_upper: &str, exception_class: &
     super::error_catch::emit_visitor_operation_catch_chain(out, exception_class);
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_visitor_cleanup.jinja",
-        minijinja::context! { pu => prefix_upper },
+        crate::alef_context! { pu => prefix_upper },
     ));
     super::error_catch::emit_method_catch_chain(out, exception_class);
     out.push_str("    }\n");
@@ -204,7 +204,7 @@ fn emit_visitor_method_open(
 ) {
     out.push_str(&crate::backends::java::template_env::render(
         "convert_with_visitor_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             return_type => java_return_type(&func.return_type),
             method_name => &bridge.internal_method_name,
             params => visitor_method_params(func, params.bridge_param_names, params.bridge_type_aliases),
@@ -245,19 +245,19 @@ fn emit_visitor_operation(
 ) {
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_options_set_visitor.jinja",
-        minijinja::context! { handle_name => options_set_handle, options_ptr => &bridge.options_param_c },
+        crate::alef_context! { handle_name => options_set_handle, options_ptr => &bridge.options_param_c },
     ));
     let ffi_handle = format!("NativeLib.{}_{}", prefix_upper, func.name.to_uppercase());
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_result_ptr_call.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             ffi_handle,
             args => visitor_call_args(func, params.opaque_types, params.bridge_param_names, params.bridge_type_aliases),
         },
     ));
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_options_free_conditional.jinja",
-        minijinja::context! { pu => prefix_upper, options_ptr => &bridge.options_param_c, options_type_handle => &bridge.options_type_handle },
+        crate::alef_context! { pu => prefix_upper, options_ptr => &bridge.options_param_c, options_type_handle => &bridge.options_type_handle },
     ));
     emit_visitor_result_conversion(out, func, prefix_upper);
 }

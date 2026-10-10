@@ -377,7 +377,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     }
 
     if has_trait_bridges {
-        let ctx = minijinja::context! {};
+        let ctx = crate::alef_context! {};
         builder.add_item(&crate::backends::rustler::template_env::render(
             "trait_support_nifs.rs.jinja",
             ctx,

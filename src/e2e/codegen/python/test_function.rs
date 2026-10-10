@@ -394,7 +394,7 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
         // ~keep The ledger recording now lives inside `error_path_assertions::render`, which every
         // backend's error block shares. Gating here as well would double-count every python marker.
 
-        let ctx = minijinja::context! {
+        let ctx = crate::alef_context! {
             skip_decorator => skip_decorator,
             async_decorator => async_decorator,
             async_kw => async_kw,
@@ -458,7 +458,7 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
         result_assertions.push_str(&teardown_block);
     }
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         skip_decorator => skip_decorator,
         async_decorator => async_decorator,
         async_kw => async_kw,

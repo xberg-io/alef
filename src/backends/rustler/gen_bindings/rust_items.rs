@@ -151,7 +151,7 @@ pub(super) fn gen_nif_init(
             .map(|name| {
                 template_env::render(
                     "rustler_resource_registration.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         type_name => name,
                     },
                 )
@@ -163,7 +163,7 @@ pub(super) fn gen_nif_init(
             registrations.push(
                 template_env::render(
                     "rustler_resource_registration.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         type_name => name,
                     },
                 )
@@ -174,7 +174,7 @@ pub(super) fn gen_nif_init(
         let reg_body = registrations.join("\n");
         template_env::render(
             "rustler_init_with_load.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 registrations => &reg_body,
                 module => &module,
                 nifs => &exports,
@@ -185,7 +185,7 @@ pub(super) fn gen_nif_init(
     } else {
         template_env::render(
             "rustler_init.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 module => &module,
                 nifs => &exports,
             },
@@ -231,7 +231,7 @@ pub(super) fn patch_streaming_default_param(
     let old_binding = format!("let core_{param_name}: {core_import}::{core_ty} = {param_name}.into();");
     let new_binding = template_env::render(
         "streaming_default_deser_binding.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             param_name => param_name,
             core_import => core_import,
             core_ty => core_ty,

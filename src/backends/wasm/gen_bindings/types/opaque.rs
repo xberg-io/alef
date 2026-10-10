@@ -23,7 +23,7 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_opaque_struct(
     out.push_str(&emit_rustdoc(&typ.doc));
     out.push_str(&crate::backends::wasm::template_env::render(
         "gen_opaque_struct",
-        minijinja::context! {
+        crate::alef_context! {
             struct_name => js_name,
             unprefixed_name => typ.name,
             core_path => core_path,
@@ -70,7 +70,7 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_opaque_struct_methods(
         let bridge_struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Wasm", bridge_config);
         let constructor = crate::backends::wasm::template_env::render(
             "gen_visitor_handle_constructor",
-            minijinja::context! {
+            crate::alef_context! {
                 struct_name => js_name,
                 module_name => module_name,
                 bridge_struct_name => bridge_struct_name,

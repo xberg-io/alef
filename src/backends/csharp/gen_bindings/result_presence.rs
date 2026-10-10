@@ -69,11 +69,11 @@ pub(super) fn presence_declaration(
     }
     let mut out = render(
         "dll_import_attr.jinja",
-        minijinja::context! { entry_point => result_presence_symbol(primary_c_name) },
+        crate::alef_context! { entry_point => result_presence_symbol(primary_c_name) },
     );
     out.push_str(&render(
         "pinvoke_declaration.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             return_type => PRESENCE_PINVOKE_RETURN_TYPE,
             cs_name => presence_cs_name(primary_cs_name),
             params,
@@ -107,7 +107,7 @@ pub(super) fn presence_gate(
     }
     Some(render(
         "result_presence_gate.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             cs_name => presence_cs_name(primary_cs_name),
             args,
             present => PRESENT,

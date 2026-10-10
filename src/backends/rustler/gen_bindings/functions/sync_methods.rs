@@ -183,7 +183,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_method(
                         };
                         preamble.push_str(&template_env::render(
                             "rust_let_binding.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 var_name => &core_var,
                                 var_type => &core_type,
                                 expr => &src,
@@ -253,7 +253,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_method(
     doc_emission::emit_rustdoc(&mut out, &method.doc, "");
     out.push_str(&template_env::render(
         "nif_function.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             func_name => &method_fn_name,
             params_str => &params.join(", "),
             ret => &return_annotation,

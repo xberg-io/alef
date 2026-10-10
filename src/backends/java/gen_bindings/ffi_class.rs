@@ -97,7 +97,7 @@ pub(crate) fn gen_main_class(
 
     let header_out = crate::backends::java::template_env::render(
         "ffi_main_class_header.jinja",
-        minijinja::context! { class_name => class_name },
+        crate::alef_context! { class_name => class_name },
     );
     body.push_str(&header_out);
     body.push('\n');
@@ -149,13 +149,14 @@ pub(crate) fn gen_main_class(
 
     gen_helper_methods(&mut body, prefix, class_name);
 
-    let footer_out = crate::backends::java::template_env::render("ffi_main_class_footer.jinja", minijinja::context! {});
+    let footer_out =
+        crate::backends::java::template_env::render("ffi_main_class_footer.jinja", crate::alef_context! {});
     body.push_str(&footer_out);
 
     let header = hash::header(CommentStyle::DoubleSlash);
     let mut out = crate::backends::java::template_env::render(
         "ffi_imports.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             header => header,
             package => package,
             needs_arena => body.contains("Arena"),

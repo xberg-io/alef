@@ -240,12 +240,12 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
     }
     out.push_str(&crate::backends::pyo3::template_env::render(
         "typing_import.jinja",
-        minijinja::context! { names => typing_parts },
+        crate::alef_context! { names => typing_parts },
     ));
     out.push('\n');
     out.push_str(&crate::backends::pyo3::template_env::render(
         "import_as_module.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             package_name => package_name,
             module_name => module_name,
         },
@@ -382,7 +382,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
         out.push('\n');
         out.push_str(&crate::backends::pyo3::template_env::render(
             "import_from_module.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 module_name => module_name,
                 imports => native_imports.join(", "),
             },
@@ -391,7 +391,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
     if !options_imports.is_empty() {
         out.push_str(&crate::backends::pyo3::template_env::render(
             "import_from_options.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 imports => options_imports.join(", "),
             },
         ));
@@ -413,7 +413,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
                 names.sort_unstable();
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "import_from_absolute_module.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         module_name => module_path,
                         imports => names.join(", "),
                     },

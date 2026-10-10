@@ -81,7 +81,7 @@ pub(crate) fn emit_trait_bridge(
     }
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_mirror_struct_open.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => callbacks_struct_name.as_str(),
         },
     ));
@@ -96,7 +96,7 @@ pub(crate) fn emit_trait_bridge(
         let callback_ty = dart_fn_future_callback_type(method, source_crate_name, type_paths, &api.excluded_type_paths);
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_trait_struct_field.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 field_name => field_name.as_str(),
                 callback_ty => callback_ty,
             },
@@ -104,11 +104,11 @@ pub(crate) fn emit_trait_bridge(
     }
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_mirror_struct_close.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_callbacks_debug_impl.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             callbacks_struct_name => callbacks_struct_name.as_str(),
         },
     ));
@@ -124,7 +124,7 @@ pub(crate) fn emit_trait_bridge(
 
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_plugin_impl_open.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 plugin_path => plugin_path.as_str(),
                 struct_name => callbacks_struct_name.as_str(),
             },
@@ -139,7 +139,7 @@ pub(crate) fn emit_trait_bridge(
         out.push('\n');
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_plugin_initialize.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 source_crate => source_crate_name,
             },
         ));
@@ -148,7 +148,7 @@ pub(crate) fn emit_trait_bridge(
         out.push('\n');
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_plugin_shutdown.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 source_crate => source_crate_name,
             },
         ));
@@ -164,7 +164,7 @@ pub(crate) fn emit_trait_bridge(
     }
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_trait_impl_open.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_path => trait_path.as_str(),
             struct_name => callbacks_struct_name.as_str(),
         },
@@ -187,7 +187,7 @@ pub(crate) fn emit_trait_bridge(
     if !uses_type_alias {
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_trait_reexport_opaque_wrapper.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 trait_name => trait_name.as_str(),
                 trait_path => trait_path.as_str(),
                 trait_snake => trait_snake.as_str(),
@@ -207,14 +207,14 @@ pub(crate) fn emit_trait_bridge(
 
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_trait_type_alias_factory_doc.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_alias => type_alias,
                 has_plugin_super => has_plugin_super,
             },
         ));
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_trait_type_alias_factory_open.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 trait_snake => &trait_snake,
                 has_plugin_super => has_plugin_super,
             },
@@ -230,7 +230,7 @@ pub(crate) fn emit_trait_bridge(
             let params_str = params.join(", ");
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_trait_type_alias_factory_param.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     param_name => param_name,
                     params_str => &params_str,
                     return_type => &ret,
@@ -240,7 +240,7 @@ pub(crate) fn emit_trait_bridge(
         let method_names: Vec<&str> = own_methods.iter().map(|method| method.name.as_str()).collect();
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_trait_type_alias_factory_body.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_alias => type_alias,
                 struct_name => &struct_name,
                 has_plugin_super => has_plugin_super,
@@ -265,7 +265,7 @@ pub(crate) fn emit_trait_bridge(
             out.push('\n');
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_trait_options_from_json_with_field.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     options_type => options_type,
                     type_alias => type_alias,
                     field => &field,
@@ -278,7 +278,7 @@ pub(crate) fn emit_trait_bridge(
     } else {
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_trait_plugin_factory_doc.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 struct_name => struct_name.as_str(),
             },
         ));
@@ -287,7 +287,7 @@ pub(crate) fn emit_trait_bridge(
         }
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_trait_plugin_factory_open.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 trait_snake => trait_snake.as_str(),
             },
         ));
@@ -301,7 +301,7 @@ pub(crate) fn emit_trait_bridge(
                 dart_fn_future_factory_param_type(method, source_crate_name, type_paths, &api.excluded_type_paths);
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_trait_factory_param.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     param_name => param_name.as_str(),
                     callback_ty => callback_ty.as_str(),
                 },
@@ -318,7 +318,7 @@ pub(crate) fn emit_trait_bridge(
             .collect::<String>();
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_trait_plugin_factory_body.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 struct_name => struct_name.as_str(),
                 callbacks_struct_name => callbacks_struct_name.as_str(),
                 plugin_fields => plugin_fields.as_str(),

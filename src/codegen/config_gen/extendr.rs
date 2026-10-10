@@ -32,7 +32,7 @@ pub fn gen_extendr_kwargs_constructor(
                 format!("Option<{}>", type_mapper(&field.ty))
             };
 
-            minijinja::context! {
+            crate::alef_context! {
                 name => field.name.clone(),
                 type => param_type,
             }
@@ -46,7 +46,7 @@ pub fn gen_extendr_kwargs_constructor(
             !f.binding_excluded && f.cfg.is_none() && !is_named_struct(&f.ty) && !is_optional_named_struct(&f.ty)
         })
         .map(|field| {
-            minijinja::context! {
+            crate::alef_context! {
                 name => field.name,
                 is_named_enum => is_named_enum(&field.ty),
                 optional_enum => field.optional,
@@ -57,7 +57,7 @@ pub fn gen_extendr_kwargs_constructor(
 
     crate::codegen::template_env::render(
         "config_gen/extendr_kwargs_constructor.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             type_name => typ.name.clone(),
             type_name_lower => typ.name.to_lowercase(),
             params => emittable_fields,

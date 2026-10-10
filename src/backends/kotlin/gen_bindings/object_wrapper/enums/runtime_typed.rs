@@ -92,7 +92,7 @@ fn emit_write(out: &mut String, indent: &str, expr: &str, ty: &TypeRef, depth: u
     match ty {
         TypeRef::Named(_) => out.push_str(&crate::backends::kotlin::template_env::render(
             "runtime_typed_value_write.jinja",
-            minijinja::context! { indent => indent, expr => expr },
+            crate::alef_context! { indent => indent, expr => expr },
         )),
         TypeRef::Optional(inner) if holds_named(inner) => emit_nullable(out, indent, expr, inner, depth),
         TypeRef::Vec(inner) if holds_named(inner) => emit_array(out, indent, expr, inner, depth),

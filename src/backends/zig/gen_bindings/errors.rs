@@ -22,21 +22,21 @@ pub(crate) fn emit_error_set(error: &ErrorDef, out: &mut String) {
     if !error.doc.is_empty() {
         out.push_str(&crate::backends::zig::template_env::render(
             "error_doc_block.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 error_doc_lines => error.doc.lines().collect::<Vec<_>>(),
             },
         ));
     }
     out.push_str(&crate::backends::zig::template_env::render(
         "error_set_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             error_name => &error.name,
         },
     ));
     for variant in &error.variants {
         out.push_str(&crate::backends::zig::template_env::render(
             "error_set_variant.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 variant_name => zig_error_variant_component(&variant.name),
             },
         ));
@@ -48,7 +48,7 @@ pub(crate) fn emit_error_set(error: &ErrorDef, out: &mut String) {
     {
         out.push_str(&crate::backends::zig::template_env::render(
             "error_set_variant.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 variant_name => "OutOfMemory",
             },
         ));
@@ -64,7 +64,7 @@ pub(crate) fn emit_error_set(error: &ErrorDef, out: &mut String) {
     {
         out.push_str(&crate::backends::zig::template_env::render(
             "error_set_variant.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 variant_name => "UnknownFfiError",
             },
         ));
@@ -78,7 +78,7 @@ pub(crate) fn emit_error_set(error: &ErrorDef, out: &mut String) {
     {
         out.push_str(&crate::backends::zig::template_env::render(
             "error_set_variant.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 variant_name => "Cancelled",
             },
         ));

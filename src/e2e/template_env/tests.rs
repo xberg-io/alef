@@ -18,7 +18,7 @@ mod not_empty_tests {
     fn not_empty_for_python_rejects_empty_sized_values_but_accepts_zero() {
         let rendered = render(
             "python/assertion.jinja",
-            minijinja::context! { assertion_type => "not_empty", field_access => "result.content" },
+            crate::alef_context! { assertion_type => "not_empty", field_access => "result.content" },
         );
         assert_eq!(
             rendered.trim(),
@@ -31,7 +31,7 @@ mod not_empty_tests {
     fn not_empty_for_php_arrays_measures_the_element_count() {
         let rendered = render(
             "php/assertion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 assertion_type => "not_empty",
                 field_expr => "$result->chunks",
                 field_is_array => true,
@@ -47,7 +47,7 @@ mod not_empty_tests {
     fn not_empty_for_php_scalars_rejects_empty_string_but_accepts_zero() {
         let rendered = render(
             "php/assertion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 assertion_type => "not_empty",
                 field_expr => "$result->content",
                 field_is_array => false,
@@ -65,7 +65,7 @@ mod not_empty_tests {
     fn not_empty_for_ruby_asks_the_value_not_its_string_form() {
         let rendered = render(
             "ruby/assertion.jinja",
-            minijinja::context! { assertion_type => "not_empty", field_expr => "result.content" },
+            crate::alef_context! { assertion_type => "not_empty", field_expr => "result.content" },
         );
         // `[].to_s` is "[]" — a non-empty string — so the old form could never fail.
         assert!(!rendered.contains(".to_s"), "got: {rendered}");
@@ -79,7 +79,7 @@ mod not_empty_tests {
     fn not_empty_for_java_measures_collections_instead_of_their_string_form() {
         let rendered = render(
             "java/assertion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 assertion_type => "not_empty",
                 field_expr => "java.util.Optional.ofNullable(result.content())",
             },
@@ -102,7 +102,7 @@ mod not_empty_tests {
     fn not_empty_for_java_concrete_fields_still_use_is_empty() {
         let rendered = render(
             "java/assertion.jinja",
-            minijinja::context! { assertion_type => "not_empty", field_expr => "result.content()" },
+            crate::alef_context! { assertion_type => "not_empty", field_expr => "result.content()" },
         );
         assert_eq!(
             code(&rendered),
@@ -114,7 +114,7 @@ mod not_empty_tests {
     fn not_empty_for_csharp_pattern_matches_instead_of_stringifying() {
         let rendered = render(
             "csharp/assertion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 assertion_type => "not_empty",
                 field_expr => "result.Content",
                 field_needs_json_serialize => false,
@@ -142,7 +142,7 @@ mod not_empty_tests {
     fn not_empty_for_csharp_collections_still_use_assert_not_empty() {
         let rendered = render(
             "csharp/assertion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 assertion_type => "not_empty",
                 field_expr => "result.Chunks",
                 field_needs_json_serialize => true,
@@ -156,7 +156,7 @@ mod not_empty_tests {
     fn not_empty_for_zig_json_rejects_empty_array_and_empty_string() {
         let rendered = render(
             "zig/json_assertion.jinja",
-            minijinja::context! { assertion_type => "not_empty", field_expr => "_content" },
+            crate::alef_context! { assertion_type => "not_empty", field_expr => "_content" },
         );
         // `!= .null` accepted an empty array and an empty string.
         assert!(!rendered.contains("!= .null"), "got: {rendered}");
@@ -181,7 +181,7 @@ mod not_empty_tests {
     fn not_empty_for_typescript_sizes_strings_and_arrays_and_accepts_zero() {
         let rendered = render(
             "typescript/assertion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 assertion_type => "not_empty",
                 field_expr => "result.content",
                 field_is_optional => false,
@@ -291,7 +291,7 @@ mod synthetic_assertion_line_discipline {
         if template == "typescript/synthetic_assertion.jinja" {
             return render(
                 template,
-                minijinja::context! {
+                crate::alef_context! {
                     assertion_type => "unsupported_by_this_backend",
                     field_name => "metadata.format.excel.sheet_count",
                 },
@@ -299,7 +299,7 @@ mod synthetic_assertion_line_discipline {
         }
         render(
             template,
-            minijinja::context! {
+            crate::alef_context! {
                 assertion_kind => "skipped",
                 assertion_type => "unsupported_by_this_backend",
                 field_name => "metadata.format.excel.sheet_count",
@@ -356,7 +356,7 @@ mod synthetic_assertion_line_discipline {
     fn a_rendered_assertion_still_emits_its_statement_on_one_line() {
         let php = render(
             "php/synthetic_assertion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 assertion_kind => "chunks_content",
                 assertion_type => "is_true",
                 pred => "$carry",
@@ -367,7 +367,7 @@ mod synthetic_assertion_line_discipline {
 
         let java = render(
             "java/synthetic_assertion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 assertion_kind => "chunks_content",
                 assertion_type => "is_true",
                 pred => "carry",
@@ -384,7 +384,7 @@ mod synthetic_assertion_line_discipline {
         let mut out = String::new();
         out.push_str(&render(
             "php/synthetic_assertion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 assertion_kind => "chunks_content",
                 assertion_type => "is_true",
                 pred => "$carry",
@@ -437,10 +437,10 @@ mod minijinja_bool_spelling_tests {
         let template = env.get_template("probe").expect("probe template is registered");
 
         let rendered_true = template
-            .render(minijinja::context! { flag => true })
+            .render(crate::alef_context! { flag => true })
             .expect("probe renders");
         let rendered_false = template
-            .render(minijinja::context! { flag => false })
+            .render(crate::alef_context! { flag => false })
             .expect("probe renders");
 
         assert_eq!(rendered_true, "True", "minijinja's bool spelling changed");
@@ -458,7 +458,7 @@ mod minijinja_bool_spelling_tests {
         let template = env.get_template("probe").expect("probe template is registered");
 
         let rendered = template
-            .render(minijinja::context! { flag => if true { "true" } else { "false" } })
+            .render(crate::alef_context! { flag => if true { "true" } else { "false" } })
             .expect("probe renders");
 
         assert_eq!(rendered, "true", "got: {rendered}");
@@ -474,7 +474,7 @@ mod minijinja_bool_spelling_tests {
         let template = env.get_template("probe").expect("probe template is registered");
 
         let rendered = template
-            .render(minijinja::context! { flag => true })
+            .render(crate::alef_context! { flag => true })
             .expect("probe renders");
 
         assert_eq!(rendered, "yes", "got: {rendered}");

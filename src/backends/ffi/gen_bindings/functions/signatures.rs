@@ -2,7 +2,6 @@ use crate::codegen::c_consumer;
 use crate::codegen::naming::{pascal_to_snake, to_class_name};
 use crate::core::ir::{FunctionDef, MethodDef, TypeDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
-use minijinja::context;
 
 use super::support::{ffi_doxygen_block, sanitized_recoverable};
 
@@ -131,7 +130,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function_len_companion(
     if let Some(ref clippy) = allow_clippy {
         out.push_str(&crate::backends::ffi::template_env::render(
             "ffi_allow_clippy_attr.jinja",
-            context! { clippy => clippy.clone() },
+            crate::alef_context! { clippy => clippy.clone() },
         ));
     }
     if let Some(cfg) = func.cfg.as_deref() {
@@ -157,7 +156,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function_len_companion(
 
     out.push_str(&crate::backends::ffi::template_env::render(
         "return_len_companion_body.jinja",
-        context! { return_len_key => primary_symbol.as_str() },
+        crate::alef_context! { return_len_key => primary_symbol.as_str() },
     ));
     out.push_str("\n}");
     out

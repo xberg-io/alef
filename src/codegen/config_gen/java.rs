@@ -8,7 +8,7 @@ pub fn gen_java_builder(typ: &TypeDef, package: &str, type_mapper: &dyn Fn(&Type
         .fields
         .iter()
         .map(|field| {
-            minijinja::context! {
+            crate::alef_context! {
                 name_lower => field.name.to_lowercase(),
                 type => type_mapper(&field.ty),
                 default => default_value_for_field(field, "java"),
@@ -19,7 +19,7 @@ pub fn gen_java_builder(typ: &TypeDef, package: &str, type_mapper: &dyn Fn(&Type
 
     crate::codegen::template_env::render(
         "config_gen/java_builder.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             package => package,
             type_name => typ.name.clone(),
             fields => fields,

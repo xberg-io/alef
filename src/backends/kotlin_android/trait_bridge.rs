@@ -61,7 +61,7 @@ pub fn gen_trait_bridge_files(
             .map(|_| format!("nativeClear{}s", trait_name.to_upper_camel_case()));
         let body = template_env::render(
             "trait_bridge_object.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 bridge_obj => bridge_obj,
                 interface_name => interface_name,
                 bridge_class_name => bridge_class_name,
@@ -154,7 +154,7 @@ pub fn gen_jni_dispatcher_file(
             } else {
                 call
             };
-            minijinja::context! {
+            crate::alef_context! {
                 rust_name => &method.name,
                 call_expr => call_expr,
             }
@@ -172,7 +172,7 @@ pub fn gen_jni_dispatcher_file(
 
     let body = template_env::render(
         "trait_bridge_dispatcher.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => trait_name,
             has_super_trait => bridge_cfg.super_trait.is_some(),
             methods => methods,
@@ -240,7 +240,7 @@ fn assemble_kt_content(package: &str, imports: &BTreeSet<String>, body: &str) ->
         .collect::<Vec<_>>();
     out.push_str(&template_env::render(
         "kt_file.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             package => package,
             imports => imports,
             suppressions => Vec::<String>::new(),

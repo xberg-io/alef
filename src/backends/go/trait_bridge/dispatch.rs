@@ -81,7 +81,7 @@ pub(super) fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &
 
     out.push_str(&crate::backends::go::template_env::render(
         "trampoline_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => export_name,
             params => params,
             return_type => go_return_type,
@@ -95,7 +95,7 @@ pub(super) fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &
     out.push_str("\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))\n");
     out.push_str(&crate::backends::go::template_env::render(
         "handle_type_assertion.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             type_name => trait_name,
         },
     ));
@@ -131,7 +131,7 @@ pub(super) fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &
             TypeRef::Unit => {
                 out.push_str(&crate::backends::go::template_env::render(
                     "impl_method_call_err.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         method => method.name.to_pascal_case(),
                         args => call_args.join(", "),
                     },
@@ -141,7 +141,7 @@ pub(super) fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &
             _ => {
                 out.push_str(&crate::backends::go::template_env::render(
                     "impl_method_call_result_err.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         method => method.name.to_pascal_case(),
                         args => call_args.join(", "),
                     },
@@ -161,7 +161,7 @@ pub(super) fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &
     } else {
         out.push_str(&crate::backends::go::template_env::render(
             "impl_method_call_result.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method => method.name.to_pascal_case(),
                 args => call_args.join(", "),
             },
@@ -244,13 +244,13 @@ fn gen_result_conversion(out: &mut String, return_type: &TypeRef, is_simple_prim
 pub(super) fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str) {
     out.push_str(&crate::backends::go::template_env::render(
         "export_marker.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => format!("go{trait_pascal}Name"),
         },
     ));
     out.push_str(&crate::backends::go::template_env::render(
         "plugin_method_trampoline_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             pascal => &trait_pascal,
             method => "Name",
             params => "userData unsafe.Pointer, outResult **C.char, outError **C.char",
@@ -261,7 +261,7 @@ pub(super) fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_p
     out.push_str("\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))\n");
     out.push_str(&crate::backends::go::template_env::render(
         "handle_type_assertion.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             type_name => trait_name,
         },
     ));
@@ -282,13 +282,13 @@ pub(super) fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_p
 
     out.push_str(&crate::backends::go::template_env::render(
         "export_marker.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => format!("go{trait_pascal}Version"),
         },
     ));
     out.push_str(&crate::backends::go::template_env::render(
         "plugin_method_trampoline_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             pascal => &trait_pascal,
             method => "Version",
             params => "userData unsafe.Pointer, outResult **C.char, outError **C.char",
@@ -299,7 +299,7 @@ pub(super) fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_p
     out.push_str("\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))\n");
     out.push_str(&crate::backends::go::template_env::render(
         "handle_type_assertion.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             type_name => trait_name,
         },
     ));
@@ -320,13 +320,13 @@ pub(super) fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_p
 
     out.push_str(&crate::backends::go::template_env::render(
         "export_marker.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => format!("go{trait_pascal}Initialize"),
         },
     ));
     out.push_str(&crate::backends::go::template_env::render(
         "plugin_method_trampoline_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             pascal => &trait_pascal,
             method => "Initialize",
             params => "userData unsafe.Pointer, outError **C.char",
@@ -337,7 +337,7 @@ pub(super) fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_p
     out.push_str("\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))\n");
     out.push_str(&crate::backends::go::template_env::render(
         "handle_type_assertion.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             type_name => trait_name,
         },
     ));
@@ -361,13 +361,13 @@ pub(super) fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_p
 
     out.push_str(&crate::backends::go::template_env::render(
         "export_marker.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => format!("go{trait_pascal}Shutdown"),
         },
     ));
     out.push_str(&crate::backends::go::template_env::render(
         "plugin_method_trampoline_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             pascal => &trait_pascal,
             method => "Shutdown",
             params => "userData unsafe.Pointer, outError **C.char",
@@ -378,7 +378,7 @@ pub(super) fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_p
     out.push_str("\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))\n");
     out.push_str(&crate::backends::go::template_env::render(
         "handle_type_assertion.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             type_name => trait_name,
         },
     ));
@@ -402,13 +402,13 @@ pub(super) fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_p
 
     out.push_str(&crate::backends::go::template_env::render(
         "export_marker.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => format!("go{trait_pascal}FreeUserData"),
         },
     ));
     out.push_str(&crate::backends::go::template_env::render(
         "plugin_free_user_data_func.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             pascal => &trait_pascal,
         },
     ));
@@ -419,13 +419,13 @@ pub(super) fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_p
 
     out.push_str(&crate::backends::go::template_env::render(
         "export_marker.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => format!("go{trait_pascal}FreeString"),
         },
     ));
     out.push_str(&crate::backends::go::template_env::render(
         "trait_free_string_func.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_pascal => &trait_pascal,
         },
     ));

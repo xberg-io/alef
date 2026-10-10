@@ -146,7 +146,7 @@ pub(super) fn gen_wire_schema_consts(
         let rendered_entries: Vec<minijinja::Value> = entries
             .iter()
             .map(|e| {
-                minijinja::context! {
+                crate::alef_context! {
                     rust => &e.rust,
                     wire => &e.wire,
                     kind => e.kind,
@@ -156,7 +156,7 @@ pub(super) fn gen_wire_schema_consts(
             .collect();
         out.push_str(&crate::backends::pyo3::template_env::render(
             "pyo3_wire_schema_const.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 const_name => const_name,
                 entries => rendered_entries,
             },

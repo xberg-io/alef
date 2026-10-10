@@ -84,7 +84,7 @@ pub(super) fn emit_ruby_visitor_method(setup_lines: &mut Vec<String>, method_nam
 
     let rendered = crate::e2e::template_env::render(
         "ruby/visitor_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => method_name,
             params => params,
             action_type => action_type,

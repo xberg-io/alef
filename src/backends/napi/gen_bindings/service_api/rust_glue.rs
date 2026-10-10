@@ -1,5 +1,4 @@
 use heck::{ToSnakeCase, ToUpperCamelCase};
-use minijinja::context;
 
 use crate::backends::napi::template_env::render;
 use crate::core::config::ResolvedCrateConfig;
@@ -18,7 +17,7 @@ pub(in crate::backends::napi::gen_bindings) fn gen_service_rs(
     let mut out = String::new();
 
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    out.push_str(&render("service_rs_preamble.jinja", context! {}));
+    out.push_str(&render("service_rs_preamble.jinja", crate::alef_context! {}));
 
     let referenced_contracts: Vec<&HandlerContractDef> = {
         let mut names: Vec<&str> = api
@@ -125,7 +124,7 @@ pub(in crate::backends::napi::gen_bindings) fn gen_service_rs(
             };
             out.push_str(&render(
                 "service_rs_impl_block.jinja",
-                context! {
+                crate::alef_context! {
                     app_type_name,
                     impl_methods,
                     wrapper_use_items => wrapper_use_items.clone(),
@@ -155,7 +154,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 
     out.push_str(&render(
         "service_rs_handler_bridge_header.jinja",
-        context! {
+        crate::alef_context! {
             trait_name,
             bridge_name,
         },
@@ -192,7 +191,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 
     out.push_str(&render(
         "service_rs_handler_bridge_impl.jinja",
-        context! {
+        crate::alef_context! {
             core_import,
             trait_name,
             bridge_name,
@@ -244,7 +243,7 @@ fn gen_run_napi_function(
 
     out.push_str(&render(
         "service_rs_run_function_header.jinja",
-        context! {
+        crate::alef_context! {
             owner_path,
             ep_method,
             fn_name,
@@ -256,7 +255,7 @@ fn gen_run_napi_function(
     let ctor_call = build_ctor_call_napi(service, owner_path);
     out.push_str(&render(
         "service_rs_owner_ctor.jinja",
-        context! {
+        crate::alef_context! {
             ctor_call,
         },
     ));
@@ -357,7 +356,7 @@ fn gen_base_registration_napi_method(
         .join("\n");
     out.push_str(&render(
         "service_rs_base_registration_method_header.jinja",
-        context! {
+        crate::alef_context! {
             base_method,
             doc,
             param_sig,
@@ -370,7 +369,7 @@ fn gen_base_registration_napi_method(
         let bridge_name = format!("{}Bridge", contract.trait_name.to_upper_camel_case());
         out.push_str(&render(
             "service_rs_handler_arc.jinja",
-            context! {
+            crate::alef_context! {
                 bridge_name,
                 core_import,
                 contract_name,
@@ -385,7 +384,7 @@ fn gen_base_registration_napi_method(
         if !meta_names.is_empty() {
             out.push_str(&render(
                 "service_rs_base_registration_call.jinja",
-                context! {
+                crate::alef_context! {
                     receiver => "self",
                     base_method,
                     meta_args,
@@ -395,7 +394,7 @@ fn gen_base_registration_napi_method(
         } else {
             out.push_str(&render(
                 "service_rs_base_registration_call.jinja",
-                context! {
+                crate::alef_context! {
                     receiver => "self",
                     base_method,
                     meta_args => "",
@@ -406,14 +405,14 @@ fn gen_base_registration_napi_method(
     } else {
         out.push_str(&render(
             "service_rs_inner_accessor.jinja",
-            context! {
+            crate::alef_context! {
                 inner_accessor,
             },
         ));
         if !meta_names.is_empty() {
             out.push_str(&render(
                 "service_rs_base_registration_call.jinja",
-                context! {
+                crate::alef_context! {
                     receiver => "inner",
                     base_method,
                     meta_args,
@@ -423,7 +422,7 @@ fn gen_base_registration_napi_method(
         } else {
             out.push_str(&render(
                 "service_rs_base_registration_call.jinja",
-                context! {
+                crate::alef_context! {
                     receiver => "inner",
                     base_method,
                     meta_args => "",
@@ -439,7 +438,7 @@ fn gen_base_registration_napi_method(
         out.push_str("        ;\n");
     }
 
-    out.push_str(&render("service_rs_unit_ok_footer.jinja", context! {}));
+    out.push_str(&render("service_rs_unit_ok_footer.jinja", crate::alef_context! {}));
 }
 
 /// Emit one `#[napi]` async shortcut method for a registration variant on the App class.
@@ -483,7 +482,7 @@ fn gen_variant_napi_method(
     let doc = variant.doc.as_deref().unwrap_or("").trim();
     out.push_str(&render(
         "service_rs_variant_method_header.jinja",
-        context! {
+        crate::alef_context! {
             variant_name,
             doc,
             param_sig,
@@ -513,7 +512,7 @@ fn gen_variant_napi_method(
         let metadata_param = &wrapper_call.metadata_param;
         out.push_str(&render(
             "service_rs_wrapper_ctor.jinja",
-            context! {
+            crate::alef_context! {
                 metadata_param,
                 wrapper_path,
                 constructor,
@@ -535,7 +534,7 @@ fn gen_variant_napi_method(
         let bridge_name = format!("{}Bridge", contract.trait_name.to_upper_camel_case());
         out.push_str(&render(
             "service_rs_handler_arc.jinja",
-            context! {
+            crate::alef_context! {
                 bridge_name,
                 core_import,
                 contract_name,
@@ -548,7 +547,7 @@ fn gen_variant_napi_method(
         if !metadata_names.is_empty() {
             out.push_str(&render(
                 "service_rs_base_registration_call.jinja",
-                context! {
+                crate::alef_context! {
                     receiver => "self",
                     base_method,
                     meta_args,
@@ -558,7 +557,7 @@ fn gen_variant_napi_method(
         } else {
             out.push_str(&render(
                 "service_rs_base_registration_call.jinja",
-                context! {
+                crate::alef_context! {
                     receiver => "self",
                     base_method,
                     meta_args => "",
@@ -569,14 +568,14 @@ fn gen_variant_napi_method(
     } else {
         out.push_str(&render(
             "service_rs_inner_accessor.jinja",
-            context! {
+            crate::alef_context! {
                 inner_accessor,
             },
         ));
         if !metadata_names.is_empty() {
             out.push_str(&render(
                 "service_rs_base_registration_call.jinja",
-                context! {
+                crate::alef_context! {
                     receiver => "inner",
                     base_method,
                     meta_args,
@@ -586,7 +585,7 @@ fn gen_variant_napi_method(
         } else {
             out.push_str(&render(
                 "service_rs_base_registration_call.jinja",
-                context! {
+                crate::alef_context! {
                     receiver => "inner",
                     base_method,
                     meta_args => "",
@@ -602,7 +601,7 @@ fn gen_variant_napi_method(
         out.push_str("        ;\n");
     }
 
-    out.push_str(&render("service_rs_unit_ok_footer.jinja", context! {}));
+    out.push_str(&render("service_rs_unit_ok_footer.jinja", crate::alef_context! {}));
 }
 
 /// Emit one `#[napi]` method for a configurator whose TypeScript wrapper forwards
@@ -657,7 +656,7 @@ fn gen_configurator_napi_method(
 
     out.push_str(&render(
         "service_rs_configurator_method_header.jinja",
-        context! {
+        crate::alef_context! {
             method_name,
             doc,
             param_name,
@@ -666,7 +665,7 @@ fn gen_configurator_napi_method(
 
     out.push_str(&render(
         "service_rs_configurator_parse.jinja",
-        context! {
+        crate::alef_context! {
             param_name,
             param_type,
         },
@@ -674,14 +673,14 @@ fn gen_configurator_napi_method(
 
     out.push_str(&render(
         "service_rs_take_owner.jinja",
-        context! {
+        crate::alef_context! {
             inner_accessor,
         },
     ));
 
     out.push_str(&render(
         "service_rs_configurator_apply.jinja",
-        context! {
+        crate::alef_context! {
             method_name,
             param_name,
         },
@@ -689,12 +688,12 @@ fn gen_configurator_napi_method(
 
     out.push_str(&render(
         "service_rs_configurator_replace.jinja",
-        context! {
+        crate::alef_context! {
             inner_accessor,
         },
     ));
 
-    out.push_str(&render("service_rs_unit_ok_footer.jinja", context! {}));
+    out.push_str(&render("service_rs_unit_ok_footer.jinja", crate::alef_context! {}));
 }
 
 /// Emit one `#[napi]` method for a service entrypoint (run or finalize) on the App class.
@@ -750,7 +749,7 @@ fn gen_entrypoint_napi_method(
     let async_kw = if ep.is_async { "async " } else { "" };
     out.push_str(&render(
         "service_rs_entrypoint_method_header.jinja",
-        context! {
+        crate::alef_context! {
             ep_method,
             doc,
             js_name,
@@ -772,7 +771,7 @@ fn gen_entrypoint_napi_method(
         if ep.is_async {
             out.push_str(&render(
                 "service_rs_entrypoint_call.jinja",
-                context! {
+                crate::alef_context! {
                     bind,
                     receiver => "self",
                     ep_method,
@@ -783,7 +782,7 @@ fn gen_entrypoint_napi_method(
         } else {
             out.push_str(&render(
                 "service_rs_entrypoint_call.jinja",
-                context! {
+                crate::alef_context! {
                     bind,
                     receiver => "self",
                     ep_method,
@@ -795,14 +794,14 @@ fn gen_entrypoint_napi_method(
     } else {
         out.push_str(&render(
             "service_rs_take_owner.jinja",
-            context! {
+            crate::alef_context! {
                 inner_accessor,
             },
         ));
         if ep.is_async {
             out.push_str(&render(
                 "service_rs_entrypoint_call.jinja",
-                context! {
+                crate::alef_context! {
                     bind,
                     receiver => "owner",
                     ep_method,
@@ -813,7 +812,7 @@ fn gen_entrypoint_napi_method(
         } else {
             out.push_str(&render(
                 "service_rs_entrypoint_call.jinja",
-                context! {
+                crate::alef_context! {
                     bind,
                     receiver => "owner",
                     ep_method,
@@ -830,5 +829,5 @@ fn gen_entrypoint_napi_method(
         out.push_str("        ;\n");
     }
 
-    out.push_str(&render("service_rs_unit_ok_footer.jinja", context! {}));
+    out.push_str(&render("service_rs_unit_ok_footer.jinja", crate::alef_context! {}));
 }

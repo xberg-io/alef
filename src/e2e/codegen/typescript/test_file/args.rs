@@ -572,7 +572,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                                         let expression = spliced.strip_suffix(&suffix).unwrap_or(&spliced);
                                         setup_lines.push(crate::e2e::template_env::render(
                                             "typescript/typed_binding.jinja",
-                                            minijinja::context! { name => arg.name, type_name => opts_type, expression => expression },
+                                            crate::alef_context! { name => arg.name, type_name => opts_type, expression => expression },
                                         ).trim_end().to_string());
                                         parts.push(arg.name.clone());
                                     } else {
@@ -584,7 +584,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                                 let expression = ts_code.strip_suffix(&suffix).unwrap_or(&ts_code);
                                 setup_lines.push(crate::e2e::template_env::render(
                                     "typescript/typed_binding.jinja",
-                                    minijinja::context! { name => arg.name, type_name => opts_type, expression => expression },
+                                    crate::alef_context! { name => arg.name, type_name => opts_type, expression => expression },
                                 ).trim_end().to_string());
                                 parts.push(arg.name.clone());
                             } else {

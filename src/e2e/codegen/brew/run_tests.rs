@@ -176,7 +176,7 @@ pub(super) fn render_run_tests(
     // single logical shell unit with no per-suite parameters.
     out.push_str(&crate::e2e::template_env::render(
         "brew/harness.sh.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     let _ = writeln!(out);
 

@@ -4,7 +4,6 @@ use super::helpers::{
 use super::registration_variants::gen_registration_method;
 use crate::core::ir::{ApiSurface, EntrypointKind, ServiceDef};
 use heck::ToSnakeCase;
-use minijinja::context;
 use std::collections::BTreeSet;
 
 pub(super) fn gen_service_py(api: &ApiSurface, module_name: &str) -> String {
@@ -23,14 +22,14 @@ pub(super) fn gen_service_py(api: &ApiSurface, module_name: &str) -> String {
 
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_py_header.py.jinja",
-        context! { module_name => module_name },
+        crate::alef_context! { module_name => module_name },
     ));
 
     if !runtime_types.is_empty() {
         let joined = runtime_types.iter().cloned().collect::<Vec<_>>().join(", ");
         out.push_str(&crate::backends::pyo3::template_env::render(
             "service_api_py_runtime_import.py.jinja",
-            context! { module_name => module_name, imports => joined },
+            crate::alef_context! { module_name => module_name, imports => joined },
         ));
     }
 
@@ -47,7 +46,7 @@ pub(super) fn gen_service_py(api: &ApiSurface, module_name: &str) -> String {
             let joined = named_types.iter().cloned().collect::<Vec<_>>().join(", ");
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "service_api_py_type_checking_import.py.jinja",
-                context! { module_name => module_name, imports => joined },
+                crate::alef_context! { module_name => module_name, imports => joined },
             ));
         }
     }
@@ -65,7 +64,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
 
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_py_class_header.py.jinja",
-        context! { class_name => class_name },
+        crate::alef_context! { class_name => class_name },
     ));
     if !service.doc.is_empty() {
         out.push_str(&format_docstring(&service.doc, 4));
@@ -89,19 +88,19 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
         let param_sig = init_params.join(", ");
         out.push_str(&crate::backends::pyo3::template_env::render(
             "service_api_py_init_header.py.jinja",
-            context! { param_sig => param_sig },
+            crate::alef_context! { param_sig => param_sig },
         ));
         if !ctor.doc.is_empty() {
             out.push_str(&format_docstring(&ctor.doc, 8));
         }
         out.push_str(&crate::backends::pyo3::template_env::render(
             "service_api_py_registration_state.py.jinja",
-            context! {},
+            crate::alef_context! {},
         ));
         for arg in &init_args {
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "service_api_py_init_assignment.py.jinja",
-                context! { arg => arg },
+                crate::alef_context! { arg => arg },
             ));
         }
         out.push('\n');
@@ -121,7 +120,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
         let method_name = &method.name;
         out.push_str(&crate::backends::pyo3::template_env::render(
             "service_api_py_configurator_header.py.jinja",
-            context! {
+            crate::alef_context! {
                 method_name => method_name,
                 param_sig => param_sig,
                 class_name => class_name,
@@ -133,12 +132,12 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
         for p in &method.params {
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "service_api_py_configurator_assignment.py.jinja",
-                context! { name => p.name.as_str() },
+                crate::alef_context! { name => p.name.as_str() },
             ));
         }
         out.push_str(&crate::backends::pyo3::template_env::render(
             "service_api_py_return_self.py.jinja",
-            context! {},
+            crate::alef_context! {},
         ));
     }
 
@@ -163,7 +162,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
             EntrypointKind::Run => {
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "service_api_py_entrypoint_header.py.jinja",
-                    context! { ep_name => ep_name, param_sig => param_sig, return_type => "None" },
+                    crate::alef_context! { ep_name => ep_name, param_sig => param_sig, return_type => "None" },
                 ));
                 if !ep.doc.is_empty() {
                     out.push_str(&format_docstring(&ep.doc, 8));
@@ -177,7 +176,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
                     .join("");
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "service_api_py_entrypoint_call.py.jinja",
-                    context! {
+                    crate::alef_context! {
                         return_prefix => "",
                         module_name => module_name,
                         native_fn => native_fn,
@@ -189,7 +188,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
             EntrypointKind::Finalize => {
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "service_api_py_entrypoint_header.py.jinja",
-                    context! { ep_name => ep_name, param_sig => param_sig, return_type => "Any" },
+                    crate::alef_context! { ep_name => ep_name, param_sig => param_sig, return_type => "Any" },
                 ));
                 if !ep.doc.is_empty() {
                     out.push_str(&format_docstring(&ep.doc, 8));
@@ -203,7 +202,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
                     .join("");
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "service_api_py_entrypoint_call.py.jinja",
-                    context! {
+                    crate::alef_context! {
                         return_prefix => "return ",
                         module_name => module_name,
                         native_fn => native_fn,

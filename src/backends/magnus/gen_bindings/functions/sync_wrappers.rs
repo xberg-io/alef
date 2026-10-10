@@ -75,7 +75,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_function(
                     if p.optional {
                         deser_lines.push(crate::backends::magnus::template_env::render(
                             "function_named_binding.rs.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 mode => "optional",
                                 binding_name => binding_ty,
                                 core_import => core_import,
@@ -86,7 +86,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_function(
                     } else if promoted || (idx == func.params.len() - 1 && is_default_config_func) {
                         deser_lines.push(crate::backends::magnus::template_env::render(
                             "function_named_binding.rs.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 mode => "default",
                                 binding_name => binding_ty,
                                 core_import => core_import,
@@ -97,7 +97,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_function(
                     } else {
                         deser_lines.push(crate::backends::magnus::template_env::render(
                             "function_named_binding.rs.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 mode => "required",
                                 binding_name => binding_ty,
                                 core_import => core_import,
@@ -115,7 +115,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_function(
                 let vec_ty = format!("Vec<{core_inner_ty}>");
                 deser_lines.push(crate::backends::magnus::template_env::render(
                     "function_named_vec_binding.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &p.name,
                         vec_ty => &vec_ty,
                         optional => p.optional,
@@ -174,7 +174,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_function(
             if func.error_type.is_some() {
                 crate::backends::magnus::template_env::render(
                     "function_async_body.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         core_call => &core_call,
                         wrap => &wrap,
                         has_error => true,
@@ -183,7 +183,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_function(
             } else {
                 crate::backends::magnus::template_env::render(
                     "function_async_body.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         core_call => &core_call,
                         wrap => &wrap,
                         has_error => false,
@@ -204,7 +204,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_function(
             );
             crate::backends::magnus::template_env::render(
                 "function_result_body.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     core_call => &core_call,
                     wrap => &wrap,
                 },
@@ -223,7 +223,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_function(
             );
             crate::backends::magnus::template_env::render(
                 "function_variadic_ok_body.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     inner => &inner,
                 },
             )
@@ -251,7 +251,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_function(
     };
     crate::backends::magnus::template_env::render(
         "function_wrapper.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             allow_attr => allow_attr,
             name => &func.name,
             params => &params,
@@ -274,7 +274,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_magnus_unimplemented_body(
     if has_error {
         crate::backends::magnus::template_env::render(
             "function_unimplemented_error.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 message => &err_msg,
             },
         )
@@ -283,7 +283,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_magnus_unimplemented_body(
             TypeRef::Unit => "()".to_string(),
             _ => crate::backends::magnus::template_env::render(
                 "function_unimplemented_panic.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => fn_name,
                 },
             ),

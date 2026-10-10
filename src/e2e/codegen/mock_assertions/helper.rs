@@ -39,7 +39,7 @@ pub(crate) fn render_helper(language: &str) -> Option<String> {
     } = mock_capture(language).ok()?;
     Some(template_env::render(
         helper_template,
-        minijinja::context! {
+        crate::alef_context! {
             helper_name => helper_name,
             total_path => MOCK_TOTAL_PATH,
             one_path => MOCK_ONE_PATH,

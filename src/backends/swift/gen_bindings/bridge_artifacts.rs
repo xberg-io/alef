@@ -405,7 +405,7 @@ pub(super) fn emit_inbound_protocols(
 
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_bridge_protocol_open.swift.jinja",
-            minijinja::context! { protocol_name => &protocol_name, },
+            crate::alef_context! { protocol_name => &protocol_name, },
         ));
         for method in &trait_def.methods {
             let method_snake = method.name.to_snake_case();
@@ -413,7 +413,7 @@ pub(super) fn emit_inbound_protocols(
             let params = swift_protocol_params(method, exclude_types);
             out.push_str(&crate::backends::swift::template_env::render(
                 "swift_bridge_protocol_method.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     method_name => &method_camel,
                     params => &params,
                     return_type => protocol_return_type,
@@ -428,7 +428,7 @@ pub(super) fn emit_inbound_protocols(
         let default_case_doc = default_case.as_ref().map(|case| format!(".{case}"));
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_bridge_protocol_default_open.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 protocol_name => &protocol_name,
                 default_case => default_case_doc.as_deref(),
             },
@@ -444,7 +444,7 @@ pub(super) fn emit_inbound_protocols(
             };
             out.push_str(&crate::backends::swift::template_env::render(
                 "swift_bridge_protocol_default_method.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     method_name => &method_camel,
                     params => &underscore_params,
                     return_type => return_type,
@@ -456,7 +456,7 @@ pub(super) fn emit_inbound_protocols(
 
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_bridge_adapter_open.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 adapter_name => &adapter_name,
                 delegate_protocol_name => &delegate_protocol_name,
                 protocol_name => &protocol_name,
@@ -470,7 +470,7 @@ pub(super) fn emit_inbound_protocols(
             let (conversion_lines, call_args) = swift_adapter_conversions(method, exclude_types);
             out.push_str(&crate::backends::swift::template_env::render(
                 "swift_bridge_adapter_method_open.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     method_name => &delegate_method,
                     params => &delegate_params,
                 },
@@ -478,7 +478,7 @@ pub(super) fn emit_inbound_protocols(
             for line in &conversion_lines {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "swift_forwarder_conversion_line.swift.jinja",
-                    minijinja::context! { line => line, },
+                    crate::alef_context! { line => line, },
                 ));
             }
             let result_json = if let Some(result_type_name) = result_type_name.filter(|_| result_enum.is_some()) {
@@ -494,13 +494,13 @@ pub(super) fn emit_inbound_protocols(
                 };
                 crate::backends::swift::template_env::render(
                     "swift_bridge_adapter_void_return.swift.jinja",
-                    minijinja::context! { call => &call, },
+                    crate::alef_context! { call => &call, },
                 )
             };
             out.push_str(&result_json);
             out.push_str(&crate::backends::swift::template_env::render(
                 "swift_bridge_adapter_method_close.swift.jinja",
-                minijinja::context! {},
+                crate::alef_context! {},
             ));
         }
         out.push_str("}\n\n");
@@ -510,7 +510,7 @@ pub(super) fn emit_inbound_protocols(
             let fn_name = format!("{}_toJson", result_type_name.to_snake_case());
             out.push_str(&crate::backends::swift::template_env::render(
                 "swift_bridge_result_helper_open.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     result_type_name => result_type_name,
                     function_name => &fn_name,
                 },
@@ -527,7 +527,7 @@ pub(super) fn emit_inbound_protocols(
                 if variant.fields.is_empty() {
                     out.push_str(&crate::backends::swift::template_env::render(
                         "swift_bridge_result_unit_case.swift.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             swift_case => &swift_case,
                             variant_wire => &variant_wire,
                             repr => repr.kind(),
@@ -547,7 +547,7 @@ pub(super) fn emit_inbound_protocols(
                     );
                     out.push_str(&crate::backends::swift::template_env::render(
                         "swift_bridge_result_newtype_case.swift.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             swift_case => &swift_case,
                             variant_wire => &variant_wire,
                             repr => repr.kind(),
@@ -560,7 +560,7 @@ pub(super) fn emit_inbound_protocols(
             out.push_str("    }\n}\n\n");
             out.push_str(&crate::backends::swift::template_env::render(
                 "swift_bridge_json_escape_helper.swift.jinja",
-                minijinja::context! {},
+                crate::alef_context! {},
             ));
             out.push('\n');
         }
@@ -569,7 +569,7 @@ pub(super) fn emit_inbound_protocols(
         let options_fn = format!("{opts_snake}FromJsonWith{}", field.to_upper_camel_case()).to_lower_camel_case();
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_bridge_factory.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 protocol_name => &protocol_name,
                 type_alias => type_alias,
                 options_fn => &options_fn,
@@ -582,7 +582,7 @@ pub(super) fn emit_inbound_protocols(
 
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_bridge_options_forwarder.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 options_type => options_type,
                 type_alias => type_alias,
                 options_fn => &options_fn,
@@ -661,7 +661,7 @@ pub(super) fn emit_ref_property_extensions(api: &ApiSurface) -> Option<(String, 
                 type_content.push('\n');
                 type_content.push_str(&crate::backends::swift::template_env::render(
                     "swift_ref_extension_open.swift.jinja",
-                    minijinja::context! { type_name => &ty.name, },
+                    crate::alef_context! { type_name => &ty.name, },
                 ));
                 type_has_extensions = true;
             } else {
@@ -671,7 +671,7 @@ pub(super) fn emit_ref_property_extensions(api: &ApiSurface) -> Option<(String, 
             let camel = method.name.to_lower_camel_case();
             type_content.push_str(&crate::backends::swift::template_env::render(
                 "swift_ref_string_alias_property.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     method_name => &camel,
                     property_name => &camel,
                 },
@@ -681,7 +681,7 @@ pub(super) fn emit_ref_property_extensions(api: &ApiSurface) -> Option<(String, 
             type_content.push_str("}\n");
             type_content.push_str(&crate::backends::swift::template_env::render(
                 "swift_ref_extension_inheritance_comment.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     type_name => &ty.name,
                 },
             ));

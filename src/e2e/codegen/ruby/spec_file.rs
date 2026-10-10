@@ -257,7 +257,7 @@ pub(super) fn render_spec_file(
     let header = crate::core::hash::e2e_header(crate::core::hash::CommentStyle::Hash);
     crate::e2e::template_env::render(
         "ruby/test_file.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             category => category,
             requires => requires,
             has_array_contains => has_array_contains,

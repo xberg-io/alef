@@ -475,7 +475,7 @@ fn service_template_render_cases() -> Vec<(&'static str, minijinja::Value)> {
     vec![
         (
             "service_constructor.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 service_name => "TestService",
                 class_name => "TestService",
                 params_decl => "string path",
@@ -484,7 +484,7 @@ fn service_template_render_cases() -> Vec<(&'static str, minijinja::Value)> {
         ),
         (
             "service_entrypoint_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => "run",
                 return_type => "int",
                 params_decl => "string addr",
@@ -494,7 +494,7 @@ fn service_template_render_cases() -> Vec<(&'static str, minijinja::Value)> {
         ),
         (
             "service_registration_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => "add_handler",
                 metadata_params => "string path",
                 native_method => "my_lib_test_service_register_add_handler",
@@ -503,7 +503,7 @@ fn service_template_render_cases() -> Vec<(&'static str, minijinja::Value)> {
         ),
         (
             "service_variant_registration_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => "Get",
                 doc => "Register a GET handler.",
                 signature_params => "string path",
@@ -513,14 +513,14 @@ fn service_template_render_cases() -> Vec<(&'static str, minijinja::Value)> {
         ),
         (
             "service_class_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 namespace => "MyNamespace",
                 service_name => "TestService",
                 class_name => "TestService",
                 native_free => "my_lib_test_service_free",
             },
         ),
-        ("service_dispose_method.jinja", minijinja::context! {}),
+        ("service_dispose_method.jinja", crate::alef_context! {}),
     ]
 }
 
@@ -600,9 +600,7 @@ fn test_split_member_access_violations_detects_a_broken_chain() {
 /// below render exactly as the real 2cb44dc09 templates would have.
 fn render_frozen_template(source: &str, context: minijinja::Value) -> String {
     let mut env = minijinja::Environment::new();
-    env.set_trim_blocks(true);
-    env.set_lstrip_blocks(true);
-    env.set_keep_trailing_newline(true);
+    crate::template::configure_env(&mut env);
     env.add_template("frozen", source)
         .expect("frozen template source is valid jinja");
     env.get_template("frozen")
@@ -626,7 +624,7 @@ const CORRUPTED_SERVICE_VARIANT_REGISTRATION: &str = "/// <summary>\n  /// {{ do
 fn test_corrupted_service_constructor_fails_all_three_contract_checks() {
     let rendered = render_frozen_template(
         CORRUPTED_SERVICE_CONSTRUCTOR,
-        minijinja::context! {
+        crate::alef_context! {
             service_name => "TestService",
             class_name => "TestService",
             params_decl => "string path",
@@ -651,7 +649,7 @@ fn test_corrupted_service_constructor_fails_all_three_contract_checks() {
 fn test_corrupted_service_entrypoint_fails_contract_checks() {
     let rendered = render_frozen_template(
         CORRUPTED_SERVICE_ENTRYPOINT,
-        minijinja::context! {
+        crate::alef_context! {
             method_name => "run",
             return_type => "int",
             params_decl => "string addr",
@@ -667,7 +665,7 @@ fn test_corrupted_service_entrypoint_fails_contract_checks() {
 fn test_corrupted_service_registration_fails_contract_checks() {
     let rendered = render_frozen_template(
         CORRUPTED_SERVICE_REGISTRATION,
-        minijinja::context! {
+        crate::alef_context! {
             method_name => "add_handler",
             metadata_params => "string path",
             native_method => "my_lib_test_service_register_add_handler",
@@ -682,7 +680,7 @@ fn test_corrupted_service_registration_fails_contract_checks() {
 fn test_corrupted_service_variant_registration_fails_contract_checks() {
     let rendered = render_frozen_template(
         CORRUPTED_SERVICE_VARIANT_REGISTRATION,
-        minijinja::context! {
+        crate::alef_context! {
             method_name => "Get",
             doc => "Register a GET handler.",
             signature_params => "string path",

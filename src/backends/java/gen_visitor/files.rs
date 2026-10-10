@@ -130,7 +130,7 @@ fn gen_visit_result(package: &str, visitor: &VisitorGeneration) -> String {
         .result_variants
         .iter()
         .map(|variant| {
-            minijinja::context! {
+            crate::alef_context! {
                 name => &variant.name,
                 factory_name => &variant.factory_name,
                 payload_field => variant.payload_field.as_deref(),
@@ -139,7 +139,7 @@ fn gen_visit_result(package: &str, visitor: &VisitorGeneration) -> String {
         .collect();
     crate::backends::java::template_env::render(
         "visit_result.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             header => header,
             package => package,
             result_type => &visitor.result_type,
@@ -168,7 +168,7 @@ fn gen_visitor_interface(package: &str, visitor: &VisitorGeneration) -> String {
         .callbacks
         .iter()
         .map(|spec| {
-            minijinja::context! {
+            crate::alef_context! {
                 doc => sanitize_callback_doc(&spec.doc),
                 java_method => spec.java_method,
                 params => iface_param_str(spec, &visitor.context_type),
@@ -177,7 +177,7 @@ fn gen_visitor_interface(package: &str, visitor: &VisitorGeneration) -> String {
         .collect();
     crate::backends::java::template_env::render(
         "visitor_interface.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             header => header,
             package => package,
             trait_name => &visitor.trait_name,
@@ -197,7 +197,7 @@ fn wrap_java_file(package: &str, imports: Vec<String>, content: String) -> Strin
     let header = hash::header(CommentStyle::DoubleSlash);
     crate::backends::java::template_env::render(
         "visitor_files.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             header => header,
             package => package,
             imports => imports,
@@ -276,7 +276,7 @@ fn gen_visitor_bridge(package: &str, visitor: &VisitorGeneration) -> String {
         .result_variants
         .iter()
         .map(|variant| {
-            minijinja::context! {
+            crate::alef_context! {
                 code_name => &variant.code_name,
                 code => variant.code,
             }
@@ -286,7 +286,7 @@ fn gen_visitor_bridge(package: &str, visitor: &VisitorGeneration) -> String {
         .result_variants
         .iter()
         .map(|variant| {
-            minijinja::context! {
+            crate::alef_context! {
                 result_type => &visitor.result_type,
                 variant_name => &variant.name,
                 code_name => &variant.code_name,
@@ -297,7 +297,7 @@ fn gen_visitor_bridge(package: &str, visitor: &VisitorGeneration) -> String {
 
     crate::backends::java::template_env::render(
         "visitor_bridge.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             header => header,
             package => package,
             trait_name => &visitor.trait_name,

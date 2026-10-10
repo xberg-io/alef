@@ -4,7 +4,6 @@ use crate::backends::rustler::gen_bindings::service_api::helpers::{is_opaque_met
 use crate::backends::rustler::template_env::render;
 use crate::core::ir::{ApiSurface, RegistrationDef, ServiceDef, TypeRef};
 use heck::ToSnakeCase;
-use minijinja::context;
 
 pub(super) fn gen_registration_variant_nif(
     out: &mut String,
@@ -57,7 +56,7 @@ pub(super) fn gen_registration_variant_nif(
 
     out.push_str(&render(
         "service_api_registration_variant_nif_header.rs.jinja",
-        context! {
+        crate::alef_context! {
             variant_name => variant_name,
             base_method => base_method,
             nif_name => nif_name,
@@ -95,7 +94,7 @@ pub(super) fn gen_registration_variant_nif(
             if is_opaque && let TypeRef::Named(n) = &meta_param.ty {
                 opaque_bindings.push_str(&render(
                     "service_api_opaque_metadata_binding.rs.jinja",
-                    context! {
+                    crate::alef_context! {
                         indent => "            ",
                         param_name => meta_param.name,
                         core_import => core_import,
@@ -118,7 +117,7 @@ pub(super) fn gen_registration_variant_nif(
 
     out.push_str(&render(
         "service_api_registration_variant_dispatch.rs.jinja",
-        context! {
+        crate::alef_context! {
             has_metadata => has_metadata,
             metadata_names => metadata_param_names.join(", "),
             trailing => trailing,
@@ -134,6 +133,6 @@ pub(super) fn gen_registration_variant_nif(
 
     out.push_str(&render(
         "service_api_registration_variant_nif_footer.rs.jinja",
-        context! {},
+        crate::alef_context! {},
     ));
 }

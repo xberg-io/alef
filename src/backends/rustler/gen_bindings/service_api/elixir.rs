@@ -5,7 +5,6 @@ use crate::backends::rustler::gen_bindings::service_api::registration::gen_regis
 use crate::backends::rustler::template_env::render;
 use crate::core::ir::{ApiSurface, EntrypointKind, ServiceDef};
 use heck::ToSnakeCase;
-use minijinja::context;
 
 /// Generate the idiomatic Elixir service module (`service.ex`).
 ///
@@ -34,7 +33,7 @@ fn emit_conn_struct(out: &mut String, module_prefix: &str) {
     let conn_module = prefixed_module(module_prefix, "Conn");
     out.push_str(&render(
         "service_api_conn_struct.ex.jinja",
-        context! {
+        crate::alef_context! {
             conn_module => conn_module,
         },
     ));
@@ -63,7 +62,7 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
     };
     out.push_str(&render(
         "service_api_module_header.ex.jinja",
-        context! {
+        crate::alef_context! {
             module_name => module_name,
             doc_body => doc_body,
             module_prefix => module_prefix,
@@ -85,7 +84,7 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
         .collect::<String>();
     out.push_str(&render(
         "service_api_struct.ex.jinja",
-        context! {
+        crate::alef_context! {
             formatted_fields => formatted_fields,
         },
     ));
@@ -118,7 +117,7 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
             .collect::<String>();
         out.push_str(&render(
             "service_api_constructor.ex.jinja",
-            context! {
+            crate::alef_context! {
                 params => params.join(", "),
                 formatted_inits => formatted_inits,
             },
@@ -140,7 +139,7 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
         let updates = method.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>();
         out.push_str(&render(
             "service_api_configurator.ex.jinja",
-            context! {
+            crate::alef_context! {
                 method_name => method_name,
                 params => params.join(", "),
                 updates => updates,
@@ -172,7 +171,7 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
                 let call_args = ep.params.iter().map(|p| format!(", {}", p.name)).collect::<String>();
                 out.push_str(&render(
                     "service_api_entrypoint.ex.jinja",
-                    context! {
+                    crate::alef_context! {
                         ep_name => ep_name,
                         params => params.join(", "),
                         native_fn => native_fn,
@@ -186,7 +185,7 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
                 let call_args = ep.params.iter().map(|p| format!(", {}", p.name)).collect::<String>();
                 out.push_str(&render(
                     "service_api_entrypoint.ex.jinja",
-                    context! {
+                    crate::alef_context! {
                         ep_name => ep_name,
                         params => params.join(", "),
                         native_fn => native_fn,
@@ -206,7 +205,7 @@ fn gen_genserver_module(out: &mut String, service: &ServiceDef, _api: &ApiSurfac
 
     out.push_str(&render(
         "service_api_genserver.ex.jinja",
-        context! {
+        crate::alef_context! {
             server_module => server_module,
         },
     ));

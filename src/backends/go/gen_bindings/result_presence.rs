@@ -64,7 +64,7 @@ pub(super) fn result_presence_gate(
     }
     Some(crate::backends::go::template_env::render(
         "result_presence_gate.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             symbol => result_presence_symbol(primary_c_symbol),
             args => c_args.join(", "),
             present => PRESENT,

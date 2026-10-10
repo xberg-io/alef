@@ -42,7 +42,7 @@ pub(super) fn gen_opaque_resource(typ: &TypeDef, core_import: &str, _opaque_type
     let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
     out.push_str(&template_env::render(
         "rust_opaque_struct.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             struct_name => &typ.name,
             core_path => &core_path,
         },
@@ -83,7 +83,7 @@ pub(super) fn gen_struct(
         .collect();
     out.push_str(&template_env::render(
         "rust_struct_derive_line.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             delegate_deserialize => delegate_deserialize,
             nif_derive => nif_derive,
             has_sensitive => visible_fields.iter().any(|field| field.sensitive),
@@ -92,7 +92,7 @@ pub(super) fn gen_struct(
     if !typ.has_default {
         out.push_str(&template_env::render(
             "rust_module_attr.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 module_prefix => module_prefix,
                 struct_name => &typ.name,
             },
@@ -100,7 +100,7 @@ pub(super) fn gen_struct(
     }
     out.push_str(&template_env::render(
         "rust_struct_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             struct_name => &typ.name,
         },
     ));
@@ -113,7 +113,7 @@ pub(super) fn gen_struct(
         };
         out.push_str(&template_env::render(
             "rust_struct_field.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => crate::codegen::naming::internal_rust_identifier(&field.name),
                 type => &field_type,
             },
@@ -148,7 +148,7 @@ pub(super) fn gen_rustler_config_impl(
 
     out.push_str(&template_env::render(
         "rust_impl_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             struct_name => &typ.name,
         },
     ));
@@ -242,13 +242,13 @@ fn gen_rustler_flat_data_enum(enum_def: &EnumDef, module_prefix: &str, declared_
 
     out.push_str(&template_env::render(
         "flat_enum_derive.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             has_sensitive => crate::codegen::generators::enum_has_sensitive_representation(enum_def),
         },
     ));
     out.push_str(&template_env::render(
         "flat_enum_struct_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             module_prefix => module_prefix,
             name => name,
         },
@@ -258,7 +258,7 @@ fn gen_rustler_flat_data_enum(enum_def: &EnumDef, module_prefix: &str, declared_
         crate::codegen::naming::internal_rust_identifier(super::helpers::flat_data_enum_discriminator(enum_def));
     out.push_str(&template_env::render(
         "flat_enum_discriminator_field.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             discriminator_field => discriminator_field,
         },
     ));
@@ -272,7 +272,7 @@ fn gen_rustler_flat_data_enum(enum_def: &EnumDef, module_prefix: &str, declared_
             let field_type = field_type_for_rustler(first_field);
             out.push_str(&template_env::render(
                 "flat_enum_variant_field.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     field_name => &field_name,
                     field_type => &field_type,
                 },
@@ -282,12 +282,12 @@ fn gen_rustler_flat_data_enum(enum_def: &EnumDef, module_prefix: &str, declared_
 
     out.push_str(&template_env::render(
         "flat_enum_struct_footer.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
 
     out.push_str(&template_env::render(
         "flat_enum_default_impl.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => name,
             discriminator_field => discriminator_field,
         },
@@ -298,7 +298,7 @@ fn gen_rustler_flat_data_enum(enum_def: &EnumDef, module_prefix: &str, declared_
             let field_name = crate::codegen::naming::pascal_to_snake(&variant.name);
             out.push_str(&template_env::render(
                 "flat_enum_default_variant_field.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     field_name => &field_name,
                 },
             ));
@@ -307,7 +307,7 @@ fn gen_rustler_flat_data_enum(enum_def: &EnumDef, module_prefix: &str, declared_
 
     out.push_str(&template_env::render(
         "flat_enum_default_impl_footer.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     out.push_str(&crate::codegen::generators::gen_redacted_enum_debug_impl(enum_def));
 
@@ -345,7 +345,7 @@ pub(super) fn gen_rustler_flat_data_enum_from_core(
 
     out.push_str(&template_env::render(
         "flat_enum_from_core_impl.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             core_path => &core_path,
             name => name,
         },
@@ -361,7 +361,7 @@ pub(super) fn gen_rustler_flat_data_enum_from_core(
         if variant.fields.is_empty() {
             out.push_str(&template_env::render(
                 "flat_enum_from_core_variant_unit.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     core_path => &core_path,
                     vname => &variant.name,
                     disc => discriminator,
@@ -404,7 +404,7 @@ pub(super) fn gen_rustler_flat_data_enum_from_core(
             let all_fields_specified = tuple_variant_count == 1;
             out.push_str(&template_env::render(
                 "flat_enum_from_core_variant_tuple.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     core_path => &core_path,
                     vname => &variant.name,
                     disc => discriminator,
@@ -445,7 +445,7 @@ pub(super) fn gen_rustler_flat_data_enum_from_core(
 
     out.push_str(&template_env::render(
         "flat_enum_from_core_impl_footer.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
 
     out
@@ -466,7 +466,7 @@ pub(super) fn gen_rustler_flat_data_enum_to_core(enum_def: &EnumDef, core_import
 
     out.push_str(&template_env::render(
         "flat_enum_to_core_impl_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => name,
             core_path => &core_path,
             discriminator => discriminator,
@@ -483,7 +483,7 @@ pub(super) fn gen_rustler_flat_data_enum_to_core(enum_def: &EnumDef, core_import
         if variant.fields.is_empty() {
             out.push_str(&template_env::render(
                 "flat_enum_to_core_variant_unit.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     wire => &wire_name,
                     core_path => &core_path,
                     variant_name => &variant.name,
@@ -513,7 +513,7 @@ pub(super) fn gen_rustler_flat_data_enum_to_core(enum_def: &EnumDef, core_import
             };
             out.push_str(&template_env::render(
                 "flat_enum_to_core_variant_tuple.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     wire => &wire_name,
                     core_path => &core_path,
                     variant_name => &variant.name,
@@ -526,7 +526,7 @@ pub(super) fn gen_rustler_flat_data_enum_to_core(enum_def: &EnumDef, core_import
 
     out.push_str(&template_env::render(
         "flat_enum_to_core_impl_footer.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     out
 }
@@ -588,7 +588,7 @@ pub(super) fn gen_enum(
         if crate::codegen::enum_variant_size::enum_should_expect_large_variant_lint(enum_def, api) {
             out.push_str(&template_env::render(
                 "nif_tagged_enum_large_variant_expect.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     reason => "this enum's data variants differ substantially in estimated size; \
                                boxing the largest field would change the generated public variant \
                                shape, so the size difference is accepted here instead",
@@ -603,7 +603,7 @@ pub(super) fn gen_enum(
         if let Some(tag) = &enum_def.serde_tag {
             out.push_str(&template_env::render(
                 "nif_tagged_enum_serde_tag.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     tag => tag,
                     serde_content => &enum_def.serde_content,
                     serde_rename_all => &enum_def.serde_rename_all,
@@ -612,7 +612,7 @@ pub(super) fn gen_enum(
         }
         out.push_str(&template_env::render(
             "nif_tagged_enum_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => name,
             },
         ));
@@ -620,14 +620,14 @@ pub(super) fn gen_enum(
             if variant.fields.is_empty() {
                 out.push_str(&template_env::render(
                     "nif_tagged_enum_variant_unit.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         variant_name => &variant.name,
                     },
                 ));
             } else {
                 out.push_str(&template_env::render(
                     "nif_tagged_enum_variant_struct_header.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         variant_name => &variant.name,
                     },
                 ));
@@ -636,14 +636,14 @@ pub(super) fn gen_enum(
                     if field.optional && !matches!(field.ty, TypeRef::Optional(_)) {
                         out.push_str(&template_env::render(
                             "nif_tagged_enum_variant_field_attr.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 attr => "serde(default)",
                             },
                         ));
                     } else if matches!(field.ty, TypeRef::Optional(_)) && field.optional {
                         out.push_str(&template_env::render(
                             "nif_tagged_enum_variant_field_attr.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 attr => "serde(default)",
                             },
                         ));
@@ -651,7 +651,7 @@ pub(super) fn gen_enum(
                     let field_type = field_type_for_rustler(field);
                     out.push_str(&template_env::render(
                         "nif_tagged_enum_variant_field_line.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             field_line => format!(
                                 "{}: {},",
                                 crate::codegen::naming::internal_rust_identifier(&field.name),
@@ -662,7 +662,7 @@ pub(super) fn gen_enum(
                 }
                 out.push_str(&template_env::render(
                     "nif_tagged_enum_variant_struct_footer.jinja",
-                    minijinja::context! {},
+                    crate::alef_context! {},
                 ));
             }
         }
@@ -670,7 +670,7 @@ pub(super) fn gen_enum(
     } else {
         out.push_str(&template_env::render(
             "nif_unit_enum_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => name,
                 has_sensitive => crate::codegen::generators::enum_has_sensitive_representation(enum_def),
             },
@@ -678,7 +678,7 @@ pub(super) fn gen_enum(
         for variant in &declared_variants {
             out.push_str(&template_env::render(
                 "nif_enum_variant.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     variant_name => &variant.name,
                 },
             ));
@@ -695,7 +695,7 @@ pub(super) fn gen_enum(
     if let Some(dv) = default_variant {
         out.push_str(&template_env::render(
             "nif_enum_default_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => name,
             },
         ));
@@ -707,7 +707,7 @@ pub(super) fn gen_enum(
                 .collect();
             out.push_str(&template_env::render(
                 "nif_enum_default_with_fields.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     variant_name => &dv.name,
                     field_defaults => field_defaults.join(", "),
                 },
@@ -715,14 +715,14 @@ pub(super) fn gen_enum(
         } else {
             out.push_str(&template_env::render(
                 "nif_enum_default_value.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     variant_name => &dv.name,
                 },
             ));
         }
         out.push_str(&template_env::render(
             "nif_enum_default_footer.jinja",
-            minijinja::context! {},
+            crate::alef_context! {},
         ));
     }
 

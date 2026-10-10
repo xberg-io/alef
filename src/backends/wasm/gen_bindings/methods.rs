@@ -190,7 +190,7 @@ pub(super) fn gen_method_with_type_paths(
                     if p.optional {
                         serde_bindings.push_str(&crate::backends::wasm::template_env::render(
                             "serde_named_optional",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 param_name => &p.name,
                                 core_path => &core_path,
                                 err_conv => &err_conv,
@@ -201,7 +201,7 @@ pub(super) fn gen_method_with_type_paths(
                         let has_default = false;
                         serde_bindings.push_str(&crate::backends::wasm::template_env::render(
                             "serde_named_required",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 param_name => &p.name,
                                 core_path => &core_path,
                                 err_conv => &err_conv,
@@ -252,7 +252,7 @@ pub(super) fn gen_method_with_type_paths(
         });
         let body = crate::backends::wasm::template_env::render(
             "gen_result_body",
-            minijinja::context! {
+            crate::alef_context! {
                 let_bindings => &let_bindings,
                 core_call => &core_call,
                 return_expr => &return_expr,
@@ -264,7 +264,7 @@ pub(super) fn gen_method_with_type_paths(
         );
         crate::backends::wasm::template_env::render(
             "gen_instance_method",
-            minijinja::context! {
+            crate::alef_context! {
                 attrs => &attrs,
                 js_name_attr => &js_name_attr,
                 is_async => true,
@@ -313,7 +313,7 @@ pub(super) fn gen_method_with_type_paths(
                             };
                             bindings.push_str(&crate::backends::wasm::template_env::render(
                                 template_name,
-                                minijinja::context! {
+                                crate::alef_context! {
                                     param_name => &p.name,
                                 },
                             ));
@@ -322,7 +322,7 @@ pub(super) fn gen_method_with_type_paths(
                         TypeRef::Map(_, _) if p.newtype_wrapper.is_none() => {
                             bindings.push_str(&crate::backends::wasm::template_env::render(
                                 "lifetime_map_required",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     param_name => &p.name,
                                 },
                             ));
@@ -331,7 +331,7 @@ pub(super) fn gen_method_with_type_paths(
                         TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String) => {
                             bindings.push_str(&crate::backends::wasm::template_env::render(
                                 "lifetime_string_optional",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     param_name => &p.name,
                                 },
                             ));
@@ -396,7 +396,7 @@ pub(super) fn gen_method_with_type_paths(
                 });
                 crate::backends::wasm::template_env::render(
                     "gen_result_body",
-                    minijinja::context! {
+                    crate::alef_context! {
                         let_bindings => &combined_let_bindings,
                         core_call => &core_call,
                         return_expr => &wrap,
@@ -423,7 +423,7 @@ pub(super) fn gen_method_with_type_paths(
                 });
                 crate::backends::wasm::template_env::render(
                     "gen_result_body",
-                    minijinja::context! {
+                    crate::alef_context! {
                         let_bindings => &combined_let_bindings,
                         core_call => &core_call,
                         return_expr => &return_expr,
@@ -450,7 +450,7 @@ pub(super) fn gen_method_with_type_paths(
                 });
                 crate::backends::wasm::template_env::render(
                     "gen_direct_body",
-                    minijinja::context! {
+                    crate::alef_context! {
                         let_bindings => &combined_let_bindings,
                         return_expr => &return_expr,
                     },
@@ -465,7 +465,7 @@ pub(super) fn gen_method_with_type_paths(
         };
         crate::backends::wasm::template_env::render(
             "gen_static_method",
-            minijinja::context! {
+            crate::alef_context! {
                 attrs => &attrs,
                 js_name_attr => &js_name_attr,
                 method_name => &method.name,
@@ -520,7 +520,7 @@ pub(super) fn gen_method_with_type_paths(
                 });
                 crate::backends::wasm::template_env::render(
                     "gen_result_body",
-                    minijinja::context! {
+                    crate::alef_context! {
                         let_bindings => &let_bindings,
                         core_call => &core_call,
                         return_expr => &wrap,
@@ -547,7 +547,7 @@ pub(super) fn gen_method_with_type_paths(
                 });
                 crate::backends::wasm::template_env::render(
                     "gen_direct_body",
-                    minijinja::context! {
+                    crate::alef_context! {
                         let_bindings => &let_bindings,
                         return_expr => &return_expr,
                     },
@@ -562,7 +562,7 @@ pub(super) fn gen_method_with_type_paths(
         };
         crate::backends::wasm::template_env::render(
             "gen_instance_method",
-            minijinja::context! {
+            crate::alef_context! {
                 attrs => &attrs,
                 js_name_attr => &js_name_attr,
                 is_async => false,

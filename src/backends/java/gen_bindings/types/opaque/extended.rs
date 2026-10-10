@@ -63,7 +63,7 @@ fn emit_factory_null_checks(out: &mut String, method: &MethodDef) {
         if !param.optional && param_needs_null_check(&param.ty) {
             out.push_str(&crate::backends::java::template_env::render(
                 "stream_method_null_check.jinja",
-                minijinja::context! { param_name => param.name.to_lower_camel_case() },
+                crate::alef_context! { param_name => param.name.to_lower_camel_case() },
             ));
         }
     }
@@ -79,7 +79,7 @@ fn emit_unsupported_factory_param(out: &mut String, method: &MethodDef, symbols:
     };
     out.push_str(&crate::backends::java::template_env::render(
         "opaque_unsupported_param.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             exception_class => symbols.exception_class,
             method_name => symbols.method_name,
             param_name => param.name.to_lower_camel_case(),
@@ -168,14 +168,14 @@ fn marshal_factory_param(
 fn emit_factory_string_param(out: &mut String, template: &str, c_name: &str, param_name: &str) {
     out.push_str(&crate::backends::java::template_env::render(
         template,
-        minijinja::context! { c_name, param_name },
+        crate::alef_context! { c_name, param_name },
     ));
 }
 
 fn emit_factory_path_param(out: &mut String, c_name: &str, param_name: &str) {
     out.push_str(&crate::backends::java::template_env::render(
         "marshal_path.jinja",
-        minijinja::context! { cname => c_name, name => param_name },
+        crate::alef_context! { cname => c_name, name => param_name },
     ));
 }
 
@@ -206,14 +206,14 @@ fn emit_factory_enum_param(out: &mut String, optional: bool, param_name: &str, c
     };
     out.push_str(&crate::backends::java::template_env::render(
         "stream_method_enum_param.jinja",
-        minijinja::context! { c_name, enum_expr },
+        crate::alef_context! { c_name, enum_expr },
     ));
 }
 
 fn emit_factory_opaque_param(out: &mut String, optional: bool, param_name: &str, c_name: &str) {
     out.push_str(&crate::backends::java::template_env::render(
         "opaque_param_lease_assignment.jinja",
-        minijinja::context! { optional, param_name, c_name },
+        crate::alef_context! { optional, param_name, c_name },
     ));
 }
 
@@ -242,7 +242,7 @@ fn emit_factory_record_param(
     };
     out.push_str(&crate::backends::java::template_env::render(
         template,
-        minijinja::context! {
+        crate::alef_context! {
             c_name,
             param_name,
             from_json,
@@ -260,7 +260,7 @@ fn emit_unsupported_factory_marshalling(
 ) -> Option<String> {
     out.push_str(&crate::backends::java::template_env::render(
         "stream_method_unsupported_param.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             param_name,
             exception_class => context.symbols.exception_class,
             method_name => context.symbols.method_name,
@@ -296,7 +296,7 @@ fn emit_static_factory_return(out: &mut String, params: StaticFactoryReturnParam
     );
     out.push_str(&crate::backends::java::template_env::render(
         "static_factory_return_handle.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             ffi_handle => symbols.ffi_handle,
             args_joined => call_args.join(", "),
             cleanup,
@@ -444,7 +444,7 @@ pub(super) fn gen_streaming_method(
     let symbols = streaming_method_symbols(adapter, prefix, owner_snake, main_class);
     out.push_str(&crate::backends::java::template_env::render(
         "streaming_iterator_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             item_type => symbols.item_type,
             method_name => symbols.method_name,
             request_type => symbols.request_type,
@@ -473,7 +473,7 @@ pub(super) fn gen_streaming_helpers(out: &mut String, prefix: &str, main_class: 
 
     out.push_str(&crate::backends::java::template_env::render(
         "streaming_helpers.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             exception_class => exception_class,
             prefix_upper => prefix_upper,
             needs_read_bytes_result => needs_read_bytes_result,

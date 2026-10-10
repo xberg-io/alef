@@ -290,7 +290,7 @@ pub(crate) fn render_snippet_body_with_ir(
     let result_var = call.effective_result_var();
     Ok(crate::e2e::template_env::render(
         "kotlin/snippet_body.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             package_name => package_name,
             needs_mapper => needs_mapper,
             setup_lines => setup_lines,

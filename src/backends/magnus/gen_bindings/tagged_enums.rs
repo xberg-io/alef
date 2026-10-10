@@ -50,7 +50,7 @@ fn flattened_newtype_from_hash_body(field: &crate::core::ir::FieldDef, tag_field
     };
     crate::backends::magnus::template_env::render(
         "tagged_enum_flattened_from_hash.rb.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             tag_field => tag_field,
             attr_name => attr_name,
             payload_expr => payload_expr,
@@ -88,7 +88,7 @@ pub(super) fn gen_tagged_enum_ruby_classes(
     } else {
         doc_comment.push_str(&crate::backends::magnus::template_env::render(
             "tagged_enum_marker_doc.rb.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 class_name => class_name,
             },
         ));
@@ -103,7 +103,7 @@ pub(super) fn gen_tagged_enum_ruby_classes(
         let variant_const = format!("{}{}", class_name, variant.name);
         dispatch_arms.push_str(&crate::backends::magnus::template_env::render(
             "tagged_enum_dispatch_arm.rb.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 wire_name => wire_name,
                 variant_const => variant_const,
             },
@@ -111,7 +111,7 @@ pub(super) fn gen_tagged_enum_ruby_classes(
     }
     out.push_str(&crate::backends::magnus::template_env::render(
         "tagged_enum_marker_module.rb.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             module_name => module_name,
             class_name => class_name,
             doc_comment => doc_comment,
@@ -131,7 +131,7 @@ pub(super) fn gen_tagged_enum_ruby_classes(
         } else {
             doc_comment.push_str(&crate::backends::magnus::template_env::render(
                 "tagged_enum_variant_doc.rb.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     variant_class => &variant_class,
                     class_name => class_name,
                 },
@@ -167,7 +167,7 @@ pub(super) fn gen_tagged_enum_ruby_classes(
             // Data's reader lives on this class, not its superclass; `super` cannot reach it. ~keep
             field_accessors.push_str(&crate::backends::magnus::template_env::render(
                 "tagged_enum_field_accessor.rb.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     doc_comment => doc_comment,
                     sorbet_t => sorbet_t,
                     attr_name => attr_name,
@@ -183,7 +183,7 @@ pub(super) fn gen_tagged_enum_ruby_classes(
             let ruby_boolean_literal = if *variant_name == variant.name { "true" } else { "false" };
             predicate_methods.push_str(&crate::backends::magnus::template_env::render(
                 "tagged_enum_predicate_method.rb.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     predicate_name => v_snake,
                     ruby_boolean_literal => ruby_boolean_literal,
                 },
@@ -233,7 +233,7 @@ pub(super) fn gen_tagged_enum_ruby_classes(
 
         out.push_str(&crate::backends::magnus::template_env::render(
             "tagged_enum_variant_class.rb.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 doc_comment => doc_comment,
                 symbol_args => symbol_args,
                 variant_class => variant_class,

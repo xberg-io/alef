@@ -172,7 +172,7 @@ pub(super) fn render_assertion(
                 );
                 out.push_str(&crate::e2e::template_env::render(
                     "java/synthetic_assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_kind => "chunks_content",
                         assertion_type => assertion.assertion_type.as_str(),
                         pred => pred,
@@ -188,7 +188,7 @@ pub(super) fn render_assertion(
                 );
                 out.push_str(&crate::e2e::template_env::render(
                     "java/synthetic_assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_kind => "chunks_heading_context",
                         assertion_type => assertion.assertion_type.as_str(),
                         pred => pred,
@@ -204,7 +204,7 @@ pub(super) fn render_assertion(
                 );
                 out.push_str(&crate::e2e::template_env::render(
                     "java/synthetic_assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_kind => "chunks_embeddings",
                         assertion_type => assertion.assertion_type.as_str(),
                         pred => pred,
@@ -220,7 +220,7 @@ pub(super) fn render_assertion(
                 );
                 out.push_str(&crate::e2e::template_env::render(
                     "java/synthetic_assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_kind => "first_chunk_heading",
                         assertion_type => assertion.assertion_type.as_str(),
                         pred => pred,
@@ -243,7 +243,7 @@ pub(super) fn render_assertion(
                 let java_val = assertion.value.as_ref().map(json_to_java).unwrap_or_default();
                 out.push_str(&crate::e2e::template_env::render(
                     "java/synthetic_assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_kind => "embedding_dimensions",
                         assertion_type => assertion.assertion_type.as_str(),
                         expr => expr,
@@ -278,7 +278,7 @@ pub(super) fn render_assertion(
                 let assertion_kind = format!("embeddings_{}", f.strip_prefix("embeddings_").unwrap_or(f));
                 out.push_str(&crate::e2e::template_env::render(
                     "java/synthetic_assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_kind => assertion_kind,
                         assertion_type => assertion.assertion_type.as_str(),
                         pred => pred,
@@ -291,7 +291,7 @@ pub(super) fn render_assertion(
             "keywords" | "keywords_count" => {
                 out.push_str(&crate::e2e::template_env::render(
                     "java/synthetic_assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_kind => "keywords",
                         field_name => f,
                     },
@@ -305,7 +305,7 @@ pub(super) fn render_assertion(
                     "not_empty" | "is_empty" => {
                         out.push_str(&crate::e2e::template_env::render(
                             "java/synthetic_assertion.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 assertion_kind => "metadata",
                                 assertion_type => assertion.assertion_type.as_str(),
                                 result_var => result_var,
@@ -420,7 +420,7 @@ pub(super) fn render_assertion(
     {
         out.push_str(&crate::e2e::template_env::render(
             "java/synthetic_assertion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 assertion_kind => "skipped",
                 field_name => f,
             },
@@ -698,7 +698,7 @@ pub(super) fn render_assertion(
 
     let rendered = crate::e2e::template_env::render(
         "java/assertion.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             assertion_type,
             java_val,
             string_expr,

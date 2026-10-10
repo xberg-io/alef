@@ -72,14 +72,14 @@ pub(crate) fn emit_enum_wrapper(
 
     out.push_str(&crate::backends::swift::template_env::render(
         "enum_unit_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => &en.name,
         },
     ));
     for variant in &declared_variants {
         out.push_str(&crate::backends::swift::template_env::render(
             "enum_unit_variant.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 variant_name => &variant.name,
             },
         ));
@@ -89,7 +89,7 @@ pub(crate) fn emit_enum_wrapper(
 
     out.push_str(&crate::backends::swift::template_env::render(
         "enum_from_impl_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             source_path => &source_path,
             name => &en.name,
         },
@@ -134,7 +134,7 @@ pub(crate) fn emit_enum_wrapper(
 
         out.push_str(&crate::backends::swift::template_env::render(
             "enum_from_variant.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 source_path => &source_path,
                 variant_name => &variant.name,
                 pattern => pattern,
@@ -180,7 +180,7 @@ pub(crate) fn emit_enum_wrapper(
         let serde_name = serde_variant_wire_name(variant, en.serde_rename_all.as_deref());
         variants.push_str(&crate::backends::swift::template_env::render(
             "rust_enum_to_string_variant.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 variant_name => &variant.name,
                 serde_name => &serde_name,
             },
@@ -189,7 +189,7 @@ pub(crate) fn emit_enum_wrapper(
 
     out.push_str(&crate::backends::swift::template_env::render(
         "rust_enum_to_string_impl.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             enum_name => &en.name,
             variants => variants,
         },
@@ -241,7 +241,7 @@ pub(crate) fn emit_enum_wrapper(
             }
             from_string_variants.push_str(&crate::backends::swift::template_env::render(
                 "rust_enum_from_string_variant.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     variant_name => &variant.name,
                     serde_name => &serde_name,
                     source_path => &source_path,
@@ -251,7 +251,7 @@ pub(crate) fn emit_enum_wrapper(
 
         out.push_str(&crate::backends::swift::template_env::render(
             "rust_enum_from_string_impl.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => enum_from_string_fn_name(&en.name),
                 enum_name => &en.name,
                 source_path => &source_path,

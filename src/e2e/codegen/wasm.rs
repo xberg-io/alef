@@ -539,7 +539,7 @@ fn render_package_json(
     };
     let rendered = crate::e2e::template_env::render(
         "wasm/package.json.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             pkg_name => pkg_name,
             dep_value => dep_value,
             rollup => tv::npm::ROLLUP,
@@ -557,7 +557,7 @@ fn render_vitest_config(with_global_setup: bool, with_file_setup: bool) -> Strin
     let header = hash::e2e_header(CommentStyle::DoubleSlash);
     crate::e2e::template_env::render(
         "wasm/vitest.config.ts.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             header => header,
             with_global_setup => with_global_setup,
             with_file_setup => with_file_setup,
@@ -800,7 +800,7 @@ fn render_file_setup(test_documents_dir: &str) -> String {
 }
 
 fn render_tsconfig() -> String {
-    crate::e2e::template_env::render("wasm/tsconfig.jinja", minijinja::context! {})
+    crate::e2e::template_env::render("wasm/tsconfig.jinja", crate::alef_context! {})
 }
 // The historical `inject_wasm_init` post-processor rewrote test imports to a
 // `<pkg>/dist-node` subpath. It was removed because the alef-managed

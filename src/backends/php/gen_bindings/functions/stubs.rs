@@ -1,5 +1,4 @@
 use crate::core::ir::TypeRef;
-use minijinja::context;
 
 /// Generate a safe stub return expression for a sanitized function that cannot be auto-delegated.
 ///
@@ -12,7 +11,7 @@ pub(super) fn gen_stub_return(ty: &TypeRef, has_error: bool, func_name: &str) ->
     if has_error {
         return crate::backends::php::template_env::render(
             "php_stub_error_body.jinja",
-            context! {
+            crate::alef_context! {
                 func_name => func_name,
             },
         );
@@ -22,7 +21,7 @@ pub(super) fn gen_stub_return(ty: &TypeRef, has_error: bool, func_name: &str) ->
         TypeRef::Unit => "()".to_string(),
         _ => crate::backends::php::template_env::render(
             "php_stub_unsupported_return.jinja",
-            context! {
+            crate::alef_context! {
                 func_name => func_name,
             },
         ),

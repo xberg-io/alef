@@ -109,7 +109,7 @@ fn append_method_wrapper(
         method_deserialization_introduces_result(method, true, context.opaque_types, context.default_types);
     content.push_str(&template_env::render(
         "elixir_top_level_opaque_method_wrapper.ex.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             doc_first => &doc_first,
             func_name => &nif_function,
             def_args => &definition_arguments.join(", "),

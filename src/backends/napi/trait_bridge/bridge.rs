@@ -111,11 +111,11 @@ pub fn gen_trait_bridge(
         let extra_fields: Vec<minijinja::Value> = generator
             .extra_bridge_fields(&spec)
             .into_iter()
-            .map(|(name, ty)| minijinja::context! { name => name, ty => ty })
+            .map(|(name, ty)| crate::alef_context! { name => name, ty => ty })
             .collect();
         code.push_str(&crate::backends::napi::template_env::render(
             "napi_bridge_struct.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 wrapper_name => wrapper_name,
                 extra_fields => extra_fields,
             },

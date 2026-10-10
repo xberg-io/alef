@@ -121,7 +121,7 @@ pub(super) fn render_pom_xml(
 
     crate::e2e::template_env::render(
         "java/pom.xml.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             artifact_id => artifact_id,
             java_group_id => java_group_id,
             dep_block => dep_block,
@@ -188,7 +188,7 @@ pub(super) fn render_harness_main(
 
     let default_harness_port = E2eConfig::default().harness.port;
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         java_group_id => java_group_id,
         binding_pkg => binding_pkg,
         app_class => app_class,
@@ -275,7 +275,7 @@ pub(super) fn render_fixture_loader(java_group_id: &str) -> String {
 /// Render MockServerListener.java from jinja template.
 pub(super) fn render_mock_server_listener(java_group_id: &str, alt_host: &str) -> String {
     let header_comment = hash::e2e_header(CommentStyle::DoubleSlash);
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         java_group_id => java_group_id,
         header_comment => header_comment,
         alt_host => alt_host,

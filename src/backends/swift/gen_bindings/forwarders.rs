@@ -399,7 +399,7 @@ pub(super) fn emit_single_free_function_forwarder(
     for line in &conversion_lines {
         conversion_body.push_str(&crate::backends::swift::template_env::render(
             "swift_forwarder_conversion_line.swift.jinja",
-            minijinja::context! { line => line, },
+            crate::alef_context! { line => line, },
         ));
     }
     let return_suffix =
@@ -415,7 +415,7 @@ pub(super) fn emit_single_free_function_forwarder(
         let decode_ty = forwarder_return_type(&func.return_type);
         crate::backends::swift::template_env::render(
             "swift_sync_forwarder_decode_json_body.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 function_name => swift_name,
                 args => &args,
                 decode_type => &decode_ty,
@@ -425,7 +425,7 @@ pub(super) fn emit_single_free_function_forwarder(
         let decode_ty = forwarder_return_type(&func.return_type);
         crate::backends::swift::template_env::render(
             "swift_sync_forwarder_decode_optional_json_body.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 function_name => swift_name,
                 args => &args,
                 decode_type => &decode_ty,
@@ -436,7 +436,7 @@ pub(super) fn emit_single_free_function_forwarder(
         let class_name = swift_type_name(&func.return_type);
         crate::backends::swift::template_env::render(
             "swift_sync_forwarder_client_return_body.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 bridge_call_try => bridge_call_try,
                 function_name => swift_name,
                 args => &args,
@@ -454,7 +454,7 @@ pub(super) fn emit_single_free_function_forwarder(
         let enum_name = swift_type_name(&func.return_type);
         crate::backends::swift::template_env::render(
             "swift_sync_forwarder_unit_enum_return_body.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 bridge_call_try => bridge_call_try,
                 function_name => swift_name,
                 args => &args,
@@ -467,7 +467,7 @@ pub(super) fn emit_single_free_function_forwarder(
         let dto_name = swift_type_name(&func.return_type);
         crate::backends::swift::template_env::render(
             "swift_sync_forwarder_dto_return_body.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 bridge_call_try => bridge_call_try,
                 function_name => swift_name,
                 args => &args,
@@ -477,7 +477,7 @@ pub(super) fn emit_single_free_function_forwarder(
     } else {
         crate::backends::swift::template_env::render(
             "swift_sync_forwarder_result_return_body.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 effective_try => effective_try,
                 function_name => swift_name,
                 args => &args,
@@ -487,7 +487,7 @@ pub(super) fn emit_single_free_function_forwarder(
     };
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_sync_forwarder.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             function_name => swift_name,
             params => &sig,
             throws_clause => throws_clause,
@@ -596,7 +596,7 @@ pub(super) fn emit_async_free_function_forwarder(
     for line in &conversion_lines {
         conversion_body.push_str(&crate::backends::swift::template_env::render(
             "swift_forwarder_conversion_line.swift.jinja",
-            minijinja::context! { line => line, },
+            crate::alef_context! { line => line, },
         ));
     }
 
@@ -604,7 +604,7 @@ pub(super) fn emit_async_free_function_forwarder(
     if matches!(&func.return_type, TypeRef::Named(name) if known_dto_names.contains(name)) {
         body.push_str(&crate::backends::swift::template_env::render(
             "swift_forwarder_dto_return_body.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 bridge_call => &bridge_call,
                 return_statement => &return_stmt,
             },
@@ -613,7 +613,7 @@ pub(super) fn emit_async_free_function_forwarder(
         let decode_ty = forwarder_return_type(&func.return_type);
         body.push_str(&crate::backends::swift::template_env::render(
             "swift_forwarder_decode_json_body.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 bridge_call => &bridge_call,
                 decode_type => &decode_ty,
             },
@@ -621,7 +621,7 @@ pub(super) fn emit_async_free_function_forwarder(
     } else if matches!(&func.return_type, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_))) {
         body.push_str(&crate::backends::swift::template_env::render(
             "swift_forwarder_conversion_line.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 line => format!("let result = {bridge_call}"),
             },
         ));
@@ -651,7 +651,7 @@ pub(super) fn emit_async_free_function_forwarder(
                         forwarder_return_conversion_suffix_with_throws(&func.return_type, known_dto_names, true);
                     body.push_str(&crate::backends::swift::template_env::render(
                         "swift_forwarder_result_return_body.swift.jinja",
-                        minijinja::context! { suffix => &suffix, },
+                        crate::alef_context! { suffix => &suffix, },
                     ));
                 }
             }
@@ -659,18 +659,18 @@ pub(super) fn emit_async_free_function_forwarder(
             let suffix = forwarder_return_conversion_suffix_with_throws(&func.return_type, known_dto_names, false);
             body.push_str(&crate::backends::swift::template_env::render(
                 "swift_forwarder_result_return_body.swift.jinja",
-                minijinja::context! { suffix => &suffix, },
+                crate::alef_context! { suffix => &suffix, },
             ));
         }
     } else if matches!(&func.return_type, TypeRef::Unit) {
         body.push_str(&crate::backends::swift::template_env::render(
             "swift_forwarder_unit_body.swift.jinja",
-            minijinja::context! { bridge_call => &bridge_call, },
+            crate::alef_context! { bridge_call => &bridge_call, },
         ));
     } else {
         body.push_str(&crate::backends::swift::template_env::render(
             "swift_forwarder_let_return_body.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 bridge_call => &bridge_call,
                 return_statement => &return_stmt,
             },
@@ -708,7 +708,7 @@ pub(super) fn render_async_forwarder(
     }
     crate::backends::swift::template_env::render(
         "swift_async_forwarder.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             function_name => function_name,
             params => params,
             return_clause => return_clause,
@@ -757,7 +757,7 @@ pub(super) fn emit_trait_bridge_forwarders(config: &ResolvedCrateConfig, out: &m
             let camel = swift_trait_forwarder_name(register_fn);
             out.push_str(&crate::backends::swift::template_env::render(
                 "swift_trait_forwarder_register.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     trait_name => trait_name,
                     box_type => &box_type,
                     function_name => &camel,
@@ -768,7 +768,7 @@ pub(super) fn emit_trait_bridge_forwarders(config: &ResolvedCrateConfig, out: &m
             let camel = swift_trait_forwarder_name(unregister_fn);
             out.push_str(&crate::backends::swift::template_env::render(
                 "swift_trait_forwarder_unregister.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     trait_name => trait_name,
                     function_name => &camel,
                 },
@@ -778,7 +778,7 @@ pub(super) fn emit_trait_bridge_forwarders(config: &ResolvedCrateConfig, out: &m
             let camel = swift_trait_forwarder_name(clear_fn);
             out.push_str(&crate::backends::swift::template_env::render(
                 "swift_trait_forwarder_clear.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     trait_name => trait_name,
                     function_name => &camel,
                 },

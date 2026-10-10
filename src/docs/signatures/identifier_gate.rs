@@ -334,7 +334,7 @@ fn test_csharp_docs_constructor_predicate_matches_the_backend_predicate() {
 fn test_zig_docs_static_name_matches_the_backend_template() {
     let backend = crate::backends::zig::template_env::render(
         "opaque_static_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_snake => "new",
             type_snake => "download_manager",
             params => "",
@@ -365,7 +365,7 @@ fn test_zig_docs_static_name_matches_the_backend_template() {
 fn test_go_docs_signature_and_example_both_match_the_backend_template() {
     let backend = crate::backends::go::template_env::render(
         "method_signature_static.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             receiver_type => "DownloadManager",
             method_name => "New",
             params => "",

@@ -57,7 +57,7 @@ pub(super) fn generate_configuration_doc(
     for ty in config_types {
         out.push_str(&template_env::render(
             "heading.jinja",
-            minijinja::context! { marker => "###", title => &ty.name },
+            crate::alef_context! { marker => "###", title => &ty.name },
         ));
         let doc = clean_doc(&ty.doc, Language::Python);
         // Pin to the level below the `###` heading emitted just above, rather than shifting by a
@@ -88,7 +88,7 @@ pub(super) fn generate_configuration_doc(
                 };
                 out.push_str(&template_env::render(
                     "field_row.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => escape_table_cell(&field.name),
                         ty => escape_table_cell(&fty),
                         default => escape_table_cell(&fdefault),
@@ -200,14 +200,14 @@ pub(super) fn generate_types_doc(
         };
         out.push_str(&template_env::render(
             "heading.jinja",
-            minijinja::context! { marker => "###", title => cat },
+            crate::alef_context! { marker => "###", title => cat },
         ));
 
         if cat == "Configuration Types" {
             let target = reference_page_link(config, "configuration");
             out.push_str(&template_env::render(
                 "reference_page_link.jinja",
-                minijinja::context! { title => "Configuration Reference", target => target },
+                crate::alef_context! { title => "Configuration Reference", target => target },
             ));
             out.push('\n');
         }
@@ -215,7 +215,7 @@ pub(super) fn generate_types_doc(
         for ty in types {
             out.push_str(&template_env::render(
                 "heading.jinja",
-                minijinja::context! { marker => "####", title => &ty.name },
+                crate::alef_context! { marker => "####", title => &ty.name },
             ));
 
             let doc = clean_doc(&ty.doc, Language::Python);
@@ -246,7 +246,7 @@ pub(super) fn generate_types_doc(
                     };
                     out.push_str(&template_env::render(
                         "field_row.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => escape_table_cell(&field.name),
                             ty => escape_table_cell(&fty),
                             default => escape_table_cell(&fdefault),
@@ -288,14 +288,14 @@ pub(super) fn render_enum_for_shared_doc(en: &EnumDef, lang: Language, api: &Api
 
     out.push_str(&template_env::render(
         "heading.jinja",
-        minijinja::context! { marker => "####", title => &en.name },
+        crate::alef_context! { marker => "####", title => &en.name },
     ));
 
     if let Some(ref since) = en.version.since {
         let since = version_labels::major_minor(since);
         out.push_str(&template_env::render(
             "since_badge.jinja",
-            minijinja::context! { since => since },
+            crate::alef_context! { since => since },
         ));
         out.push('\n');
         out.push('\n');
@@ -308,7 +308,7 @@ pub(super) fn render_enum_for_shared_doc(en: &EnumDef, lang: Language, api: &Api
             .unwrap_or_default();
         out.push_str(&template_env::render(
             "deprecated_notice.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 since => since,
                 note => dep.note.as_deref().unwrap_or(""),
             },
@@ -362,7 +362,7 @@ pub(super) fn render_enum_for_shared_doc(en: &EnumDef, lang: Language, api: &Api
             );
             out.push_str(&template_env::render(
                 "wire_variant_row.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => escape_table_cell(&variant.name),
                     wire => escape_table_cell(&wire),
                     doc => escape_table_cell(&vdoc),
@@ -371,7 +371,7 @@ pub(super) fn render_enum_for_shared_doc(en: &EnumDef, lang: Language, api: &Api
         } else {
             out.push_str(&template_env::render(
                 "variant_row.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => escape_table_cell(&variant.name),
                     doc => escape_table_cell(&vdoc),
                 },
@@ -448,7 +448,7 @@ pub(super) fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow:
     for err in &api.errors {
         out.push_str(&template_env::render(
             "heading.jinja",
-            minijinja::context! { marker => "###", title => &err.name },
+            crate::alef_context! { marker => "###", title => &err.name },
         ));
 
         let doc = clean_doc(&err.doc, Language::Python);
@@ -471,7 +471,7 @@ pub(super) fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow:
             };
             out.push_str(&template_env::render(
                 "error_message_row.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => escape_table_cell(&variant.name),
                     message => escape_table_cell(tmpl),
                     doc => escape_table_cell(&vdoc),

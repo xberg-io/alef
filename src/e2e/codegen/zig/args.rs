@@ -233,7 +233,7 @@ fn render_docs_json(
         lines.push(
             crate::e2e::template_env::render(
                 "zig/docs_file_read.jinja",
-                minijinja::context! { variable => variable, index => index, path => escape_zig(&path) },
+                crate::alef_context! { variable => variable, index => index, path => escape_zig(&path) },
             )
             .trim_end()
             .to_string(),
@@ -241,7 +241,7 @@ fn render_docs_json(
         lines.push(
             crate::e2e::template_env::render(
                 "zig/docs_file_json.jinja",
-                minijinja::context! { variable => variable, index => index },
+                crate::alef_context! { variable => variable, index => index },
             )
             .trim_end()
             .to_string(),
@@ -250,7 +250,7 @@ fn render_docs_json(
         lines.push(
             crate::e2e::template_env::render(
                 "zig/docs_json_replace.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     output => output,
                     source => source,
                     marker => escape_zig(&format!("\"{marker}\"")),

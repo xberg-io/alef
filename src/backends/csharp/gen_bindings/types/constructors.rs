@@ -100,12 +100,12 @@ pub(super) fn gen_opaque_static_constructor(
 
     out.push_str(&render(
         "opaque_static_constructor_summary.jinja",
-        minijinja::context! { class_name },
+        crate::alef_context! { class_name },
     ));
 
     out.push_str(&render(
         "opaque_static_constructor_signature.jinja",
-        minijinja::context! { class_name, param_list },
+        crate::alef_context! { class_name, param_list },
     ));
 
     emit_named_param_setup(
@@ -129,19 +129,19 @@ pub(super) fn gen_opaque_static_constructor(
 
     out.push_str(&render(
         "opaque_static_constructor_handle.jinja",
-        minijinja::context! { ffi_method_name, native_args_str },
+        crate::alef_context! { ffi_method_name, native_args_str },
     ));
 
     out.push_str(&render(
         "opaque_static_constructor_error_check.jinja",
-        minijinja::context! { exception_name, fallback_message => "Constructor failed" },
+        crate::alef_context! { exception_name, fallback_message => "Constructor failed" },
     ));
 
     emit_named_param_teardown(&mut out, &method.params, true_opaque_types, enum_names);
 
     out.push_str(&render(
         "opaque_safehandle_init.jinja",
-        minijinja::context! { class_name },
+        crate::alef_context! { class_name },
     ));
 
     out.push_str("    }\n");
@@ -180,7 +180,7 @@ pub(super) fn gen_opaque_factory_method(
 
     out.push_str(&render(
         "opaque_factory_method.jinja",
-        minijinja::context! { class_name, exception_name, param_list, native_method, call_args },
+        crate::alef_context! { class_name, exception_name, param_list, native_method, call_args },
     ));
 
     out

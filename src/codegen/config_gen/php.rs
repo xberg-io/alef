@@ -17,7 +17,7 @@ pub fn gen_php_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) 
                 format!("{}.unwrap_or({})", field.name, default_str)
             };
 
-            minijinja::context! {
+            crate::alef_context! {
                 name => field.name.clone(),
                 ty => mapped,
                 init => crate::codegen::field_init::struct_field_init(&field.name, &assignment),
@@ -27,7 +27,7 @@ pub fn gen_php_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) 
 
     crate::codegen::template_env::render(
         "config_gen/php_kwargs_constructor.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             fields => fields,
         },
     )

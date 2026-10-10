@@ -7,7 +7,6 @@ use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{FunctionDef, MethodDef, TypeRef};
 use ahash::AHashSet;
 use heck::ToLowerCamelCase;
-use minijinja::context;
 
 use super::super::helpers::{
     gen_php_call_args, gen_php_call_args_with_let_bindings, gen_php_function_params, gen_php_named_let_bindings,
@@ -65,7 +64,7 @@ pub(crate) fn gen_async_function_as_static_method(
     if params.is_empty() {
         out.push_str(&crate::backends::php::template_env::render(
             "php_async_static_method_definition_no_params.jinja",
-            context! {
+            crate::alef_context! {
                 name => &func.name,
                 php_name => &php_name,
                 ret_sig => &ret_sig,
@@ -75,7 +74,7 @@ pub(crate) fn gen_async_function_as_static_method(
     } else {
         out.push_str(&crate::backends::php::template_env::render(
             "php_async_static_method_definition_with_params.jinja",
-            context! {
+            crate::alef_context! {
                 name => &func.name,
                 php_name => &php_name,
                 params => &params,
@@ -141,7 +140,7 @@ fn gen_async_function_body(
         if func.error_type.is_some() {
             crate::backends::php::template_env::render(
                 "php_async_result_body_with_let_bindings.jinja",
-                context! {
+                crate::alef_context! {
                     let_bindings => &let_bindings,
                     core_call => &core_call,
                     result_wrap => &result_wrap,
@@ -150,7 +149,7 @@ fn gen_async_function_body(
         } else {
             crate::backends::php::template_env::render(
                 "php_async_body_with_let_bindings.jinja",
-                context! {
+                crate::alef_context! {
                     let_bindings => &let_bindings,
                     core_call => &core_call,
                     result_wrap => &result_wrap,
@@ -216,7 +215,7 @@ pub(crate) fn gen_async_instance_method(
         if method.error_type.is_some() {
             crate::backends::php::template_env::render(
                 "php_async_result_body_with_let_bindings.jinja",
-                context! {
+                crate::alef_context! {
                     let_bindings => inner_clone,
                     core_call => &core_call,
                     result_wrap => &result_wrap,
@@ -225,7 +224,7 @@ pub(crate) fn gen_async_instance_method(
         } else {
             crate::backends::php::template_env::render(
                 "php_async_body_with_let_bindings.jinja",
-                context! {
+                crate::alef_context! {
                     let_bindings => inner_clone,
                     core_call => &core_call,
                     result_wrap => &result_wrap,
@@ -260,7 +259,7 @@ pub(crate) fn gen_async_instance_method(
         if method.error_type.is_some() {
             crate::backends::php::template_env::render(
                 "php_async_result_body_with_let_bindings.jinja",
-                context! {
+                crate::alef_context! {
                     let_bindings => &let_bindings,
                     core_call => &core_call,
                     result_wrap => &result_wrap,
@@ -269,7 +268,7 @@ pub(crate) fn gen_async_instance_method(
         } else {
             crate::backends::php::template_env::render(
                 "php_async_body_with_let_bindings.jinja",
-                context! {
+                crate::alef_context! {
                     let_bindings => &let_bindings,
                     core_call => &core_call,
                     result_wrap => &result_wrap,
@@ -287,7 +286,7 @@ pub(crate) fn gen_async_instance_method(
     if params.is_empty() {
         out.push_str(&crate::backends::php::template_env::render(
             "php_async_instance_method_definition_no_params.jinja",
-            context! {
+            crate::alef_context! {
                 name => &method.name,
                 ret_sig => &ret_sig,
                 body => &body,
@@ -296,7 +295,7 @@ pub(crate) fn gen_async_instance_method(
     } else {
         out.push_str(&crate::backends::php::template_env::render(
             "php_async_instance_method_definition_with_params.jinja",
-            context! {
+            crate::alef_context! {
                 name => &method.name,
                 params => &params,
                 ret_sig => &ret_sig,

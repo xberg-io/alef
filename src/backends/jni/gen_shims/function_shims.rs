@@ -25,7 +25,7 @@ fn emit_function_shim(
     let (param_sigs, unmarshal, call_args) = project_function_params(&function.params, opaque_type_names, return_null);
     out.push_str(&template_env::render(
         "function_shim_open.rs.jinja",
-        context! {
+        crate::alef_context! {
             symbol => symbol,
             param_sigs => param_sigs,
             ret_decl => function_return_declaration(&function.return_type, &shape),
@@ -262,7 +262,7 @@ fn project_opaque_function_param(type_name: &str, rust_name: &str, return_null: 
         signature: render_param_decl(rust_name, "jlong"),
         unmarshal: template_env::render(
             "opaque_handle_unmarshal.rs.jinja",
-            context! {
+            crate::alef_context! {
                 name => rust_name,
                 type_path => format!("core_crate::{type_name}"),
                 ret_null => return_null,

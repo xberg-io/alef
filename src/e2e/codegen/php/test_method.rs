@@ -23,7 +23,7 @@ fn uses_unsupported_php_callback(args: &[crate::e2e::config::ArgMapping], config
 fn render_unsupported_php_callback_method(method_name: &str, description: &str) -> String {
     crate::e2e::template_env::render(
         "php/test_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => method_name,
             description => description,
             skip_reason => "PHP callback bridge is unavailable for this lifecycle-only trait",
@@ -291,7 +291,7 @@ pub(super) fn render_test_method(
     if skip_test {
         let rendered = crate::e2e::template_env::render(
             "php/test_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => method_name,
                 description => description,
                 client_factory => String::new(),
@@ -513,7 +513,7 @@ pub(super) fn render_test_method(
 
     let rendered = crate::e2e::template_env::render(
         "php/test_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => method_name,
             description => description,
             client_factory => client_factory,

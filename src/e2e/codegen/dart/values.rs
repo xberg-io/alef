@@ -34,13 +34,13 @@ fn render_native_dart_dto_at(
                 crate::codegen::naming::public_field_name(crate::core::config::Language::Dart, &field.name, None);
             let field_pointer = format!("{pointer}/{}", field.name);
             let value = render_native_dart_value(field_value, &field.ty, type_defs, files, &field_pointer)?;
-            Some(minijinja::context! { name => name, value => value })
+            Some(crate::alef_context! { name => name, value => value })
         })
         .collect::<Option<Vec<_>>>()?;
     Some(
         crate::e2e::template_env::render(
             "dart/typed_dto.jinja",
-            minijinja::context! { type_name => type_name, fields => fields },
+            crate::alef_context! { type_name => type_name, fields => fields },
         )
         .trim_end()
         .to_string(),

@@ -111,7 +111,7 @@ fn emit_kotlin_source(api: &ApiSurface, config: &ResolvedCrateConfig) -> String 
     if !visible_functions.is_empty() {
         body.push_str(&crate::backends::kotlin::template_env::render(
             "object_declaration.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => module_name,
             },
         ));
@@ -127,7 +127,7 @@ fn emit_kotlin_source(api: &ApiSurface, config: &ResolvedCrateConfig) -> String 
     content.push_str("\n\n");
     content.push_str(&crate::backends::kotlin::template_env::render(
         "package_declaration.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             package => package,
         },
     ));
@@ -163,7 +163,7 @@ fn emit_native_function(
         let doc_lines: Vec<String> = f.doc.lines().map(ToString::to_string).collect();
         out.push_str(&crate::backends::kotlin::template_env::render(
             "doc_comment.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => "    ",
                 lines => doc_lines,
             },
@@ -181,7 +181,7 @@ fn emit_native_function(
 
     out.push_str(&crate::backends::kotlin::template_env::render(
         "native_function_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => func_name_camel,
             params => params.join(", "),
             return_type => return_ty,
@@ -204,20 +204,20 @@ fn emit_native_function(
     if f.error_type.is_some() {
         out.push_str(&crate::backends::kotlin::template_env::render(
             "native_result_assign.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 call => call,
             },
         ));
         out.push_str(&crate::backends::kotlin::template_env::render(
             "native_error_code_check.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 error_code_sym => error_code_sym,
             },
         ));
         out.push_str("            if (_code != 0) {\n");
         out.push_str(&crate::backends::kotlin::template_env::render(
             "native_error_message.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 error_context_sym => error_context_sym,
             },
         ));
@@ -251,7 +251,7 @@ fn emit_native_function(
             let expr = presence_aware_return(&f.return_type, &free_sym, presence.is_some());
             out.push_str(&crate::backends::kotlin::template_env::render(
                 "native_return_expr.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     expr => expr,
                 },
             ));
@@ -259,7 +259,7 @@ fn emit_native_function(
     } else if matches!(f.return_type, TypeRef::Unit) {
         out.push_str(&crate::backends::kotlin::template_env::render(
             "native_call_only.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 call => call,
             },
         ));
@@ -267,14 +267,14 @@ fn emit_native_function(
     } else {
         out.push_str(&crate::backends::kotlin::template_env::render(
             "native_result_assign.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 call => call,
             },
         ));
         let expr = presence_aware_return(&f.return_type, &free_sym, presence.is_some());
         out.push_str(&crate::backends::kotlin::template_env::render(
             "native_return_expr.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 expr => expr,
             },
         ));
@@ -312,7 +312,7 @@ fn emit_native_param_conversion(p: &ParamDef, out: &mut String) {
         TypeRef::String | TypeRef::Path | TypeRef::Char | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             out.push_str(&crate::backends::kotlin::template_env::render(
                 "native_param_cstr_conversion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => &name,
                 },
             ));
@@ -320,7 +320,7 @@ fn emit_native_param_conversion(p: &ParamDef, out: &mut String) {
         TypeRef::Bytes => {
             out.push_str(&crate::backends::kotlin::template_env::render(
                 "native_param_bytes_conversion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => &name,
                 },
             ));

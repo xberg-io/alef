@@ -704,7 +704,7 @@ pub(crate) fn emit_function_shim(f: &FunctionDef, context: &FunctionShimContext<
     let body = if let Some(return_expr) = &writeback_return_expr {
         crate::backends::swift::template_env::render(
             "rust_writeback_body.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 call => &source_call,
                 is_async => f.is_async,
                 has_error => f.error_type.is_some(),

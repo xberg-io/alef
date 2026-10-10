@@ -92,7 +92,7 @@ pub fn gen_opaque_impl_block(
 
     crate::codegen::template_env::render(
         "generators/methods/impl_block.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             block_attr => cfg.method_block_attr,
             prefixed_name => prefixed_name,
             content => content,

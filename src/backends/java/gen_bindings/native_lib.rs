@@ -169,7 +169,7 @@ pub(crate) fn gen_native_lib(
         ] {
             function_handles.push(crate::backends::java::template_env::render(
                 "method_handle_normal.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     handle_name => format!("{prefix_upper}_{handle_suffix}"),
                     ffi_name => format!("{prefix}_{symbol_suffix}"),
                     layout => descriptor,
@@ -204,7 +204,7 @@ pub(crate) fn gen_native_lib(
             optional_symbols.insert(ffi_name.clone());
             crate::backends::java::template_env::render(
                 "method_handle_nullable.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     handle_name => handle_name,
                     ffi_name => ffi_name,
                     layout => layout_str,
@@ -213,7 +213,7 @@ pub(crate) fn gen_native_lib(
         } else {
             crate::backends::java::template_env::render(
                 "method_handle_normal.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     handle_name => handle_name,
                     ffi_name => ffi_name,
                     layout => layout_str,
@@ -238,7 +238,7 @@ pub(crate) fn gen_native_lib(
             let len_layout = gen_function_descriptor("ValueLayout.JAVA_LONG", &param_layouts);
             function_handles.push(crate::backends::java::template_env::render(
                 "method_handle_len.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     handle_name => len_handle_name,
                     ffi_name => len_ffi_name,
                     layout => len_layout,
@@ -252,7 +252,7 @@ pub(crate) fn gen_native_lib(
         let handle_name = format!("{}_FREE_STRING", prefix.to_uppercase());
         let handle_code = crate::backends::java::template_env::render(
             "method_handle_free.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 handle_name => handle_name,
                 ffi_name => free_name,
             },
@@ -270,7 +270,7 @@ pub(crate) fn gen_native_lib(
         let handle_name = format!("{}_FREE_BYTES", prefix.to_uppercase());
         let handle_code = crate::backends::java::template_env::render(
             "method_handle_free_bytes.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 handle_name => handle_name,
                 ffi_name => free_bytes_name,
             },
@@ -313,7 +313,7 @@ pub(crate) fn gen_native_lib(
             if emitted_from_json_handles.insert(from_json_handle.clone()) {
                 accessor_handles.push(crate::backends::java::template_env::render(
                     "method_handle_from_json.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         handle_name => from_json_handle,
                         ffi_name => from_json_ffi,
                     },
@@ -325,7 +325,7 @@ pub(crate) fn gen_native_lib(
         if emitted_free_handles.insert(free_handle.clone()) {
             accessor_handles.push(crate::backends::java::template_env::render(
                 "method_handle_free.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     handle_name => free_handle,
                     ffi_name => free_ffi,
                 },
@@ -355,7 +355,7 @@ pub(crate) fn gen_native_lib(
                 if emitted_to_json_handles.insert(to_json_handle.clone()) {
                     let handle_code = crate::backends::java::template_env::render(
                         "method_handle_to_json.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             handle_name => to_json_handle,
                             ffi_name => to_json_ffi,
                         },
@@ -369,7 +369,7 @@ pub(crate) fn gen_native_lib(
             if emitted_free_handles.insert(free_handle.clone()) {
                 let handle_code = crate::backends::java::template_env::render(
                     "method_handle_free.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         handle_name => free_handle,
                         ffi_name => free_ffi,
                     },
@@ -404,7 +404,7 @@ pub(crate) fn gen_native_lib(
                 if emitted_from_json_handles.insert(from_json_handle.clone()) {
                     let handle_code = crate::backends::java::template_env::render(
                         "method_handle_from_json.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             handle_name => from_json_handle,
                             ffi_name => from_json_ffi,
                         },
@@ -417,7 +417,7 @@ pub(crate) fn gen_native_lib(
                 if emitted_free_handles.insert(free_handle.clone()) {
                     let handle_code = crate::backends::java::template_env::render(
                         "method_handle_free.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             handle_name => free_handle,
                             ffi_name => free_ffi,
                         },
@@ -448,7 +448,7 @@ pub(crate) fn gen_native_lib(
             if emitted_free_handles.insert(free_handle.clone()) {
                 let handle_code = crate::backends::java::template_env::render(
                     "method_handle_free.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         handle_name => free_handle,
                         ffi_name => free_ffi,
                     },
@@ -477,7 +477,7 @@ pub(crate) fn gen_native_lib(
         if emitted_register_handles.insert(register_handle_name.clone()) {
             let handle_code = crate::backends::java::template_env::render(
                 "method_handle_register.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     handle_name => register_handle_name,
                     ffi_name => register_ffi_name,
                     vtable_layout => &vtable_layout,
@@ -492,7 +492,7 @@ pub(crate) fn gen_native_lib(
             if emitted_unregister_handles.insert(unregister_handle_name.clone()) {
                 let handle_code = crate::backends::java::template_env::render(
                     "method_handle_unregister.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         handle_name => unregister_handle_name,
                         ffi_name => unregister_ffi_name,
                     },
@@ -507,7 +507,7 @@ pub(crate) fn gen_native_lib(
             if emitted_clear_handles.insert(clear_handle_name.clone()) {
                 let handle_code = crate::backends::java::template_env::render(
                     "method_handle_clear.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         handle_name => clear_handle_name,
                         ffi_name => clear_ffi_name,
                     },
@@ -559,7 +559,7 @@ pub(crate) fn gen_native_lib(
             "FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)".to_string();
         accessor_handles.push(crate::backends::java::template_env::render(
             "method_handle_normal.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 handle_name => start_handle,
                 ffi_name => start_ffi,
                 layout => start_layout,
@@ -571,7 +571,7 @@ pub(crate) fn gen_native_lib(
         let next_layout = "FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)".to_string();
         accessor_handles.push(crate::backends::java::template_env::render(
             "method_handle_normal.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 handle_name => next_handle,
                 ffi_name => next_ffi,
                 layout => next_layout,
@@ -582,7 +582,7 @@ pub(crate) fn gen_native_lib(
         let free_ffi = format!("{prefix}_{owner_snake}_{adapter_snake}_free");
         accessor_handles.push(crate::backends::java::template_env::render(
             "method_handle_free.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 handle_name => free_handle,
                 ffi_name => free_ffi,
             },
@@ -597,7 +597,7 @@ pub(crate) fn gen_native_lib(
             if emitted_from_json_handles.insert(req_from_json_handle.clone()) {
                 accessor_handles.push(crate::backends::java::template_env::render(
                     "method_handle_from_json.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         handle_name => req_from_json_handle,
                         ffi_name => req_from_json_ffi,
                     },
@@ -609,7 +609,7 @@ pub(crate) fn gen_native_lib(
         if emitted_free_handles.insert(req_free_handle.clone()) {
             accessor_handles.push(crate::backends::java::template_env::render(
                 "method_handle_free.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     handle_name => req_free_handle,
                     ffi_name => req_free_ffi,
                 },
@@ -625,7 +625,7 @@ pub(crate) fn gen_native_lib(
             if emitted_to_json_handles.insert(item_to_json_handle.clone()) {
                 accessor_handles.push(crate::backends::java::template_env::render(
                     "method_handle_to_json.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         handle_name => item_to_json_handle,
                         ffi_name => item_to_json_ffi,
                     },
@@ -637,7 +637,7 @@ pub(crate) fn gen_native_lib(
         if emitted_free_handles.insert(item_free_handle.clone()) {
             accessor_handles.push(crate::backends::java::template_env::render(
                 "method_handle_free.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     handle_name => item_free_handle,
                     ffi_name => item_free_ffi,
                 },
@@ -691,7 +691,7 @@ pub(crate) fn gen_native_lib(
 
             let handle_code = crate::backends::java::template_env::render(
                 "method_handle_normal.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     handle_name => handle_name,
                     ffi_name => ffi_name,
                     layout => layout_str,
@@ -727,7 +727,7 @@ pub(crate) fn gen_native_lib(
                     if emitted_to_json_handles.insert(to_json_handle.clone()) {
                         accessor_handles.push(crate::backends::java::template_env::render(
                             "method_handle_to_json.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 handle_name => to_json_handle,
                                 ffi_name => to_json_ffi,
                             },
@@ -739,7 +739,7 @@ pub(crate) fn gen_native_lib(
                 if emitted_free_handles.insert(free_handle.clone()) {
                     accessor_handles.push(crate::backends::java::template_env::render(
                         "method_handle_free.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             handle_name => free_handle,
                             ffi_name => free_ffi,
                         },
@@ -767,7 +767,7 @@ pub(crate) fn gen_native_lib(
                     if emitted_from_json_handles.insert(from_json_handle.clone()) {
                         accessor_handles.push(crate::backends::java::template_env::render(
                             "method_handle_from_json.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 handle_name => from_json_handle,
                                 ffi_name => from_json_ffi,
                             },
@@ -778,7 +778,7 @@ pub(crate) fn gen_native_lib(
                     if emitted_free_handles.insert(free_handle.clone()) {
                         accessor_handles.push(crate::backends::java::template_env::render(
                             "method_handle_free.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 handle_name => free_handle,
                                 ffi_name => free_ffi,
                             },
@@ -829,7 +829,7 @@ pub(crate) fn gen_native_lib(
 
     let class_body = crate::backends::java::template_env::render(
         "native_lib.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             class_name => "NativeLib",
             lib_name => lib_name,
             library_environment_prefix => library_environment_prefix,
@@ -938,7 +938,7 @@ mod tests {
 
         let rendered = crate::backends::java::template_env::render(
             "native_lib.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 class_name => "NativeLib",
                 lib_name => "sample",
                 library_environment_prefix => "SAMPLE",

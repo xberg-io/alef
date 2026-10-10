@@ -7,7 +7,6 @@ use crate::codegen::c_consumer;
 use crate::codegen::conversions::core_type_path;
 use crate::core::ir::{CoreWrapper, FunctionDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
-use minijinja::context;
 
 use super::super::helpers::{
     ffi_null_return_value, gen_ffi_unimplemented_body, gen_owned_value_to_c, null_return_value,
@@ -55,7 +54,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_streaming_method_wrapper(
 
     crate::backends::ffi::template_env::render(
         "streaming_method_wrapper.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             doc_comment => doc_comment.trim_end(),
             fn_name => fn_name,
             qualified => qualified,
@@ -274,7 +273,7 @@ fn gen_method_wrapper_impl(
 
     let header = crate::backends::ffi::template_env::render(
         "method_wrapper_header.jinja",
-        context! {
+        crate::alef_context! {
             doc_comment => doc_comment.trim_end(),
             allow_clippy => allow_clippy,
             fn_name => fn_name.clone(),
@@ -313,7 +312,7 @@ fn gen_method_wrapper_impl(
     if is_bytes_result {
         out.push_str(&crate::backends::ffi::template_env::render(
             "bytes_result_null_check.jinja",
-            context! {},
+            crate::alef_context! {},
         ));
     }
 
@@ -328,7 +327,7 @@ fn gen_method_wrapper_impl(
     if cancellable {
         out.push_str(&crate::backends::ffi::template_env::render(
             "cancel_state_resolve.jinja",
-            context! { fail_ret => &fail_ret },
+            crate::alef_context! { fail_ret => &fail_ret },
         ));
     }
 
@@ -369,7 +368,7 @@ fn gen_method_wrapper_impl(
     if !handle_requests.is_empty() || method.receiver.as_ref() == Some(&ReceiverKind::Owned) {
         out.push_str(&crate::backends::ffi::template_env::render(
             "handle_acquisition.rs.jinja",
-            context! {
+            crate::alef_context! {
                 has_requests => !handle_requests.is_empty(),
                 requests => handle_requests.join(",\n"),
                 fail_ret => fail_ret.clone(),
@@ -385,7 +384,7 @@ fn gen_method_wrapper_impl(
             match receiver_kind {
                 ReceiverKind::Ref | ReceiverKind::RefMut => crate::backends::ffi::template_env::render(
                     "snapshot_handle_self_ref.jinja",
-                    context! {
+                    crate::alef_context! {
                         fail_ret => fail_ret,
                         qualified => qualified_with_lifetime.clone(),
                         handle_qualified => handle_qualified.clone(),
@@ -393,7 +392,7 @@ fn gen_method_wrapper_impl(
                 ),
                 ReceiverKind::Owned => crate::backends::ffi::template_env::render(
                     "snapshot_handle_self_owned.jinja",
-                    context! {
+                    crate::alef_context! {
                         fail_ret => fail_ret,
                         qualified => qualified_with_lifetime.clone(),
                         handle_qualified => handle_qualified.clone(),
@@ -404,28 +403,28 @@ fn gen_method_wrapper_impl(
             match receiver_kind {
                 ReceiverKind::Ref => crate::backends::ffi::template_env::render(
                     "null_check_self_ref.jinja",
-                    context! { fail_ret => fail_ret, qualified => qualified.clone() },
+                    crate::alef_context! { fail_ret => fail_ret, qualified => qualified.clone() },
                 ),
                 ReceiverKind::RefMut => crate::backends::ffi::template_env::render(
                     "null_check_self_mut.jinja",
-                    context! { fail_ret => fail_ret, qualified => qualified.clone() },
+                    crate::alef_context! { fail_ret => fail_ret, qualified => qualified.clone() },
                 ),
                 ReceiverKind::Owned => crate::backends::ffi::template_env::render(
                     "null_check_self_owned.jinja",
-                    context! { fail_ret => fail_ret, qualified => qualified.clone() },
+                    crate::alef_context! { fail_ret => fail_ret, qualified => qualified.clone() },
                 ),
             }
         };
         out.push_str(&crate::backends::ffi::template_env::render(
             "code_line.jinja",
-            context! { content => null_check },
+            crate::alef_context! { content => null_check },
         ));
     }
 
     for p in &method.params {
         out.push_str(&crate::backends::ffi::template_env::render(
             "emitted_code_block.jinja",
-            context! {
+            crate::alef_context! {
                 content => gen_param_conversion_with_enums(p, &ParamConversionContext {
                     has_error,
                     is_bytes_result,
@@ -450,7 +449,7 @@ fn gen_method_wrapper_impl(
             let btree = format!("{}_btree", p.name);
             out.push_str(&crate::backends::ffi::template_env::render(
                 "ffi_btree_binding.jinja",
-                context! {
+                crate::alef_context! {
                     btree => btree,
                     rs => rs,
                 },
@@ -606,31 +605,31 @@ fn gen_method_wrapper_impl(
             if can_inline {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "call_inline.jinja",
-                    context! { call => call },
+                    crate::alef_context! { call => call },
                 ));
             } else {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "call_with_result.jinja",
-                    context! { call => call },
+                    crate::alef_context! { call => call },
                 ));
             }
         } else if method.is_static {
             if can_inline {
-                out.push_str(&crate::backends::ffi::template_env::render("static_method_call.jinja", context! { qualified => qualified.clone(), method_name => method_name.clone(), call_args => call_args.clone() }));
+                out.push_str(&crate::backends::ffi::template_env::render("static_method_call.jinja", crate::alef_context! { qualified => qualified.clone(), method_name => method_name.clone(), call_args => call_args.clone() }));
             } else {
-                out.push_str(&crate::backends::ffi::template_env::render("static_method_call_result.jinja", context! { qualified => qualified.clone(), method_name => method_name.clone(), call_args => call_args.clone() }));
+                out.push_str(&crate::backends::ffi::template_env::render("static_method_call_result.jinja", crate::alef_context! { qualified => qualified.clone(), method_name => method_name.clone(), call_args => call_args.clone() }));
             }
         } else if method_name == "drop" {
             out.push_str("    std::mem::drop(obj);\n");
         } else if can_inline {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "instance_method_call.jinja",
-                context! { method_name => method_name.clone(), call_args => call_args.clone() },
+                crate::alef_context! { method_name => method_name.clone(), call_args => call_args.clone() },
             ));
         } else {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "instance_method_call_result.jinja",
-                context! { method_name => method_name.clone(), call_args => call_args.clone() },
+                crate::alef_context! { method_name => method_name.clone(), call_args => call_args.clone() },
             ));
         }
     }
@@ -638,7 +637,7 @@ fn gen_method_wrapper_impl(
     if is_bytes_result {
         out.push_str(&crate::backends::ffi::template_env::render(
             "bytes_result_match.jinja",
-            context! { has_error, is_optional => is_optional_bytes_result },
+            crate::alef_context! { has_error, is_optional => is_optional_bytes_result },
         ));
     } else {
         let result_expr = method
@@ -685,7 +684,7 @@ fn gen_method_wrapper_impl(
             if is_void_return(&method.return_type) {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "error_match_void.jinja",
-                    context! {},
+                    crate::alef_context! {},
                 ));
             } else {
                 let val_expr = method
@@ -696,14 +695,14 @@ fn gen_method_wrapper_impl(
                 let ok_body = if returns_serialized_self {
                     crate::backends::ffi::template_env::render(
                         "serialized_value_to_c.jinja",
-                        context! { value => &val_expr, indent => "            " },
+                        crate::alef_context! { value => &val_expr, indent => "            " },
                     )
                 } else {
                     gen_owned_value_to_c(&val_expr, &method.return_type, "            ", enum_names)
                 };
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "error_match_non_void.jinja",
-                    context! {
+                    crate::alef_context! {
                         ok_body => ok_body,
                         null_ret => null_return_value(&method.return_type),
                     },
@@ -714,12 +713,12 @@ fn gen_method_wrapper_impl(
         } else if returns_serialized_self {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "serialized_value_to_c.jinja",
-                context! { value => &result_expr, indent => "    " },
+                crate::alef_context! { value => &result_expr, indent => "    " },
             ));
         } else {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "emitted_code_block.jinja",
-                context! {
+                crate::alef_context! {
                     content => gen_owned_value_to_c(&result_expr, &method.return_type, "    ", enum_names),
                 },
             ));
@@ -782,7 +781,7 @@ pub(super) fn gen_function_wrapper_footer(
     // the footer must not re-close a closure body that was never opened. ~keep
     crate::backends::ffi::template_env::render(
         "function_wrapper_footer.jinja",
-        context! { panic_return => panic_return, trivial_call => trivial_call },
+        crate::alef_context! { panic_return => panic_return, trivial_call => trivial_call },
     )
 }
 
@@ -963,7 +962,7 @@ fn gen_free_function_impl(
 
     let header = crate::backends::ffi::template_env::render(
         "free_function_header.jinja",
-        context! {
+        crate::alef_context! {
             doc_comment => doc_comment.trim_end(),
             allow_clippy => allow_clippy,
             fn_name => ffi_name.clone(),
@@ -999,7 +998,7 @@ fn gen_free_function_impl(
     if is_bytes_result {
         out.push_str(&crate::backends::ffi::template_env::render(
             "bytes_result_null_check.jinja",
-            context! {},
+            crate::alef_context! {},
         ));
     }
 
@@ -1014,7 +1013,7 @@ fn gen_free_function_impl(
     if cancellable {
         out.push_str(&crate::backends::ffi::template_env::render(
             "cancel_state_resolve.jinja",
-            context! { fail_ret => &fail_ret },
+            crate::alef_context! { fail_ret => &fail_ret },
         ));
     }
     // See the mirrored method-wrapper block above: entries are `Option<HandleRequest>` array
@@ -1045,7 +1044,7 @@ fn gen_free_function_impl(
     if !handle_requests.is_empty() {
         out.push_str(&crate::backends::ffi::template_env::render(
             "handle_acquisition.rs.jinja",
-            context! {
+            crate::alef_context! {
                 has_requests => !handle_requests.is_empty(),
                 requests => handle_requests.join(",\n"),
                 fail_ret => fail_ret,
@@ -1058,7 +1057,7 @@ fn gen_free_function_impl(
     for p in &func.params {
         out.push_str(&crate::backends::ffi::template_env::render(
             "emitted_code_block.jinja",
-            context! {
+            crate::alef_context! {
                 content => gen_param_conversion_with_enums(p, &ParamConversionContext {
                     has_error,
                     is_bytes_result,
@@ -1083,7 +1082,7 @@ fn gen_free_function_impl(
             let btree = format!("{}_btree", p.name);
             out.push_str(&crate::backends::ffi::template_env::render(
                 "ffi_btree_binding.jinja",
-                context! {
+                crate::alef_context! {
                     btree => btree,
                     rs => rs,
                 },
@@ -1234,23 +1233,23 @@ fn gen_free_function_impl(
             if can_inline_fn {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "call_inline.jinja",
-                    context! { call => call },
+                    crate::alef_context! { call => call },
                 ));
             } else {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "call_with_result.jinja",
-                    context! { call => call },
+                    crate::alef_context! { call => call },
                 ));
             }
         } else if can_inline_fn {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "call_inline.jinja",
-                context! { call => format!("{core_fn_path}({call_args})") },
+                crate::alef_context! { call => format!("{core_fn_path}({call_args})") },
             ));
         } else {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "call_with_result.jinja",
-                context! { call => format!("{core_fn_path}({call_args})") },
+                crate::alef_context! { call => format!("{core_fn_path}({call_args})") },
             ));
         }
     }
@@ -1258,7 +1257,7 @@ fn gen_free_function_impl(
     if is_bytes_result {
         out.push_str(&crate::backends::ffi::template_env::render(
             "bytes_result_match.jinja",
-            context! { has_error, is_optional => is_optional_bytes_result },
+            crate::alef_context! { has_error, is_optional => is_optional_bytes_result },
         ));
     } else {
         let result_expr = func
@@ -1279,7 +1278,7 @@ fn gen_free_function_impl(
             if is_void_return(&func.return_type) {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "error_match_void.jinja",
-                    context! {},
+                    crate::alef_context! {},
                 ));
             } else {
                 let val_expr = func
@@ -1290,7 +1289,7 @@ fn gen_free_function_impl(
                 let ok_body = if returns_serialized_handle {
                     crate::backends::ffi::template_env::render(
                         "serialized_value_to_c.jinja",
-                        context! { value => &val_expr, indent => "            " },
+                        crate::alef_context! { value => &val_expr, indent => "            " },
                     )
                 } else if capsule_cfg.is_some() {
                     format!(
@@ -1309,7 +1308,7 @@ fn gen_free_function_impl(
                 };
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "error_match_non_void.jinja",
-                    context! {
+                    crate::alef_context! {
                         ok_body => ok_body,
                         null_ret => null_ret,
                     },
@@ -1321,7 +1320,7 @@ fn gen_free_function_impl(
             let content = if returns_serialized_handle {
                 crate::backends::ffi::template_env::render(
                     "serialized_value_to_c.jinja",
-                    context! { value => &result_expr, indent => "    " },
+                    crate::alef_context! { value => &result_expr, indent => "    " },
                 )
             } else if capsule_cfg.is_some() {
                 format!("    {}", super::super::capsule::capsule_into_raw_expr(&result_expr))
@@ -1332,7 +1331,7 @@ fn gen_free_function_impl(
             };
             out.push_str(&crate::backends::ffi::template_env::render(
                 "emitted_code_block.jinja",
-                context! {
+                crate::alef_context! {
                     content => content,
                 },
             ));

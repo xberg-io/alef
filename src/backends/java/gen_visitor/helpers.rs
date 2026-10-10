@@ -145,7 +145,7 @@ pub(super) fn gen_handle_method(
 
     out.push_str(&crate::backends::java::template_env::render(
         "handle_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             single_line_fits => single_line_fits,
             method_name => &method_name,
             params => &params,

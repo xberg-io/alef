@@ -152,7 +152,7 @@ fn try_render_display_text_presence(
     let text = super::assertion_scalar_context::resolve_string_field_expr(&field, true, false, false, optional);
     out.push_str(&crate::e2e::template_env::render(
         template,
-        minijinja::context! { predicate => format!("{text}.{predicate}()") },
+        crate::alef_context! { predicate => format!("{text}.{predicate}()") },
     ));
     true
 }

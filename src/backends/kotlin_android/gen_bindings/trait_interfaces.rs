@@ -71,7 +71,7 @@ pub(super) fn emit_trait_interfaces(
         emit_kdoc_pub(&mut body, &trait_def.doc, "");
         body.push_str(&template_env::render(
             "trait_interface_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 interface_name => interface_name,
             },
         ));
@@ -164,7 +164,7 @@ pub fn format_method_signature(suspend_keyword: &str, method_name: &str, params:
         } else {
             result.push_str(&template_env::render(
                 "trait_method_return_line.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     return_type => return_type,
                 },
             ));

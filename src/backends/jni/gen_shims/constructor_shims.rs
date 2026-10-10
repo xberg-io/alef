@@ -46,7 +46,7 @@ fn emit_constructor_shim(
 
     out.push_str(&template_env::render(
         "constructor_shim.rs.jinja",
-        context! {
+        crate::alef_context! {
             symbol => symbol,
             param_sigs => param_sigs,
             unmarshal => unmarshal,
@@ -59,7 +59,7 @@ fn emit_constructor_shim(
 fn emit_destructor_shim(out: &mut String, symbol: &str, type_name: &str) {
     out.push_str(&template_env::render(
         "destructor_shim.rs.jinja",
-        context! {
+        crate::alef_context! {
             symbol => symbol,
             type_name => type_name,
         },

@@ -307,7 +307,7 @@ fn gen_labeled_string_enum_variant_constructors(enum_def: &EnumDef, core_import:
             if variant.fields.is_empty() {
                 Some(crate::backends::php::template_env::render(
                     "php_flat_enum_unit_variant_constructor.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         php_name => php_name,
                         rust_fn_name => rust_fn_name,
                         core_path => &core_path,
@@ -318,7 +318,7 @@ fn gen_labeled_string_enum_variant_constructors(enum_def: &EnumDef, core_import:
                 let param_name = to_php_name(&flat_field_name(variant, 0));
                 Some(crate::backends::php::template_env::render(
                     "php_flat_enum_label_variant_constructor.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         php_name => php_name,
                         rust_fn_name => rust_fn_name,
                         core_path => &core_path,
@@ -372,14 +372,14 @@ pub(crate) fn gen_flat_data_enum(enum_def: &EnumDef, mapper: &PhpMapper, php_nam
     let mut out = String::new();
     out.push_str(&crate::backends::php::template_env::render(
         start_template,
-        minijinja::context! {
+        crate::alef_context! {
             php_attrs => &php_attrs,
             enum_name => &enum_def.name,
         },
     ));
     out.push_str(&crate::backends::php::template_env::render(
         tag_template,
-        minijinja::context! {
+        crate::alef_context! {
             tag_field => tag_field,
         },
     ));
@@ -393,7 +393,7 @@ pub(crate) fn gen_flat_data_enum(enum_def: &EnumDef, mapper: &PhpMapper, php_nam
                 let field_ty = format!("Option<{mapped}>");
                 out.push_str(&crate::backends::php::template_env::render(
                     field_template,
-                    minijinja::context! {
+                    crate::alef_context! {
                         flat_name => &flat_name,
                         field_ty => &field_ty,
                     },
@@ -520,7 +520,7 @@ pub(crate) fn gen_external_enum_serde_impls(enum_def: &EnumDef) -> String {
 
     crate::backends::php::template_env::render(
         "php_external_enum_serde.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             enum_name => enum_name,
             tag_field => tag_field,
             serialize_arms => &serialize_arms,
@@ -575,7 +575,7 @@ pub(crate) fn gen_flat_data_enum_methods(
         .join(" | ");
     let from_json = crate::backends::php::template_env::render(
         "php_flat_enum_from_json.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             enum_name => &enum_def.name,
             tag_field => tag_field,
             allowed_tags => allowed_tags,
@@ -759,7 +759,7 @@ pub(crate) fn gen_flat_data_enum_variant_constructors(
 
             Some(crate::backends::php::template_env::render(
                 "php_flat_enum_variant_constructor.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     php_name => to_php_name(&ctor.snake_name),
                     rust_fn_name => format!("_factory_{}", ctor.snake_name),
                     params => params,

@@ -198,7 +198,7 @@ fn replace_field_conversion(generated: String, name: &str, expression: &str) -> 
         ',',
         crate::codegen::template_env::render(
             "binding_helpers/struct_field_line.jinja",
-            minijinja::context! { name => name, expr => expression },
+            crate::alef_context! { name => name, expr => expression },
         )
         .trim(),
     ) {
@@ -212,7 +212,7 @@ fn replace_field_conversion(generated: String, name: &str, expression: &str) -> 
         ';',
         crate::backends::napi::template_env::render(
             "converted_field_assignment.jinja",
-            minijinja::context! { name => name, expr => expression },
+            crate::alef_context! { name => name, expr => expression },
         )
         .trim(),
     )

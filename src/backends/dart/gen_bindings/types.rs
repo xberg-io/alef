@@ -32,7 +32,7 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
         let doc_lines: Vec<String> = ty.doc.lines().map(ToString::to_string).collect();
         out.push_str(&template_env::render(
             "doc_comment.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => "",
                 lines => doc_lines,
             },
@@ -42,7 +42,7 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
     if visible_fields.is_empty() {
         out.push_str(&template_env::render(
             "class_empty.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => ty.name.as_str(),
             },
         ));
@@ -50,7 +50,7 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
     }
     out.push_str(&template_env::render(
         "class_open.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => ty.name.as_str(),
         },
     ));
@@ -65,7 +65,7 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
             let doc_lines: Vec<String> = field.doc.lines().map(ToString::to_string).collect();
             out.push_str(&template_env::render(
                 "doc_comment.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     indent => "  ",
                     lines => doc_lines,
                 },
@@ -73,7 +73,7 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
         }
         out.push_str(&template_env::render(
             "final_field_decl.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 ty_str => ty_str,
                 name => name.as_str(),
             },
@@ -85,7 +85,7 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
         let name = dart_safe_ident(&field.name.to_lower_camel_case());
         out.push_str(&template_env::render(
             "single_param_constructor.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => ty.name.as_str(),
                 param_name => name.as_str(),
             },
@@ -93,7 +93,7 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
     } else {
         out.push_str(&template_env::render(
             "multi_param_constructor_open.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => ty.name.as_str(),
             },
         ));
@@ -102,17 +102,20 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
             match default {
                 Some(default_value) => out.push_str(&template_env::render(
                     "constructor_default_param.jinja",
-                    minijinja::context! { name => name.as_str(), default_value => default_value },
+                    crate::alef_context! { name => name.as_str(), default_value => default_value },
                 )),
                 None => out.push_str(&template_env::render(
                     "constructor_required_param.jinja",
-                    minijinja::context! { name => name.as_str() },
+                    crate::alef_context! { name => name.as_str() },
                 )),
             }
         }
-        out.push_str(&template_env::render("constructor_close.jinja", minijinja::context! {}));
+        out.push_str(&template_env::render(
+            "constructor_close.jinja",
+            crate::alef_context! {},
+        ));
     }
-    out.push_str(&template_env::render("class_close.jinja", minijinja::context! {}));
+    out.push_str(&template_env::render("class_close.jinja", crate::alef_context! {}));
 }
 
 #[allow(dead_code)]
@@ -121,7 +124,7 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
         let doc_lines: Vec<String> = en.doc.lines().map(ToString::to_string).collect();
         out.push_str(&template_env::render(
             "doc_comment.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => "",
                 lines => doc_lines,
             },
@@ -131,7 +134,7 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
     if all_unit {
         out.push_str(&template_env::render(
             "enum_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => en.name.as_str(),
             },
         ));
@@ -141,7 +144,7 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
                 let doc_lines: Vec<String> = variant.doc.lines().map(ToString::to_string).collect();
                 out.push_str(&template_env::render(
                     "doc_comment.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         indent => "  ",
                         lines => doc_lines,
                     },
@@ -151,17 +154,17 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
             let suffix = if idx + 1 == count { ";" } else { "," };
             out.push_str(&template_env::render(
                 "enum_unit_variant.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     vname => vname.as_str(),
                     suffix => suffix,
                 },
             ));
         }
-        out.push_str(&template_env::render("enum_close.jinja", minijinja::context! {}));
+        out.push_str(&template_env::render("enum_close.jinja", crate::alef_context! {}));
     } else {
         out.push_str(&template_env::render(
             "sealed_class_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => en.name.as_str(),
             },
         ));
@@ -171,7 +174,7 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
                 let doc_lines: Vec<String> = variant.doc.lines().map(ToString::to_string).collect();
                 out.push_str(&template_env::render(
                     "doc_comment.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         indent => "",
                         lines => doc_lines,
                     },
@@ -180,7 +183,7 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
             if variant.fields.is_empty() {
                 out.push_str(&template_env::render(
                     "final_class_extends.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => safe_variant_name.as_str(),
                         parent => en.name.as_str(),
                     },
@@ -188,7 +191,7 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
             } else {
                 out.push_str(&template_env::render(
                     "final_class_header.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => safe_variant_name.as_str(),
                         parent => en.name.as_str(),
                     },
@@ -198,7 +201,7 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
                     let fname = dart_safe_ident(&f.name.to_lower_camel_case());
                     out.push_str(&template_env::render(
                         "final_field_decl.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             ty_str => ty_str,
                             name => fname.as_str(),
                         },
@@ -208,7 +211,7 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
                     let fname = dart_safe_ident(&variant.fields[0].name.to_lower_camel_case());
                     out.push_str(&template_env::render(
                         "single_param_constructor.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => safe_variant_name.as_str(),
                             param_name => fname.as_str(),
                         },
@@ -216,7 +219,7 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
                 } else {
                     out.push_str(&template_env::render(
                         "multi_param_constructor_open.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => safe_variant_name.as_str(),
                         },
                     ));
@@ -224,14 +227,17 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
                         let fname = dart_safe_ident(&f.name.to_lower_camel_case());
                         out.push_str(&template_env::render(
                             "constructor_required_param.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 name => fname.as_str(),
                             },
                         ));
                     }
-                    out.push_str(&template_env::render("constructor_close.jinja", minijinja::context! {}));
+                    out.push_str(&template_env::render(
+                        "constructor_close.jinja",
+                        crate::alef_context! {},
+                    ));
                 }
-                out.push_str(&template_env::render("class_close.jinja", minijinja::context! {}));
+                out.push_str(&template_env::render("class_close.jinja", crate::alef_context! {}));
             }
         }
     }

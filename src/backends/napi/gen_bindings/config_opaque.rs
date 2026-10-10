@@ -55,7 +55,7 @@ pub(super) fn emit_wrappers(
         let struct_name = format!("{prefix}{name}");
         let wrapper = crate::backends::napi::template_env::render(
             "config_opaque_wrapper.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => name,
                 rust_path => rust_path,
                 struct_name => struct_name,

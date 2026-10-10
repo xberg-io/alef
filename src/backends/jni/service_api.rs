@@ -12,8 +12,6 @@
 //! Thread safety: thread-attaches to JVM, calls Java handler methods with request JSON,
 //! parses response JSON. No panics — all errors propagate as JNI exceptions.
 
-use minijinja::context;
-
 use crate::backends::jni::template_env;
 use crate::codegen::naming::{pascal_to_snake, to_class_name};
 use crate::core::backend::GeneratedFile;
@@ -38,7 +36,7 @@ fn internal_class_component(name: &str) -> String {
 fn render_service_param_decl(name: &str, type_name: &str) -> String {
     template_env::render(
         "service_param_decl.rs.jinja",
-        context! {
+        crate::alef_context! {
             name => name,
             type_name => type_name,
         },
@@ -90,7 +88,10 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     let package = jni_package(config);
     let mut out = String::new();
 
-    out.push_str(&template_env::render("service_header.rs.jinja", context! {}));
+    out.push_str(&template_env::render(
+        "service_header.rs.jinja",
+        crate::alef_context! {},
+    ));
 
     for service in &api.services {
         let service_bridge_class = service_bridge_class_name(&service.name);
@@ -152,7 +153,7 @@ fn gen_service_opaque(
     let dtor_symbol = jni_symbol(package, service_bridge_class, &dtor_method);
     out.push_str(&template_env::render(
         "service_opaque.rs.jinja",
-        context! {
+        crate::alef_context! {
             service_name => service.name,
             service_snake => service_snake,
             opaque_name => opaque_name,
@@ -181,7 +182,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 
     out.push_str(&template_env::render(
         "handler_bridge_struct.rs.jinja",
-        context! {
+        crate::alef_context! {
             trait_name => trait_name,
             bridge_name => bridge_name,
         },
@@ -222,7 +223,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 
     out.push_str(&template_env::render(
         "handler_bridge_impl.rs.jinja",
-        context! {
+        crate::alef_context! {
             core_import => core_import,
             trait_name => trait_name,
             bridge_name => bridge_name,
@@ -275,7 +276,7 @@ fn gen_register_jni_function(
         register_args.push("handler_arc".to_string());
         out.push_str(&template_env::render(
             "registration_function.rs.jinja",
-            context! {
+            crate::alef_context! {
                 service_pascal => service_pascal,
                 method_pascal => method_pascal,
                 symbol => symbol,
@@ -355,7 +356,7 @@ fn gen_register_variant_jni_function(
             }
             wrapper_block.push_str(&template_env::render(
                 "wrapper_setup.rs.jinja",
-                context! {
+                crate::alef_context! {
                     name => wc.metadata_param,
                     wrapper_type_path => wc.wrapper_type_path,
                     constructor_method => wc.constructor_method,
@@ -377,7 +378,7 @@ fn gen_register_variant_jni_function(
         base_call_args.push("handler_arc".to_string());
         out.push_str(&template_env::render(
             "registration_function.rs.jinja",
-            context! {
+            crate::alef_context! {
                 service_pascal => service_pascal,
                 method_pascal => variant_name,
                 symbol => symbol,
@@ -432,7 +433,7 @@ fn gen_entrypoint_jni_function(
         EntrypointKind::Run => {
             out.push_str(&template_env::render(
                 "entrypoint_run.rs.jinja",
-                context! {
+                crate::alef_context! {
                     service_pascal => service_pascal,
                     ep_pascal => ep_pascal,
                     symbol => symbol,
@@ -446,7 +447,7 @@ fn gen_entrypoint_jni_function(
         EntrypointKind::Finalize => {
             out.push_str(&template_env::render(
                 "entrypoint_finalize.rs.jinja",
-                context! {
+                crate::alef_context! {
                     service_pascal => service_pascal,
                     ep_pascal => ep_pascal,
                     symbol => symbol,

@@ -74,7 +74,7 @@ pub(super) fn render_snippet_body(fixture: &Fixture, e2e_config: &E2eConfig) -> 
     .join(" ");
     Ok(crate::e2e::template_env::render(
         "brew/snippet_body.jinja",
-        minijinja::context! { command => command },
+        crate::alef_context! { command => command },
     ))
 }
 

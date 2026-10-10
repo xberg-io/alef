@@ -23,7 +23,6 @@ use crate::core::backend::GeneratedFile;
 use crate::core::config::{Language, ResolvedCrateConfig, detect_serde_available, resolve_output_dir};
 use crate::core::ir::{ApiSurface, TypeRef};
 use ahash::{AHashMap, AHashSet};
-use minijinja::context;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -839,7 +838,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     {
         class_registrations.push_str(&crate::backends::php::template_env::render(
             "php_class_registration.jinja",
-            context! { class_name => &typ.name },
+            crate::alef_context! { class_name => &typ.name },
         ));
     }
     if api.functions.iter().any(|f| !exclude_functions.contains(&f.name))
@@ -847,20 +846,20 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     {
         class_registrations.push_str(&crate::backends::php::template_env::render(
             "php_class_registration.jinja",
-            context! { class_name => &php_ext_api_class_name(&extension_name) },
+            crate::alef_context! { class_name => &php_ext_api_class_name(&extension_name) },
         ));
     }
     for enum_def in api.enums.iter() {
         class_registrations.push_str(&crate::backends::php::template_env::render(
             "php_class_registration.jinja",
-            context! { class_name => &enum_def.name },
+            crate::alef_context! { class_name => &enum_def.name },
         ));
     }
     for error in api.errors.iter().filter(|e| !e.methods.is_empty()) {
         let info_class = format!("{}Info", error.name);
         class_registrations.push_str(&crate::backends::php::template_env::render(
             "php_class_registration.jinja",
-            context! { class_name => &info_class },
+            crate::alef_context! { class_name => &info_class },
         ));
     }
     // The #[php_module] macro defaults to env!("CARGO_PKG_NAME"), which may differ from

@@ -65,7 +65,7 @@ fn go_method_param_decls(method: &MethodDef, opaque_names: &HashSet<&str>) -> Ve
 fn render_stream_header(out: &mut String, method: &MethodDef, names: &StreamNames, method_params: &[String]) {
     out.push_str(&crate::backends::go::template_env::render(
         "streaming_stream_type.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             stream_type_name => &names.stream_type_name,
             receiver_type => &names.go_receiver_type,
             method_name => &names.method_go_name,
@@ -84,7 +84,7 @@ fn render_stream_header(out: &mut String, method: &MethodDef, names: &StreamName
 
     out.push_str(&crate::backends::go::template_env::render(
         "streaming_method_compat.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             receiver_name => names.receiver_name,
             receiver_type => &names.go_receiver_type,
             method_name => &names.method_go_name,
@@ -100,7 +100,7 @@ fn render_stream_header(out: &mut String, method: &MethodDef, names: &StreamName
 
     out.push_str(&crate::backends::go::template_env::render(
         "streaming_method_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             receiver_name => names.receiver_name,
             receiver_type => &names.go_receiver_type,
             method_name => &names.method_with_context_name,
@@ -147,7 +147,7 @@ fn render_stream_body(
 
     out.push_str(&crate::backends::go::template_env::render(
         "streaming_method_body.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             cancel_prelude => cancellation::prelude_with_stop_closure(ffi_prefix, "nil, "),
             start_call => &start_call,
             ffi_prefix => ffi_prefix,

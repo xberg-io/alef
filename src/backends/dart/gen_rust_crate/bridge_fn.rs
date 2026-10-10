@@ -94,7 +94,7 @@ pub(crate) fn emit_bridge_fn(
 
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_bridge_fn_open.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             async_kw => async_kw,
             fn_name => fn_name.as_str(),
             params => params.join(", "),
@@ -107,7 +107,7 @@ pub(crate) fn emit_bridge_fn(
     if stub_methods.contains(fn_name) {
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_bridge_stub_body.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => fn_name.as_str(),
             },
         ));
@@ -196,7 +196,7 @@ pub(crate) fn emit_bridge_fn(
     let body = if let Some(plan) = &writeback_plan {
         crate::backends::dart::template_env::render(
             "rust_bridge_writeback_body.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 core_var => &plan.core_var,
                 init_expr => &plan.init_expr,
                 call => &call,

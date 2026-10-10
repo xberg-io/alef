@@ -12,9 +12,7 @@ impl TemplateEnv {
     /// Create an empty template environment.
     pub fn new() -> Self {
         let mut env = Environment::new();
-        env.set_trim_blocks(true);
-        env.set_lstrip_blocks(true);
-        env.set_keep_trailing_newline(true);
+        crate::template::configure_env(&mut env);
         Self { env }
     }
 
@@ -32,7 +30,7 @@ impl TemplateEnv {
             .get_template(name)
             .with_context(|| format!("template `{name}` not registered in TemplateEnv"))?;
         let rendered = tmpl
-            .render(minijinja::Value::from_serialize(&ctx))
+            .render(crate::template::to_value(&ctx))
             .with_context(|| format!("failed to render template `{name}`"))?;
         Ok(rendered)
     }

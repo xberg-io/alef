@@ -68,7 +68,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
         })
         .collect::<Vec<_>>()
         .join("\n");
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         app_module => app_module,
         app_name => app_name,
         repo_url => repo_url,
@@ -415,7 +415,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
 
     out.push_str(&template_env::render(
         "native_module_footer.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     out
 }
@@ -492,11 +492,11 @@ fn write_nif_stub(out: &mut String, fn_name: &str, params: &[String], prev_was_m
     };
     let single_line_len = 6 + sig.len() + 40;
     if single_line_len > 120 {
-        let ctx = minijinja::context! { sig => sig, prev_was_multiline => prev_was_multiline };
+        let ctx = crate::alef_context! { sig => sig, prev_was_multiline => prev_was_multiline };
         out.push_str(&template_env::render("nif_stub_multi_line.jinja", ctx));
         true
     } else {
-        let ctx = minijinja::context! { sig => sig };
+        let ctx = crate::alef_context! { sig => sig };
         out.push_str(&template_env::render("nif_stub_single_line.jinja", ctx));
         false
     }

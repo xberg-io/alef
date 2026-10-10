@@ -189,7 +189,7 @@ fn emit_cfg_gated_arm(
     direction: &str,
 ) -> Option<minijinja::value::Value> {
     let Some(cfg) = variant.cfg.as_deref() else {
-        return Some(minijinja::context! { arm => arm, cfg => Option::<&str>::None });
+        return Some(crate::alef_context! { arm => arm, cfg => Option::<&str>::None });
     };
     if !is_host_enum {
         tracing::debug!(
@@ -204,7 +204,7 @@ fn emit_cfg_gated_arm(
         );
         return None;
     }
-    Some(minijinja::context! { arm => arm, cfg => cfg })
+    Some(crate::alef_context! { arm => arm, cfg => cfg })
 }
 
 /// Whether a generated `From<...>` match over `enum_def`'s variants needs a trailing
@@ -318,7 +318,7 @@ pub fn gen_enum_from_binding_to_core_cfg(enum_def: &EnumDef, core_import: &str, 
 
     crate::codegen::template_env::render(
         "conversions/enum_from_binding_to_core",
-        minijinja::context! {
+        crate::alef_context! {
             binding_name => binding_name,
             core_path => core_path,
             arms => arms,
@@ -371,7 +371,7 @@ pub fn gen_enum_from_core_to_binding_cfg(enum_def: &EnumDef, core_import: &str, 
 
     crate::codegen::template_env::render(
         "conversions/enum_from_core_to_binding",
-        minijinja::context! {
+        crate::alef_context! {
             binding_name => binding_name,
             core_path => core_path,
             arms => arms,

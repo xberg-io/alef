@@ -340,7 +340,7 @@ pub(crate) fn emit_cargo_toml(
             default_cfg.clone(),
             template_env::render(
                 "rust_cargo_target_dependency.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     cfg => default_cfg.as_str(),
                     core_dep_key => core_dep_key.as_str(),
                     core_path => core_path.as_str(),
@@ -371,7 +371,7 @@ pub(crate) fn emit_cargo_toml(
                 override_entry.cfg.clone(),
                 template_env::render(
                     "rust_cargo_target_dependency.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         cfg => override_entry.cfg.as_str(),
                         core_dep_key => core_dep_key.as_str(),
                         core_path => core_path.as_str(),
@@ -449,7 +449,7 @@ pub(crate) fn emit_cargo_toml(
 
     let content = template_env::render(
         "rust_cargo_toml.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             crate_name => crate_name,
             version_line => version_line.as_str(),
             license => license,

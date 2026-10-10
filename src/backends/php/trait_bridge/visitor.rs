@@ -1,5 +1,3 @@
-use minijinja::context;
-
 use crate::codegen::generators::trait_bridge::{bridge_param_type as param_type, visitor_param_type};
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
@@ -56,7 +54,7 @@ pub(super) fn gen_visitor_bridge(
 
     out.push_str(&crate::backends::php::template_env::render(
         "visitor_nodecontext_helper.jinja",
-        context! {
+        crate::alef_context! {
             context_type_path => &context_type_path,
         },
     ));
@@ -64,7 +62,7 @@ pub(super) fn gen_visitor_bridge(
 
     out.push_str(&crate::backends::php::template_env::render(
         "visitor_zval_to_visitresult.jinja",
-        context! {
+        crate::alef_context! {
             result_type_path => &result_type_path,
             default_variant => default_variant,
             unit_result_variants => crate::codegen::visitor_result::variant_contexts(&result_metadata.unit_variants),
@@ -82,7 +80,7 @@ pub(super) fn gen_visitor_bridge(
 
     out.push_str(&crate::backends::php::template_env::render(
         "php_visit_result_with_template.jinja",
-        context! {
+        crate::alef_context! {
             result_type_path => &result_type_path,
             payload_result_variants => crate::codegen::visitor_result::variant_contexts(
                 &result_metadata.string_payload_variants,
@@ -93,7 +91,7 @@ pub(super) fn gen_visitor_bridge(
 
     out.push_str(&crate::backends::php::template_env::render(
         "visitor_bridge_struct.jinja",
-        context! {
+        crate::alef_context! {
             struct_name => struct_name,
         },
     ));
@@ -101,7 +99,7 @@ pub(super) fn gen_visitor_bridge(
 
     out.push_str(&crate::backends::php::template_env::render(
         "php_trait_impl_start.jinja",
-        context! {
+        crate::alef_context! {
             trait_path => &trait_path,
             struct_name => struct_name,
         },
@@ -150,7 +148,7 @@ fn gen_visitor_method_php(
 
     out.push_str(&crate::backends::php::template_env::render(
         "php_visitor_method_signature.jinja",
-        context! {
+        crate::alef_context! {
             name => name,
             sig => &sig,
             ret_ty => &ret_ty,
@@ -168,7 +166,7 @@ fn gen_visitor_method_php(
             {
                 out.push_str(&crate::backends::php::template_env::render(
                     "php_visitor_arg_nodecontext.jinja",
-                    context! {
+                    crate::alef_context! {
                         name => &p.name,
                         ref => if p.is_ref { "" } else { "&" },
                     },
@@ -179,7 +177,7 @@ fn gen_visitor_method_php(
             if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
                 out.push_str(&crate::backends::php::template_env::render(
                     "php_visitor_arg_optional_string_ref.jinja",
-                    context! {
+                    crate::alef_context! {
                         name => &p.name,
                     },
                 ));
@@ -190,14 +188,14 @@ fn gen_visitor_method_php(
                 if p.is_ref {
                     out.push_str(&crate::backends::php::template_env::render(
                         "php_visitor_arg_string_ref.jinja",
-                        context! {
+                        crate::alef_context! {
                             name => &p.name,
                         },
                     ));
                 } else {
                     out.push_str(&crate::backends::php::template_env::render(
                         "php_visitor_arg_string_owned.jinja",
-                        context! {
+                        crate::alef_context! {
                             name => &p.name,
                         },
                     ));
@@ -208,7 +206,7 @@ fn gen_visitor_method_php(
             if matches!(&p.ty, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)) {
                 out.push_str(&crate::backends::php::template_env::render(
                     "php_visitor_arg_bool.jinja",
-                    context! {
+                    crate::alef_context! {
                         name => &p.name,
                     },
                 ));
@@ -217,7 +215,7 @@ fn gen_visitor_method_php(
             }
             out.push_str(&crate::backends::php::template_env::render(
                 "php_visitor_arg_default.jinja",
-                context! {
+                crate::alef_context! {
                     name => &p.name,
                 },
             ));
@@ -231,7 +229,7 @@ fn gen_visitor_method_php(
     let args_expr = if has_args { "dyn_args" } else { "vec![]" };
     out.push_str(&crate::backends::php::template_env::render(
         "php_visitor_method_php_call.jinja",
-        context! {
+        crate::alef_context! {
             name => name,
             args_expr => args_expr,
         },
@@ -262,7 +260,7 @@ fn gen_visitor_method_php(
         };
         out.push_str(&crate::backends::php::template_env::render(
             "php_visitor_template_var_let_binding.jinja",
-            context! {
+            crate::alef_context! {
                 owned_var => &owned_var,
                 expr => &expr,
             },
@@ -278,7 +276,7 @@ fn gen_visitor_method_php(
 
     out.push_str(&crate::backends::php::template_env::render(
         "php_visitor_method_result_match.jinja",
-        context! {
+        crate::alef_context! {
             ret_ty => &ret_ty,
             default_variant => format!("{ret_ty}::{default_variant}"),
             tmpl_vars_expr => &tmpl_vars_expr,

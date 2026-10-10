@@ -146,7 +146,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         };
         let return_number = is_numeric_primitive_return(&method.return_type);
 
-        let ctx = minijinja::context! {
+        let ctx = crate::alef_context! {
             js_name => js_name,
             has_error => has_error,
             error_expr => error_expr,
@@ -208,7 +208,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         };
         let return_number = is_numeric_primitive_return(&method.return_type);
 
-        let ctx = minijinja::context! {
+        let ctx = crate::alef_context! {
             js_name => js_name,
             has_error => has_error,
             error_expr => error_expr,
@@ -237,13 +237,13 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
             .required_methods()
             .iter()
             .map(|m| {
-                minijinja::context! {
+                crate::alef_context! {
                     name => m.name.clone(),
                     js_name => to_camel_case(&m.name),
                 }
             })
             .collect();
-        let ctx = minijinja::context! {
+        let ctx = crate::alef_context! {
             wrapper => wrapper,
             required_methods => required_methods,
         };
@@ -256,7 +256,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         };
         let host_path = crate::codegen::generators::trait_bridge::host_function_path(spec, unregister_fn);
         let camel = to_camel_case(unregister_fn);
-        let ctx = minijinja::context! {
+        let ctx = crate::alef_context! {
             camel => camel.clone(),
             unregister_fn => unregister_fn.to_string(),
             host_path => host_path,
@@ -270,7 +270,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         };
         let host_path = crate::codegen::generators::trait_bridge::host_function_path(spec, clear_fn);
         let camel = to_camel_case(clear_fn);
-        let ctx = minijinja::context! {
+        let ctx = crate::alef_context! {
             camel => camel.clone(),
             clear_fn => clear_fn.to_string(),
             host_path => host_path,
@@ -293,7 +293,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
             .required_methods()
             .iter()
             .map(|m| {
-                minijinja::context! {
+                crate::alef_context! {
                     js_name => to_camel_case(&m.name),
                 }
             })
@@ -305,7 +305,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
             .map(|a| format!(", {a}"))
             .unwrap_or_default();
 
-        let ctx = minijinja::context! {
+        let ctx = crate::alef_context! {
             camel => camel,
             register_fn => register_fn.to_string(),
             required_methods => required_methods,
@@ -484,13 +484,13 @@ fn gen_visitor_bridge(
         .map(|method| {
             let mut method_out = String::new();
             gen_visitor_method_wasm(&mut method_out, method, bridge_cfg, type_paths, &result_metadata);
-            minijinja::context! {
+            crate::alef_context! {
                 code => method_out,
             }
         })
         .collect();
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         core_crate => core_crate.to_string(),
         context_type_path => context_helper.type_path,
         context_field_lines => context_helper.field_lines,
@@ -532,7 +532,7 @@ fn gen_visitor_method_wasm(
 
     let params: Vec<String> = method.params.iter().map(|p| build_wasm_arg(p, bridge_cfg)).collect();
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         name => name.clone(),
         sig => sig,
         ret_ty => ret_ty.clone(),
@@ -808,7 +808,7 @@ pub fn gen_bridge_function(
     let func_name = &func.name;
     let has_error = func.error_type.is_some();
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         func_name => func_name.clone(),
         params_str => params_str,
         ret => ret,
@@ -969,7 +969,7 @@ pub fn gen_options_field_bridge_function(
 
     let body = crate::backends::wasm::template_env::render(
         "gen_options_field_bridge_body",
-        minijinja::context! {
+        crate::alef_context! {
             visitor_kwarg => visitor_kwarg,
             handle_path => handle_path,
             struct_name => struct_name,
@@ -992,7 +992,7 @@ pub fn gen_options_field_bridge_function(
         String::new()
     };
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         func_name => func_name.clone(),
         params_str => params_str,
         ret => ret,
@@ -1037,7 +1037,7 @@ mod tests {
         };
         let code = crate::backends::wasm::template_env::render(
             "gen_visitor_handle_constructor",
-            minijinja::context! {
+            crate::alef_context! {
                 struct_name => "WasmWalkerHandle",
                 module_name => wasm_bridge_module_name(&bridge),
                 bridge_struct_name => crate::codegen::generators::trait_bridge::bridge_wrapper_name("Wasm", &bridge),

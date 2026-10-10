@@ -163,9 +163,7 @@ fn render_template_readme(
 
     let abs_template_dir_owned = abs_template_dir.to_path_buf();
     let mut env = Environment::new();
-    env.set_trim_blocks(true);
-    env.set_lstrip_blocks(true);
-    env.set_keep_trailing_newline(true);
+    crate::template::configure_env(&mut env);
     env.set_loader(move |name: &str| {
         let path = abs_template_dir_owned.join(name);
         match fs::read_to_string(&path) {
@@ -285,7 +283,10 @@ fn render_template_readme(
     ctx.insert("discord_url", Value::from(discord_url));
     ctx.insert("banner_url", Value::from(banner_url));
     ctx.insert("language", Value::from(language_context.to_string()));
-    ctx.insert("functions", Value::from_serialize(readme_functions(api, config, lang)));
+    ctx.insert(
+        "functions",
+        crate::template::to_value(readme_functions(api, config, lang)),
+    );
 
     ctx.insert(
         "csharp_wrapper_class",
@@ -546,7 +547,7 @@ pub(super) fn render_performance_table(perf: &Value, _name: &str) -> String {
     if !platform.is_empty() {
         out.push_str(&template_env::render(
             "performance_context.jinja",
-            minijinja::context! { platform => platform, function => function, note => note },
+            crate::alef_context! { platform => platform, function => function, note => note },
         ));
         out.push('\n');
     }
@@ -582,7 +583,7 @@ pub(super) fn render_performance_table(perf: &Value, _name: &str) -> String {
                 .unwrap_or_default();
             out.push_str(&template_env::render(
                 "performance_throughput_row.jinja",
-                minijinja::context! { name => name, size => size, latency => latency, throughput => throughput },
+                crate::alef_context! { name => name, size => size, latency => latency, throughput => throughput },
             ));
         }
     } else {
@@ -606,7 +607,7 @@ pub(super) fn render_performance_table(perf: &Value, _name: &str) -> String {
                 .unwrap_or_default();
             out.push_str(&template_env::render(
                 "performance_ops_row.jinja",
-                minijinja::context! { name => name, size => size, ops => ops },
+                crate::alef_context! { name => name, size => size, ops => ops },
             ));
         }
     }
@@ -615,7 +616,7 @@ pub(super) fn render_performance_table(perf: &Value, _name: &str) -> String {
 
 /// Convert a `serde_json::Value` into a `minijinja::Value` via serde serialization.
 pub(super) fn json_to_minijinja_value(json: &serde_json::Value) -> Value {
-    Value::from_serialize(json)
+    crate::template::to_value(json)
 }
 
 /// Backslash-escape a trailing run of `#` characters so a display name can be safely

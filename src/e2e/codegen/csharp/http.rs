@@ -134,7 +134,7 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
         let escaped_reason = skip_reason.map(escape_csharp);
         let rendered = crate::e2e::template_env::render(
             "csharp/http_test_open.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => fn_name,
                 description => description,
                 skip_reason => escaped_reason,
@@ -145,7 +145,7 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
 
     /// Emit the closing `}` for a test method.
     fn render_test_close(&self, out: &mut String) {
-        let rendered = crate::e2e::template_env::render("csharp/http_test_close.jinja", minijinja::context! {});
+        let rendered = crate::e2e::template_env::render("csharp/http_test_close.jinja", crate::alef_context! {});
         out.push_str(&rendered);
     }
 

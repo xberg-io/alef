@@ -56,7 +56,7 @@ pub(super) fn render(
 
     Ok(crate::e2e::template_env::render(
         "c/trait_bridge_snippet.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             header => header,
             callbacks => callbacks,
             vtable_type => vtable_type,

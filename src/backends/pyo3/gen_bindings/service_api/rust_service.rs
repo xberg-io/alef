@@ -2,7 +2,6 @@ use super::helpers::find_contract;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, HandlerContractDef, ServiceDef, TypeRef};
 use heck::{ToSnakeCase, ToUpperCamelCase};
-use minijinja::context;
 
 pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     let core_import = config.core_import_name();
@@ -10,7 +9,7 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
 
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_rs_header.rs.jinja",
-        context! {},
+        crate::alef_context! {},
     ));
 
     let referenced_contracts: Vec<&HandlerContractDef> = {
@@ -76,7 +75,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_handler_bridge_struct.rs.jinja",
-        context! { trait_name => trait_name, bridge_name => bridge_name.as_str() },
+        crate::alef_context! { trait_name => trait_name, bridge_name => bridge_name.as_str() },
     ));
 
     let req_path = if req_type == "Value" {
@@ -103,7 +102,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_handler_bridge_impl.rs.jinja",
-        context! {
+        crate::alef_context! {
             core_import => core_import,
             trait_name => trait_name,
             bridge_name => bridge_name,
@@ -154,7 +153,7 @@ fn gen_run_pyfunction(
 
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_pyfunction_header.rs.jinja",
-        context! {
+        crate::alef_context! {
             owner_path => owner_path,
             ep_method => ep_method,
             fn_name => fn_name,
@@ -165,7 +164,7 @@ fn gen_run_pyfunction(
     let ctor_call = build_ctor_call(service, owner_path, core_import);
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_rs_owner_ctor.rs.jinja",
-        context! { ctor_call => ctor_call },
+        crate::alef_context! { ctor_call => ctor_call },
     ));
     out.push('\n');
 
@@ -185,7 +184,7 @@ fn gen_run_pyfunction(
 
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "service_api_registration_arm.rs.jinja",
-                context! {
+                crate::alef_context! {
                     reg_method => reg_method,
                     bridge_name => bridge_name,
                     core_import => core_import,
@@ -209,7 +208,7 @@ fn gen_run_pyfunction(
                     if let Some(name) = opaque_named {
                         out.push_str(&crate::backends::pyo3::template_env::render(
                             "service_api_registration_meta_opaque.rs.jinja",
-                            context! {
+                            crate::alef_context! {
                                 param_name => meta_param.name.as_str(),
                                 type_name => name,
                                 core_import => core_import,
@@ -220,7 +219,7 @@ fn gen_run_pyfunction(
                         let rust_ty = typeref_to_rust_type(&meta_param.ty, core_import);
                         out.push_str(&crate::backends::pyo3::template_env::render(
                             "service_api_registration_meta_value.rs.jinja",
-                            context! {
+                            crate::alef_context! {
                                 param_name => meta_param.name.as_str(),
                                 rust_type => rust_ty,
                                 index => i,
@@ -236,7 +235,7 @@ fn gen_run_pyfunction(
                 };
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "service_api_registration_owner_call.rs.jinja",
-                    context! {
+                    crate::alef_context! {
                         reg_method => reg_method,
                         args => args,
                     },
@@ -244,7 +243,7 @@ fn gen_run_pyfunction(
             } else {
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "service_api_registration_owner_call.rs.jinja",
-                    context! {
+                    crate::alef_context! {
                         reg_method => reg_method,
                         args => "",
                     },
@@ -263,7 +262,7 @@ fn gen_run_pyfunction(
     }
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_unknown_registration_arm.rs.jinja",
-        context! {},
+        crate::alef_context! {},
     ));
     out.push_str("        }\n");
     out.push_str("    }\n\n");
@@ -273,7 +272,7 @@ fn gen_run_pyfunction(
 
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_pyfunction_footer.rs.jinja",
-        context! {},
+        crate::alef_context! {},
     ));
 }
 

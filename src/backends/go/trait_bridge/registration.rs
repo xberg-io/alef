@@ -27,14 +27,14 @@ pub(super) fn gen_unregistration_fn(bridge_cfg: &TraitBridgeConfig, ffi_prefix: 
     let mut out = String::new();
     out.push_str(&crate::backends::go::template_env::render(
         "unregister_fn_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             fn_name => &go_fn_name,
             trait_name => trait_name,
         },
     ));
     out.push_str(&crate::backends::go::template_env::render(
         "unregister_c_call.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             c_function => c_function,
             free_string_fn => c_symbols::free_string_symbol(ffi_prefix),
             trait_name => trait_name,
@@ -62,14 +62,14 @@ pub(super) fn gen_clear_fn(bridge_cfg: &TraitBridgeConfig, ffi_prefix: &str, tra
     let mut out = String::new();
     out.push_str(&crate::backends::go::template_env::render(
         "clear_function_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             fn_name => &go_fn_name,
             name => trait_name,
         },
     ));
     out.push_str(&crate::backends::go::template_env::render(
         "clear_c_call.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             c_function => c_function,
             trait_name => trait_name,
             trait_snake => &trait_snake,

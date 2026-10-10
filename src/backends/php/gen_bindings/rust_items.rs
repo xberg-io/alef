@@ -1,5 +1,3 @@
-use minijinja::context;
-
 pub(super) fn gen_streaming_adapter_facade_method(
     adapter: &crate::core::config::AdapterConfig,
     _mapper: &crate::backends::php::type_map::PhpMapper,
@@ -45,7 +43,7 @@ pub(super) fn gen_streaming_adapter_facade_method(
 
     crate::backends::php::template_env::render(
         "php_streaming_adapter_method.jinja",
-        context! {
+        crate::alef_context! {
             method_name => method_name,
             params => &params.join(", "),
             return_type => return_type,

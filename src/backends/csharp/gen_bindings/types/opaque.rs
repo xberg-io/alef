@@ -25,8 +25,6 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_opaque_handle(
     client_constructor: Option<&ClientConstructorConfig>,
     enum_data_variant_names: &HashSet<String>,
 ) -> String {
-    use minijinja::Value;
-
     let has_streaming = typ
         .methods
         .iter()
@@ -57,7 +55,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_opaque_handle(
 
     let mut out = render(
         "opaque_handle_header.jinja",
-        Value::from_serialize(serde_json::json!({
+        crate::template::to_value(serde_json::json!({
             "namespace": namespace,
             "class_name": class_name,
             "free_method": free_method,
@@ -124,8 +122,6 @@ pub(super) fn gen_opaque_streaming_method(
     exception_name: &str,
     meta: &StreamingMethodMeta,
 ) -> String {
-    use minijinja::Value;
-
     let cs_method_name = to_csharp_name(&method.name);
     let cs_type_name = class_name.to_string();
     let item_pascal = csharp_type_name(&meta.item_type);
@@ -157,7 +153,7 @@ pub(super) fn gen_opaque_streaming_method(
     };
     render(
         "opaque_streaming_method.jinja",
-        Value::from_serialize(serde_json::json!({
+        crate::template::to_value(serde_json::json!({
             "has_doc": has_doc,
             "doc_lines": doc_lines,
             "method_name": public_method_name,
@@ -188,7 +184,7 @@ fn emit_call_arguments(out: &mut String, args: &[String], arg_template: &str) {
         if index > 0 {
             out.push_str(",\n");
         }
-        out.push_str(render(arg_template, minijinja::context! { arg }).trim_end_matches('\n'));
+        out.push_str(render(arg_template, crate::alef_context! { arg }).trim_end_matches('\n'));
     }
 }
 
@@ -210,7 +206,7 @@ fn emit_presence_gate(
     let failure_block = if method.error_type.is_some() {
         render(
             "last_error_context_throw.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => format!("{indent}    "),
                 operation => cs_native_name,
                 exception_name,
@@ -251,7 +247,7 @@ pub(super) fn gen_opaque_method(
     if !method_doc_lines.is_empty() {
         out.push_str(&render(
             "doc_comment_block.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 has_doc => true,
                 indent => "    ",
                 doc_lines => method_doc_lines,
@@ -264,7 +260,7 @@ pub(super) fn gen_opaque_method(
             "async Task".to_string()
         } else {
             let return_type = csharp_type(&method.return_type);
-            render("async_task_return_type.jinja", minijinja::context! { return_type })
+            render("async_task_return_type.jinja", crate::alef_context! { return_type })
                 .trim_end_matches('\n')
                 .to_string()
         }
@@ -300,7 +296,7 @@ pub(super) fn gen_opaque_method(
     out.push_str(
         render(
             "opaque_method_header.jinja",
-            minijinja::context! { static_kw, return_type_str, method_cs_name => public_method_name },
+            crate::alef_context! { static_kw, return_type_str, method_cs_name => public_method_name },
         )
         .trim_end_matches('\n'),
     );
@@ -312,7 +308,7 @@ pub(super) fn gen_opaque_method(
             out.push_str(
                 render(
                     "param_decl_optional.jinja",
-                    minijinja::context! { param_type, param_name },
+                    crate::alef_context! { param_type, param_name },
                 )
                 .trim_end_matches('\n'),
             );
@@ -320,7 +316,7 @@ pub(super) fn gen_opaque_method(
             out.push_str(
                 render(
                     "param_decl_required.jinja",
-                    minijinja::context! { param_type, param_name },
+                    crate::alef_context! { param_type, param_name },
                 )
                 .trim_end_matches('\n'),
             );
@@ -362,7 +358,7 @@ pub(super) fn gen_opaque_method(
         if !is_static {
             args_block.push_str(&render(
                 "native_arg_line.jinja",
-                minijinja::context! { indent => arg_indent, arg => &receiver_arg },
+                crate::alef_context! { indent => arg_indent, arg => &receiver_arg },
             ));
         }
         for param in visible_params.iter() {
@@ -370,12 +366,12 @@ pub(super) fn gen_opaque_method(
             let arg = super::super::native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
             args_block.push_str(&render(
                 "native_arg_line.jinja",
-                minijinja::context! { indent => arg_indent, arg },
+                crate::alef_context! { indent => arg_indent, arg },
             ));
             if matches!(param.ty, TypeRef::Bytes) {
                 args_block.push_str(&render(
                     "native_bytes_len_arg_line.jinja",
-                    minijinja::context! { indent => arg_indent, param_name, optional => param.optional },
+                    crate::alef_context! { indent => arg_indent, param_name, optional => param.optional },
                 ));
             }
         }
@@ -387,7 +383,7 @@ pub(super) fn gen_opaque_method(
         };
         out.push_str(&render(
             "opaque_bytes_result_call.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 is_async => method.is_async,
                 native_method_name => &cs_native_name,
                 args_block => &args_block,
@@ -430,14 +426,14 @@ pub(super) fn gen_opaque_method(
 
         out.push_str(&render(
             "native_call_start.jinja",
-            minijinja::context! { method_name => &cs_native_name },
+            crate::alef_context! { method_name => &cs_native_name },
         ));
         emit_call_arguments(&mut out, &call_args, "indented_arg_async.jinja");
         out.push_str("\n            );\n");
         if consumes_receiver {
             out.push_str(&render(
                 "consumed_handle_invalidate.jinja",
-                minijinja::context! { indent => "            " },
+                crate::alef_context! { indent => "            " },
             ));
         }
 
@@ -446,18 +442,18 @@ pub(super) fn gen_opaque_method(
             if matches!(method.return_type, TypeRef::Optional(_)) {
                 out.push_str(&render(
                     "null_result_return.jinja",
-                    minijinja::context! { indent => "            ", zero },
+                    crate::alef_context! { indent => "            ", zero },
                 ));
             } else {
                 out.push_str(&render(
                     "null_result_throw.jinja",
-                    minijinja::context! { indent => "            ", exception_name, cs_native_name, zero },
+                    crate::alef_context! { indent => "            ", exception_name, cs_native_name, zero },
                 ));
             }
         } else if method.error_type.is_some() {
             out.push_str(&render(
                 "last_error_context_throw.jinja",
-                minijinja::context! { indent => "            ", operation => &cs_native_name, exception_name },
+                crate::alef_context! { indent => "            ", operation => &cs_native_name, exception_name },
             ));
         }
 
@@ -497,14 +493,14 @@ pub(super) fn gen_opaque_method(
 
         out.push_str(&render(
             "native_call_start.jinja",
-            minijinja::context! { method_name => &cs_native_name },
+            crate::alef_context! { method_name => &cs_native_name },
         ));
         emit_call_arguments(&mut out, &call_args, "indented_arg_sync.jinja");
         out.push_str("\n        );\n");
         if consumes_receiver {
             out.push_str(&render(
                 "consumed_handle_invalidate.jinja",
-                minijinja::context! { indent => "        " },
+                crate::alef_context! { indent => "        " },
             ));
         }
 
@@ -513,18 +509,18 @@ pub(super) fn gen_opaque_method(
             if matches!(method.return_type, TypeRef::Optional(_)) {
                 out.push_str(&render(
                     "null_result_return.jinja",
-                    minijinja::context! { indent => "        ", zero },
+                    crate::alef_context! { indent => "        ", zero },
                 ));
             } else {
                 out.push_str(&render(
                     "null_result_throw.jinja",
-                    minijinja::context! { indent => "        ", exception_name, cs_native_name, zero },
+                    crate::alef_context! { indent => "        ", exception_name, cs_native_name, zero },
                 ));
             }
         } else if method.error_type.is_some() {
             out.push_str(&render(
                 "last_error_context_throw.jinja",
-                minijinja::context! { indent => "        ", operation => &cs_native_name, exception_name },
+                crate::alef_context! { indent => "        ", operation => &cs_native_name, exception_name },
             ));
         }
 

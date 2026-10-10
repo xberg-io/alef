@@ -18,9 +18,7 @@ static TEMPLATE_GROUPS: &[&[(&str, &str)]] = &[
 
 pub(crate) fn make_env() -> Environment<'static> {
     let mut env = Environment::new();
-    env.set_trim_blocks(true);
-    env.set_lstrip_blocks(true);
-    env.set_keep_trailing_newline(true);
+    crate::template::configure_env(&mut env);
     for templates in TEMPLATE_GROUPS {
         for (name, src) in *templates {
             env.add_template(name, src).expect("built-in template is valid");
@@ -52,7 +50,7 @@ mod tests {
     fn raw_ptr_wrapper_template_is_registered_and_renders() {
         let out = render(
             "rust_wrapper_raw_ptr_fn.rs.jinja",
-            minijinja::context! { wrapper_type => "RouteBuilder", fn_snake => "route_builder_raw_ptr" },
+            crate::alef_context! { wrapper_type => "RouteBuilder", fn_snake => "route_builder_raw_ptr" },
         );
         assert!(out.contains("route_builder_raw_ptr"), "fn name must be rendered: {out}");
         assert!(out.contains("RouteBuilder"), "wrapper type must be rendered: {out}");

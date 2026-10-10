@@ -117,7 +117,7 @@ pub fn gen_options_field_bridge_function(
 
     let body = crate::backends::napi::template_env::render(
         "options_field_bridge_body.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             has_error => func.error_type.is_some(),
             maps_return => return_wrap != "val",
             visitor_kwarg => visitor_kwarg,
@@ -140,7 +140,7 @@ pub fn gen_options_field_bridge_function(
     let func_name = &func.name;
     out.push_str(&crate::backends::napi::template_env::render(
         "trait_bridge_fn_wrapper.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             func_name => func_name,
             params_str => params_str,
             return_type => ret,

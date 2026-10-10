@@ -57,7 +57,7 @@ pub(crate) fn emit_type_method_shims(
     for path in &trait_uses {
         out.push_str(&crate::backends::swift::template_env::render(
             "rust_trait_use.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 path => path,
             },
         ));
@@ -454,7 +454,7 @@ pub(crate) fn emit_type_method_shims(
         }
         out.push_str(&crate::backends::swift::template_env::render(
             "rust_wrapper_free_fn.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => fn_name,
                 params => params_str,
                 return_clause => return_clause,

@@ -748,7 +748,7 @@ fn render_struct_fields(
             let elixir_val = if let Some(file) = docs_files.iter().find(|file| file.field == pointer) {
                 crate::e2e::template_env::render(
                     "elixir/docs_file_read.jinja",
-                    minijinja::context! { path => escape_elixir(&file.path) },
+                    crate::alef_context! { path => escape_elixir(&file.path) },
                 )
                 .trim_end()
                 .to_string()

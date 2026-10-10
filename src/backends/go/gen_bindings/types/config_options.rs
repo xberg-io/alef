@@ -1,5 +1,3 @@
-use minijinja::context;
-
 use crate::backends::go::type_map::go_field_type;
 use crate::codegen::naming::{go_type_name, to_go_name};
 use crate::codegen::shared::binding_fields;
@@ -22,7 +20,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_config_options(
     let go_name = go_type_name(&typ.name);
     out.push_str(&crate::backends::go::template_env::render(
         "config_option_type_header.jinja",
-        context! {
+        crate::alef_context! {
             go_name => &go_name,
         },
     ));
@@ -45,7 +43,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_config_options(
 
         out.push_str(&crate::backends::go::template_env::render(
             "config_with_option_comment.jinja",
-            context! {
+            crate::alef_context! {
                 go_name => &go_name,
                 field_go_name => &field_go_name,
                 field_name => &field.name,
@@ -60,7 +58,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_config_options(
         let assign_val = if use_ptr { "&v" } else { "v" };
         out.push_str(&crate::backends::go::template_env::render(
             "config_with_option_signature.jinja",
-            context! {
+            crate::alef_context! {
                 go_name => &go_name,
                 field_go_name => &field_go_name,
                 param_type => param_type.as_ref(),
@@ -72,7 +70,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_config_options(
 
     out.push_str(&crate::backends::go::template_env::render(
         "config_new_constructor_header.jinja",
-        context! {
+        crate::alef_context! {
             go_name => &go_name,
         },
     ));
@@ -108,7 +106,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_config_options(
         };
         out.push_str(&crate::backends::go::template_env::render(
             "config_default_field.jinja",
-            context! {
+            crate::alef_context! {
                 field_go_name => &field_go_name,
                 default_val => &default_val,
             },

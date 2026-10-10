@@ -221,7 +221,7 @@ pub(super) fn render_snippet_body_with_ir(
     );
     Ok(crate::e2e::template_env::render(
         "csharp/snippet_body.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             namespace => namespace,
             setup_lines => setup_lines,
             client_factory => client_factory,

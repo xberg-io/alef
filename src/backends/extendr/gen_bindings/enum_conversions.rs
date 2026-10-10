@@ -38,7 +38,7 @@ fn emit_cfg_gated_arm(
     }
     Some(crate::backends::extendr::template_env::render(
         format!("enum_from_{direction}_arm.jinja").as_str(),
-        minijinja::context! {
+        crate::alef_context! {
             pattern => pattern,
             expression => expression,
             cfg => variant.cfg.as_deref(),
@@ -81,13 +81,13 @@ pub(super) fn gen_from_binding_to_core(
     let catch_all = catch_all(enum_def, is_host_enum, configured_features, true).then(|| {
         crate::backends::extendr::template_env::render(
             "enum_from_binding_to_core_catch_all.jinja",
-            minijinja::context! {},
+            crate::alef_context! {},
         )
     });
 
     crate::backends::extendr::template_env::render(
         "enum_from_binding_to_core_impl.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             binding_name => binding_name,
             core_path => core_path,
             arms => arms,
@@ -129,13 +129,13 @@ pub(super) fn gen_from_core_to_binding(
     let catch_all = catch_all(enum_def, is_host_enum, configured_features, true).then(|| {
         crate::backends::extendr::template_env::render(
             "enum_from_core_to_binding_catch_all.jinja",
-            minijinja::context! {},
+            crate::alef_context! {},
         )
     });
 
     crate::backends::extendr::template_env::render(
         "enum_from_core_to_binding_impl.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             binding_name => binding_name,
             core_path => core_path,
             arms => arms,

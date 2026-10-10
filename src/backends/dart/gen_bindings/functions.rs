@@ -87,7 +87,7 @@ pub(super) fn emit_function(
         let doc_lines: Vec<String> = f.doc.lines().map(ToString::to_string).collect();
         out.push_str(&template_env::render(
             "doc_comment.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => "  ",
                 lines => doc_lines,
             },
@@ -96,7 +96,7 @@ pub(super) fn emit_function(
     if let Some(ref error_ty) = f.error_type {
         out.push_str(&template_env::render(
             "function_throws_annotation.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 error_ty => error_ty.as_str(),
             },
         ));
@@ -192,7 +192,7 @@ pub(super) fn emit_function(
         };
         out.push_str(&template_env::render(
             "function_signature_async.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 return_ty => return_ty,
                 fn_name => fn_name.as_str(),
                 params => params_str.as_str(),
@@ -200,7 +200,7 @@ pub(super) fn emit_function(
         ));
         out.push_str(&template_env::render(
             "function_await_return.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => fn_name.as_str(),
                 call_args_str => call_args_str.as_str(),
             },

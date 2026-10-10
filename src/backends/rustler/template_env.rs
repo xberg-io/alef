@@ -7,9 +7,7 @@ const TEMPLATE_GROUPS: &[&[(&str, &str)]] = &[inline::TEMPLATES, files::TEMPLATE
 
 pub(crate) fn make_env() -> Environment<'static> {
     let mut env = Environment::new();
-    env.set_trim_blocks(true);
-    env.set_lstrip_blocks(true);
-    env.set_keep_trailing_newline(true);
+    crate::template::configure_env(&mut env);
     for templates in TEMPLATE_GROUPS {
         for (name, src) in *templates {
             env.add_template(name, src).expect("built-in template is valid");
@@ -42,7 +40,7 @@ mod autoescape_tests {
         let rendered = env
             .get_template("autoescape_probe.ex.jinja")
             .expect("probe template is registered")
-            .render(minijinja::context! { probe => "a<b>&\"c\"'d'" })
+            .render(crate::alef_context! { probe => "a<b>&\"c\"'d'" })
             .expect("probe template renders");
         assert_eq!(
             rendered, "a<b>&\"c\"'d'",
@@ -58,11 +56,11 @@ mod autoescape_tests {
     fn the_tagged_enum_encoder_template_passes_escaped_values_through_unchanged() {
         let rendered = super::render(
             "elixir_tagged_enum_encoder.ex.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => "encode_e",
                 enum_name => "E",
                 tag => "ta\\#{1}g",
-                variants => vec![minijinja::context! {
+                variants => vec![crate::alef_context! {
                     atom => "a",
                     wire => "wi\\#{1}re",
                     is_unit => true,

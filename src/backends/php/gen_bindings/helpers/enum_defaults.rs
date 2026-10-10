@@ -2,7 +2,6 @@ use crate::codegen::conversions::ConversionConfig;
 use crate::codegen::shared::binding_fields;
 use crate::core::ir::{EnumDef, TypeDef, TypeRef};
 use ahash::AHashSet;
-use minijinja::context;
 
 use super::params::references_named_type;
 
@@ -130,7 +129,7 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
             let cast = if config.cast_large_ints_to_i64 { " as u64" } else { "" };
             let conversion = crate::backends::php::template_env::render(
                 "php_duration_default_expr.jinja",
-                context! {
+                crate::alef_context! {
                     value_expr => &format!("val.{name}"),
                     cast => cast,
                     core_type => &core_path,
@@ -217,7 +216,7 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
     let emit_default_spread = typ.has_default;
     let mut out = crate::backends::php::template_env::render(
         "php_impl_from_begin.jinja",
-        context! {
+        crate::alef_context! {
             binding_type => &typ.name,
             core_type => &core_path,
             emit_spread => emit_default_spread,
@@ -226,7 +225,7 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
     for &(field_name, ref field_expr) in &fields {
         out.push_str(&crate::backends::php::template_env::render(
             "php_struct_field_assignment.jinja",
-            context! {
+            crate::alef_context! {
                 field_name => field_name,
                 field_expr => field_expr,
             },
@@ -234,7 +233,7 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
     }
     out.push_str(&crate::backends::php::template_env::render(
         "php_impl_from_end.jinja",
-        context! {
+        crate::alef_context! {
             emit_spread => emit_default_spread,
         },
     ));
@@ -296,7 +295,7 @@ pub(super) fn gen_string_to_enum_expr(
         if variant.fields.is_empty() {
             crate::backends::php::template_env::render(
                 "php_enum_variant_unit_expr.jinja",
-                context! {
+                crate::alef_context! {
                     core_path => core_path,
                     variant_name => &variant.name,
                 },
@@ -305,7 +304,7 @@ pub(super) fn gen_string_to_enum_expr(
             let defaults: Vec<&str> = variant.fields.iter().map(|_| "Default::default()").collect();
             crate::backends::php::template_env::render(
                 "php_enum_variant_tuple_expr.jinja",
-                context! {
+                crate::alef_context! {
                     core_path => core_path,
                     variant_name => &variant.name,
                     defaults => defaults.join(", "),
@@ -318,7 +317,7 @@ pub(super) fn gen_string_to_enum_expr(
                 .map(|field| {
                     crate::backends::php::template_env::render(
                         "php_enum_variant_default_field_expr.jinja",
-                        context! {
+                        crate::alef_context! {
                             field_name => &field.name,
                         },
                     )
@@ -326,7 +325,7 @@ pub(super) fn gen_string_to_enum_expr(
                 .collect();
             crate::backends::php::template_env::render(
                 "php_enum_variant_struct_expr.jinja",
-                context! {
+                crate::alef_context! {
                     core_path => core_path,
                     variant_name => &variant.name,
                     fields => fields.join(", "),
@@ -394,7 +393,7 @@ pub(super) fn gen_string_to_enum_expr(
         // arm live whenever the feature is actually on. ~keep
         match_arms.push_str(&crate::backends::php::template_env::render(
             "php_enum_string_match_arm.jinja",
-            context! {
+            crate::alef_context! {
                 variant_name => &wire_name,
                 variant_name_lower => &variant_lower,
                 expr => &expr,
@@ -404,7 +403,7 @@ pub(super) fn gen_string_to_enum_expr(
     }
     match_arms.push_str(&crate::backends::php::template_env::render(
         "php_enum_string_match_fallback_arm.jinja",
-        context! {
+        crate::alef_context! {
             fallback_expr => &fallback_expr,
             field_name => field_name,
             enum_name => enum_name,
@@ -415,7 +414,7 @@ pub(super) fn gen_string_to_enum_expr(
     if optional {
         crate::backends::php::template_env::render(
             "php_enum_string_optional_match_expr.jinja",
-            context! {
+            crate::alef_context! {
                 val_expr => val_expr,
                 match_arms => &match_arms,
             },
@@ -423,7 +422,7 @@ pub(super) fn gen_string_to_enum_expr(
     } else {
         crate::backends::php::template_env::render(
             "php_enum_string_match_expr.jinja",
-            context! {
+            crate::alef_context! {
                 val_expr => val_expr,
                 match_arms => &match_arms,
             },

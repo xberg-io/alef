@@ -42,7 +42,7 @@ fn render_inline(template_name: &str, ctx: minijinja::Value) -> String {
 fn render_service_h_param_decl(c_type: String, param_name: &str) -> String {
     render_inline(
         "service_api_h_param_decl.h.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             c_type,
             param_name => param_name.to_owned(),
         },
@@ -52,7 +52,7 @@ fn render_service_h_param_decl(c_type: String, param_name: &str) -> String {
 fn render_service_api_arg(value: &str) -> String {
     render_inline(
         "service_api_arg.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             value => value.to_owned(),
         },
     )
@@ -75,11 +75,11 @@ fn gen_service_h(api: &ApiSurface, crate_name: &str) -> String {
 
     out.push_str(&render(
         "service_api_h_header_start.h.jinja",
-        minijinja::context! { header_guard },
+        crate::alef_context! { header_guard },
     ));
     out.push_str(&render(
         "service_api_h_callback_typedef.h.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     out.push('\n');
 
@@ -87,7 +87,7 @@ fn gen_service_h(api: &ApiSurface, crate_name: &str) -> String {
         let opaque_name = format!("{}Opaque", service.name);
         out.push_str(&render(
             "service_api_h_opaque_typedef.h.jinja",
-            minijinja::context! { opaque_name },
+            crate::alef_context! { opaque_name },
         ));
     }
     out.push('\n');
@@ -98,7 +98,7 @@ fn gen_service_h(api: &ApiSurface, crate_name: &str) -> String {
 
     out.push_str(&render(
         "service_api_h_header_end.h.jinja",
-        minijinja::context! { header_guard },
+        crate::alef_context! { header_guard },
     ));
     out
 }
@@ -109,7 +109,7 @@ fn gen_service_h_decls(out: &mut String, service: &ServiceDef, api: &ApiSurface,
 
     out.push_str(&render(
         "service_api_h_constructor_decl.h.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_name => service.name.clone(),
             symbol => c_consumer::service_new_symbol(prefix, &service.name),
             opaque_name => opaque_name.clone(),
@@ -118,7 +118,7 @@ fn gen_service_h_decls(out: &mut String, service: &ServiceDef, api: &ApiSurface,
 
     out.push_str(&render(
         "service_api_h_destructor_decl.h.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_name => service.name.clone(),
             symbol => c_consumer::service_free_symbol(prefix, &service.name),
             opaque_name => opaque_name.clone(),
@@ -128,7 +128,7 @@ fn gen_service_h_decls(out: &mut String, service: &ServiceDef, api: &ApiSurface,
     for reg in &service.registrations {
         out.push_str(&render_inline(
             "service_api_h_registration_decl_start.h.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => reg.method.clone(),
                 symbol => c_consumer::service_register_symbol(prefix, &service.name, &reg.method),
                 opaque_name => opaque_name.clone(),
@@ -161,7 +161,7 @@ fn gen_service_h_decls(out: &mut String, service: &ServiceDef, api: &ApiSurface,
         };
         out.push_str(&render_inline(
             "service_api_h_entrypoint_decl_start.h.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 kind,
                 return_type,
                 symbol => c_consumer::service_entrypoint_symbol(prefix, &service.name, &ep.method),
@@ -383,7 +383,7 @@ fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     let prefix = config.ffi_prefix();
     let mut out = String::new();
 
-    out.push_str(&render("service_api_rs_header.rs.jinja", minijinja::context! {}));
+    out.push_str(&render("service_api_rs_header.rs.jinja", crate::alef_context! {}));
 
     let referenced_contracts: Vec<&HandlerContractDef> = {
         let mut names: Vec<&str> = api
@@ -418,7 +418,7 @@ fn gen_service_opaque(out: &mut String, service: &ServiceDef, _core_import: &str
 
     out.push_str(&render(
         "service_api_opaque.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_name => service.name.clone(),
             new_fn_name,
             free_fn_name,
@@ -437,7 +437,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 
     out.push_str(&render(
         "service_api_handler_bridge_struct.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => trait_name.clone(),
             bridge_name => bridge_name.clone(),
         },
@@ -488,7 +488,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 
     out.push_str(&render(
         "service_api_handler_bridge_impl.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             core_import => core_import.to_owned(),
             trait_name => trait_name.clone(),
             bridge_name,
@@ -547,7 +547,7 @@ fn gen_registration_function(
     let dispatch_body = if reg.error_type.is_some() {
         render(
             "service_api_registration_dispatch_result.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => reg.method.clone(),
                 meta_args => meta_args.clone(),
                 opaque_name,
@@ -556,7 +556,7 @@ fn gen_registration_function(
     } else {
         render(
             "service_api_registration_dispatch_void.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => reg.method.clone(),
                 meta_args => meta_args.clone(),
                 opaque_name,
@@ -571,7 +571,7 @@ fn gen_registration_function(
     );
     out.push_str(&render(
         "service_api_registration_function.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => reg.method.clone(),
             new_fn_name => c_consumer::service_new_symbol(prefix, &service.name),
             fn_name,
@@ -673,7 +673,7 @@ fn gen_registration_variant(
             WrapperConstructorArg::Fixed { value_expr, .. } => {
                 ctor_args.push_str(&render(
                     "service_api_wrapper_ctor_arg.rs.jinja",
-                    minijinja::context! { value => value_expr.clone() },
+                    crate::alef_context! { value => value_expr.clone() },
                 ));
             }
             WrapperConstructorArg::Free { param } => {
@@ -684,7 +684,7 @@ fn gen_registration_variant(
                     .unwrap_or(param.name.as_str());
                 ctor_args.push_str(&render(
                     "service_api_wrapper_ctor_arg.rs.jinja",
-                    minijinja::context! { value => binding.to_owned() },
+                    crate::alef_context! { value => binding.to_owned() },
                 ));
             }
         }
@@ -720,7 +720,7 @@ fn gen_registration_variant(
     let dispatch_body = if reg.error_type.is_some() {
         render(
             "service_api_registration_dispatch_result.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => reg.method.clone(),
                 meta_args => meta_args.clone(),
                 opaque_name,
@@ -729,7 +729,7 @@ fn gen_registration_variant(
     } else {
         render(
             "service_api_registration_dispatch_void.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => reg.method.clone(),
                 meta_args => meta_args.clone(),
                 opaque_name,
@@ -744,7 +744,7 @@ fn gen_registration_variant(
     );
     out.push_str(&render(
         "service_api_registration_variant.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             doc => doc.to_owned(),
             new_fn_name => new_fn_name.to_owned(),
             variant_fn_name,
@@ -792,7 +792,7 @@ fn gen_configurator_function(
     );
     out.push_str(&render(
         "service_api_configurator_function.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => cfg.name.clone(),
             new_fn_name => c_consumer::service_new_symbol(prefix, &service.name),
             fn_name,
@@ -860,23 +860,23 @@ fn gen_entrypoint_function(
         if ep.error_type.is_some() {
             render(
                 "service_api_entrypoint_return_opaque_result.rs.jinja",
-                minijinja::context! { call => call.clone() },
+                crate::alef_context! { call => call.clone() },
             )
         } else {
             render(
                 "service_api_entrypoint_return_opaque_value.rs.jinja",
-                minijinja::context! { call => call.clone() },
+                crate::alef_context! { call => call.clone() },
             )
         }
     } else if ep.error_type.is_some() {
         render(
             "service_api_entrypoint_return_result_status.rs.jinja",
-            minijinja::context! { call => call.clone() },
+            crate::alef_context! { call => call.clone() },
         )
     } else {
         render(
             "service_api_entrypoint_return_void_status.rs.jinja",
-            minijinja::context! { call => call.clone() },
+            crate::alef_context! { call => call.clone() },
         )
     };
 
@@ -887,7 +887,7 @@ fn gen_entrypoint_function(
     );
     out.push_str(&render(
         "service_api_entrypoint_function.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => ep.method.clone(),
             new_fn_name => c_consumer::service_new_symbol(prefix, &service.name),
             fn_name,

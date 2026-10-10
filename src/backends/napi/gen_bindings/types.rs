@@ -580,7 +580,7 @@ pub(super) fn gen_dto_method_fns(
             if cfg.has_serde {
                 crate::backends::napi::template_env::render(
                     "struct_wither_serde_body.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         err_conv => err_conv,
                         core_type_path => core_type_path,
                         method_name => method.name,
@@ -630,7 +630,7 @@ pub(super) fn gen_dto_method_fns(
 
         out.push_str(&crate::backends::napi::template_env::render(
             "struct_static_method_wrapper.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 attrs => attrs,
                 js_name => full_js_name,
                 rust_name => full_rust_name,

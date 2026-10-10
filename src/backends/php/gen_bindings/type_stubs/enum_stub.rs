@@ -11,7 +11,6 @@ use super::{
 };
 use crate::core::ir::EnumDef;
 use ahash::AHashSet;
-use minijinja::context;
 use std::collections::HashSet;
 
 /// Render the complete stub declaration for one enum, dispatching on the very predicate
@@ -44,12 +43,12 @@ pub(super) fn gen_enum_stub(
     if !is_tagged_data_enum(enum_def) {
         content.push_str(&crate::backends::php::template_env::render(
             "php_record_class_stub_declaration.jinja",
-            context! { class_name => &enum_def.name },
+            crate::alef_context! { class_name => &enum_def.name },
         ));
         for (const_name, wire_value) in enum_constant_entries(enum_def, is_host_enum, Some(configured_features)) {
             content.push_str(&crate::backends::php::template_env::render(
                 "php_enum_constant_stub.jinja",
-                context! {
+                crate::alef_context! {
                     const_name => const_name,
                     value => &wire_value,
                 },
@@ -64,7 +63,7 @@ pub(super) fn gen_enum_stub(
         let sanitized = sanitize_rust_idioms(&enum_def.doc, DocTarget::PhpDoc);
         content.push_str(&crate::backends::php::template_env::render(
             "php_phpdoc_lines.jinja",
-            context! {
+            crate::alef_context! {
                 doc_lines => sanitized.lines().collect::<Vec<_>>(),
                 indent => "",
             },
@@ -73,7 +72,7 @@ pub(super) fn gen_enum_stub(
     }
     content.push_str(&crate::backends::php::template_env::render(
         "php_record_class_stub_declaration.jinja",
-        context! { class_name => &enum_def.name },
+        crate::alef_context! { class_name => &enum_def.name },
     ));
 
     for declaration in gen_data_enum_property_declarations(enum_def, enum_names) {
@@ -86,7 +85,7 @@ pub(super) fn gen_enum_stub(
     );
     content.push_str(&crate::backends::php::template_env::render(
         "php_stub_method_definition.jinja",
-        context! {
+        crate::alef_context! {
             static_kw => "static ",
             method_name => "from_json",
             params => "string $json",

@@ -144,7 +144,7 @@ pub(super) fn render_test_file(
 
     crate::e2e::template_env::render(
         "php/test_file.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             header => header,
             namespace => namespace,
             class_name => class_name,

@@ -10,7 +10,7 @@ pub(super) fn render_public_nif_call(
 ) -> String {
     template_env::render(
         "elixir_public_nif_call.ex.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             native_mod => native_module,
             func_name => function_name,
             args => arguments,

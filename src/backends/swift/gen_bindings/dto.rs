@@ -236,7 +236,7 @@ pub(super) fn emit_first_class_struct(
         };
         properties.push_str(&crate::backends::swift::template_env::render(
             "swift_struct_property.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => camel,
                 ty => property_type,
             },
@@ -270,7 +270,7 @@ pub(super) fn emit_first_class_struct(
         let camel = swift_case_ident(&field.name.to_lower_camel_case());
         init_assignments.push_str(&crate::backends::swift::template_env::render(
             "swift_self_assignment.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 field => camel,
                 expr => camel,
             },
@@ -295,7 +295,7 @@ pub(super) fn emit_first_class_struct(
             );
             coding_keys.push_str(&crate::backends::swift::template_env::render(
                 "swift_coding_key.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => camel,
                     wire_key => wire_key,
                 },
@@ -417,7 +417,7 @@ pub(super) fn emit_first_class_struct(
         };
         ffi_init_assignments.push_str(&crate::backends::swift::template_env::render(
             "swift_self_assignment.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 field => swift_field,
                 expr => expr,
             },
@@ -435,7 +435,7 @@ pub(super) fn emit_first_class_struct(
             into_rust_body.push_str("        let json = String(data: data, encoding: .utf8) ?? \"{}\"\n");
             into_rust_body.push_str(&crate::backends::swift::template_env::render(
                 "swift_into_rust_json_return.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     from_json_fn => from_json_fn,
                 },
             ));
@@ -465,7 +465,7 @@ pub(super) fn emit_first_class_struct(
 
     out.push_str(&crate::backends::swift::template_env::render(
         "first_class_struct.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             type_name => type_name,
             properties => properties,
             init_params => init_params,
@@ -600,7 +600,7 @@ pub(crate) fn emit_decoder_init(
             match &literal {
                 Some(fb) => out.push_str(&crate::backends::swift::template_env::render(
                     "swift_decode_default_assignment.swift.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         field => camel,
                         ty => inner_ty,
                         fallback => fb,
@@ -608,7 +608,7 @@ pub(crate) fn emit_decoder_init(
                 )),
                 None => out.push_str(&crate::backends::swift::template_env::render(
                     "swift_decode_optional_assignment.swift.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         field => camel,
                         ty => inner_ty,
                     },
@@ -661,7 +661,7 @@ pub(crate) fn emit_decoder_init(
             Some(fb) => {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "swift_decode_default_assignment.swift.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         field => camel,
                         ty => swift_ty,
                         fallback => fb,
@@ -671,7 +671,7 @@ pub(crate) fn emit_decoder_init(
             None => {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "swift_decode_required_assignment.swift.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         field => camel,
                         ty => swift_ty,
                     },
@@ -734,7 +734,7 @@ pub(super) fn emit_into_rust_direct_call(
     body.push_str(&prelude);
     body.push_str(&crate::backends::swift::template_env::render(
         "swift_bridge_constructor_return.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             type_name => type_name,
             args => args.join(", "),
         },

@@ -211,7 +211,7 @@ fn render_python_smoke_test(pip_name: &str) -> String {
 
     let header = hash::e2e_header(CommentStyle::Hash);
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         header => header,
         // Match the public package directory emitted by scaffold/languages/python.rs.
         // Distribution names may contain hyphens; import names must not.

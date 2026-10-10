@@ -35,7 +35,7 @@ pub(crate) fn emit_default_construction_body(
     let mut out = String::new();
     out.push_str(&crate::backends::swift::template_env::render(
         "default_construction_let_mut.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             source_path => source_path,
         },
     ));
@@ -51,7 +51,7 @@ pub(crate) fn emit_default_construction_body(
         if is_explicitly_excluded(ty, f, exclude_fields) {
             out.push_str(&crate::backends::swift::template_env::render(
                 "default_field_excluded_comment.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => &name,
                 },
             ));
@@ -98,14 +98,14 @@ pub(crate) fn emit_default_construction_body(
         if excluded_inner.is_some() {
             out.push_str(&crate::backends::swift::template_env::render(
                 "default_field_inner_excluded.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => &name,
                 },
             ));
         } else if needs_json_bridge(&f.ty) {
             out.push_str(&crate::backends::swift::template_env::render(
                 "default_field_json_bridge_read.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     param => &param,
                     name => &name,
                 },
@@ -115,7 +115,7 @@ pub(crate) fn emit_default_construction_body(
             if is_enum {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_enum_assign.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &name,
                         type_name => n,
                     },
@@ -124,7 +124,7 @@ pub(crate) fn emit_default_construction_body(
                 if f.is_boxed {
                     out.push_str(&crate::backends::swift::template_env::render(
                         "default_field_optional_boxed_assign.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             param => &param,
                             name => &name,
                         },
@@ -132,7 +132,7 @@ pub(crate) fn emit_default_construction_body(
                 } else if matches!(f.core_wrapper, CoreWrapper::Arc) {
                     out.push_str(&crate::backends::swift::template_env::render(
                         "default_field_optional_arc_assign.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             param => &param,
                             name => &name,
                         },
@@ -140,7 +140,7 @@ pub(crate) fn emit_default_construction_body(
                 } else {
                     out.push_str(&crate::backends::swift::template_env::render(
                         "default_field_optional_plain_assign.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             param => &param,
                             name => &name,
                         },
@@ -149,7 +149,7 @@ pub(crate) fn emit_default_construction_body(
             } else if f.is_boxed {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_boxed_assign.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         param => &param,
                         name => &name,
                     },
@@ -157,7 +157,7 @@ pub(crate) fn emit_default_construction_body(
             } else if matches!(f.core_wrapper, CoreWrapper::Arc) {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_arc_assign.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         param => &param,
                         name => &name,
                     },
@@ -165,7 +165,7 @@ pub(crate) fn emit_default_construction_body(
             } else {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_plain_assign.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         param => &param,
                         name => &name,
                     },
@@ -177,7 +177,7 @@ pub(crate) fn emit_default_construction_body(
                 if is_enum {
                     out.push_str(&crate::backends::swift::template_env::render(
                         "default_field_vec_named_enum_skip.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &name,
                             inner_name => inner_n,
                         },
@@ -190,7 +190,7 @@ pub(crate) fn emit_default_construction_body(
                     if f.optional {
                         out.push_str(&crate::backends::swift::template_env::render(
                             "default_field_vec_named_unwrap.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 param => &param,
                                 name => &name,
                                 unwrap_expr => &unwrap_expr,
@@ -199,7 +199,7 @@ pub(crate) fn emit_default_construction_body(
                     } else {
                         out.push_str(&crate::backends::swift::template_env::render(
                             "default_field_vec_named_unwrap_plain.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 param => &param,
                                 name => &name,
                                 unwrap_expr => &unwrap_expr,
@@ -210,7 +210,7 @@ pub(crate) fn emit_default_construction_body(
             } else if ty.has_serde && !f.sanitized {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_vec_serde_round_trip.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         param => &param,
                         name => &name,
                     },
@@ -219,7 +219,7 @@ pub(crate) fn emit_default_construction_body(
                 if f.sanitized && ty.has_serde {
                     out.push_str(&crate::backends::swift::template_env::render(
                         "default_field_vec_serde_round_trip.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             param => &param,
                             name => &name,
                         },
@@ -227,7 +227,7 @@ pub(crate) fn emit_default_construction_body(
                 } else {
                     out.push_str(&crate::backends::swift::template_env::render(
                         "default_field_vec_primitive_assign.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             param => &param,
                             name => &name,
                         },
@@ -236,7 +236,7 @@ pub(crate) fn emit_default_construction_body(
             } else {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_vec_non_primitive_comment.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &name,
                     },
                 ));
@@ -245,12 +245,12 @@ pub(crate) fn emit_default_construction_body(
             if !ty.has_serde {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_string_like_non_serde_comment.jinja",
-                    minijinja::context! { name => &name },
+                    crate::alef_context! { name => &name },
                 ));
             } else if f.optional {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_optional_char_assign.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &name,
                         param => &param,
                     },
@@ -258,7 +258,7 @@ pub(crate) fn emit_default_construction_body(
             } else {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_char_assign.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &name,
                         param => &param,
                     },
@@ -268,46 +268,46 @@ pub(crate) fn emit_default_construction_body(
             if !ty.has_serde {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_string_like_non_serde_comment.jinja",
-                    minijinja::context! { name => &name },
+                    crate::alef_context! { name => &name },
                 ));
             } else if f.optional {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_string_like_optional_serde.jinja",
-                    minijinja::context! { param => &param, name => &name },
+                    crate::alef_context! { param => &param, name => &name },
                 ));
             } else {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_string_like_serde.jinja",
-                    minijinja::context! { param => &param, name => &name },
+                    crate::alef_context! { param => &param, name => &name },
                 ));
             }
         } else if matches!(f.ty, TypeRef::Bytes) {
             out.push_str(&crate::backends::swift::template_env::render(
                 "default_field_bytes_assign.jinja",
-                minijinja::context! { name => &name },
+                crate::alef_context! { name => &name },
             ));
         } else if matches!(f.ty, TypeRef::Duration) {
             if f.optional {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_optional_duration_assign.jinja",
-                    minijinja::context! { param => &param, name => &name },
+                    crate::alef_context! { param => &param, name => &name },
                 ));
             } else {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_duration_assign.jinja",
-                    minijinja::context! { param => &param, name => &name },
+                    crate::alef_context! { param => &param, name => &name },
                 ));
             }
         } else {
             out.push_str(&crate::backends::swift::template_env::render(
                 "default_field_generic_assign.jinja",
-                minijinja::context! { name => &name, param => &param },
+                crate::alef_context! { name => &name, param => &param },
             ));
         }
     }
     out.push_str(&crate::backends::swift::template_env::render(
         "dc_construct_target.jinja",
-        minijinja::context! { ty_name => &ty.name },
+        crate::alef_context! { ty_name => &ty.name },
     ));
     out
 }

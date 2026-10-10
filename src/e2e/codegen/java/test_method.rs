@@ -584,7 +584,7 @@ pub(super) fn render_test_method(
 
     let rendered = crate::e2e::template_env::render(
         "java/test_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => method_name,
             description => description,
             builder_expressions => builder_expressions,

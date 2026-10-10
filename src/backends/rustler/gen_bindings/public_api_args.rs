@@ -223,14 +223,14 @@ pub(in crate::backends::rustler::gen_bindings) fn emit_tagged_enum_encoder(enum_
                     if wire_field == field.name {
                         return None;
                     }
-                    Some(minijinja::context! {
+                    Some(crate::alef_context! {
                         atom => elixir_atom_body(&field.name),
                         wire => escape_elixir_string_literal(&wire_field),
                     })
                 })
                 .collect();
             let wire = wire_variant_value(&variant.name, variant.serde_rename.as_deref(), rename_all);
-            minijinja::context! {
+            crate::alef_context! {
                 atom => elixir_atom_body(&pascal_to_snake(&variant.name)),
                 wire => escape_elixir_string_literal(&wire),
                 is_unit => variant.fields.is_empty(),
@@ -241,7 +241,7 @@ pub(in crate::backends::rustler::gen_bindings) fn emit_tagged_enum_encoder(enum_
 
     template_env::render(
         "elixir_tagged_enum_encoder.ex.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             fn_name => encoder_fn_name(&enum_def.name),
             enum_name => escape_elixir_string_literal(&enum_def.name),
             tag => escape_elixir_string_literal(tag),

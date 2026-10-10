@@ -70,7 +70,7 @@ pub fn gen_bridge_function(
     };
     let bridge_wrap = crate::backends::rustler::template_env::render(
         bridge_wrap_template,
-        minijinja::context! {
+        crate::alef_context! {
             param_name => param_name,
             handle_path => handle_path,
             struct_name => struct_name,
@@ -202,7 +202,7 @@ pub fn gen_bridge_function(
 
     let func_name = &func.name;
     let mut out = String::with_capacity(2048);
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         func_name => func_name,
         params_str => params_str,
         ret => ret,
@@ -303,7 +303,7 @@ pub fn gen_bridge_function(
             .collect();
 
         out.push('\n');
-        let ctx = minijinja::context! {
+        let ctx = crate::alef_context! {
             func_name => func_name,
             with_params_str => with_params_str,
             with_deser => with_deser,
@@ -432,7 +432,7 @@ pub fn gen_bridge_field_function(
     };
 
     let mut out = String::with_capacity(2048);
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         func_name => func_name,
         params_str => plain_params_str,
         ret => ret,
@@ -479,7 +479,7 @@ pub fn gen_bridge_field_function(
 
     let deser_stmts = crate::backends::rustler::template_env::render(
         "visitor_field_options_setup.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             options_param => options_param,
             core_options_type => core_options_type,
             struct_name => struct_name,
@@ -512,7 +512,7 @@ pub fn gen_bridge_field_function(
     let vis_call_args_str = vis_call_args.join(", ");
 
     out.push('\n');
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         func_name => func_name,
         vis_params_str => vis_params_str,
         clone_stmts => clone_stmts,

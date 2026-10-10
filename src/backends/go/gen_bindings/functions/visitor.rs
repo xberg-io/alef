@@ -70,7 +70,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_capsule_function_wrapper(
 
     out.push_str(&render(
         "function_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             func_name => func_go_name,
             params => &params_str,
             return_type => &ret_type_str,
@@ -157,7 +157,7 @@ fn render_visitor_helper_guard(
         .join(", ");
     out.push_str(&render(
         "visitor_helper_guard.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             options_var => options_var,
             options_field_go => &names.options_field_go,
             helper_name => helper_name,
@@ -179,7 +179,7 @@ fn render_visitor_c_args(out: &mut String, func: &FunctionDef, options_type: &st
         if matches!(param.ty, TypeRef::String | TypeRef::Path) {
             out.push_str(&render(
                 "c_string_arg_setup.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     c_name => &c_name,
                     go_name => &go_name,
                 },
@@ -207,7 +207,7 @@ fn render_visitor_options_conversion(out: &mut String, ffi_prefix: &str, names: 
     let options_c_type = alef_handle_c_type(ffi_prefix);
     out.push_str(&render(
         "options_json_to_c.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             options_c_type => &options_c_type,
             options_var => options_var,
             from_json_fn => &from_json_fn,
@@ -228,7 +228,7 @@ fn render_visitor_result(out: &mut String, ffi_prefix: &str, names: &VisitorWrap
     out.push_str("\t}\n");
     out.push_str(&render(
         "free_type.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             ffi_prefix => ffi_prefix,
             type_snake => &names.return_type_snake,
             ptr => "ptr",
@@ -239,7 +239,7 @@ fn render_visitor_result(out: &mut String, ffi_prefix: &str, names: &VisitorWrap
     let to_json_fn = format!("{ffi_prefix}_{}_to_json", names.return_type_snake);
     out.push_str(&render(
         "result_json_unmarshal.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             to_json_fn => &to_json_fn,
             use_prefix_free_string => true,
             free_string_fn => c_symbols::free_string_symbol(ffi_prefix),
@@ -292,7 +292,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_convert_with_visitor_wrapper(
 
     out.push_str(&render(
         "function_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             func_name => func_go_name,
             params => &visitor_param_decls(func, opaque_names),
             return_type => &format!(" ({return_go_type}, error)"),
@@ -307,7 +307,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_convert_with_visitor_wrapper(
     render_visitor_options_conversion(&mut out, ffi_prefix, &names);
     out.push_str(&render(
         "ffi_ptr_call.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             ffi_name => &ffi_name,
             c_args => c_args.join(", "),
         },

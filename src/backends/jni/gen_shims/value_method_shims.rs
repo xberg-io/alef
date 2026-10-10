@@ -41,7 +41,7 @@ fn emit_value_method_shim(out: &mut String, symbol: &str, type_name: &str, metho
 
     out.push_str(&template_env::render(
         "value_method_shim_open.rs.jinja",
-        context! {
+        crate::alef_context! {
             symbol => symbol,
             request_param => request_param,
             ret_decl => ret_decl,
@@ -50,7 +50,7 @@ fn emit_value_method_shim(out: &mut String, symbol: &str, type_name: &str, metho
 
     out.push_str(&template_env::render(
         "value_method_receiver.rs.jinja",
-        context! {
+        crate::alef_context! {
             type_name => type_name,
             ret_null => ret_null,
         },
@@ -113,7 +113,7 @@ fn emit_value_param_unmarshal(out: &mut String, params: &[ParamDef], ret_null: &
     }
     out.push_str(&template_env::render(
         "request_map_unmarshal.rs.jinja",
-        context! {
+        crate::alef_context! {
             ret_null => ret_null,
         },
     ));
@@ -134,7 +134,7 @@ fn emit_value_param_unmarshal(out: &mut String, params: &[ParamDef], ret_null: &
         };
         out.push_str(&template_env::render(
             "request_map_param_unmarshal.rs.jinja",
-            context! {
+            crate::alef_context! {
                 name => rust_name,
                 type_path => type_path,
                 ret_null => ret_null,

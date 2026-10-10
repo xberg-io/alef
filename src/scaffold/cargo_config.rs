@@ -95,13 +95,13 @@ pub fn render_cargo_config(cargo: &ScaffoldCargo) -> String {
                 ScaffoldCargoEnvValue::Plain(s) => {
                     out.push_str(&template_env::render(
                         "cargo_env_plain.jinja",
-                        minijinja::context! { key => key, value => escape_toml_string(s) },
+                        crate::alef_context! { key => key, value => escape_toml_string(s) },
                     ));
                 }
                 ScaffoldCargoEnvValue::Structured { value, relative } => {
                     out.push_str(&template_env::render(
                         "cargo_env_structured.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             key => key,
                             value => escape_toml_string(value),
                             relative => if *relative { "true" } else { "false" },

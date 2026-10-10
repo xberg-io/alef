@@ -310,7 +310,7 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_tagged_enum_core_to_binding_w
         }
     }
     lines.push(
-        crate::backends::wasm::template_env::render("tagged_enum_unmapped_core_arm", minijinja::context! {})
+        crate::backends::wasm::template_env::render("tagged_enum_unmapped_core_arm", crate::alef_context! {})
             .trim_end()
             .to_string(),
     );

@@ -252,7 +252,7 @@ impl Backend for ZigBackend {
         }
         content.push_str(&crate::backends::zig::template_env::render(
             "c_import.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 header => header,
             },
         ));
@@ -270,7 +270,7 @@ impl Backend for ZigBackend {
             if let Some(alias) = &bridge.type_alias {
                 content.push_str(&crate::backends::zig::template_env::render(
                     "trait_bridge_alias.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         alias => alias,
                     },
                 ));

@@ -1,7 +1,6 @@
 use super::helpers::{find_contract, format_docstring, python_type_annotation};
 use crate::core::ir::{ApiSurface, RegistrationDef, RegistrationVariantStyle, ServiceDef};
 use heck::ToShoutySnakeCase;
-use minijinja::context;
 use std::collections::BTreeSet;
 
 fn build_wrapper_constructor_expr(variant: &crate::core::ir::RegistrationVariant) -> Option<String> {
@@ -108,7 +107,7 @@ fn emit_direct_method(
 
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_py_direct_variant_header.py.jinja",
-        context! { variant_name => variant_name, params_sig => params_sig, class_name => class_name },
+        crate::alef_context! { variant_name => variant_name, params_sig => params_sig, class_name => class_name },
     ));
 
     if let Some(doc) = &variant.doc {
@@ -116,24 +115,24 @@ fn emit_direct_method(
     } else {
         out.push_str(&crate::backends::pyo3::template_env::render(
             "service_api_py_direct_variant_doc.py.jinja",
-            context! { variant_name => variant_name },
+            crate::alef_context! { variant_name => variant_name },
         ));
     }
 
     if let Some(wrapper_expr) = build_wrapper_constructor_expr(variant) {
         out.push_str(&crate::backends::pyo3::template_env::render(
             "service_api_py_statement.py.jinja",
-            context! { statement => wrapper_expr },
+            crate::alef_context! { statement => wrapper_expr },
         ));
     }
 
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_py_append_registration.py.jinja",
-        context! { base_method => base_method, meta_tuple => meta_tuple, callback => "handler" },
+        crate::alef_context! { base_method => base_method, meta_tuple => meta_tuple, callback => "handler" },
     ));
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_py_return_self.py.jinja",
-        context! {},
+        crate::alef_context! {},
     ));
 }
 
@@ -159,7 +158,7 @@ fn emit_decorator_factory(
 
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_py_decorator_factory_header.py.jinja",
-        context! { decorator_name => decorator_name, params_sig => params_sig_no_handler },
+        crate::alef_context! { decorator_name => decorator_name, params_sig => params_sig_no_handler },
     ));
     if let Some(doc) = &variant.doc {
         let decorator_doc = format!("Decorator form for {}", doc.trim_start());
@@ -167,20 +166,20 @@ fn emit_decorator_factory(
     } else {
         out.push_str(&crate::backends::pyo3::template_env::render(
             "service_api_py_decorator_variant_doc.py.jinja",
-            context! { variant_name => variant_name },
+            crate::alef_context! { variant_name => variant_name },
         ));
     }
 
     if let Some(wrapper_expr) = build_wrapper_constructor_expr(variant) {
         out.push_str(&crate::backends::pyo3::template_env::render(
             "service_api_py_statement.py.jinja",
-            context! { statement => wrapper_expr },
+            crate::alef_context! { statement => wrapper_expr },
         ));
     }
 
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_py_decorator_body.py.jinja",
-        context! { base_method => base_method, meta_tuple => meta_tuple },
+        crate::alef_context! { base_method => base_method, meta_tuple => meta_tuple },
     ));
 }
 
@@ -213,7 +212,7 @@ fn emit_decorator_overload(
 
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_py_decorator_overload_header.py.jinja",
-        context! { variant_name => variant_name, params_sig => params_sig, class_name => class_name },
+        crate::alef_context! { variant_name => variant_name, params_sig => params_sig, class_name => class_name },
     ));
 
     if let Some(doc) = &variant.doc {
@@ -221,20 +220,20 @@ fn emit_decorator_overload(
     } else {
         out.push_str(&crate::backends::pyo3::template_env::render(
             "service_api_py_direct_variant_doc.py.jinja",
-            context! { variant_name => variant_name },
+            crate::alef_context! { variant_name => variant_name },
         ));
     }
 
     if let Some(wrapper_expr) = build_wrapper_constructor_expr(variant) {
         out.push_str(&crate::backends::pyo3::template_env::render(
             "service_api_py_statement.py.jinja",
-            context! { statement => wrapper_expr },
+            crate::alef_context! { statement => wrapper_expr },
         ));
     }
 
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_py_decorator_overload_body.py.jinja",
-        context! {
+        crate::alef_context! {
             base_method => base_method,
             meta_tuple => meta_tuple,
             callback => "handler",
@@ -324,7 +323,7 @@ pub(super) fn gen_registration_method(
 
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_py_registration_method_header.py.jinja",
-        context! { method_name => method_name, meta_sig => meta_sig },
+        crate::alef_context! { method_name => method_name, meta_sig => meta_sig },
     ));
     if !reg.doc.is_empty() {
         out.push_str(&format_docstring(&reg.doc, 8));
@@ -341,14 +340,14 @@ pub(super) fn gen_registration_method(
 
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_py_decorator_body.py.jinja",
-        context! { base_method => method_name, meta_tuple => meta_tuple },
+        crate::alef_context! { base_method => method_name, meta_tuple => meta_tuple },
     ));
 
     let direct_name = format!("register_{method_name}");
     if direct_name != *method_name {
         out.push_str(&crate::backends::pyo3::template_env::render(
             "service_api_py_direct_registration.py.jinja",
-            context! {
+            crate::alef_context! {
                 direct_name => direct_name,
                 meta_sig => meta_sig,
                 callback_param => reg.callback_param.as_str(),

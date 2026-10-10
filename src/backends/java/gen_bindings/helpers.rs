@@ -324,7 +324,7 @@ pub(crate) fn gen_infrastructure_exception_class(
     let header = hash::header(CommentStyle::DoubleSlash);
     crate::backends::java::template_env::render(
         "infrastructure_exception.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             header => header,
             package => package,
             class_name => class_name,
@@ -339,7 +339,7 @@ pub(crate) fn gen_exception_class(package: &str, class_name: &str) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     crate::backends::java::template_env::render(
         "exception_class.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             header => header,
             package => package,
             class_name => class_name,
@@ -388,7 +388,7 @@ pub(crate) fn emit_javadoc_with_throws(out: &mut String, doc: &str, indent: &str
         .collect();
     out.push_str(&crate::backends::java::template_env::render(
         "javadoc_lines.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             indent => indent,
             lines => lines,
         },
@@ -492,7 +492,7 @@ pub(crate) fn gen_json_util_class(package: &str, main_class: &str) -> String {
     let header = crate::core::hash::header(crate::core::hash::CommentStyle::DoubleSlash);
     crate::backends::java::template_env::render(
         "json_util.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             header => header,
             package => package,
             main_class => main_class,

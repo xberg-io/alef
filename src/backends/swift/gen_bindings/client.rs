@@ -12,7 +12,7 @@ pub(super) fn emit_doc_comment(doc: &str, indent: &str, out: &mut String) {
     }
     out.push_str(&crate::backends::swift::template_env::render(
         "doc_comment.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             indent => indent,
             lines => doc.lines().collect::<Vec<_>>(),
         },
@@ -171,7 +171,7 @@ pub(super) fn emit_client_class(
         if matches!(method.return_type, TypeRef::Unit) {
             method_body.push_str(&crate::backends::swift::template_env::render(
                 "swift_client_method_unit_body.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     throws_kw => if needs_throws { "try " } else { "" },
                     await_kw => if method.is_async { "await " } else { "" },
                     bridge_function => &bridge_fn_camel,
@@ -190,7 +190,7 @@ pub(super) fn emit_client_class(
                 if needs_return_init {
                     method_body.push_str(&crate::backends::swift::template_env::render(
                         "swift_client_method_dto_return_body.swift.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             return_type => &return_ty,
                             try_kw => try_kw,
                             await_kw => await_kw,
@@ -201,7 +201,7 @@ pub(super) fn emit_client_class(
                 } else {
                     method_body.push_str(&crate::backends::swift::template_env::render(
                         "swift_client_method_return_body.swift.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             try_kw => try_kw,
                             await_kw => await_kw,
                             bridge_function => &bridge_fn_camel,
@@ -212,7 +212,7 @@ pub(super) fn emit_client_class(
             } else {
                 method_body.push_str(&crate::backends::swift::template_env::render(
                     "swift_client_method_bytes_body.swift.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         try_kw => try_kw,
                         await_kw => await_kw,
                         bridge_function => &bridge_fn_camel,
@@ -223,7 +223,7 @@ pub(super) fn emit_client_class(
         }
         methods_body.push_str(&crate::backends::swift::template_env::render(
             "swift_client_method.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => &method_camel,
                 params => &params_str,
                 async_clause => async_clause,
@@ -246,7 +246,7 @@ pub(super) fn emit_client_class(
 
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_client_class.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             type_name => type_name,
             constructor_fn => constructor_fn,
             methods => methods_body,
@@ -309,7 +309,7 @@ pub(super) fn emit_streaming_client_method(
     );
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_streaming_client_method.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => &method_camel,
             params => &params_str,
             item_type => item_type,
@@ -456,7 +456,7 @@ pub(super) fn emit_streaming_free_functions(
         );
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_streaming_free_function.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 function_name => &method_camel,
                 params => &params_str,
                 item_type => item_type,

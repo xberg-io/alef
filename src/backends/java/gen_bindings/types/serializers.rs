@@ -38,7 +38,7 @@ fn variant_contexts<'a>(
             } else {
                 String::new()
             };
-            minijinja::context! {
+            crate::alef_context! {
                 name => &variant.name,
                 discriminator => discriminator,
                 is_unit => is_unit,
@@ -59,12 +59,12 @@ pub(crate) fn gen_byte_array_serializer(package: &str) -> String {
     ];
     let mut out = crate::backends::java::template_env::render(
         "java_file_header.jinja",
-        minijinja::context! { header => header, package => package, imports => &imports },
+        crate::alef_context! { header => header, package => package, imports => &imports },
     );
     out.push('\n');
     out.push_str(&crate::backends::java::template_env::render(
         "byte_array_serializer.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     out
 }
@@ -73,12 +73,12 @@ pub(crate) fn gen_json_mapper_factory(package: &str) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     let mut out = crate::backends::java::template_env::render(
         "java_file_header.jinja",
-        minijinja::context! { header => header, package => package, imports => Vec::<&str>::new() },
+        crate::alef_context! { header => header, package => package, imports => Vec::<&str>::new() },
     );
     out.push('\n');
     out.push_str(&crate::backends::java::template_env::render(
         "json_mapper_factory.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     out
 }
@@ -96,12 +96,12 @@ pub(crate) fn gen_duration_millis_serializer(package: &str) -> String {
     ];
     let mut out = crate::backends::java::template_env::render(
         "java_file_header.jinja",
-        minijinja::context! { header => header, package => package, imports => &imports },
+        crate::alef_context! { header => header, package => package, imports => &imports },
     );
     out.push('\n');
     out.push_str(&crate::backends::java::template_env::render(
         "duration_millis_serializer.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     out
 }
@@ -118,12 +118,12 @@ pub(crate) fn gen_duration_millis_deserializer(package: &str) -> String {
     ];
     let mut out = crate::backends::java::template_env::render(
         "java_file_header.jinja",
-        minijinja::context! { header => header, package => package, imports => &imports },
+        crate::alef_context! { header => header, package => package, imports => &imports },
     );
     out.push('\n');
     out.push_str(&crate::backends::java::template_env::render(
         "duration_millis_deserializer.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     out
 }
@@ -165,7 +165,7 @@ pub(super) fn gen_sealed_union_deserializer(out: &mut String, _package: &str, en
         .collect();
     out.push_str(&crate::backends::java::template_env::render(
         "sealed_union_deserializer.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             class_name => &enum_def.name,
             tag_field => escape_java_string_literal(tag_field_of(&repr)),
             content_field => repr.content().map(escape_java_string_literal),
@@ -207,7 +207,7 @@ pub(super) fn gen_sealed_union_serializer(out: &mut String, _package: &str, enum
     });
     out.push_str(&crate::backends::java::template_env::render(
         "sealed_union_serializer.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             class_name => &enum_def.name,
             tag_field => escape_java_string_literal(tag_field_of(&repr)),
             tag_field_doc => escape_java_comment_text(tag_field_of(&repr)),

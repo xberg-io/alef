@@ -153,7 +153,7 @@ fn filtered_jni_api(api: &ApiSurface, config: &ResolvedCrateConfig) -> ApiSurfac
 fn emit_jni_lib_header(api: &ApiSurface, config: &ResolvedCrateConfig, package: &str) -> String {
     let mut out = template_env::render(
         "lib_header.rs.jinja",
-        context! {
+        crate::alef_context! {
             core_crate => core_use_path(config),
             error_class => resolve_error_class(config, package),
             crate_attributes => crate::codegen::shared::format_crate_attributes(&config.crate_attributes),
@@ -296,7 +296,7 @@ fn emit_top_level_function_shims(out: &mut String, params: TopLevelFunctionShims
         if let Some(predicate) = target_predicate {
             out.push_str(&template_env::render(
                 "cfg_attribute.rs.jinja",
-                context! { predicate => predicate },
+                crate::alef_context! { predicate => predicate },
             ));
         }
         let symbol = jni_symbol(package, bridge, &method_name);

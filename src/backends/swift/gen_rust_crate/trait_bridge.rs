@@ -103,7 +103,7 @@ impl TraitBridgeGenerator for SwiftBridgeGenerator {
         let trait_name = &spec.trait_def.name;
         crate::backends::swift::template_env::render(
             "trait_clear_forwarder.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 trait_name => trait_name,
                 clear_fn => clear_fn,
                 host_path => host_path,
@@ -123,7 +123,7 @@ pub fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef, visible_type_name
     block.push_str("    extern \"Rust\" {\n");
     block.push_str(&crate::backends::swift::template_env::render(
         "trait_extern_type.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => &trait_def.name,
         },
     ));
@@ -132,7 +132,7 @@ pub fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef, visible_type_name
 
     block.push_str(&crate::backends::swift::template_env::render(
         "trait_phantom_fn.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => &trait_def.name,
             trait_snake => &trait_snake,
         },
@@ -167,7 +167,7 @@ pub fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef, visible_type_name
         let params_str = params.join(", ");
         block.push_str(&crate::backends::swift::template_env::render(
             "trait_method_fn.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => &fn_name,
                 params => &params_str,
                 return_type => &return_ty,
@@ -214,7 +214,7 @@ pub fn emit_trait_bridge_wrapper(
 
     out.push_str(&crate::backends::swift::template_env::render(
         "trait_struct.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => trait_name,
             trait_path => &trait_path,
         },
@@ -222,7 +222,7 @@ pub fn emit_trait_bridge_wrapper(
 
     out.push_str(&crate::backends::swift::template_env::render(
         "trait_phantom_impl.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => trait_name,
             trait_snake => &trait_snake,
         },
@@ -282,7 +282,7 @@ pub fn emit_trait_bridge_wrapper(
 
         out.push_str(&crate::backends::swift::template_env::render(
             "trait_method_impl.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => &fn_name,
                 params => &sig_params_str,
                 return_type => &return_ty,

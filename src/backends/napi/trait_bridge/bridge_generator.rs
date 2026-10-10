@@ -646,7 +646,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             .map(|m| {
                 let js_name = to_camel_case(&m.name);
                 let snake_name = m.name.clone();
-                minijinja::context! {
+                crate::alef_context! {
                     name => js_name,
                     snake_case_name => snake_name,
                 }
@@ -661,7 +661,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
 
         crate::backends::napi::template_env::render(
             "trait_bridge_constructor.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 wrapper_name => wrapper,
                 required_methods => required_methods,
                 requires_plugin_name => spec.bridge_config.super_trait.is_some(),
@@ -678,7 +678,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         let camel = to_camel_case(unregister_fn);
         crate::backends::napi::template_env::render(
             "unregistration_fn.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 unregister_fn => unregister_fn,
                 camel_fn_name => camel,
                 host_path => host_path,
@@ -694,7 +694,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         let camel = to_camel_case(clear_fn);
         crate::backends::napi::template_env::render(
             "clear_fn.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 clear_fn => clear_fn,
                 camel_fn_name => camel,
                 host_path => host_path,
@@ -721,7 +721,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
 
         crate::backends::napi::template_env::render(
             "registration_fn.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 register_fn => register_fn,
                 wrapper => wrapper,
                 trait_path => trait_path,

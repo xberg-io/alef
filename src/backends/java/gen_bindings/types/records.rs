@@ -233,7 +233,7 @@ pub(crate) fn gen_record_type(
         }
         record_block.push_str(&crate::backends::java::template_env::render(
             "record_declaration.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 has_serde => typ.has_serde,
                 builder_type => builder_type,
                 multiline => true,
@@ -245,7 +245,7 @@ pub(crate) fn gen_record_type(
     } else {
         record_block.push_str(&crate::backends::java::template_env::render(
             "record_declaration.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 has_serde => typ.has_serde,
                 builder_type => builder_type,
                 multiline => false,
@@ -259,7 +259,7 @@ pub(crate) fn gen_record_type(
     if will_emit_builder {
         record_block.push_str(&crate::backends::java::template_env::render(
             "record_builder_factory.jinja",
-            minijinja::context! {},
+            crate::alef_context! {},
         ));
     }
 
@@ -295,7 +295,7 @@ pub(crate) fn gen_record_type(
         }
         record_block.push_str(&crate::backends::java::template_env::render(
             "record_compact_constructor.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_name => &typ.name,
                 lines => lines,
             },
@@ -381,7 +381,7 @@ pub(crate) fn gen_record_type(
     let header = hash::header(CommentStyle::DoubleSlash);
     let mut out = crate::backends::java::template_env::render(
         "java_file_header.jinja",
-        minijinja::context! { header => header, package => package, imports => &imports },
+        crate::alef_context! { header => header, package => package, imports => &imports },
     );
     out.push('\n');
     out.push_str(&record_block);

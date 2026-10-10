@@ -495,7 +495,7 @@ pub(super) fn render_test_file(
     );
 
     // Render using template
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         header => hash::e2e_header(CommentStyle::Hash),
         docstring => format!("E2e tests for category: {category}."),
         stdlib_imports => stdlib_imports,

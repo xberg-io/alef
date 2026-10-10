@@ -133,7 +133,7 @@ pub(super) fn emit_function_wrappers(
         if single_line.len() <= 100 && !has_builtin_param {
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "function_signature_single_line.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     def_keyword => def_keyword,
                     name => &func.name,
                     params => sig_parts.join(", "),
@@ -143,7 +143,7 @@ pub(super) fn emit_function_wrappers(
         } else {
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "function_signature_multiline_start.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     def_keyword => def_keyword,
                     name => &func.name,
                 },
@@ -153,18 +153,18 @@ pub(super) fn emit_function_wrappers(
                 if crate::backends::pyo3::gen_stubs::is_python_builtin_name(name) {
                     out.push_str(&crate::backends::pyo3::template_env::render(
                         "function_signature_multiline_param_noqa.jinja",
-                        minijinja::context! { param => param },
+                        crate::alef_context! { param => param },
                     ));
                 } else {
                     out.push_str(&crate::backends::pyo3::template_env::render(
                         "function_signature_multiline_param.jinja",
-                        minijinja::context! { param => param },
+                        crate::alef_context! { param => param },
                     ));
                 }
             }
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "function_signature_multiline_end.jinja",
-                minijinja::context! { return_type => &return_type_str },
+                crate::alef_context! { return_type => &return_type_str },
             ));
         }
         {
@@ -194,7 +194,7 @@ pub(super) fn emit_function_wrappers(
             };
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "function_docstring.jinja",
-                minijinja::context! { doc => &doc_with_period },
+                crate::alef_context! { doc => &doc_with_period },
             ));
         }
 
@@ -242,7 +242,7 @@ pub(super) fn emit_function_wrappers(
                             // `.expect("'config' is required")`).
                             out.push_str(&crate::backends::pyo3::template_env::render(
                                 "config_conversion_ternary.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     var => &var,
                                     body => &scalar_expr,
                                     pname => pname,
@@ -255,7 +255,7 @@ pub(super) fn emit_function_wrappers(
                         if !param.optional && !is_promoted && !is_collection && type_has_default {
                             out.push_str(&crate::backends::pyo3::template_env::render(
                                 "config_default_on_none.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     var => &var,
                                     name => name,
                                 },
@@ -334,7 +334,7 @@ pub(super) fn emit_function_wrappers(
         };
         out.push_str(&crate::backends::pyo3::template_env::render(
             "bridge_register_fn.jinja",
-            minijinja::context! { register_fn => register_fn, backend_type => backend_type },
+            crate::alef_context! { register_fn => register_fn, backend_type => backend_type },
         ));
     }
 
@@ -344,7 +344,7 @@ pub(super) fn emit_function_wrappers(
         }
         out.push_str(&crate::backends::pyo3::template_env::render(
             "bridge_unregister_fn.jinja",
-            minijinja::context! { unregister_fn => &unregister_fn },
+            crate::alef_context! { unregister_fn => &unregister_fn },
         ));
     }
 
@@ -354,7 +354,7 @@ pub(super) fn emit_function_wrappers(
         }
         out.push_str(&crate::backends::pyo3::template_env::render(
             "bridge_clear_fn.jinja",
-            minijinja::context! { clear_fn => &clear_fn },
+            crate::alef_context! { clear_fn => &clear_fn },
         ));
     }
 }

@@ -16,7 +16,7 @@ pub(super) fn emit_native_type(ty: &TypeDef, out: &mut String) {
         let doc_lines: Vec<String> = ty.doc.lines().map(ToString::to_string).collect();
         out.push_str(&crate::backends::kotlin::template_env::render(
             "doc_comment.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => "",
                 lines => doc_lines,
             },
@@ -25,7 +25,7 @@ pub(super) fn emit_native_type(ty: &TypeDef, out: &mut String) {
     if ty.fields.is_empty() {
         out.push_str(&crate::backends::kotlin::template_env::render(
             "empty_class.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &ty.name,
             },
         ));
@@ -33,7 +33,7 @@ pub(super) fn emit_native_type(ty: &TypeDef, out: &mut String) {
     }
     out.push_str(&crate::backends::kotlin::template_env::render(
         "data_class_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => &ty.name,
         },
     ));
@@ -43,7 +43,7 @@ pub(super) fn emit_native_type(ty: &TypeDef, out: &mut String) {
         let comma = if idx + 1 == ty.fields.len() { "" } else { "," };
         out.push_str(&crate::backends::kotlin::template_env::render(
             "class_field.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &name,
                 type => &ty_str,
                 comma => comma,
@@ -108,7 +108,7 @@ pub(super) fn emit_native_enum(en: &EnumDef, out: &mut String) {
         let doc_lines: Vec<String> = en.doc.lines().map(ToString::to_string).collect();
         out.push_str(&crate::backends::kotlin::template_env::render(
             "doc_comment.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => "",
                 lines => doc_lines,
             },
@@ -118,7 +118,7 @@ pub(super) fn emit_native_enum(en: &EnumDef, out: &mut String) {
     if all_unit {
         out.push_str(&crate::backends::kotlin::template_env::render(
             "enum_class_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &en.name,
             },
         ));
@@ -127,7 +127,7 @@ pub(super) fn emit_native_enum(en: &EnumDef, out: &mut String) {
             let comma = if idx + 1 == names.len() { ";" } else { "," };
             out.push_str(&crate::backends::kotlin::template_env::render(
                 "enum_variant.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => name,
                     comma => comma,
                 },
@@ -137,7 +137,7 @@ pub(super) fn emit_native_enum(en: &EnumDef, out: &mut String) {
     } else {
         out.push_str(&crate::backends::kotlin::template_env::render(
             "sealed_class_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &en.name,
             },
         ));
@@ -145,7 +145,7 @@ pub(super) fn emit_native_enum(en: &EnumDef, out: &mut String) {
             if variant.fields.is_empty() {
                 out.push_str(&crate::backends::kotlin::template_env::render(
                     "sealed_object_variant.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &variant.name,
                         parent_name => &en.name,
                     },
@@ -153,7 +153,7 @@ pub(super) fn emit_native_enum(en: &EnumDef, out: &mut String) {
             } else {
                 out.push_str(&crate::backends::kotlin::template_env::render(
                     "variant_data_class_header.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &variant.name,
                     },
                 ));
@@ -163,7 +163,7 @@ pub(super) fn emit_native_enum(en: &EnumDef, out: &mut String) {
                     let comma = if idx + 1 == variant.fields.len() { "" } else { "," };
                     out.push_str(&crate::backends::kotlin::template_env::render(
                         "variant_class_field.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &name,
                             type => &ty_str,
                             comma => comma,
@@ -172,7 +172,7 @@ pub(super) fn emit_native_enum(en: &EnumDef, out: &mut String) {
                 }
                 out.push_str(&crate::backends::kotlin::template_env::render(
                     "variant_close.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         parent_name => &en.name,
                     },
                 ));
@@ -187,7 +187,7 @@ pub(super) fn emit_native_error(error: &ErrorDef, out: &mut String) {
         let doc_lines: Vec<String> = error.doc.lines().map(ToString::to_string).collect();
         out.push_str(&crate::backends::kotlin::template_env::render(
             "doc_comment.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => "",
                 lines => doc_lines,
             },
@@ -195,7 +195,7 @@ pub(super) fn emit_native_error(error: &ErrorDef, out: &mut String) {
     }
     out.push_str(&crate::backends::kotlin::template_env::render(
         "error_sealed_class_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => &error.name,
         },
     ));
@@ -203,7 +203,7 @@ pub(super) fn emit_native_error(error: &ErrorDef, out: &mut String) {
         if variant.is_unit {
             out.push_str(&crate::backends::kotlin::template_env::render(
                 "error_object_variant.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => &variant.name,
                     parent_name => &error.name,
                     message => variant.message_template.as_deref().unwrap_or(&variant.name),
@@ -212,7 +212,7 @@ pub(super) fn emit_native_error(error: &ErrorDef, out: &mut String) {
         } else {
             out.push_str(&crate::backends::kotlin::template_env::render(
                 "variant_data_class_header.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => &variant.name,
                 },
             ));
@@ -223,7 +223,7 @@ pub(super) fn emit_native_error(error: &ErrorDef, out: &mut String) {
                 let comma = if idx + 1 == variant.fields.len() { "" } else { "," };
                 out.push_str(&crate::backends::kotlin::template_env::render(
                     "error_field.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         modifier => modifier,
                         name => &name,
                         type => &ty_str,
@@ -234,7 +234,7 @@ pub(super) fn emit_native_error(error: &ErrorDef, out: &mut String) {
             let message_template = variant.message_template.as_deref().unwrap_or(&variant.name);
             out.push_str(&crate::backends::kotlin::template_env::render(
                 "error_variant_close.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     parent_name => &error.name,
                     message => message_template,
                 },

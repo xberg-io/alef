@@ -596,7 +596,7 @@ fn docs_json_expression(
         setup_lines.push(
             crate::e2e::template_env::render(
                 "swift/docs_file_read.jinja",
-                minijinja::context! { variable => variable, index => index, path => escape_swift(&file.path) },
+                crate::alef_context! { variable => variable, index => index, path => escape_swift(&file.path) },
             )
             .trim_end()
             .to_string(),
@@ -604,7 +604,7 @@ fn docs_json_expression(
         setup_lines.push(
             crate::e2e::template_env::render(
                 "swift/docs_file_json.jinja",
-                minijinja::context! { variable => variable, index => index },
+                crate::alef_context! { variable => variable, index => index },
             )
             .trim_end()
             .to_string(),

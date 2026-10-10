@@ -303,7 +303,7 @@ pub(super) fn render_app_harness(groups: &[FixtureGroup], e2e_config: &E2eConfig
     let bridge_module = format!("{pkg_name}_bridge_generated");
 
     // Render using the Jinja template.
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         fixtures_json => fixtures_json,
         pkg_name => pkg_name,
         bridge_module => bridge_module,

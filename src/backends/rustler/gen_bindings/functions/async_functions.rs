@@ -131,7 +131,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_function(
                             deser_lines.push(
                                 template_env::render(
                                     "rust_let_binding.jinja",
-                                    minijinja::context! {
+                                    crate::alef_context! {
                                         var_name => if p.is_ref && p.is_mut { format!("mut {}_core", p.name) } else { format!("{}_core", p.name) },
                                         var_type => &core_ty,
                                         expr => &format!("{}_core_option.unwrap_or_default()", p.name),
@@ -287,7 +287,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_function(
     doc_emission::emit_rustdoc(&mut out, &func.doc, "");
     out.push_str(&template_env::render(
         "dirty_cpu_nif_function.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             func_name => &nif_fn_name,
             params_str => &params_str,
             ret => &return_annotation,

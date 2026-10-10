@@ -41,7 +41,7 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
 
     fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
         let wrapper = spec.wrapper_name();
-        let ctx = minijinja::context! {
+        let ctx = crate::alef_context! {
             wrapper_name => wrapper
         };
         crate::backends::rustler::template_env::render("trait_constructor.rs.jinja", ctx)
@@ -52,7 +52,7 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
             return String::new();
         };
         let host_path = crate::codegen::generators::trait_bridge::host_function_path(spec, unregister_fn);
-        let ctx = minijinja::context! {
+        let ctx = crate::alef_context! {
             unregister_fn => unregister_fn,
             host_path => host_path
         };
@@ -64,7 +64,7 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
             return String::new();
         };
         let host_path = crate::codegen::generators::trait_bridge::host_function_path(spec, clear_fn);
-        let ctx = minijinja::context! {
+        let ctx = crate::alef_context! {
             clear_fn => clear_fn,
             host_path => host_path
         };
@@ -83,7 +83,7 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
 
         let extra_args = spec.bridge_config.register_extra_args.as_deref().unwrap_or_default();
 
-        let ctx = minijinja::context! {
+        let ctx = crate::alef_context! {
             register_fn => register_fn,
             wrapper_name => wrapper,
             trait_path => trait_path,
@@ -108,7 +108,7 @@ impl RustlerBridgeGenerator {
         let native_args: Vec<minijinja::Value> = build_native_args(&method.params, &self.struct_param_types)
             .into_iter()
             .map(|a| {
-                minijinja::context! {
+                crate::alef_context! {
                     key => a.key,
                     binding => a.binding,
                     owned_expr => a.owned_expr,
@@ -124,7 +124,7 @@ impl RustlerBridgeGenerator {
             .error_constructor
             .replace("{msg}", "\"Channel closed before reply received\".to_string()");
 
-        minijinja::context! {
+        crate::alef_context! {
             wrapper => spec.wrapper_name(),
             native_args => native_args,
             method_name => method.name,
@@ -137,7 +137,7 @@ impl RustlerBridgeGenerator {
 
     /// Generate support NIFs for completing trait calls from Elixir.
     pub fn gen_support_nifs(&self) -> String {
-        let ctx = minijinja::context! {};
+        let ctx = crate::alef_context! {};
         crate::backends::rustler::template_env::render("trait_support_nifs.rs.jinja", ctx)
     }
 }

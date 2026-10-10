@@ -1,6 +1,5 @@
 use crate::core::ir::{CoreWrapper, EnumDef, FieldDef, TypeDef, TypeRef};
 use ahash::AHashSet;
-use minijinja::context;
 
 use super::enum_defaults::{gen_string_to_enum_expr, get_direct_enum_named, get_vec_enum_named};
 use super::primitives::{core_prim_str, needs_i64_cast};
@@ -95,7 +94,7 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
 
     let mut out = crate::backends::php::template_env::render(
         "php_lossy_binding_struct_begin.jinja",
-        context! {
+        crate::alef_context! {
             core_type => &core_path,
             emit_spread => typ.has_default,
         },
@@ -105,7 +104,7 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
             if !typ.has_default {
                 out.push_str(&crate::backends::php::template_env::render(
                     "php_struct_field_assignment.jinja",
-                    context! {
+                    crate::alef_context! {
                         field_name => field.name.as_str(),
                         field_expr => "Default::default()",
                     },
@@ -121,7 +120,7 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
         if field.sanitized {
             out.push_str(&crate::backends::php::template_env::render(
                 "php_struct_field_assignment.jinja",
-                context! {
+                crate::alef_context! {
                     field_name => name.as_str(),
                     field_expr => "Default::default()",
                 },
@@ -140,7 +139,7 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
             );
             out.push_str(&crate::backends::php::template_env::render(
                 "php_struct_field_assignment.jinja",
-                context! {
+                crate::alef_context! {
                     field_name => name.as_str(),
                     field_expr => &expr,
                 },
@@ -275,7 +274,7 @@ fn gen_php_duration_expr(name: &str, optional: bool, has_default: bool, core_pat
     } else if has_default {
         crate::backends::php::template_env::render(
             "php_duration_default_expr.jinja",
-            context! {
+            crate::alef_context! {
                 value_expr => &format!("self.{name}"),
                 cast => " as u64",
                 core_type => core_path,

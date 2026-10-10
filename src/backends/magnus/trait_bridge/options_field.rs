@@ -102,7 +102,7 @@ pub fn gen_options_field_bridge_function(
     };
     let visitor_extract = crate::backends::magnus::template_env::render(
         "options_field_extract.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             struct_name => struct_name,
             handle_path => handle_path,
             core_import => core_import,

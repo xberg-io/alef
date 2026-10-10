@@ -3,8 +3,6 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to PHP objects via ext-php-rs Zval method calls.
 
-use minijinja::context;
-
 use crate::codegen::generators::trait_bridge::{BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec};
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
@@ -199,7 +197,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
 
         crate::backends::php::template_env::render(
             "sync_method_body.jinja",
-            context! {
+            crate::alef_context! {
                 wrapper => spec.wrapper_name(),
                 method_name => name,
                 args_expr => args_expr,
@@ -251,7 +249,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
 
         crate::backends::php::template_env::render(
             "async_method_body.jinja",
-            context! {
+            crate::alef_context! {
                 method_name => name,
                 args_expr => args_expr,
                 string_params => string_params,
@@ -271,7 +269,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
 
         crate::backends::php::template_env::render(
             "bridge_constructor.jinja",
-            context! {
+            crate::alef_context! {
                 wrapper => &wrapper,
             },
         )
@@ -285,7 +283,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
 
         crate::backends::php::template_env::render(
             "bridge_unregister_fn.jinja",
-            context! {
+            crate::alef_context! {
                 unregister_fn => unregister_fn,
                 host_path => &host_path,
             },
@@ -300,7 +298,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
 
         crate::backends::php::template_env::render(
             "bridge_clear_fn.jinja",
-            context! {
+            crate::alef_context! {
                 clear_fn => clear_fn,
                 host_path => &host_path,
             },
@@ -321,7 +319,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         let required_methods: Vec<minijinja::Value> = req_methods
             .iter()
             .map(|m| {
-                minijinja::context! {
+                crate::alef_context! {
                     name => m.name.as_str(),
                 }
             })
@@ -336,7 +334,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
 
         crate::backends::php::template_env::render(
             "bridge_registration_fn.jinja",
-            context! {
+            crate::alef_context! {
                 register_fn => register_fn,
                 required_methods => required_methods,
                 wrapper => &wrapper,
@@ -398,7 +396,7 @@ fn gen_unsupported_lifecycle(
         let host_path = crate::codegen::generators::trait_bridge::host_function_path(&spec, unregister_fn);
         blocks.push(crate::backends::php::template_env::render(
             "bridge_unregister_fn.jinja",
-            context! {
+            crate::alef_context! {
                 unregister_fn => unregister_fn,
                 host_path => &host_path,
             },
@@ -408,7 +406,7 @@ fn gen_unsupported_lifecycle(
         let host_path = crate::codegen::generators::trait_bridge::host_function_path(&spec, clear_fn);
         blocks.push(crate::backends::php::template_env::render(
             "bridge_clear_fn.jinja",
-            context! {
+            crate::alef_context! {
                 clear_fn => clear_fn,
                 host_path => &host_path,
             },

@@ -37,7 +37,7 @@ fn wasm_untagged_union_note(
     );
     out.push_str(&template_env::render(
         "code_block.jinja",
-        minijinja::context! { lang_code => lang_code_fence(lang), body => ts_type },
+        crate::alef_context! { lang_code => lang_code_fence(lang), body => ts_type },
     ));
     Some(out)
 }
@@ -54,7 +54,7 @@ pub(super) fn render_enum(
 
     out.push_str(&template_env::render(
         "heading.jinja",
-        minijinja::context! { marker => "####", title => ename },
+        crate::alef_context! { marker => "####", title => ename },
     ));
 
     push_version_annotation(&mut out, &en.version);
@@ -118,7 +118,7 @@ pub(super) fn render_enum(
         }
         out.push_str(&template_env::render(
             "variant_row.jinja",
-            minijinja::context! { name => escape_table_cell(&vname), doc => escape_table_cell(&vdoc) },
+            crate::alef_context! { name => escape_table_cell(&vname), doc => escape_table_cell(&vdoc) },
         ));
     }
     out.push('\n');

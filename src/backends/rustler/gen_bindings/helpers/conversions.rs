@@ -28,7 +28,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_struct_module(
 
     out.push_str(&hash::header(CommentStyle::Hash));
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         app_module => app_module,
         type_name => &typ.name,
     };
@@ -66,7 +66,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_struct_module(
 
             out.push_str(&template_env::render(
                 "elixir_struct_type_field.ex.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     field_name => &field_name,
                     field_type => &field_type_with_optional,
                     is_last => i == fields.len() - 1,
@@ -77,7 +77,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_struct_module(
     out.push_str("        }\n\n");
 
     if fields.is_empty() {
-        out.push_str(&template_env::render("struct_empty.jinja", minijinja::context! {}));
+        out.push_str(&template_env::render("struct_empty.jinja", crate::alef_context! {}));
     } else {
         out.push_str("  defstruct ");
         for (i, field) in fields.iter().enumerate() {
@@ -86,7 +86,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_struct_module(
             if i == 0 {
                 out.push_str(&template_env::render(
                     "elixir_enum_field_first.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &name,
                         default => &default,
                     },
@@ -94,7 +94,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_struct_module(
             } else {
                 out.push_str(&template_env::render(
                     "elixir_enum_field_rest.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &name,
                         default => &default,
                     },
@@ -132,7 +132,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_struct_module(
     }
     out.push_str(&template_env::render(
         "struct_module_footer.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     out
 }
@@ -169,7 +169,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_opaque_module_with_
 
     out.push_str(&hash::header(CommentStyle::Hash));
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         app_module => app_module,
         type_name => &typ.name,
     };
@@ -185,7 +185,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_opaque_module_with_
     if needs_native_alias {
         out.push_str(&template_env::render(
             "elixir_native_alias.ex.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 app_module => app_module,
             },
         ));
@@ -210,7 +210,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_opaque_module_with_
     if typ.has_default {
         out.push_str(&template_env::render(
             "elixir_opaque_new.ex.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_lower => &type_lower,
             },
         ));
@@ -257,7 +257,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_opaque_module_with_
             let doc_first = method.doc.lines().next().unwrap_or("").replace('"', "\\\"");
             out.push_str(&template_env::render(
                 "elixir_opaque_stream_method.ex.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     doc_first => &doc_first,
                     method_name => &method_name,
                     def_args => &def_args.join(", "),
@@ -326,7 +326,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_opaque_module_with_
 
         out.push_str(&template_env::render(
             "elixir_opaque_method_wrapper.ex.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 doc_first => &doc_first,
                 method_name => &method_name,
                 def_args => &def_args.join(", "),
@@ -343,7 +343,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_opaque_module_with_
     if typ.has_default {
         out.push_str(&template_env::render(
             "elixir_opaque_default.ex.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_lower => &type_lower,
             },
         ));
@@ -354,7 +354,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_opaque_module_with_
     }
     out.push_str(&template_env::render(
         "struct_module_footer.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     out
 }
@@ -442,7 +442,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
 
     out.push_str(&hash::header(CommentStyle::Hash));
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         app_module => app_module,
         enum_name => &enum_def.name,
     };
@@ -483,7 +483,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
         if single_line.len() <= 120 {
             out.push_str(&template_env::render(
                 "elixir_enum_type_single_line.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     arms => &atom_arms.join(" | "),
                 },
             ));
@@ -493,14 +493,14 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
                 if i == 0 {
                     out.push_str(&template_env::render(
                         "elixir_enum_type_arm_first.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             arm => arm,
                         },
                     ));
                 } else {
                     out.push_str(&template_env::render(
                         "elixir_enum_type_arm_rest.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             arm => arm,
                         },
                     ));
@@ -516,7 +516,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
             let atom_literal = elixir_variant_atom(&variant.name);
             out.push_str(&template_env::render(
                 "elixir_enum_attr.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     attr_name => &attr_name,
                     atom_name => &atom_literal,
                 },
@@ -533,7 +533,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
             }
             out.push_str(&template_env::render(
                 "elixir_enum_accessor.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     atom_name => &safe_name,
                     attr_name => &attr_name,
                 },
@@ -542,7 +542,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
 
         out.push_str(&template_env::render(
             "elixir_enum_wire_value_header.jinja",
-            minijinja::context! {},
+            crate::alef_context! {},
         ));
         for variant in &declared_variants {
             // The runtime atom Rustler actually produces is always
@@ -561,7 +561,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
             );
             out.push_str(&template_env::render(
                 "elixir_enum_wire_value_atom_clause.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     atom_literal => &atom_literal,
                     wire => &escape_elixir_string_literal(&wire),
                 },
@@ -601,7 +601,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
             if variant.fields.is_empty() {
                 out.push_str(&template_env::render(
                     "elixir_data_enum_unit_type.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         type_name => &type_name,
                         variant_atom => &variant_atom,
                     },
@@ -662,7 +662,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
                     .collect();
                 out.push_str(&template_env::render(
                     "elixir_data_enum_struct_type.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         type_name => &type_name,
                         discriminator => &struct_type_discriminator,
                         variant_atom => &variant_atom,
@@ -696,7 +696,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
                     .collect();
                 out.push_str(&template_env::render(
                     "elixir_enum_variant_constructor.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         fn_name => &fn_name,
                         params => params.join(", "),
                         atom => &atom,
@@ -716,7 +716,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
         // shapes without needing a separate branch here. ~keep
         out.push_str(&template_env::render(
             "elixir_enum_wire_value_header.jinja",
-            minijinja::context! {},
+            crate::alef_context! {},
         ));
         for variant in &declared_variants {
             // The runtime atom Rustler actually produces is always
@@ -735,7 +735,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
             );
             out.push_str(&template_env::render(
                 "elixir_enum_wire_value_atom_clause.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     atom_literal => &atom_literal,
                     wire => &escape_elixir_string_literal(&wire),
                 },
@@ -743,13 +743,13 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
         }
         out.push_str(&template_env::render(
             "elixir_enum_wire_value_tuple_clause.jinja",
-            minijinja::context! {},
+            crate::alef_context! {},
         ));
         if is_flat_data_enum(enum_def) {
             let discriminator = elixir_safe_atom(flat_data_enum_discriminator(enum_def));
             out.push_str(&template_env::render(
                 "elixir_enum_wire_value_map_clause.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     discriminator => &discriminator,
                 },
             ));
@@ -760,7 +760,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
             // the only mechanism that works for those shapes. ~keep
             out.push_str(&template_env::render(
                 "elixir_enum_string_chars_impl.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     app_module => app_module,
                     enum_name => &enum_def.name,
                 },
@@ -770,7 +770,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
 
     out.push_str(&template_env::render(
         "enum_module_footer.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     out
 }

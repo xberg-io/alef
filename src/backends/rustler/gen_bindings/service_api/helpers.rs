@@ -2,7 +2,6 @@
 
 use crate::backends::rustler::template_env::render;
 use crate::core::ir::{ApiSurface, HandlerContractDef, TypeRef};
-use minijinja::context;
 
 /// Convert a `TypeRef` to a simple Elixir type annotation string.
 #[allow(dead_code)]
@@ -87,7 +86,7 @@ pub(super) fn push_elixir_doc(out: &mut String, doc: &str, attr: &str) {
     }
     out.push_str(&render(
         "service_api_doc.ex.jinja",
-        context! {
+        crate::alef_context! {
             attr => attr,
             body => elixir_heredoc_body(doc, 2),
         },

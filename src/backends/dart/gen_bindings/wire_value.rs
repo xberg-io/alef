@@ -77,12 +77,12 @@ pub(super) fn emit_wire_value_extensions(
                     v.serde_rename.as_deref(),
                     en.serde_rename_all.as_deref(),
                 ));
-                minijinja::context! { vname => vname, wire => wire }
+                crate::alef_context! { vname => vname, wire => wire }
             })
             .collect();
         out.push_str(&template_env::render(
             "enum_wire_value_extension.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => en.name.as_str(),
                 variants => variants,
             },

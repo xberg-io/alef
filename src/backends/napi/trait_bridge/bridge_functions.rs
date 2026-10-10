@@ -66,7 +66,7 @@ pub fn gen_bridge_function(
     let bridge_wrap = if is_optional {
         crate::backends::napi::template_env::render(
             "bridge_optional_wrap.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 param_name => param_name,
                 struct_name => struct_name,
                 handle_path => handle_path,
@@ -75,7 +75,7 @@ pub fn gen_bridge_function(
     } else {
         crate::backends::napi::template_env::render(
             "bridge_required_wrap.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 param_name => param_name,
                 struct_name => struct_name,
                 handle_path => handle_path,
@@ -126,7 +126,7 @@ pub fn gen_bridge_function(
             };
             crate::backends::napi::template_env::render(
                 template_name,
-                minijinja::context! {
+                crate::alef_context! {
                     name => name,
                     core_path => core_path,
                 },
@@ -229,7 +229,7 @@ pub fn gen_bridge_function(
     let func_name = &func.name;
     crate::backends::napi::template_env::render(
         "bridge_function.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             has_error => func.error_type.is_some(),
             js_name_attr => js_name_attr,
             func_name => func_name,
@@ -255,7 +255,7 @@ fn render_bridge_function_body(
     };
     crate::backends::napi::template_env::render(
         template_name,
-        minijinja::context! {
+        crate::alef_context! {
             bridge_wrap => bridge_wrap,
             serde_bindings => serde_bindings,
             core_call => core_call,

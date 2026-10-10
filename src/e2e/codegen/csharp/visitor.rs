@@ -217,7 +217,7 @@ fn emit_csharp_visitor_method(
 
     let rendered = crate::e2e::template_env::render(
         "csharp/visitor_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             camel_method => camel_method,
             params => params,
             result_type => &visitor_config.result_type,

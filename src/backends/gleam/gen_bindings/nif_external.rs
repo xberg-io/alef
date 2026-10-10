@@ -17,11 +17,11 @@ pub(crate) fn emit_from_json_fn(ty: &TypeDef, nif_module: &str, out: &mut String
     let fn_name = format!("{snake}_from_json");
     out.push_str(&crate::backends::gleam::template_env::render(
         "function_external.jinja",
-        minijinja::context! { nif_module => nif_module, name => &fn_name },
+        crate::alef_context! { nif_module => nif_module, name => &fn_name },
     ));
     out.push_str(&crate::backends::gleam::template_env::render(
         "function_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => &fn_name,
             params => "json: String",
             return_type => &format!("Result({type_name}, String)"),
@@ -34,7 +34,7 @@ pub(crate) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<&
     if ty.fields.is_empty() {
         out.push_str(&crate::backends::gleam::template_env::render(
             "type_opaque.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &ty.name,
             },
         ));
@@ -42,7 +42,7 @@ pub(crate) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<&
     }
     out.push_str(&crate::backends::gleam::template_env::render(
         "type_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => &ty.name,
         },
     ));
@@ -51,7 +51,7 @@ pub(crate) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<&
         let comma = if idx + 1 == ty.fields.len() { "" } else { "," };
         out.push_str(&crate::backends::gleam::template_env::render(
             "field_labeled.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &field.name,
                 ty => &ty_str,
                 comma => comma,
@@ -75,7 +75,7 @@ pub(crate) fn emit_variant_fields(fields: &[FieldDef], out: &mut String, imports
         if is_positional_field(&field.name) || field.name.is_empty() {
             out.push_str(&crate::backends::gleam::template_env::render(
                 "field_positional.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     ty => &ty_str,
                     comma => comma,
                 },
@@ -83,7 +83,7 @@ pub(crate) fn emit_variant_fields(fields: &[FieldDef], out: &mut String, imports
         } else {
             out.push_str(&crate::backends::gleam::template_env::render(
                 "field_labeled.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => &field.name,
                     ty => &ty_str,
                     comma => comma,
@@ -130,7 +130,7 @@ pub(crate) fn emit_enum(
     emit_cleaned_gleam_doc(out, &en.doc, "");
     out.push_str(&crate::backends::gleam::template_env::render(
         "enum_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => &en.name,
         },
     ));
@@ -139,14 +139,14 @@ pub(crate) fn emit_enum(
         if variant.fields.is_empty() {
             out.push_str(&crate::backends::gleam::template_env::render(
                 "variant_simple.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     ctor => &ctor,
                 },
             ));
         } else {
             out.push_str(&crate::backends::gleam::template_env::render(
                 "variant_with_fields.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     ctor => &ctor,
                 },
             ));
@@ -166,7 +166,7 @@ pub(crate) fn emit_error_type(
     emit_cleaned_gleam_doc(out, &err.doc, "");
     out.push_str(&crate::backends::gleam::template_env::render(
         "error_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => &err.name,
         },
     ));
@@ -175,14 +175,14 @@ pub(crate) fn emit_error_type(
         if variant.fields.is_empty() {
             out.push_str(&crate::backends::gleam::template_env::render(
                 "variant_simple.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     ctor => &ctor,
                 },
             ));
         } else {
             out.push_str(&crate::backends::gleam::template_env::render(
                 "variant_with_fields.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     ctor => &ctor,
                 },
             ));
@@ -203,7 +203,7 @@ pub(crate) fn emit_function(
     emit_cleaned_gleam_doc(out, &f.doc, "");
     out.push_str(&crate::backends::gleam::template_env::render(
         "function_external.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             nif_module => nif_module,
             name => &f.name,
         },
@@ -218,7 +218,7 @@ pub(crate) fn emit_function(
     };
     out.push_str(&crate::backends::gleam::template_env::render(
         "function_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => &snake_name,
             params => &params_string(f, imports),
             return_type => &return_str,
@@ -293,7 +293,7 @@ pub(crate) fn emit_resource_type(ty: &TypeDef, out: &mut String, imports: &mut B
     emit_cleaned_gleam_doc(out, &ty.doc, "");
     out.push_str(&crate::backends::gleam::template_env::render(
         "type_opaque_resource.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => &ty.name,
         },
     ));
@@ -323,7 +323,7 @@ pub(crate) fn emit_method(
     let nif_fn_name = format!("{snake_type}_{snake_method}");
     out.push_str(&crate::backends::gleam::template_env::render(
         "resource_method_external.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             nif_module => nif_module,
             nif_fn_name => &nif_fn_name,
         },
@@ -344,7 +344,7 @@ pub(crate) fn emit_method(
     };
     out.push_str(&crate::backends::gleam::template_env::render(
         "function_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => &snake_method,
             params => &all_params,
             return_type => &return_str,

@@ -11,7 +11,7 @@ pub fn gen_pyo3_error_types(error: &ErrorDef, module_name: &str, seen_exceptions
 
     crate::codegen::template_env::render(
         "error_gen/pyo3_error_types.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             variant_names => variant_names,
             module_name => module_name,
             error_name => error.name.as_str(),
@@ -83,7 +83,7 @@ pub fn gen_pyo3_error_converter(error: &ErrorDef, core_import: &str) -> String {
 
     crate::codegen::template_env::render(
         "error_gen/pyo3_error_converter.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             rust_path => rust_path.as_str(),
             fn_name => fn_name.as_str(),
             arms => arms,

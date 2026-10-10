@@ -48,14 +48,14 @@ impl FfiBridgeGenerator {
 
         out.push_str(&crate::backends::ffi::template_env::render(
             "ffi_vtable_extract.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => name,
             },
         ));
         if has_error {
             let null_msg = crate::backends::ffi::template_env::render(
                 "ffi_vtable_not_initialised_msg.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => name,
                 },
             );
@@ -64,7 +64,7 @@ impl FfiBridgeGenerator {
             let default_expr = default_for_type(&method.return_type);
             out.push_str(&crate::backends::ffi::template_env::render(
                 "ffi_return_default_4.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     wrapper => spec.wrapper_name(),
                     method_name => name,
                     default_expr => &default_expr,
@@ -88,7 +88,7 @@ impl FfiBridgeGenerator {
                     TypeRef::String | TypeRef::Char | TypeRef::Path => {
                         out.push_str(&crate::backends::ffi::template_env::render(
                             "ffi_opt_str_storage_and_ptr.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 name => &p.name,
                                 is_ref => p.is_ref,
                             },
@@ -97,7 +97,7 @@ impl FfiBridgeGenerator {
                     TypeRef::Named(_) | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                         out.push_str(&crate::backends::ffi::template_env::render(
                             "ffi_opt_json_storage_open.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 name => &p.name,
                             },
                         ));
@@ -115,7 +115,7 @@ impl FfiBridgeGenerator {
                         );
                         out.push_str(&crate::backends::ffi::template_env::render(
                             "ffi_opt_nullable_ptr.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 name => &p.name,
                             },
                         ));
@@ -142,7 +142,7 @@ impl FfiBridgeGenerator {
                         let arg = if needs_as_ref { format!("{val}.as_ref()") } else { val };
                         out.push_str(&crate::backends::ffi::template_env::render(
                             "ffi_cs_match_open.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 name => &p.name,
                                 arg => &arg,
                             },
@@ -159,7 +159,7 @@ impl FfiBridgeGenerator {
                             let param_name = &p.name;
                             let param_err_msg = crate::backends::ffi::template_env::render(
                                 "ffi_nul_byte_param_msg.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     name => param_name,
                                 },
                             );
@@ -168,7 +168,7 @@ impl FfiBridgeGenerator {
                             let default_expr = default_for_type(&method.return_type);
                             out.push_str(&crate::backends::ffi::template_env::render(
                                 "ffi_return_default_8.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     default_expr => &default_expr,
                                 },
                             ));
@@ -183,7 +183,7 @@ impl FfiBridgeGenerator {
                         );
                         out.push_str(&crate::backends::ffi::template_env::render(
                             "ffi_cs_as_ptr.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 name => &p.name,
                             },
                         ));
@@ -191,13 +191,13 @@ impl FfiBridgeGenerator {
                     TypeRef::Json | TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                         out.push_str(&crate::backends::ffi::template_env::render(
                             "ffi_json_to_string.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 name => &p.name,
                             },
                         ));
                         out.push_str(&crate::backends::ffi::template_env::render(
                             "ffi_json_cs_match_open.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 name => &p.name,
                             },
                         ));
@@ -213,7 +213,7 @@ impl FfiBridgeGenerator {
                             let param_name = &p.name;
                             let param_err_msg = crate::backends::ffi::template_env::render(
                                 "ffi_nul_byte_json_param_msg.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     name => param_name,
                                 },
                             );
@@ -222,7 +222,7 @@ impl FfiBridgeGenerator {
                             let default_expr = default_for_type(&method.return_type);
                             out.push_str(&crate::backends::ffi::template_env::render(
                                 "ffi_return_default_8.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     default_expr => &default_expr,
                                 },
                             ));
@@ -237,7 +237,7 @@ impl FfiBridgeGenerator {
                         );
                         out.push_str(&crate::backends::ffi::template_env::render(
                             "ffi_cs_as_ptr.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 name => &p.name,
                             },
                         ));
@@ -328,7 +328,7 @@ impl FfiBridgeGenerator {
         if !tail_returns_rc_only {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "ffi_unsafe_fp_call.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     args => &args_str,
                 },
             ));
@@ -337,7 +337,7 @@ impl FfiBridgeGenerator {
         if !has_error && needs_result_out {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "ffi_vtable_infallible_error_check.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => name,
                     wrapper => spec.wrapper_name(),
                     vtable_expr => "self.vtable",
@@ -349,7 +349,7 @@ impl FfiBridgeGenerator {
             let error_return = make_err("msg".to_string());
             out.push_str(&crate::backends::ffi::template_env::render(
                 "ffi_vtable_error_check.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => name,
                     vtable_expr => "self.vtable",
                     error_return => &error_return,
@@ -366,7 +366,7 @@ impl FfiBridgeGenerator {
                 TypeRef::String | TypeRef::Char | TypeRef::Path => {
                     out.push_str(&crate::backends::ffi::template_env::render(
                         "ffi_decode_string_result.jinja",
-                        minijinja::context! { vtable_expr => "self.vtable" },
+                        crate::alef_context! { vtable_expr => "self.vtable" },
                     ));
                 }
                 TypeRef::Named(_) | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
@@ -377,7 +377,7 @@ impl FfiBridgeGenerator {
                     );
                     let null_result_msg = crate::backends::ffi::template_env::render(
                         "ffi_vtable_null_out_result_msg.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => name,
                         },
                     );
@@ -397,7 +397,7 @@ impl FfiBridgeGenerator {
                     if inside_closure {
                         out.push_str(&crate::backends::ffi::template_env::render(
                             "ffi_serde_from_str_err.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 ret_ty => &ret_ty,
                             },
                         ));
@@ -405,7 +405,7 @@ impl FfiBridgeGenerator {
                         let err_constructor = spec.make_error("e.to_string()");
                         out.push_str(&crate::backends::ffi::template_env::render(
                             "ffi_sync_serde_from_str_err.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 ret_ty => &ret_ty,
                                 err_constructor => &err_constructor,
                             },
@@ -422,7 +422,7 @@ impl FfiBridgeGenerator {
                     let ret_ty = format_type_ref(other, &spec.type_paths);
                     out.push_str(&crate::backends::ffi::template_env::render(
                         "ffi_ok_rc_as.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             ret_ty => &ret_ty,
                         },
                     ));
@@ -434,7 +434,7 @@ impl FfiBridgeGenerator {
                 TypeRef::String | TypeRef::Char | TypeRef::Path => {
                     out.push_str(&crate::backends::ffi::template_env::render(
                         "ffi_decode_string_value.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             wrapper => spec.wrapper_name(),
                             method_name => name,
                             vtable_expr => "self.vtable",
@@ -470,7 +470,7 @@ impl FfiBridgeGenerator {
                     out.push_str("}\n");
                     out.push_str(&crate::backends::ffi::template_env::render(
                         "ffi_serde_from_str_default.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             wrapper => spec.wrapper_name(),
                             method_name => name,
                             ret_ty => &ret_ty,
@@ -487,7 +487,7 @@ impl FfiBridgeGenerator {
                     // (no preceding `let _rc = ...;`) to avoid clippy::let_and_return.
                     out.push_str(&crate::backends::ffi::template_env::render(
                         "ffi_unsafe_fp_tail.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             args => &args_str,
                         },
                     ));

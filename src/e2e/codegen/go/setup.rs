@@ -83,7 +83,7 @@ fn ensure_value_helpers(package_decls: &mut Vec<String>, literal: &str) {
             .any(|declaration| declaration.starts_with("func mustReadFile("))
     {
         package_decls.push(
-            crate::e2e::template_env::render("go/read_file_helper.jinja", minijinja::context! {})
+            crate::e2e::template_env::render("go/read_file_helper.jinja", crate::alef_context! {})
                 .trim_end()
                 .to_string(),
         );
@@ -462,14 +462,14 @@ fn native_go_dto_literal_at(
             let padding = " ".repeat(width);
             // A nested literal is relative to its own first column; shift it under this field. ~keep
             let expression = expression.replace('\n', "\n\t");
-            minijinja::context! { name => name, padding => padding, expression => expression }
+            crate::alef_context! { name => name, padding => padding, expression => expression }
         })
         .collect::<Vec<_>>();
     if fields.is_empty() {
         return Ok(Some(
             crate::e2e::template_env::render(
                 "go/empty_dto_literal.jinja",
-                minijinja::context! { type_name => qualified_go_type(context.import_alias, type_name) },
+                crate::alef_context! { type_name => qualified_go_type(context.import_alias, type_name) },
             )
             .trim_end()
             .to_string(),
@@ -478,7 +478,7 @@ fn native_go_dto_literal_at(
     Ok(Some(
         crate::e2e::template_env::render(
             "go/dto_literal.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_name => qualified_go_type(context.import_alias, type_name), fields => fields,
             },
         )

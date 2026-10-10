@@ -142,7 +142,7 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn gen_scan_args_prolog
 
     let scan_args_line = crate::backends::magnus::template_env::render(
         "function_scan_args_call.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             has_required => !req_types.is_empty(),
             has_optional => !opt_types.is_empty(),
             required_types => &req_type_str,
@@ -163,7 +163,7 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn gen_scan_args_prolog
         };
         lines.push(crate::backends::magnus::template_env::render(
             "function_scan_args_destructure.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 pattern => &pat,
                 source => "required",
             },
@@ -181,7 +181,7 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn gen_scan_args_prolog
         };
         lines.push(crate::backends::magnus::template_env::render(
             "function_scan_args_destructure.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 pattern => &pat,
                 source => "optional",
             },
@@ -196,7 +196,7 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn gen_scan_args_prolog
         if treat_as_optional && matches!(p.ty, TypeRef::String) {
             lines.push(crate::backends::magnus::template_env::render(
                 "function_optional_string_scan_arg.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => &p.name,
                 },
             ));

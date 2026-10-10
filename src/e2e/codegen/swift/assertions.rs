@@ -642,18 +642,18 @@ pub(super) fn render_assertion(
             } else if field_is_array && field_is_optional {
                 out.push_str(&crate::e2e::template_env::render(
                     "swift/not_empty_assertion.swift.jinja",
-                    minijinja::context! { predicate => format!("{field_expr}?.isEmpty == false") },
+                    crate::alef_context! { predicate => format!("{field_expr}?.isEmpty == false") },
                 ));
             } else if field_is_optional {
                 out.push_str(&crate::e2e::template_env::render(
                     "swift/not_empty_assertion.swift.jinja",
-                    minijinja::context! { predicate => format!("{field_expr} != nil") },
+                    crate::alef_context! { predicate => format!("{field_expr} != nil") },
                 ));
             } else if field_is_array {
                 let predicate = swift_array_not_empty_predicate(&field_expr, accessor_is_optional);
                 out.push_str(&crate::e2e::template_env::render(
                     "swift/not_empty_assertion.swift.jinja",
-                    minijinja::context! { predicate => predicate },
+                    crate::alef_context! { predicate => predicate },
                 ));
             } else if result_is_simple {
                 // result_is_simple: result is a primitive (Data, String, etc.) — use .isEmpty directly.

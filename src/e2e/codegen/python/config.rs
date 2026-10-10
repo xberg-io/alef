@@ -276,7 +276,7 @@ pub(super) fn render_app_harness(
     // Check if App.config is excluded from bindings
     let skip_app_config = crate_config.exclude.methods.iter().any(|m| m == "App.config");
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         header => header,
         imports => imports,
         app_class => app_class.as_deref().unwrap_or("App"),

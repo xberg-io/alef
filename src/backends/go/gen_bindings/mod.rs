@@ -287,7 +287,7 @@ impl Backend for GoBackend {
         // Generate generate.go with the //go:generate directive that vendors natives
         // into .lib/ for writable checkouts (see cmd/setup -lib-dir).
         let generate_go_content =
-            crate::backends::go::template_env::render("generate_cgo_flags.go.jinja", minijinja::context! {});
+            crate::backends::go::template_env::render("generate_cgo_flags.go.jinja", crate::alef_context! {});
         // `generated_header: true` even though the body opens with `//go:generate` /
         // `//go:build`: the prepended header is line comments, which a build constraint is
         // allowed to be preceded by, and without a recognized marker this `.go` file is
@@ -313,7 +313,7 @@ impl Backend for GoBackend {
         // cgo link shim into a consumer package (see cmd_setup_main.go.jinja doc comment).
         let setup_tool_content = crate::backends::go::template_env::render(
             "cmd_setup_main.go.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 ffi_lib_name => &ffi_lib_name,
                 crate_version => &crate_version,
                 repo_url => &repo_url,
@@ -337,7 +337,7 @@ impl Backend for GoBackend {
         // compile-time error.
         let native_setup_content = crate::backends::go::template_env::render(
             "native_setup.go.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 pkg_name => &pkg_name,
                 crate_version => &crate_version,
                 version_ident => &version_ident,
@@ -359,7 +359,7 @@ impl Backend for GoBackend {
         // when this module is vendored (`go mod vendor`).
         let embed_ffi_content = crate::backends::go::template_env::render(
             "embed_ffi.go.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 pkg_name => &pkg_name,
             },
         );

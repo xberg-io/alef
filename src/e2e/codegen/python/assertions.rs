@@ -354,7 +354,7 @@ fn render_standard_assertion(
                     .collect();
                 let rendered = crate::e2e::template_env::render(
                     "python/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "contains_all",
                         field_access => field_access,
                         field_is_optional => field_is_optional,
@@ -387,7 +387,7 @@ fn render_standard_assertion(
                 };
                 let rendered = crate::e2e::template_env::render(
                     "python/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "contains_any",
                         field_access => field_access,
                         field_is_optional => field_is_optional,
@@ -410,7 +410,7 @@ fn render_standard_assertion(
                 // false: the template only reads it on the branch that needs it.
                 let rendered = crate::e2e::template_env::render(
                     "python/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "equals",
                         field_access => field_access,
                         field_access_arg => strip_redundant_call_arg_parens(field_access),
@@ -431,7 +431,7 @@ fn render_standard_assertion(
                     python_contains_expr(field_access, &expected, field_is_enum, field_is_array, val.is_string());
                 let rendered = crate::e2e::template_env::render(
                     "python/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "contains",
                         field_access => field_access,
                         field_is_optional => field_is_optional,
@@ -449,7 +449,7 @@ fn render_standard_assertion(
                 let negated_cmp_expr = negate_contains_expr(&cmp_expr, field_is_array, field_is_enum);
                 let rendered = crate::e2e::template_env::render(
                     "python/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "not_contains",
                         field_access => field_access,
                         field_is_optional => field_is_optional,
@@ -462,7 +462,7 @@ fn render_standard_assertion(
         "not_empty" => {
             let rendered = crate::e2e::template_env::render(
                 "python/assertion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     assertion_type => "not_empty",
                     field_access => field_access,
                     field_access_arg => strip_redundant_call_arg_parens(field_access),
@@ -473,7 +473,7 @@ fn render_standard_assertion(
         "is_empty" => {
             let rendered = crate::e2e::template_env::render(
                 "python/assertion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     assertion_type => "is_empty",
                     field_access => field_access,
                 },
@@ -485,7 +485,7 @@ fn render_standard_assertion(
                 let expected = value_to_python_string(val);
                 let rendered = crate::e2e::template_env::render(
                     "python/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => assertion.assertion_type.as_str(),
                         field_access => field_access,
                         expected_val => expected,
@@ -499,7 +499,7 @@ fn render_standard_assertion(
                 let expected = value_to_python_string(val);
                 let rendered = crate::e2e::template_env::render(
                     "python/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => assertion.assertion_type.as_str(),
                         field_access => field_access,
                         expected_val => expected,
@@ -513,7 +513,7 @@ fn render_standard_assertion(
                 let n = val.as_u64().unwrap_or(0);
                 let rendered = crate::e2e::template_env::render(
                     "python/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => assertion.assertion_type.as_str(),
                         field_access => field_access,
                         field_access_arg => strip_redundant_call_arg_parens(field_access),
@@ -526,7 +526,7 @@ fn render_standard_assertion(
         "is_true" => {
             let rendered = crate::e2e::template_env::render(
                 "python/assertion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     assertion_type => "is_true",
                     field_access => field_access,
                     field_is_optional => field_is_optional,
@@ -537,7 +537,7 @@ fn render_standard_assertion(
         "is_false" => {
             let rendered = crate::e2e::template_env::render(
                 "python/assertion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     assertion_type => "is_false",
                     field_access => field_access,
                     field_is_optional => field_is_optional,
@@ -550,7 +550,7 @@ fn render_standard_assertion(
                 let expected = value_to_python_string(val);
                 let rendered = crate::e2e::template_env::render(
                     "python/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "matches_regex",
                         field_access => field_access,
                         expected_val => expected,

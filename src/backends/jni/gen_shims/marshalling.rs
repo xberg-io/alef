@@ -1,7 +1,7 @@
 fn render_param_decl(name: &str, type_name: &str) -> String {
     template_env::render(
         "param_decl.rs.jinja",
-        context! {
+        crate::alef_context! {
             name => name,
             type_name => type_name,
         },
@@ -11,7 +11,7 @@ fn render_param_decl(name: &str, type_name: &str) -> String {
 fn render_string_unmarshal(name: &str, ret_null: &str) -> String {
     template_env::render(
         "string_unmarshal.rs.jinja",
-        context! {
+        crate::alef_context! {
             name => name,
             ret_null => ret_null,
         },
@@ -21,7 +21,7 @@ fn render_string_unmarshal(name: &str, ret_null: &str) -> String {
 fn render_byte_array_unmarshal(name: &str, ret_null: &str, is_optional: bool) -> String {
     template_env::render(
         "byte_array_unmarshal.rs.jinja",
-        context! {
+        crate::alef_context! {
             name => name,
             ret_null => ret_null,
             is_optional => is_optional,
@@ -32,7 +32,7 @@ fn render_byte_array_unmarshal(name: &str, ret_null: &str, is_optional: bool) ->
 fn render_base64_bytes_unmarshal(name: &str, ret_null: &str, is_optional: bool) -> String {
     template_env::render(
         "base64_bytes_unmarshal.rs.jinja",
-        context! {
+        crate::alef_context! {
             name => name,
             ret_null => ret_null,
             is_optional => is_optional,
@@ -43,7 +43,7 @@ fn render_base64_bytes_unmarshal(name: &str, ret_null: &str, is_optional: bool) 
 fn render_complex_unmarshal(name: &str, type_path: &str, ret_null: &str, is_optional: bool) -> String {
     template_env::render(
         "complex_unmarshal.rs.jinja",
-        context! {
+        crate::alef_context! {
             name => name,
             type_path => type_path,
             ret_null => ret_null,
@@ -55,7 +55,7 @@ fn render_complex_unmarshal(name: &str, type_path: &str, ret_null: &str, is_opti
 fn render_request_string_unmarshal(ret_null: &str, error_prefix: &str) -> String {
     template_env::render(
         "request_string_unmarshal.rs.jinja",
-        context! {
+        crate::alef_context! {
             ret_null => ret_null,
             error_prefix => error_prefix,
         },
@@ -95,7 +95,7 @@ fn emit_single_param_unmarshal(
             out.push_str(&render_request_string_unmarshal(ret_null, ""));
             out.push_str(&template_env::render(
                 "path_unmarshal.rs.jinja",
-                context! {
+                crate::alef_context! {
                     name => rust_name,
                 },
             ));
@@ -104,7 +104,7 @@ fn emit_single_param_unmarshal(
             out.push_str(&render_request_string_unmarshal(ret_null, ""));
             out.push_str(&template_env::render(
                 "vec_string_unmarshal.rs.jinja",
-                context! {
+                crate::alef_context! {
                     name => rust_name,
                     ret_null => ret_null,
                 },
@@ -114,7 +114,7 @@ fn emit_single_param_unmarshal(
             out.push_str(&render_request_string_unmarshal(ret_null, ""));
             out.push_str(&template_env::render(
                 "request_string_value_unmarshal.rs.jinja",
-                context! {
+                crate::alef_context! {
                     name => rust_name,
                 },
             ));
@@ -124,7 +124,7 @@ fn emit_single_param_unmarshal(
             let type_path = type_ref_to_core_path_with_btree(ty, "core_crate", map_is_btree);
             out.push_str(&template_env::render(
                 "json_value_unmarshal.rs.jinja",
-                context! {
+                crate::alef_context! {
                     name => rust_name,
                     type_path => type_path,
                     ret_null => ret_null,
@@ -153,7 +153,7 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
         TypeRef::Primitive(PrimitiveType::Bool) => {
             out.push_str(&template_env::render(
                 "return_bool.rs.jinja",
-                context! {
+                crate::alef_context! {
                     indent => indent,
                 },
             ));
@@ -161,7 +161,7 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => {
             out.push_str(&template_env::render(
                 "return_byte_array.rs.jinja",
-                context! {
+                crate::alef_context! {
                     indent => indent,
                     bytes_expr => "&v",
                 },
@@ -170,7 +170,7 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
         TypeRef::Bytes => {
             out.push_str(&template_env::render(
                 "return_byte_array.rs.jinja",
-                context! {
+                crate::alef_context! {
                     indent => indent,
                     bytes_expr => "v.as_ref()",
                 },
@@ -186,7 +186,7 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
             };
             out.push_str(&template_env::render(
                 "return_optional_byte_array.rs.jinja",
-                context! {
+                crate::alef_context! {
                     indent => indent,
                     bytes_expr => bytes_expr,
                 },
@@ -203,7 +203,7 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
             };
             out.push_str(&template_env::render(
                 "return_primitive.rs.jinja",
-                context! {
+                crate::alef_context! {
                     indent => indent,
                     jni_ty => jni_ty,
                 },
@@ -212,13 +212,13 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
         TypeRef::String => {
             out.push_str(&template_env::render(
                 "return_string.rs.jinja",
-                context! { indent => indent },
+                crate::alef_context! { indent => indent },
             ));
         }
         TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String) => {
             out.push_str(&template_env::render(
                 "return_optional_string.rs.jinja",
-                context! { indent => indent },
+                crate::alef_context! { indent => indent },
             ));
         }
         TypeRef::Optional(_) => {
@@ -240,7 +240,7 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
         _ => {
             out.push_str(&template_env::render(
                 "return_json.rs.jinja",
-                context! {
+                crate::alef_context! {
                     indent => indent,
                     ret_null => ret_null,
                 },

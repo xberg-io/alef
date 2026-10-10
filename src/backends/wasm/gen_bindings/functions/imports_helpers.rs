@@ -8,7 +8,7 @@ pub(in crate::backends::wasm::gen_bindings) fn emit_rustdoc(doc: &str) -> String
         crate::codegen::doc_emission::sanitize_rust_idioms(doc, crate::codegen::doc_emission::DocTarget::TsDoc);
     crate::backends::wasm::template_env::render(
         "rustdoc",
-        minijinja::context! {
+        crate::alef_context! {
             lines => sanitized.lines().collect::<Vec<_>>(),
         },
     )
@@ -37,7 +37,7 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_env_shims(shim_names: &[Strin
     if shims.is_empty() {
         return String::new();
     }
-    crate::backends::wasm::template_env::render("env_shims", minijinja::context! { shims => shims })
+    crate::backends::wasm::template_env::render("env_shims", crate::alef_context! { shims => shims })
         .trim_end_matches('\n')
         .to_string()
 }

@@ -8,7 +8,6 @@ use crate::backends::rustler::template_env::render;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, ServiceDef, TypeRef};
 use heck::{ToSnakeCase, ToUpperCamelCase};
-use minijinja::context;
 
 /// Generate the Rust rustler glue module (`service.rs`).
 ///
@@ -24,12 +23,15 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
 
     out.push_str(&render(
         "service_api_rs_header.rs.jinja",
-        context! {
+        crate::alef_context! {
             core_import => core_import,
         },
     ));
 
-    out.push_str(&render("service_api_trait_reply_support.rs.jinja", context! {}));
+    out.push_str(&render(
+        "service_api_trait_reply_support.rs.jinja",
+        crate::alef_context! {},
+    ));
 
     let referenced_contracts: Vec<&HandlerContractDef> = {
         let mut names: Vec<&str> = api
@@ -111,7 +113,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 
     out.push_str(&render(
         "service_api_handler_bridge.rs.jinja",
-        context! {
+        crate::alef_context! {
             trait_name => trait_name,
             bridge_name => bridge_name,
             core_import => core_import,
@@ -158,7 +160,7 @@ fn gen_run_nif(
     let ep_param_names = ep.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>();
     out.push_str(&render(
         "service_api_run_nif_header.rs.jinja",
-        context! {
+        crate::alef_context! {
             owner_path => owner_path,
             ep_method => ep_method,
             ep_params => ep_param_names,
@@ -196,7 +198,7 @@ fn gen_run_nif(
                 if is_opaque && let TypeRef::Named(n) = &meta_param.ty {
                     opaque_bindings.push_str(&render(
                         "service_api_opaque_metadata_binding.rs.jinja",
-                        context! {
+                        crate::alef_context! {
                             indent => "                ",
                             param_name => meta_param.name,
                             core_import => core_import,
@@ -216,7 +218,7 @@ fn gen_run_nif(
 
         out.push_str(&render(
             "service_api_registration_dispatch.rs.jinja",
-            context! {
+            crate::alef_context! {
                 prefix => prefix,
                 reg_method => reg_method,
                 has_metadata => has_metadata,
@@ -238,7 +240,7 @@ fn gen_run_nif(
     let ep_params = ep.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
     let entrypoint_call = render(
         "service_api_entrypoint_call.rs.jinja",
-        context! {
+        crate::alef_context! {
             is_run => matches!(ep.kind, EntrypointKind::Run),
             ep_method => ep_method,
             ep_params => ep_params,
@@ -247,7 +249,7 @@ fn gen_run_nif(
 
     out.push_str(&render(
         "service_api_run_nif_footer.rs.jinja",
-        context! {
+        crate::alef_context! {
             entrypoint_call => entrypoint_call,
         },
     ));

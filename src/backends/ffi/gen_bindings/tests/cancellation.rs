@@ -208,7 +208,7 @@ fn streaming_adapter_gains_a_cancellable_start_that_the_handle_remembers() {
 fn run_harness(name: &str, main_body: &str) {
     let last_error = template_env::render(
         "last_error.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             prefix => "smp",
             builtin_prefix => crate::codegen::naming::ffi_builtin_error_code_prefix("smp"),
             error_code_impls => Vec::<String>::new(),
@@ -222,7 +222,7 @@ fn run_harness(name: &str, main_body: &str) {
             cancelled_error_code => 5,
         },
     );
-    let mut registry = template_env::render("handle_registry.rs.jinja", minijinja::context! {});
+    let mut registry = template_env::render("handle_registry.rs.jinja", crate::alef_context! {});
     let start = registry
         .find("struct SerializedHandle")
         .expect("serialized helper start");

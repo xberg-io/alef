@@ -106,7 +106,6 @@ pub fn gen_native_methods_visitor(
     options_setters: &[(String, String)],
 ) -> String {
     use crate::backends::csharp::template_env::render;
-    use minijinja::Value;
 
     let fn_visitor_create = format!("{prefix}_visitor_create");
     let fn_visitor_free = format!("{prefix}_visitor_free");
@@ -130,7 +129,7 @@ pub fn gen_native_methods_visitor(
     let mut out = String::from("\n");
     out.push_str(&render(
         "native_methods_visitor.jinja",
-        Value::from_serialize(serde_json::json!({
+        crate::template::to_value(serde_json::json!({
             "fn_visitor_create": fn_visitor_create,
             "fn_visitor_free": fn_visitor_free,
             "bridge_name": bridge_name,
@@ -158,7 +157,6 @@ fn gen_node_context(namespace: &str, context_def: &crate::core::ir::TypeDef) -> 
     use crate::backends::csharp::template_env::render;
     use crate::backends::csharp::type_map::csharp_type_for_dto_field;
     use crate::codegen::naming::{csharp_type_name, to_csharp_name, wire_field_name};
-    use minijinja::Value;
 
     let fields = crate::codegen::shared::binding_fields(&context_def.fields)
         .map(|field| {
@@ -180,7 +178,7 @@ fn gen_node_context(namespace: &str, context_def: &crate::core::ir::TypeDef) -> 
 
     render(
         "node_context.jinja",
-        Value::from_serialize(serde_json::json!({
+        crate::template::to_value(serde_json::json!({
             "header": hash::header(CommentStyle::DoubleSlash),
             "namespace": namespace,
             "context_type": csharp_type_name(&context_def.name),
@@ -197,7 +195,6 @@ fn gen_visit_result(
 ) -> anyhow::Result<String> {
     use crate::backends::csharp::template_env::render;
     use crate::codegen::naming::{csharp_type_name, csharp_variant_name, to_csharp_name, wire_variant_value};
-    use minijinja::Value;
 
     let result_metadata = crate::codegen::visitor_result::visitor_result_metadata_from_enum_checked(
         enum_def,
@@ -246,7 +243,7 @@ fn gen_visit_result(
 
     Ok(render(
         "visit_result.jinja",
-        Value::from_serialize(serde_json::json!({
+        crate::template::to_value(serde_json::json!({
             "header": hash::header(CommentStyle::DoubleSlash),
             "namespace": namespace,
             "result_type": result_type,

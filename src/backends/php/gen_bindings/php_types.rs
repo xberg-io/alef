@@ -1,6 +1,5 @@
 use crate::core::ir::{PrimitiveType, TypeRef};
 use ahash::AHashSet;
-use minijinja::context;
 
 /// Map an IR [`TypeRef`] to a fully-qualified PHPDoc type string with generics (e.g., `array<\Ns\T>`).
 pub(super) fn php_phpdoc_type_fq(ty: &TypeRef, namespace: &str) -> String {
@@ -80,7 +79,7 @@ pub(super) fn php_property_phpdoc(var_type: &str, doc: &str, indent: &str) -> St
     if doc.is_empty() {
         return crate::backends::php::template_env::render(
             "php_inline_property_phpdoc.jinja",
-            context! {
+            crate::alef_context! {
                 indent => indent,
                 var_type => var_type,
                 doc => "",
@@ -92,7 +91,7 @@ pub(super) fn php_property_phpdoc(var_type: &str, doc: &str, indent: &str) -> St
         let line = lines[0].trim();
         return crate::backends::php::template_env::render(
             "php_inline_property_phpdoc.jinja",
-            context! {
+            crate::alef_context! {
                 indent => indent,
                 var_type => var_type,
                 doc => line,
@@ -105,12 +104,12 @@ pub(super) fn php_property_phpdoc(var_type: &str, doc: &str, indent: &str) -> St
         if trimmed.is_empty() {
             out.push_str(&crate::backends::php::template_env::render(
                 "php_indented_phpdoc_empty_line.jinja",
-                context! { indent => indent },
+                crate::alef_context! { indent => indent },
             ));
         } else {
             out.push_str(&crate::backends::php::template_env::render(
                 "php_prefixed_phpdoc_line.jinja",
-                context! {
+                crate::alef_context! {
                     indent => indent,
                     line => trimmed,
                 },
@@ -119,18 +118,18 @@ pub(super) fn php_property_phpdoc(var_type: &str, doc: &str, indent: &str) -> St
     }
     out.push_str(&crate::backends::php::template_env::render(
         "php_indented_phpdoc_empty_line.jinja",
-        context! { indent => indent },
+        crate::alef_context! { indent => indent },
     ));
     out.push_str(&crate::backends::php::template_env::render(
         "php_prefixed_phpdoc_line.jinja",
-        context! {
+        crate::alef_context! {
             indent => indent,
             line => &format!("@var {var_type}"),
         },
     ));
     out.push_str(&crate::backends::php::template_env::render(
         "php_indented_phpdoc_block_end.jinja",
-        context! { indent => indent },
+        crate::alef_context! { indent => indent },
     ));
     out
 }

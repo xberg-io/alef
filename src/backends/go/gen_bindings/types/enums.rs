@@ -1,7 +1,6 @@
 use crate::backends::go::type_map::{go_optional_type, go_type};
 use crate::codegen::naming::{apply_serde_rename_all, go_type_name, go_variant_name, to_go_name};
 use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeRef};
-use minijinja::context;
 
 use super::field_shape::go_data_enum_variant_field;
 use super::helpers::{emit_type_doc, is_tuple_field};
@@ -380,7 +379,7 @@ fn gen_adjacent_tagged_enum_type(enum_def: &EnumDef) -> String {
             );
             let constructor = format!("New{go_enum_name}{}", go_variant_name(&variant.name));
             let payload_type = variant.fields.first().map(|field| go_type(&field.ty).into_owned());
-            minijinja::context! {
+            crate::alef_context! {
                 wire_value,
                 constructor,
                 payload_type,
@@ -391,7 +390,7 @@ fn gen_adjacent_tagged_enum_type(enum_def: &EnumDef) -> String {
 
     crate::backends::go::template_env::render(
         "adjacent_tagged_enum.jinja",
-        context! {
+        crate::alef_context! {
             go_enum_name,
             tag_name,
             content_name,
@@ -463,7 +462,7 @@ fn gen_passthrough_raw_message_enum(enum_def: &EnumDef, text_types: &[String]) -
     );
     out.push_str(&crate::backends::go::template_env::render(
         "passthrough_raw_message_enum_body.jinja",
-        context! {
+        crate::alef_context! {
             enum_name => &go_enum_name,
             variants => variant_names.join(", "),
         },
@@ -473,7 +472,7 @@ fn gen_passthrough_raw_message_enum(enum_def: &EnumDef, text_types: &[String]) -
         out.push('\n');
         out.push_str(&crate::backends::go::template_env::render(
             "passthrough_raw_message_text_accessor.jinja",
-            context! {
+            crate::alef_context! {
                 enum_name => &go_enum_name,
             },
         ));
@@ -495,7 +494,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_newtype_tuple_enum_type(enum_de
     emit_type_doc(&mut out, &go_enum_name, &enum_def.doc, "is an enumeration type.");
     out.push_str(&crate::backends::go::template_env::render(
         "string_type_decl.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => &go_enum_name,
         },
     ));
@@ -543,7 +542,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_newtype_tuple_enum_type(enum_de
         };
         out.push_str(&crate::backends::go::template_env::render(
             "const_variant.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 const_name => &const_name,
                 type_name => &go_enum_name,
                 wire_value => &const_value,
@@ -559,7 +558,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_newtype_tuple_enum_type(enum_de
         out.push('\n');
         out.push_str(&crate::backends::go::template_env::render(
             "externally_tagged_newtype_string_marshalers.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 enum_name => &go_enum_name,
             },
         ));
@@ -603,7 +602,7 @@ fn gen_tuple_tagged_union_type(enum_def: &EnumDef) -> String {
     );
     out.push_str(&crate::backends::go::template_env::render(
         "tagged_union_struct_header.jinja",
-        context! {
+        crate::alef_context! {
             go_enum_name => &go_enum_name,
             variants_list => variant_names.join(", "),
         },
@@ -613,7 +612,7 @@ fn gen_tuple_tagged_union_type(enum_def: &EnumDef) -> String {
         let tag_field = to_go_name(tag_name);
         out.push_str(&crate::backends::go::template_env::render(
             "tagged_union_tag_field.jinja",
-            context! {
+            crate::alef_context! {
                 tag_field => &tag_field,
                 tag_name => tag_name,
             },
@@ -643,7 +642,7 @@ fn gen_tuple_tagged_union_type(enum_def: &EnumDef) -> String {
 
             out.push_str(&crate::backends::go::template_env::render(
                 "tagged_union_variant_field.jinja",
-                context! {
+                crate::alef_context! {
                     doc_lines => doc_lines,
                     field_name => &field_name,
                     struct_type => &go_struct_type,
@@ -696,7 +695,7 @@ fn gen_externally_tagged_union_type(enum_def: &EnumDef) -> String {
     );
     out.push_str(&crate::backends::go::template_env::render(
         "tagged_union_struct_header.jinja",
-        context! {
+        crate::alef_context! {
             go_enum_name => &go_enum_name,
             variants_list => variant_names.join(", "),
         },
@@ -716,7 +715,7 @@ fn gen_externally_tagged_union_type(enum_def: &EnumDef) -> String {
         };
         out.push_str(&crate::backends::go::template_env::render(
             "tagged_union_variant_field.jinja",
-            context! {
+            crate::alef_context! {
                 doc_lines => doc_lines,
                 field_name => go_variant_name(&variant.name),
                 struct_type => go_type_name(struct_type_name),
@@ -742,7 +741,7 @@ fn emit_tagged_union_marshalers(out: &mut String, go_enum_name: &str, enum_def: 
 
     out.push_str(&crate::backends::go::template_env::render(
         "tagged_union_marshal_json_header.jinja",
-        context! {
+        crate::alef_context! {
             go_enum_name => go_enum_name,
             tag_field_name => &tag_field_name,
         },
@@ -763,7 +762,7 @@ fn emit_tagged_union_marshalers(out: &mut String, go_enum_name: &str, enum_def: 
             );
             out.push_str(&crate::backends::go::template_env::render(
                 "tagged_union_marshal_variant.jinja",
-                context! {
+                crate::alef_context! {
                     wire_value => &wire_value,
                     variant_go_name => &variant_go_name,
                     tag_name => tag_name,
@@ -774,7 +773,7 @@ fn emit_tagged_union_marshalers(out: &mut String, go_enum_name: &str, enum_def: 
 
     out.push_str(&crate::backends::go::template_env::render(
         "tagged_union_marshal_json_footer.jinja",
-        context! {
+        crate::alef_context! {
             tag_name => tag_name,
             tag_field_name => &tag_field_name,
         },
@@ -783,7 +782,7 @@ fn emit_tagged_union_marshalers(out: &mut String, go_enum_name: &str, enum_def: 
 
     out.push_str(&crate::backends::go::template_env::render(
         "tagged_union_unmarshal_json_header.jinja",
-        context! {
+        crate::alef_context! {
             go_enum_name => go_enum_name,
             tag_field_name => &tag_field_name,
             tag_name => tag_name,
@@ -806,7 +805,7 @@ fn emit_tagged_union_marshalers(out: &mut String, go_enum_name: &str, enum_def: 
             );
             out.push_str(&crate::backends::go::template_env::render(
                 "tagged_union_unmarshal_variant.jinja",
-                context! {
+                crate::alef_context! {
                     wire_value => &wire_value,
                     variant_go_name => &variant_go_name,
                     go_struct_type => &go_struct_type,
@@ -848,7 +847,7 @@ fn emit_untagged_union_marshalers(out: &mut String, go_enum_name: &str, enum_def
     let variants: Vec<minijinja::Value> = variants_with_types
         .iter()
         .map(|(field, ty)| {
-            context! {
+            crate::alef_context! {
                 field => field,
                 ty => ty,
             }
@@ -857,7 +856,7 @@ fn emit_untagged_union_marshalers(out: &mut String, go_enum_name: &str, enum_def
 
     out.push_str(&crate::backends::go::template_env::render(
         "untagged_union_marshalers.jinja",
-        context! {
+        crate::alef_context! {
             enum_name => go_enum_name,
             variants => variants,
         },
@@ -905,7 +904,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_unit_enum_type(enum_def: &EnumD
                 format!("{} is the {} variant of {}.", const_name, v.name, enum_def.name)
             };
 
-            context! {
+            crate::alef_context! {
                 const_name => const_name,
                 rust_name => v.name,
                 doc_first_line => doc_first_line,
@@ -917,7 +916,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_unit_enum_type(enum_def: &EnumD
 
     crate::backends::go::template_env::render(
         "unit_enum.jinja",
-        context! {
+        crate::alef_context! {
             go_name => go_enum_name,
             enum_name => enum_def.name,
             variants => variants,
@@ -953,7 +952,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
     );
     out.push_str(&crate::backends::go::template_env::render(
         "variant_comment.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             variants => variant_names.join(", "),
         },
     ));
@@ -966,7 +965,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
         .collect();
     out.push_str(&crate::backends::go::template_env::render(
         "data_enum_interface.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             go_enum_name => &go_enum_name,
             variant_names => all_variant_names.join(", "),
         },
@@ -986,7 +985,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
 
         out.push_str(&crate::backends::go::template_env::render(
             "data_enum_struct_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 variant_struct_name => &variant_struct_name,
             },
         ));
@@ -994,7 +993,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
             let field_type = go_type(&field.ty);
             out.push_str(&crate::backends::go::template_env::render(
                 "data_enum_scalar_tuple_field.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     field_type => &field_type,
                 },
             ));
@@ -1021,7 +1020,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
             };
             out.push_str(&crate::backends::go::template_env::render(
                 "struct_field.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     doc_lines => doc_lines,
                     field_name => &field_go_name,
                     field_type => &field_type,
@@ -1033,7 +1032,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
 
         out.push_str(&crate::backends::go::template_env::render(
             "data_enum_marker_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 variant_struct_name => &variant_struct_name,
                 go_enum_name => &go_enum_name,
             },
@@ -1046,7 +1045,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
         );
         out.push_str(&crate::backends::go::template_env::render(
             "data_enum_type_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 variant_struct_name => &variant_struct_name,
                 wire_value => &wire_value,
             },
@@ -1055,14 +1054,14 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
         if scalar_tuple_field.is_some() {
             out.push_str(&crate::backends::go::template_env::render(
                 "data_enum_scalar_marshalers.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     variant_struct_name => &variant_struct_name,
                 },
             ));
         } else {
             out.push_str(&crate::backends::go::template_env::render(
                 "data_enum_marshal_json_header.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     variant_struct_name => &variant_struct_name,
                 },
             ));
@@ -1070,7 +1069,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
                 let tag_json_name = tag_name.as_str();
                 out.push_str(&crate::backends::go::template_env::render(
                     "data_enum_marshal_aux_field.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         field_go_name => to_go_name(tag_name),
                         field_type => "string",
                         json_tag => format!("json:\"{tag_json_name}\""),
@@ -1093,7 +1092,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
                 };
                 out.push_str(&crate::backends::go::template_env::render(
                     "data_enum_marshal_aux_field.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         field_go_name => &field_go_name,
                         field_type => &field_type,
                         json_tag => &json_tag,
@@ -1103,7 +1102,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
             if is_externally_tagged {
                 out.push_str(&crate::backends::go::template_env::render(
                     "data_enum_marshal_json_external_values_header.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         wire_value => &wire_value,
                     },
                 ));
@@ -1116,7 +1115,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
             if let Some(tag_name) = &enum_def.serde_tag {
                 out.push_str(&crate::backends::go::template_env::render(
                     "data_enum_marshal_aux_value.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         field_go_name => to_go_name(tag_name),
                         value_expr => "v.Type()",
                     },
@@ -1129,7 +1128,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
                 let field_go_name = to_go_name(&field.name);
                 out.push_str(&crate::backends::go::template_env::render(
                     "data_enum_marshal_aux_value.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         field_go_name => &field_go_name,
                         value_expr => format!("v.{field_go_name}"),
                     },
@@ -1151,7 +1150,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
 
     out.push_str(&crate::backends::go::template_env::render(
         "data_enum_unmarshal_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             go_enum_name => &go_enum_name,
         },
     ));
@@ -1159,7 +1158,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
     if enum_def.serde_untagged {
         out.push_str(&crate::backends::go::template_env::render(
             "data_enum_unmarshal_empty_check.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 go_enum_name => &go_enum_name,
             },
         ));
@@ -1172,7 +1171,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
             if let Some(check) = shape_check {
                 out.push_str(&crate::backends::go::template_env::render(
                     "data_enum_unmarshal_shape_variant.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         check => check,
                         variant_struct_name => &variant_struct_name,
                     },
@@ -1182,7 +1181,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
 
         out.push_str(&crate::backends::go::template_env::render(
             "data_enum_unmarshal_unknown_shape.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 go_enum_name => &go_enum_name,
             },
         ));
@@ -1191,7 +1190,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
 
         out.push_str(&crate::backends::go::template_env::render(
             "data_enum_unmarshal_wire_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 tag_field => Some(discriminator_field.as_str()),
                 tag_name => Some(tag_name.as_str()),
                 discriminator_field => &discriminator_field,
@@ -1206,7 +1205,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
             let variant_struct_name = format!("{go_enum_name}{}", go_variant_name(&variant.name));
             out.push_str(&crate::backends::go::template_env::render(
                 "data_enum_unmarshal_wire_variant.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     wire_value => &wire_value,
                     variant_struct_name => &variant_struct_name,
                 },
@@ -1214,7 +1213,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
         }
         out.push_str(&crate::backends::go::template_env::render(
             "data_enum_unmarshal_unknown_type.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 go_enum_name => &go_enum_name,
                 discriminator_field => &discriminator_field,
             },
@@ -1224,7 +1223,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
         // discriminator is the object's sole key, not a field inside the payload. ~keep
         out.push_str(&crate::backends::go::template_env::render(
             "data_enum_unmarshal_external_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 go_enum_name => &go_enum_name,
             },
         ));
@@ -1237,7 +1236,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
             let variant_struct_name = format!("{go_enum_name}{}", go_variant_name(&variant.name));
             out.push_str(&crate::backends::go::template_env::render(
                 "data_enum_unmarshal_external_variant.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     wire_value => &wire_value,
                     variant_struct_name => &variant_struct_name,
                 },
@@ -1245,7 +1244,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
         }
         out.push_str(&crate::backends::go::template_env::render(
             "data_enum_unmarshal_external_footer.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 go_enum_name => &go_enum_name,
             },
         ));

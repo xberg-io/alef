@@ -33,7 +33,7 @@ pub(super) fn generate_public_api(
     pkg_content.push('\n');
     pkg_content.push_str(&crate::backends::extendr::template_env::render(
         "r_use_dyn_lib.jinja",
-        minijinja::context! { package_name => package_name },
+        crate::alef_context! { package_name => package_name },
     ));
     pkg_content.push_str("NULL\n");
     files.push(GeneratedFile {

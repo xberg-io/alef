@@ -131,7 +131,7 @@ pub(super) fn result_presence_gate(
     let failure_block = error_type.map_or_else(String::new, |error_type| {
         render(
             "result_presence_error_check.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => format!("{indent}    "),
                 prefix,
                 error_type,
@@ -141,7 +141,7 @@ pub(super) fn result_presence_gate(
 
     Some(render(
         "result_presence_gate.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             symbol => result_presence_symbol(symbol),
             args,
             present => PRESENT,

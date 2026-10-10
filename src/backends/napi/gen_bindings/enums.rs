@@ -555,7 +555,7 @@ pub(super) fn gen_enum(
         lines.push(
             crate::backends::napi::template_env::render(
                 "enum_default_impl_cascade.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     binding_name => format!("{prefix}{}", enum_def.name),
                     candidates,
                 },
@@ -597,7 +597,7 @@ fn default_impl_cfg_cascade(declared_variants: &[(&EnumVariant, Option<String>)]
             Some(c) if prior_cfgs.is_empty() => Some(c.clone()),
             Some(c) => Some(format!("all({c}, not(any({})))", prior_cfgs.join(", "))),
         };
-        candidates.push(minijinja::context! {
+        candidates.push(crate::alef_context! {
             variant_name => variant.name.clone(),
             cfg => candidate_cfg,
         });
@@ -873,7 +873,7 @@ pub(super) fn gen_tagged_enum_as_object(
                     crate::codegen::naming::to_python_name(&wire_value),
                 ));
                 let fields_set = if has_payload { 2 } else { 1 };
-                minijinja::context! {
+                crate::alef_context! {
                     variant_name => variant.name.clone(),
                     rust_name,
                     wire_value,
@@ -887,7 +887,7 @@ pub(super) fn gen_tagged_enum_as_object(
         lines.push(
             crate::backends::napi::template_env::render(
                 "adjacent_enum_namespace.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     enum_name => enum_def.name.clone(),
                     binding_name => format!("{prefix}{}", enum_def.name),
                     tag_field => format!("{tag_field}_tag"),

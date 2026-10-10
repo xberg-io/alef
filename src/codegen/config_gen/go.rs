@@ -7,7 +7,7 @@ pub fn gen_go_functional_options(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -
     let fields: Vec<_> = constructor_fields(typ)
         .filter(|field| !is_tuple_field(field))
         .map(|field| {
-            minijinja::context! {
+            crate::alef_context! {
                 name => field.name.clone(),
                 pascal_name => field.name.to_pascal_case(),
                 field_name => field.name.to_pascal_case(),
@@ -19,7 +19,7 @@ pub fn gen_go_functional_options(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -
 
     crate::codegen::template_env::render(
         "config_gen/go_functional_options.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             type_name => typ.name.clone(),
             fields => fields,
         },

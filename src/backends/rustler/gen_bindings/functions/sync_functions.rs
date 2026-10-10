@@ -155,7 +155,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                             deser_lines.push(
                                 template_env::render(
                                     "rust_let_binding.jinja",
-                                    minijinja::context! {
+                                    crate::alef_context! {
                                         var_name => if p.is_ref && p.is_mut { format!("mut {}_core", p.name) } else { format!("{}_core", p.name) },
                                         var_type => &core_ty,
                                         expr => &format!("{}_core_option.unwrap_or_default()", p.name),
@@ -472,7 +472,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
     };
     out.push_str(&template_env::render(
         template_name,
-        minijinja::context! {
+        crate::alef_context! {
             func_name => &func.name,
             params_str => &params_str,
             ret => &return_annotation,

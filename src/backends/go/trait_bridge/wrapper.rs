@@ -25,7 +25,7 @@ pub(super) fn gen_interface_method(out: &mut String, method: &MethodDef) {
     let params_str = params.join(", ");
     out.push_str(&crate::backends::go::template_env::render(
         "trait_interface_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             doc => &method.name,
             method_name => method.name.to_pascal_case(),
             params => params_str,

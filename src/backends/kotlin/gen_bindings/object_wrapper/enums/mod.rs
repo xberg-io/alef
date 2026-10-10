@@ -23,7 +23,7 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str, text_type
     if all_unit {
         out.push_str(&crate::backends::kotlin::template_env::render(
             "enum_class_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &en.name,
             },
         ));
@@ -50,7 +50,7 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str, text_type
                 if total_length <= KTFMT_LINE_WIDTH {
                     out.push_str(&crate::backends::kotlin::template_env::render(
                         "enum_json_property_variant_inline.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             annotation => annotation,
                             variant_line => variant_line,
                         },
@@ -58,7 +58,7 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str, text_type
                 } else {
                     out.push_str(&crate::backends::kotlin::template_env::render(
                         "enum_json_property_variant_multiline.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             annotation => annotation,
                             variant_line => variant_line,
                         },
@@ -67,7 +67,7 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str, text_type
             } else {
                 out.push_str(&crate::backends::kotlin::template_env::render(
                     "enum_variant.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => name,
                         comma => comma,
                     },
@@ -116,7 +116,7 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str, text_type
                 // either convention without forcing the core to add #[serde(rename_all)].
                 out.push_str(&crate::backends::kotlin::template_env::render(
                     "enum_wire_multivalue_arm.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         discriminator => escape_kotlin_string(&discriminator),
                         discriminator_lower => escape_kotlin_string(&discriminator_lower),
                         name => name,
@@ -125,7 +125,7 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str, text_type
             } else {
                 out.push_str(&crate::backends::kotlin::template_env::render(
                     "enum_wire_arm.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         discriminator => escape_kotlin_string(&discriminator),
                         name => name,
                     },
@@ -166,7 +166,7 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str, text_type
         }
         out.push_str(&crate::backends::kotlin::template_env::render(
             "sealed_class_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &en.name,
             },
         ));
@@ -183,7 +183,7 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str, text_type
                 }
                 out.push_str(&crate::backends::kotlin::template_env::render(
                     "sealed_object_variant.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &variant.name,
                         parent_name => &en.name,
                     },
@@ -221,7 +221,7 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str, text_type
                 if use_single_line {
                     out.push_str(&crate::backends::kotlin::template_env::render(
                         "sealed_variant_inline.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             variant_prefix => variant_prefix,
                             fields => variant_field_strings.join(", "),
                             variant_suffix => variant_suffix,
@@ -230,21 +230,21 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str, text_type
                 } else {
                     out.push_str(&crate::backends::kotlin::template_env::render(
                         "sealed_variant_header.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             variant_prefix => variant_prefix,
                         },
                     ));
                     for field_str in &variant_field_strings {
                         out.push_str(&crate::backends::kotlin::template_env::render(
                             "sealed_variant_field.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 field => field_str,
                             },
                         ));
                     }
                     out.push_str(&crate::backends::kotlin::template_env::render(
                         "sealed_variant_close.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             variant_suffix => variant_suffix,
                         },
                     ));

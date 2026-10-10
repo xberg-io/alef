@@ -60,7 +60,7 @@ impl NativeCall<'_> {
         out.push_str(
             render(
                 "native_call_start.jinja",
-                minijinja::context! { method_name => self.cs_native_name },
+                crate::alef_context! { method_name => self.cs_native_name },
             )
             .trim_end_matches('\n'),
         );
@@ -73,7 +73,7 @@ impl NativeCall<'_> {
                 out.push_str(
                     render(
                         "indented_arg.jinja",
-                        minijinja::context! { arg, indent => self.argument_indent },
+                        crate::alef_context! { arg, indent => self.argument_indent },
                     )
                     .trim_end_matches('\n'),
                 );
@@ -99,7 +99,7 @@ impl NativeCall<'_> {
         }
         render(
             "last_error_throw.jinja",
-            minijinja::context! { indent => format!("{}    ", self.call_indent) },
+            crate::alef_context! { indent => format!("{}    ", self.call_indent) },
         )
     }
 
@@ -108,7 +108,7 @@ impl NativeCall<'_> {
             if self.has_error_type {
                 out.push_str(&render(
                     "status_error_throw.jinja",
-                    minijinja::context! { indent => self.call_indent },
+                    crate::alef_context! { indent => self.call_indent },
                 ));
             }
             return;
@@ -124,7 +124,7 @@ impl NativeCall<'_> {
             };
             out.push_str(&render(
                 template,
-                minijinja::context! { indent => self.call_indent, zero },
+                crate::alef_context! { indent => self.call_indent, zero },
             ));
             return;
         }
@@ -135,7 +135,7 @@ impl NativeCall<'_> {
         if self.has_error_type {
             out.push_str(&render(
                 "last_error_throw.jinja",
-                minijinja::context! { indent => self.call_indent },
+                crate::alef_context! { indent => self.call_indent },
             ));
         }
     }

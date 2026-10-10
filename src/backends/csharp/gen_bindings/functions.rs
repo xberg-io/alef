@@ -115,11 +115,11 @@ fn emit_streaming_pinvoke(
     if emitted.insert(entry_point.clone()) {
         out.push_str(&render(
             "dll_import_attr.jinja",
-            minijinja::context! { entry_point => &entry_point },
+            crate::alef_context! { entry_point => &entry_point },
         ));
         out.push_str(&render(
             "streaming_pinvoke_declaration.jinja",
-            minijinja::context! { return_type, cs_name, params },
+            crate::alef_context! { return_type, cs_name, params },
         ));
         out.push('\n');
     }
@@ -144,7 +144,6 @@ pub(super) fn gen_native_methods(
     capsule_types: &HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
 ) -> anyhow::Result<String> {
     use crate::backends::csharp::template_env::render;
-    use minijinja::Value;
 
     // Parameter widths come from the FFI's own parameter-position rule, not from the `Copy`
     // set: a fieldless non-`Copy` enum crosses as `int32_t`, and reading the narrower set here
@@ -153,7 +152,7 @@ pub(super) fn gen_native_methods(
 
     let mut out = render(
         "native_methods_header.jinja",
-        Value::from_serialize(serde_json::json!({
+        crate::template::to_value(serde_json::json!({
             "namespace": namespace,
             "lib_name": lib_name,
         })),
@@ -264,11 +263,11 @@ pub(super) fn gen_native_methods(
         if emitted.insert(free_entry.clone()) {
             out.push_str(&render(
                 "dll_import_attr.jinja",
-                minijinja::context! { entry_point => &free_entry },
+                crate::alef_context! { entry_point => &free_entry },
             ));
             out.push_str(&render(
                 "extern_void_ptr.jinja",
-                minijinja::context! { cs_name => &free_cs },
+                crate::alef_context! { cs_name => &free_cs },
             ));
             out.push('\n');
         }
@@ -290,11 +289,11 @@ pub(super) fn gen_native_methods(
                 .join(", ");
             out.push_str(&render(
                 "dll_import_attr.jinja",
-                minijinja::context! { entry_point => &new_entry },
+                crate::alef_context! { entry_point => &new_entry },
             ));
             out.push_str(&render(
                 "client_constructor_pinvoke.jinja",
-                minijinja::context! { new_cs, params_str },
+                crate::alef_context! { new_cs, params_str },
             ));
             out.push('\n');
         }
@@ -319,11 +318,11 @@ pub(super) fn gen_native_methods(
             if emitted.insert(from_json_entry.clone()) {
                 out.push_str(&render(
                     "dll_import_attr.jinja",
-                    minijinja::context! { entry_point => &from_json_entry },
+                    crate::alef_context! { entry_point => &from_json_entry },
                 ));
                 out.push_str(&render(
                     "extern_ptr_from_json.jinja",
-                    minijinja::context! { cs_name => &from_json_cs },
+                    crate::alef_context! { cs_name => &from_json_cs },
                 ));
                 out.push('\n');
             }
@@ -333,11 +332,11 @@ pub(super) fn gen_native_methods(
         if emitted.insert(free_entry.clone()) {
             out.push_str(&render(
                 "dll_import_attr.jinja",
-                minijinja::context! { entry_point => &free_entry },
+                crate::alef_context! { entry_point => &free_entry },
             ));
             out.push_str(&render(
                 "extern_void_ptr.jinja",
-                minijinja::context! { cs_name => &free_cs },
+                crate::alef_context! { cs_name => &free_cs },
             ));
             out.push('\n');
         }
@@ -353,11 +352,11 @@ pub(super) fn gen_native_methods(
             if emitted.insert(to_json_entry.clone()) {
                 out.push_str(&render(
                     "dll_import_attr.jinja",
-                    minijinja::context! { entry_point => &to_json_entry },
+                    crate::alef_context! { entry_point => &to_json_entry },
                 ));
                 out.push_str(&render(
                     "extern_ptr_to_json.jinja",
-                    minijinja::context! { cs_name => &to_json_cs },
+                    crate::alef_context! { cs_name => &to_json_cs },
                 ));
                 out.push('\n');
             }
@@ -367,11 +366,11 @@ pub(super) fn gen_native_methods(
         if emitted.insert(free_entry.clone()) {
             out.push_str(&render(
                 "dll_import_attr.jinja",
-                minijinja::context! { entry_point => &free_entry },
+                crate::alef_context! { entry_point => &free_entry },
             ));
             out.push_str(&render(
                 "extern_void_ptr.jinja",
-                minijinja::context! { cs_name => &free_cs },
+                crate::alef_context! { cs_name => &free_cs },
             ));
             out.push('\n');
         }
@@ -515,21 +514,21 @@ pub(super) fn gen_native_methods(
     let last_error_code_entry = format!("{prefix}_last_error_code");
     out.push_str(&render(
         "dll_import_attr.jinja",
-        minijinja::context! { entry_point => &last_error_code_entry },
+        crate::alef_context! { entry_point => &last_error_code_entry },
     ));
     out.push_str("    internal static extern int LastErrorCode();\n\n");
 
     let last_error_context_entry = format!("{prefix}_last_error_context");
     out.push_str(&render(
         "dll_import_attr.jinja",
-        minijinja::context! { entry_point => &last_error_context_entry },
+        crate::alef_context! { entry_point => &last_error_context_entry },
     ));
     out.push_str("    internal static extern IntPtr LastErrorContext();\n\n");
 
     for field in crate::codegen::error_gen::last_error_fields(&api.errors) {
         out.push_str(&render(
             "dll_import_attr.jinja",
-            minijinja::context! { entry_point => crate::codegen::c_consumer::last_error_field_symbol(prefix, &field.name) },
+            crate::alef_context! { entry_point => crate::codegen::c_consumer::last_error_field_symbol(prefix, &field.name) },
         ));
         let (return_attribute, return_type) = match &field.kind {
             crate::codegen::error_gen::LastErrorFieldKind::Scalar(crate::core::ir::PrimitiveType::Bool) => {
@@ -552,7 +551,7 @@ pub(super) fn gen_native_methods(
     let free_string_entry = format!("{prefix}_free_string");
     out.push_str(&render(
         "dll_import_attr.jinja",
-        minijinja::context! { entry_point => &free_string_entry },
+        crate::alef_context! { entry_point => &free_string_entry },
     ));
     out.push_str("    internal static extern void FreeString(IntPtr ptr);\n\n");
 
@@ -565,7 +564,7 @@ pub(super) fn gen_native_methods(
         let free_bytes_entry = format!("{prefix}_free_bytes");
         out.push_str(&render(
             "dll_import_attr.jinja",
-            minijinja::context! { entry_point => &free_bytes_entry },
+            crate::alef_context! { entry_point => &free_bytes_entry },
         ));
         out.push_str("    internal static extern void FreeBytes(IntPtr ptr, UIntPtr len, UIntPtr cap);\n");
     }

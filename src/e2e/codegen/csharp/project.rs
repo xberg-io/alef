@@ -82,7 +82,7 @@ pub(super) fn render_csproj(
 
     crate::e2e::template_env::render(
         "csharp/csproj.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             pkg_ref => pkg_ref,
             extras_block => extras_block,
             namespace => pkg_name,
@@ -199,7 +199,7 @@ pub(super) fn render_test_setup(
         out.push('\n');
         let mock_server_code = crate::e2e::template_env::render(
             "csharp/test_setup_mock_server.cs.jinja",
-            minijinja::context! { alt_host => alt_host },
+            crate::alef_context! { alt_host => alt_host },
         );
         out.push_str(&mock_server_code);
     }

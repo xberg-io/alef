@@ -51,7 +51,7 @@ pub(crate) fn emit_mirror_struct(out: &mut String, ty: &TypeDef, source_crate_na
         let wrapper_cfg = super::helpers::widen_opaque_wrapper_cfg(ty.cfg.as_deref().unwrap_or(""));
         out.push_str(&template_env::render(
             "rust_opaque_wrapper_struct.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => ty.name.as_str(),
                 inner_path => inner_path.as_str(),
                 source_cfg => wrapper_cfg.as_str(),
@@ -63,14 +63,14 @@ pub(crate) fn emit_mirror_struct(out: &mut String, ty: &TypeDef, source_crate_na
     emit_rust_doc(&ty.doc, "", out);
     out.push_str(&template_env::render(
         "rust_mirror_struct_attribute.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => ty.name.as_str(),
             source_cfg => ty.cfg.as_deref().unwrap_or(""),
         },
     ));
     out.push_str(&template_env::render(
         "rust_mirror_struct_open.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => ty.name.as_str(),
         },
     ));
@@ -79,7 +79,7 @@ pub(crate) fn emit_mirror_struct(out: &mut String, ty: &TypeDef, source_crate_na
         emit_rust_doc(&field.doc, "    ", out);
         out.push_str(&template_env::render(
             "rust_mirror_struct_field.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 field_name => field.name.as_str(),
                 rust_ty => rust_ty,
             },
@@ -87,7 +87,7 @@ pub(crate) fn emit_mirror_struct(out: &mut String, ty: &TypeDef, source_crate_na
     }
     out.push_str(&template_env::render(
         "rust_mirror_struct_close.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
 }
 
@@ -132,14 +132,14 @@ pub(crate) fn emit_mirror_enum(
     emit_rust_doc(&en.doc, "", out);
     out.push_str(&template_env::render(
         "rust_mirror_enum_attribute.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => en.name.as_str(),
             source_cfg => en.cfg.as_deref().unwrap_or(""),
         },
     ));
     out.push_str(&template_env::render(
         "rust_mirror_enum_open.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => en.name.as_str(),
         },
     ));
@@ -148,7 +148,7 @@ pub(crate) fn emit_mirror_enum(
             emit_rust_doc(&variant.doc, "    ", out);
             out.push_str(&template_env::render(
                 "rust_mirror_enum_unit_variant.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     variant_name => variant.name.as_str(),
                 },
             ));
@@ -160,7 +160,7 @@ pub(crate) fn emit_mirror_enum(
                 emit_rust_doc(&variant.doc, "    ", out);
                 out.push_str(&template_env::render(
                     "rust_mirror_enum_unit_variant.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         variant_name => variant.name.as_str(),
                     },
                 ));
@@ -168,7 +168,7 @@ pub(crate) fn emit_mirror_enum(
                 emit_rust_doc(&variant.doc, "    ", out);
                 out.push_str(&template_env::render(
                     "rust_mirror_enum_data_variant_open.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         variant_name => variant.name.as_str(),
                     },
                 ));
@@ -182,7 +182,7 @@ pub(crate) fn emit_mirror_enum(
                     emit_rust_doc(&f.doc, "        ", out);
                     out.push_str(&template_env::render(
                         "rust_mirror_enum_data_variant_field.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             field_name => fname,
                             rust_ty => rust_ty,
                         },
@@ -190,7 +190,7 @@ pub(crate) fn emit_mirror_enum(
                 }
                 out.push_str(&template_env::render(
                     "rust_mirror_enum_data_close.jinja",
-                    minijinja::context! {},
+                    crate::alef_context! {},
                 ));
             }
         }
@@ -287,7 +287,7 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str, error_cfg
 
     out.push_str(&template_env::render(
         "rust_mirror_error_from_impl_open.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => error.name.as_str(),
             core_path => core_path,
             source_cfg => error_cfg,
@@ -298,7 +298,7 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str, error_cfg
         if variant.is_unit {
             out.push_str(&template_env::render(
                 "rust_mirror_error_unit_from_arm.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => error.name.as_str(),
                     vname => vname.as_str(),
                 },
@@ -306,7 +306,7 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str, error_cfg
         } else if !variant.is_unit && variant.is_tuple && variant.fields.iter().all(|f| f.binding_excluded) {
             out.push_str(&template_env::render(
                 "rust_mirror_error_excluded_from_arm.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => error.name.as_str(),
                     vname => vname.as_str(),
                 },
@@ -314,7 +314,7 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str, error_cfg
         } else if !variant.is_unit && variant.fields.is_empty() {
             out.push_str(&template_env::render(
                 "rust_mirror_error_unit_from_arm.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => error.name.as_str(),
                     vname => vname.as_str(),
                 },
@@ -322,7 +322,7 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str, error_cfg
         } else if variant.fields.iter().all(|f| f.binding_excluded) {
             out.push_str(&template_env::render(
                 "rust_mirror_error_excluded_from_arm.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => error.name.as_str(),
                     vname => vname.as_str(),
                 },
@@ -357,7 +357,7 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str, error_cfg
                 .join(", ");
             out.push_str(&template_env::render(
                 "rust_mirror_error_struct_pattern_arm.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => error.name.as_str(),
                     vname => vname.as_str(),
                     pat_fields => pat_fields.as_str(),
@@ -379,7 +379,7 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str, error_cfg
                 }
                 out.push_str(&template_env::render(
                     "rust_mirror_error_tuple_return.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         vname => vname.as_str(),
                         args => args.join(", "),
                     },
@@ -396,7 +396,7 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str, error_cfg
                 }
                 out.push_str(&template_env::render(
                     "rust_mirror_error_struct_return.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         vname => vname.as_str(),
                         real_fields => real_fields.join(",\n"),
                     },
@@ -408,12 +408,12 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str, error_cfg
     if any_skipped {
         out.push_str(&template_env::render(
             "rust_mirror_error_sanitized_wildcard_arm.rs.jinja",
-            minijinja::context! {},
+            crate::alef_context! {},
         ));
     }
     out.push_str(&template_env::render(
         "rust_mirror_error_from_impl_close.rs.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
 }
 
@@ -435,14 +435,14 @@ pub(crate) fn emit_mirror_error(out: &mut String, error: &ErrorDef, source_crate
     emit_rust_doc(&error.doc, "", out);
     out.push_str(&template_env::render(
         "rust_mirror_enum_attribute.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => error.name.as_str(),
             source_cfg => "",
         },
     ));
     out.push_str(&template_env::render(
         "rust_mirror_enum_open.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => error.name.as_str(),
         },
     ));
@@ -452,41 +452,41 @@ pub(crate) fn emit_mirror_error(out: &mut String, error: &ErrorDef, source_crate
         if variant.is_unit {
             out.push_str(&template_env::render(
                 "rust_mirror_enum_unit_variant.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     variant_name => variant.name.as_str(),
                 },
             ));
         } else if !variant.is_unit && variant.is_tuple && variant.fields.iter().all(|f| f.binding_excluded) {
             out.push_str(&template_env::render(
                 "rust_mirror_enum_data_variant_open.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     variant_name => variant.name.as_str(),
                 },
             ));
             out.push_str(&template_env::render(
                 "rust_mirror_enum_data_variant_field.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     field_name => "field0",
                     rust_ty => "String",
                 },
             ));
             out.push_str(&template_env::render(
                 "rust_mirror_enum_data_close.jinja",
-                minijinja::context! {},
+                crate::alef_context! {},
             ));
         } else {
             let visible_fields: Vec<&FieldDef> = variant.fields.iter().filter(|f| !f.binding_excluded).collect();
             if visible_fields.is_empty() {
                 out.push_str(&template_env::render(
                     "rust_mirror_enum_unit_variant.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         variant_name => variant.name.as_str(),
                     },
                 ));
             } else {
                 out.push_str(&template_env::render(
                     "rust_mirror_enum_data_variant_open.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         variant_name => variant.name.as_str(),
                     },
                 ));
@@ -499,7 +499,7 @@ pub(crate) fn emit_mirror_error(out: &mut String, error: &ErrorDef, source_crate
                     let rust_ty = frb_rust_type_inner(&f.ty);
                     out.push_str(&template_env::render(
                         "rust_mirror_enum_data_variant_field.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             field_name => fname,
                             rust_ty => rust_ty,
                         },
@@ -507,7 +507,7 @@ pub(crate) fn emit_mirror_error(out: &mut String, error: &ErrorDef, source_crate
                 }
                 out.push_str(&template_env::render(
                     "rust_mirror_enum_data_close.jinja",
-                    minijinja::context! {},
+                    crate::alef_context! {},
                 ));
             }
         }
@@ -529,7 +529,7 @@ pub(crate) fn emit_mirror_error(out: &mut String, error: &ErrorDef, source_crate
 
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_error_impl_open.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             error_name => error.name.as_str(),
             source_cfg => "",
         },
@@ -539,7 +539,7 @@ pub(crate) fn emit_mirror_error(out: &mut String, error: &ErrorDef, source_crate
         let ret_ty = frb_rust_type_inner(&method.return_type);
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_error_method_open.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => method.name.as_str(),
                 ret_ty => ret_ty.as_str(),
             },
@@ -566,7 +566,7 @@ pub(crate) fn emit_mirror_error(out: &mut String, error: &ErrorDef, source_crate
         };
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_error_method_body.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 core_path => core_path.as_str(),
                 method_name => method.name.as_str(),
                 call_suffix => call_suffix.as_str(),

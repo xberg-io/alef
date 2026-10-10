@@ -61,14 +61,12 @@ impl Extension for TemplateExtension {
         for block in typed.blocks.iter().filter(|b| b.language == language) {
             let template_src = read_template(&block.template)?;
             let mut local_env = minijinja::Environment::new();
-            local_env.set_trim_blocks(true);
-            local_env.set_lstrip_blocks(true);
-            local_env.set_keep_trailing_newline(true);
+            crate::template::configure_env(&mut local_env);
             local_env
                 .add_template_owned(block.name.clone(), template_src)
                 .with_context(|| format!("failed to load template `{}`", block.template.display()))?;
 
-            let ctx = minijinja::context! {
+            let ctx = crate::alef_context! {
                 crate_name => &api.crate_name,
                 version => &api.version,
                 language => language.to_string(),

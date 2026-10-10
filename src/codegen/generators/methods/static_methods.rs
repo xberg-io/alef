@@ -270,7 +270,7 @@ pub fn gen_static_method(
     if !static_attr_str.is_empty() {
         out.push_str(&crate::codegen::template_env::render(
             "generators/methods/static_attr.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 static_attr_str => static_attr_str,
             },
         ));
@@ -278,7 +278,7 @@ pub fn gen_static_method(
     if cfg.needs_signature {
         out.push_str(&crate::codegen::template_env::render(
             "generators/methods/signature_attr.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 signature_prefix => &cfg.signature_prefix,
                 sig_defaults => sig_defaults,
                 signature_suffix => &cfg.signature_suffix,
@@ -287,7 +287,7 @@ pub fn gen_static_method(
     }
     out.push_str(&crate::codegen::template_env::render(
         "generators/methods/method_body.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             sig_start => sig_start,
             sig_params => sig_params,
             sig_end => sig_end,

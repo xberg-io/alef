@@ -168,7 +168,7 @@ pub(super) fn gen_param_conversion(out: &mut String, param: &crate::core::ir::Pa
         TypeRef::String | TypeRef::Char | TypeRef::Path => {
             out.push_str(&crate::backends::go::template_env::render(
                 "go_string_cast.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => capitalize(&param.name),
                     param => param.name.as_str(),
                 },
@@ -180,7 +180,7 @@ pub(super) fn gen_param_conversion(out: &mut String, param: &crate::core::ir::Pa
             let len_name = format!("{name}Len");
             out.push_str(&crate::backends::go::template_env::render(
                 "trampoline_bytes_param_decode.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     var_name => &var_name,
                     name => name,
                     len_name => &len_name,
@@ -191,20 +191,20 @@ pub(super) fn gen_param_conversion(out: &mut String, param: &crate::core::ir::Pa
             let go_type = rust_to_go_type(&param.ty);
             out.push_str(&crate::backends::go::template_env::render(
                 "var_type_decl.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     var_name => &var_name,
                     type_name => &go_type,
                 },
             ));
             out.push_str(&crate::backends::go::template_env::render(
                 "if_nil_check.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     param => param.name.as_str(),
                 },
             ));
             out.push_str(&crate::backends::go::template_env::render(
                 "json_unmarshal_simple.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     param => param.name.as_str(),
                     var_name => &var_name,
                 },
@@ -217,20 +217,20 @@ pub(super) fn gen_param_conversion(out: &mut String, param: &crate::core::ir::Pa
             let go_type = rust_to_go_type(&param.ty);
             out.push_str(&crate::backends::go::template_env::render(
                 "var_type_decl.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     var_name => &var_name,
                     type_name => &go_type,
                 },
             ));
             out.push_str(&crate::backends::go::template_env::render(
                 "if_nil_check.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     param => param.name.as_str(),
                 },
             ));
             out.push_str(&crate::backends::go::template_env::render(
                 "json_unmarshal_simple.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     param => param.name.as_str(),
                     var_name => &var_name,
                 },
@@ -243,21 +243,21 @@ pub(super) fn gen_param_conversion(out: &mut String, param: &crate::core::ir::Pa
             let go_type = rust_to_go_type(&param.ty);
             out.push_str(&crate::backends::go::template_env::render(
                 "var_type_decl.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     var_name => &var_name,
                     type_name => &go_type,
                 },
             ));
             out.push_str(&crate::backends::go::template_env::render(
                 "if_nil_check.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     param => param.name.as_str(),
                 },
             ));
             out.push_str("\t\tvar rawData interface{}\n");
             out.push_str(&crate::backends::go::template_env::render(
                 "json_unmarshal_rawdata.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     param => param.name.as_str(),
                 },
             ));
@@ -265,7 +265,7 @@ pub(super) fn gen_param_conversion(out: &mut String, param: &crate::core::ir::Pa
             out.push_str("\t\tif m, ok := rawData.(map[string]interface{}); ok {\n");
             out.push_str(&crate::backends::go::template_env::render(
                 "var_assign_m.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     var => &var_name,
                 },
             ));
@@ -278,21 +278,21 @@ pub(super) fn gen_param_conversion(out: &mut String, param: &crate::core::ir::Pa
             let go_type = rust_to_go_type(&param.ty);
             out.push_str(&crate::backends::go::template_env::render(
                 "var_type_decl.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     var_name => &var_name,
                     type_name => &go_type,
                 },
             ));
             out.push_str(&crate::backends::go::template_env::render(
                 "if_nil_check.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     param => param.name.as_str(),
                 },
             ));
             out.push_str("\t\tvar rawData interface{}\n");
             out.push_str(&crate::backends::go::template_env::render(
                 "json_unmarshal_rawdata.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     param => param.name.as_str(),
                 },
             ));
@@ -300,7 +300,7 @@ pub(super) fn gen_param_conversion(out: &mut String, param: &crate::core::ir::Pa
             out.push_str("\t\tif m, ok := rawData.(map[string]interface{}); ok {\n");
             out.push_str(&crate::backends::go::template_env::render(
                 "var_assign_m.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     var => &var_name,
                 },
             ));
@@ -312,7 +312,7 @@ pub(super) fn gen_param_conversion(out: &mut String, param: &crate::core::ir::Pa
         TypeRef::Json => {
             out.push_str(&crate::backends::go::template_env::render(
                 "trampoline_raw_message_decode.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     var_name => &var_name,
                     param => param.name.as_str(),
                 },
@@ -343,7 +343,7 @@ pub(super) fn gen_param_conversion(out: &mut String, param: &crate::core::ir::Pa
             };
             out.push_str(&crate::backends::go::template_env::render(
                 "var_assign_cast.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     var_name => &var_name,
                     cast => &cast,
                 },
@@ -354,7 +354,7 @@ pub(super) fn gen_param_conversion(out: &mut String, param: &crate::core::ir::Pa
         _ => {
             out.push_str(&crate::backends::go::template_env::render(
                 "var_assign_cast.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     var_name => &var_name,
                     cast => param.name.as_str(),
                 },

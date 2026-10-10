@@ -96,7 +96,7 @@ fn adapter_param_conversions(
         if !param.optional {
             conversions.push_str(&crate::backends::pyo3::template_env::render(
                 "config_default_on_none.jinja",
-                minijinja::context! { var => &var, name => &param.ty },
+                crate::alef_context! { var => &var, name => &param.ty },
             ));
         }
         args.push(var);
@@ -126,7 +126,7 @@ fn streaming_request_argument(
     let params = vec![format!("engine: {owner_type}"), format!("{field_name}: {input_type}")];
     let construction = crate::backends::pyo3::template_env::render(
         "adapter_streaming_request_input.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             field_name => field_name,
             request_name => request_name,
             runtime_type => runtime_type,
@@ -257,7 +257,7 @@ pub(super) fn emit_adapter_wrapper(
             let return_type = format!("AsyncIterator[{item_type}]");
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "adapter_streaming_wrapper.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     adapter_name => adapter_name,
                     params => param_parts.join(", "),
                     return_type => return_type,
@@ -275,7 +275,7 @@ pub(super) fn emit_adapter_wrapper(
             let return_type = adapter_param_python_type(raw_return);
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "adapter_async_wrapper.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     adapter_name => adapter_name,
                     params => param_parts.join(", "),
                     return_type => return_type,

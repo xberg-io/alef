@@ -58,7 +58,7 @@ pub(in crate::codegen::generators) fn gen_named_let_bindings_by_ref(
                 let binding = if p.optional {
                     crate::codegen::template_env::render(
                         "binding_helpers/named_let_binding_by_ref_optional.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                             core_type_path => &core_type_path,
                         },
@@ -66,7 +66,7 @@ pub(in crate::codegen::generators) fn gen_named_let_bindings_by_ref(
                 } else {
                     crate::codegen::template_env::render(
                         "binding_helpers/named_let_binding_by_ref_simple.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                             core_type_path => &core_type_path,
                         },
@@ -79,7 +79,7 @@ pub(in crate::codegen::generators) fn gen_named_let_bindings_by_ref(
                 let binding = if p.optional {
                     crate::codegen::template_env::render(
                         "binding_helpers/vec_named_let_binding_by_ref_optional.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                         },
                     )
@@ -88,14 +88,14 @@ pub(in crate::codegen::generators) fn gen_named_let_bindings_by_ref(
                     if promoted {
                         crate::codegen::template_env::render(
                             "binding_helpers/vec_named_let_binding_by_ref_promoted.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 name => &p.name,
                             },
                         )
                     } else {
                         crate::codegen::template_env::render(
                             "binding_helpers/vec_named_let_binding_by_ref_simple.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 name => &p.name,
                             },
                         )
@@ -110,14 +110,14 @@ pub(in crate::codegen::generators) fn gen_named_let_bindings_by_ref(
                 let binding = if p.optional {
                     crate::codegen::template_env::render(
                         "binding_helpers/vec_string_refs_binding_optional.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                         },
                     )
                 } else {
                     crate::codegen::template_env::render(
                         "binding_helpers/vec_string_refs_binding_simple.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                         },
                     )
@@ -147,7 +147,7 @@ fn gen_named_let_bindings_inner(
                     if p.is_ref {
                         crate::codegen::template_env::render(
                             "binding_helpers/named_let_binding_optional_ref.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 name => &p.name,
                                 core_type_path => &core_type_path,
                             },
@@ -155,7 +155,7 @@ fn gen_named_let_bindings_inner(
                     } else {
                         crate::codegen::template_env::render(
                             "binding_helpers/named_let_binding_optional.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 name => &p.name,
                                 core_type_path => &core_type_path,
                             },
@@ -164,7 +164,7 @@ fn gen_named_let_bindings_inner(
                 } else if promoted {
                     crate::codegen::template_env::render(
                         "binding_helpers/named_let_binding_promoted.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                             core_type_path => &core_type_path,
                             is_mut => p.is_mut,
@@ -173,7 +173,7 @@ fn gen_named_let_bindings_inner(
                 } else {
                     crate::codegen::template_env::render(
                         "binding_helpers/named_let_binding_simple.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                             core_type_path => &core_type_path,
                             is_mut => p.is_mut,
@@ -188,28 +188,28 @@ fn gen_named_let_bindings_inner(
                 let binding = if p.optional && p.is_ref {
                     crate::codegen::template_env::render(
                         "binding_helpers/vec_named_let_binding_optional.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                         },
                     )
                 } else if p.optional {
                     crate::codegen::template_env::render(
                         "binding_helpers/vec_named_let_binding_optional_no_ref.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                         },
                     )
                 } else if promoted {
                     crate::codegen::template_env::render(
                         "binding_helpers/vec_named_let_binding_promoted.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                         },
                     )
                 } else {
                     crate::codegen::template_env::render(
                         "binding_helpers/vec_named_let_binding_simple.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                         },
                     )
@@ -223,14 +223,14 @@ fn gen_named_let_bindings_inner(
                 let binding = if p.optional {
                     crate::codegen::template_env::render(
                         "binding_helpers/vec_string_refs_binding_optional.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                         },
                     )
                 } else {
                     crate::codegen::template_env::render(
                         "binding_helpers/vec_string_refs_binding_simple.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                         },
                     )
@@ -248,7 +248,7 @@ fn gen_named_let_bindings_inner(
                 };
                 bindings.push_str(&crate::codegen::template_env::render(
                     template,
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &p.name,
                     },
                 ));
@@ -281,7 +281,7 @@ fn gen_named_let_bindings_inner_augmented(
                 let binding = if is_augmented_optional {
                     crate::codegen::template_env::render(
                         "binding_helpers/named_let_binding_promoted.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                             core_type_path => &core_type_path,
                             is_mut => p.is_mut,
@@ -291,7 +291,7 @@ fn gen_named_let_bindings_inner_augmented(
                     if p.is_ref {
                         crate::codegen::template_env::render(
                             "binding_helpers/named_let_binding_optional_ref.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 name => &p.name,
                                 core_type_path => &core_type_path,
                             },
@@ -299,7 +299,7 @@ fn gen_named_let_bindings_inner_augmented(
                     } else {
                         crate::codegen::template_env::render(
                             "binding_helpers/named_let_binding_optional.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 name => &p.name,
                                 core_type_path => &core_type_path,
                             },
@@ -310,7 +310,7 @@ fn gen_named_let_bindings_inner_augmented(
                     if promoted {
                         crate::codegen::template_env::render(
                             "binding_helpers/named_let_binding_promoted.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 name => &p.name,
                                 core_type_path => &core_type_path,
                                 is_mut => p.is_mut,
@@ -319,7 +319,7 @@ fn gen_named_let_bindings_inner_augmented(
                     } else {
                         crate::codegen::template_env::render(
                             "binding_helpers/named_let_binding_simple.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 name => &p.name,
                                 core_type_path => &core_type_path,
                                 is_mut => p.is_mut,
@@ -334,14 +334,14 @@ fn gen_named_let_bindings_inner_augmented(
                 let binding = if p.optional && p.is_ref {
                     crate::codegen::template_env::render(
                         "binding_helpers/vec_named_let_binding_optional.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                         },
                     )
                 } else if p.optional {
                     crate::codegen::template_env::render(
                         "binding_helpers/vec_named_let_binding_optional_no_ref.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                         },
                     )
@@ -352,7 +352,7 @@ fn gen_named_let_bindings_inner_augmented(
                     } else {
                         "binding_helpers/vec_named_let_binding_simple.jinja"
                     };
-                    crate::codegen::template_env::render(template, minijinja::context! { name => &p.name })
+                    crate::codegen::template_env::render(template, crate::alef_context! { name => &p.name })
                 };
                 bindings.push_str(&binding);
                 bindings.push_str("\n    ");
@@ -363,12 +363,12 @@ fn gen_named_let_bindings_inner_augmented(
                 let binding = if p.optional {
                     crate::codegen::template_env::render(
                         "binding_helpers/vec_string_refs_binding_optional.jinja",
-                        minijinja::context! { name => &p.name },
+                        crate::alef_context! { name => &p.name },
                     )
                 } else {
                     crate::codegen::template_env::render(
                         "binding_helpers/vec_string_refs_binding_simple.jinja",
-                        minijinja::context! { name => &p.name },
+                        crate::alef_context! { name => &p.name },
                     )
                 };
                 bindings.push_str(&binding);
@@ -402,7 +402,7 @@ pub fn gen_serde_let_bindings(
                 if p.optional {
                     bindings.push_str(&crate::codegen::template_env::render(
                         "binding_helpers/serde_named_let_binding_optional.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                             core_path => core_path,
                             err_conv => err_conv,
@@ -412,7 +412,7 @@ pub fn gen_serde_let_bindings(
                 } else if promoted {
                     bindings.push_str(&crate::codegen::template_env::render(
                         "binding_helpers/serde_named_let_binding_promoted.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                             core_path => core_path,
                             err_conv => err_conv,
@@ -422,7 +422,7 @@ pub fn gen_serde_let_bindings(
                 } else {
                     bindings.push_str(&crate::codegen::template_env::render(
                         "binding_helpers/serde_named_let_binding_simple.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                             core_path => core_path,
                             err_conv => err_conv,
@@ -438,7 +438,7 @@ pub fn gen_serde_let_bindings(
                         if p.optional {
                             bindings.push_str(&crate::codegen::template_env::render(
                                 "binding_helpers/serde_vec_named_optional.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     name => &p.name,
                                     core_path => core_path,
                                     err_conv => err_conv,
@@ -448,7 +448,7 @@ pub fn gen_serde_let_bindings(
                         } else {
                             bindings.push_str(&crate::codegen::template_env::render(
                                 "binding_helpers/serde_vec_named_simple.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     name => &p.name,
                                     core_path => core_path,
                                     err_conv => err_conv,
@@ -465,7 +465,7 @@ pub fn gen_serde_let_bindings(
                     };
                     bindings.push_str(&crate::codegen::template_env::render(
                         template,
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => &p.name,
                             err_conv => err_conv,
                             indent => indent,

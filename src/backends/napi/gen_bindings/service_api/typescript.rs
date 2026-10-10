@@ -1,5 +1,4 @@
 use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
-use minijinja::context;
 
 use crate::backends::napi::template_env::render;
 use crate::codegen::naming::node_type_name;
@@ -104,7 +103,7 @@ pub(in crate::backends::napi::gen_bindings) fn gen_service_ts(
     let imports = classify_service_imports(api, config);
     out.push_str(&render(
         "service_ts_preamble.jinja",
-        context! {
+        crate::alef_context! {
             type_imports => imports.type_imports.join(", "),
             value_imports => imports.value_imports.join(", "),
             native_imports => imports.native_imports.join(", "),
@@ -151,7 +150,7 @@ fn gen_service_class_ts(
     };
     out.push_str(&render(
         "service_ts_class_header.jinja",
-        context! {
+        crate::alef_context! {
             class_doc,
             class_name,
             native_class_name => native_class_name.as_str(),
@@ -180,7 +179,7 @@ fn gen_service_class_ts(
             .join(", ");
         out.push_str(&render(
             "service_ts_static_new.jinja",
-            context! {
+            crate::alef_context! {
                 class_name,
                 param_sig,
                 args,
@@ -210,7 +209,7 @@ fn gen_service_class_ts(
         let doc = ctor.doc.trim().replace('\n', "\n   * ");
         out.push_str(&render(
             "service_ts_constructor.jinja",
-            context! {
+            crate::alef_context! {
                 doc,
                 param_sig,
                 args,
@@ -237,7 +236,7 @@ fn gen_service_class_ts(
         let store_block = if is_config_forward_configurator(method) {
             render(
                 "service_ts_configurator_config_forward.jinja",
-                context! {
+                crate::alef_context! {
                     param_name => &method.params[0].name,
                 },
             )
@@ -248,7 +247,7 @@ fn gen_service_class_ts(
                 .map(|p| {
                     render(
                         "service_ts_configurator_store.jinja",
-                        context! {
+                        crate::alef_context! {
                             field_name => &p.name,
                             param_name => &p.name,
                         },
@@ -259,7 +258,7 @@ fn gen_service_class_ts(
 
         out.push_str(&render(
             "service_ts_configurator.jinja",
-            context! {
+            crate::alef_context! {
                 doc,
                 method_name,
                 param_sig,
@@ -295,7 +294,7 @@ fn gen_service_class_ts(
             EntrypointKind::Run => {
                 out.push_str(&render(
                     "service_ts_entrypoint_run.jinja",
-                    context! {
+                    crate::alef_context! {
                         doc,
                         ep_name,
                         param_sig,
@@ -308,7 +307,7 @@ fn gen_service_class_ts(
                 let return_ty = "Promise<void>".to_owned();
                 out.push_str(&render(
                     "service_ts_entrypoint_finalize.jinja",
-                    context! {
+                    crate::alef_context! {
                         doc,
                         ep_name,
                         param_sig,
@@ -346,7 +345,7 @@ fn render_configurator_fields(service: &ServiceDef) -> String {
         .map(|(field_name, field_type)| {
             render(
                 "service_ts_config_field.jinja",
-                context! {
+                crate::alef_context! {
                     field_name,
                     field_type,
                 },
@@ -381,7 +380,7 @@ fn gen_registration_method_ts(out: &mut String, reg: &RegistrationDef, service: 
     let doc = reg.doc.trim().replace('\n', "\n   * ");
     out.push_str(&render(
         "service_ts_registration_method.jinja",
-        context! {
+        crate::alef_context! {
             doc,
             method_name,
             meta_sig,
@@ -396,7 +395,7 @@ fn gen_registration_method_ts(out: &mut String, reg: &RegistrationDef, service: 
         let full_sig = meta_params.join(", ");
         out.push_str(&render(
             "service_ts_registration_direct_method.jinja",
-            context! {
+            crate::alef_context! {
                 method_name,
                 direct_name,
                 full_sig,
@@ -561,7 +560,7 @@ fn emit_variant_direct_method(
         .unwrap_or_else(|| format!("Register a {variant_name} callback directly."));
     out.push_str(&render(
         "service_ts_variant_direct.jinja",
-        context! {
+        crate::alef_context! {
             doc,
             variant_name,
             full_sig,
@@ -599,7 +598,7 @@ fn emit_variant_decorator_factory(
         .unwrap_or_else(|| format!("Register a {variant_name} callback via decorator factory."));
     out.push_str(&render(
         "service_ts_variant_decorator.jinja",
-        context! {
+        crate::alef_context! {
             doc,
             variant_name,
             sig,
@@ -652,7 +651,7 @@ fn emit_variant_hybrid_overloaded(
         });
     out.push_str(&render(
         "service_ts_variant_hybrid.jinja",
-        context! {
+        crate::alef_context! {
             doc,
             variant_name,
             direct_params,

@@ -58,7 +58,7 @@ fn callback_rows(
                 opaque_types,
                 default_types,
             );
-            minijinja::context! {
+            crate::alef_context! {
                 method => method.name.clone(),
                 name => method.name.to_snake_case(),
                 params_spec => params_spec,
@@ -76,14 +76,14 @@ fn optional_callback_rows(methods: &[MethodDef]) -> Vec<minijinja::Value> {
         .iter()
         .filter(|m| m.has_default_impl)
         .map(|m| {
-            minijinja::context! {
+            crate::alef_context! {
                 name => m.name.to_snake_case(),
                 arity => m.params.len(),
             }
         })
         .collect();
-    rows.push(minijinja::context! { name => "initialize", arity => 0 });
-    rows.push(minijinja::context! { name => "shutdown", arity => 0 });
+    rows.push(crate::alef_context! { name => "initialize", arity => 0 });
+    rows.push(crate::alef_context! { name => "shutdown", arity => 0 });
     rows
 }
 
@@ -132,7 +132,7 @@ pub(in crate::backends::rustler::gen_bindings) fn append_trait_bridge_delegates(
         if bridge_cfg.register_fn.is_some() && !trait_def.methods.is_empty() {
             content.push_str(&template_env::render(
                 "elixir_trait_behaviour.ex.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     behaviour_module => &behaviour_mod,
                     trait_name => &bridge_cfg.trait_name,
                     register_fn => bridge_cfg.register_fn.as_deref().unwrap_or_default().to_snake_case(),
@@ -148,7 +148,7 @@ pub(in crate::backends::rustler::gen_bindings) fn append_trait_bridge_delegates(
             if !api_fn_names.contains(func_name.as_str()) {
                 content.push_str(&template_env::render(
                     "elixir_trait_register_delegate.ex.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         trait_name => &bridge_cfg.trait_name,
                         func_name => &func_name,
                         behaviour_module => &behaviour_mod,
@@ -163,7 +163,7 @@ pub(in crate::backends::rustler::gen_bindings) fn append_trait_bridge_delegates(
             if !api_fn_names.contains(func_name.as_str()) {
                 content.push_str(&template_env::render(
                     "elixir_trait_unregister_delegate.ex.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         trait_name => &bridge_cfg.trait_name,
                         func_name => &func_name,
                         native_mod => native_mod,
@@ -177,7 +177,7 @@ pub(in crate::backends::rustler::gen_bindings) fn append_trait_bridge_delegates(
             if !api_fn_names.contains(func_name.as_str()) {
                 content.push_str(&template_env::render(
                     "elixir_trait_clear_delegate.ex.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         trait_name => &bridge_cfg.trait_name,
                         func_name => &func_name,
                         native_mod => native_mod,
@@ -246,7 +246,7 @@ pub(in crate::backends::rustler::gen_bindings) fn append_visitor_receive_loop(
                         .chars()
                         .all(|c| c == '_' || c.is_ascii_alphanumeric())
                         .then(|| variant.wire_name.to_snake_case());
-                    minijinja::context! {
+                    crate::alef_context! {
                         wire_name => variant.wire_name.clone(),
                         atom_name => atom_name,
                     }
@@ -254,7 +254,7 @@ pub(in crate::backends::rustler::gen_bindings) fn append_visitor_receive_loop(
                 .collect::<Vec<_>>();
             content.push_str(&template_env::render(
                 "elixir_visitor_helper_functions.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     native_mod => &native_mod,
                     default_result_wire_name => visitor_result_metadata.default_variant.wire_name,
                     unit_result_variants => unit_result_variants,

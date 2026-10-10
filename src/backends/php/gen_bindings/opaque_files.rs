@@ -4,7 +4,6 @@ use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::TypeRef;
 use ahash::AHashSet;
 use heck::ToLowerCamelCase;
-use minijinja::context;
 
 pub(super) fn gen_php_opaque_class_file(
     typ: &crate::core::ir::TypeDef,
@@ -28,7 +27,7 @@ pub(super) fn gen_php_opaque_class_file(
     content.push('\n');
     content.push_str(&crate::backends::php::template_env::render(
         "php_namespace.jinja",
-        context! { namespace => namespace },
+        crate::alef_context! { namespace => namespace },
     ));
     content.push('\n');
 
@@ -37,7 +36,7 @@ pub(super) fn gen_php_opaque_class_file(
         let sanitized = sanitize_rust_idioms(&typ.doc, DocTarget::PhpDoc);
         content.push_str(&crate::backends::php::template_env::render(
             "php_phpdoc_lines.jinja",
-            context! {
+            crate::alef_context! {
                 doc_lines => sanitized.lines().collect::<Vec<_>>(),
                 indent => "",
             },
@@ -47,7 +46,7 @@ pub(super) fn gen_php_opaque_class_file(
 
     content.push_str(&crate::backends::php::template_env::render(
         "php_final_class_stub_start.jinja",
-        context! { class_name => &typ.name },
+        crate::alef_context! { class_name => &typ.name },
     ));
 
     let mut method_order: Vec<&crate::core::ir::MethodDef> = Vec::new();
@@ -97,7 +96,7 @@ pub(super) fn gen_php_opaque_class_file(
             for line in doc_lines {
                 content.push_str(&crate::backends::php::template_env::render(
                     "php_prefixed_phpdoc_line.jinja",
-                    context! {
+                    crate::alef_context! {
                         indent => "    ",
                         line => &line,
                     },
@@ -129,7 +128,7 @@ pub(super) fn gen_php_opaque_class_file(
             .collect();
         content.push_str(&crate::backends::php::template_env::render(
             "php_stub_method_definition.jinja",
-            context! {
+            crate::alef_context! {
                 static_kw => static_kw,
                 method_name => &method_name,
                 params => &params.join(", "),

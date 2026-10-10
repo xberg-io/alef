@@ -34,7 +34,7 @@ impl NapiBridgeGenerator {
         if matches!(method.return_type, TypeRef::Unit) {
             crate::backends::napi::template_env::render(
                 "sync_method_unit_return.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     wrapper => spec.wrapper_name(),
                     method_name => &js_method_name,
                     snake_case_method_name => &snake_method_name,

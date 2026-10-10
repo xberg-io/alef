@@ -370,7 +370,7 @@ pub(super) fn gen_extendr_wrappers_r(
 
     out.push_str(&crate::backends::extendr::template_env::render(
         "r_use_dyn_lib.jinja",
-        minijinja::context! { package_name => package_name },
+        crate::alef_context! { package_name => package_name },
     ));
     out.push_str("NULL\n\n");
 
@@ -400,7 +400,7 @@ pub(super) fn gen_extendr_wrappers_r(
 
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_free_function_wrapper.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 func_name => &func.name,
                 params_sig => params_sig,
                 call_args_str => call_args_str,
@@ -449,7 +449,7 @@ pub(super) fn gen_extendr_wrappers_r(
 
         let roxygen_block = crate::backends::extendr::template_env::render(
             "r_trait_bridge_roxygen.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &bridge_fn.name,
                 kind => kind,
                 method_docs => method_docs,
@@ -458,7 +458,7 @@ pub(super) fn gen_extendr_wrappers_r(
 
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_free_function_wrapper.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 func_name => &bridge_fn.name,
                 params_sig => params_sig,
                 call_args_str => call_args_str,
@@ -490,7 +490,7 @@ pub(super) fn gen_extendr_wrappers_r(
         let class_roxygen = r_class_roxygen_block(typ);
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_type_class_env.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_name => &typ.name,
                 roxygen_block => class_roxygen,
             },
@@ -524,7 +524,7 @@ pub(super) fn gen_extendr_wrappers_r(
 
             out.push_str(&crate::backends::extendr::template_env::render(
                 "r_method_binding.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     type_name => &typ.name,
                     method_name => &method.name,
                     params_sig => params_sig,
@@ -536,7 +536,7 @@ pub(super) fn gen_extendr_wrappers_r(
         if typ.has_default && !typ.fields.is_empty() && input_type_names.contains(&typ.name) {
             out.push_str(&crate::backends::extendr::template_env::render(
                 "r_from_json_factory.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     type_name => &typ.name,
                     package_name => package_name,
                 },
@@ -545,18 +545,18 @@ pub(super) fn gen_extendr_wrappers_r(
 
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_dollar_dispatch.jinja",
-            minijinja::context! { type_name => &typ.name },
+            crate::alef_context! { type_name => &typ.name },
         ));
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_bracket_dispatch.jinja",
-            minijinja::context! { type_name => &typ.name },
+            crate::alef_context! { type_name => &typ.name },
         ));
 
         if let Some(method_names) = s3_pairs_by_type.get(&typ.name) {
             for method_name in method_names {
                 out.push_str(&crate::backends::extendr::template_env::render(
                     "r_s3_method.jinja",
-                    minijinja::context! { name => method_name, type_name => &typ.name },
+                    crate::alef_context! { name => method_name, type_name => &typ.name },
                 ));
             }
         }
@@ -574,18 +574,18 @@ pub(super) fn gen_extendr_wrappers_r(
         let enum_roxygen = r_enum_roxygen_block(e, true);
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_type_class_env.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_name => type_name,
                 roxygen_block => enum_roxygen,
             },
         ));
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_dollar_dispatch.jinja",
-            minijinja::context! { type_name => type_name },
+            crate::alef_context! { type_name => type_name },
         ));
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_bracket_dispatch.jinja",
-            minijinja::context! { type_name => type_name },
+            crate::alef_context! { type_name => type_name },
         ));
     }
 
@@ -602,7 +602,7 @@ pub(super) fn gen_extendr_wrappers_r(
 
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_unit_enum_wrapper.jinja",
-            minijinja::context! { enum_name => enum_name },
+            crate::alef_context! { enum_name => enum_name },
         ));
     }
 
@@ -614,7 +614,7 @@ pub(super) fn gen_extendr_wrappers_r(
         let enum_roxygen = r_enum_roxygen_block(e, false);
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_type_class_env.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_name => type_name,
                 roxygen_block => enum_roxygen,
             },
@@ -630,7 +630,7 @@ pub(super) fn gen_extendr_wrappers_r(
             let call_args_str = call_args.join(", ");
             out.push_str(&crate::backends::extendr::template_env::render(
                 "r_method_binding.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     type_name => type_name,
                     method_name => method_name,
                     params_sig => params_sig,
@@ -648,7 +648,7 @@ pub(super) fn gen_extendr_wrappers_r(
             let call_args_str = call_args.join(", ");
             out.push_str(&crate::backends::extendr::template_env::render(
                 "r_method_binding.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     type_name => type_name,
                     method_name => r_name,
                     params_sig => params_sig,
@@ -658,18 +658,18 @@ pub(super) fn gen_extendr_wrappers_r(
         }
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_dollar_dispatch.jinja",
-            minijinja::context! { type_name => type_name },
+            crate::alef_context! { type_name => type_name },
         ));
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_bracket_dispatch.jinja",
-            minijinja::context! { type_name => type_name },
+            crate::alef_context! { type_name => type_name },
         ));
     }
 
     for generic_name in unique_s3_generic_names(&s3_pairs) {
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_s3_generic.jinja",
-            minijinja::context! { name => generic_name },
+            crate::alef_context! { name => generic_name },
         ));
     }
 
@@ -774,7 +774,7 @@ pub(super) fn gen_namespace(
     out.push_str("# Generated by alef — do not edit.\n\n");
     out.push_str(&crate::backends::extendr::template_env::render(
         "r_namespace_use_dyn_lib.jinja",
-        minijinja::context! { package_name => package_name },
+        crate::alef_context! { package_name => package_name },
     ));
     out.push('\n');
 
@@ -802,21 +802,21 @@ pub(super) fn gen_namespace(
         }
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_namespace_export.jinja",
-            minijinja::context! { name => &func.name },
+            crate::alef_context! { name => &func.name },
         ));
     }
 
     for bridge_fn in trait_bridge_fns {
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_namespace_export.jinja",
-            minijinja::context! { name => &bridge_fn.name },
+            crate::alef_context! { name => &bridge_fn.name },
         ));
     }
 
     if find_r_options_type_from_api(api).is_some() {
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_namespace_export.jinja",
-            minijinja::context! { name => "conversion_options" },
+            crate::alef_context! { name => "conversion_options" },
         ));
     }
 
@@ -827,15 +827,15 @@ pub(super) fn gen_namespace(
         }
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_namespace_export.jinja",
-            minijinja::context! { name => &typ.name },
+            crate::alef_context! { name => &typ.name },
         ));
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_namespace_s3method.jinja",
-            minijinja::context! { method_type => "$", name => &typ.name },
+            crate::alef_context! { method_type => "$", name => &typ.name },
         ));
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_namespace_s3method.jinja",
-            minijinja::context! { method_type => "[[", name => &typ.name },
+            crate::alef_context! { method_type => "[[", name => &typ.name },
         ));
     }
 
@@ -845,15 +845,15 @@ pub(super) fn gen_namespace(
         }
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_namespace_export.jinja",
-            minijinja::context! { name => &e.name },
+            crate::alef_context! { name => &e.name },
         ));
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_namespace_s3method.jinja",
-            minijinja::context! { method_type => "$", name => &e.name },
+            crate::alef_context! { method_type => "$", name => &e.name },
         ));
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_namespace_s3method.jinja",
-            minijinja::context! { method_type => "[[", name => &e.name },
+            crate::alef_context! { method_type => "[[", name => &e.name },
         ));
     }
 
@@ -863,15 +863,15 @@ pub(super) fn gen_namespace(
         }
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_namespace_export.jinja",
-            minijinja::context! { name => &e.name },
+            crate::alef_context! { name => &e.name },
         ));
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_namespace_s3method.jinja",
-            minijinja::context! { method_type => "$", name => &e.name },
+            crate::alef_context! { method_type => "$", name => &e.name },
         ));
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_namespace_s3method.jinja",
-            minijinja::context! { method_type => "[[", name => &e.name },
+            crate::alef_context! { method_type => "[[", name => &e.name },
         ));
     }
 
@@ -879,13 +879,13 @@ pub(super) fn gen_namespace(
     for generic_name in unique_s3_generic_names(&s3_pairs) {
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_namespace_export.jinja",
-            minijinja::context! { name => &generic_name },
+            crate::alef_context! { name => &generic_name },
         ));
     }
     for (method_name, type_name) in &s3_pairs {
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_namespace_s3method_named.jinja",
-            minijinja::context! { method_name => method_name, type_name => type_name },
+            crate::alef_context! { method_name => method_name, type_name => type_name },
         ));
     }
 

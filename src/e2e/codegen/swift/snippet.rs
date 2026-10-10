@@ -187,7 +187,7 @@ pub(super) fn render_with_ir(
         || body.contains("JSONEncoder");
     Ok(crate::e2e::template_env::render(
         "swift/snippet_body.jinja",
-        minijinja::context! { module => module, body => body, needs_foundation => needs_foundation,
+        crate::alef_context! { module => module, body => body, needs_foundation => needs_foundation,
         presentation => presentation, stream_item => stream_item },
     ))
 }

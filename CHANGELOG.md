@@ -33,7 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rather than the host binding, so a binding that overrides the core crate (wasm/mobile) forwarded
   `<override>/<feature>` for a feature that crate never declares and the workspace stopped resolving.
 - Preserve registered Python exception categories from async free functions and methods, including serde-converted parameters.
-- Restore the exact Minijinja 2.24 pin after the 3.0 dependency update made Alef fail to compile.
+
+### Changed
+
+- `minijinja` moved to 3.x, which removed `Value::from_serialize` and the `Environment`
+  block-trimming setters and stopped serializing `context!` values. Template contexts are now
+  built through a serialize-by-reference `alef_context!` macro, `configure_env` carries the
+  block-trimming syntax, and minijinja's `serde` feature is enabled.
 
 ## [0.107.12] - 2026-10-09
 

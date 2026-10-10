@@ -10,7 +10,6 @@ use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{ApiSurface, TypeRef};
 use ahash::AHashSet;
 use heck::ToLowerCamelCase;
-use minijinja::context;
 use std::path::PathBuf;
 
 pub(super) fn generate_public_api(
@@ -41,12 +40,12 @@ pub(super) fn generate_public_api(
 
     content.push_str(&crate::backends::php::template_env::render(
         "php_namespace.jinja",
-        context! { namespace => &namespace },
+        crate::alef_context! { namespace => &namespace },
     ));
     content.push('\n');
     content.push_str(&crate::backends::php::template_env::render(
         "php_facade_class_declaration.jinja",
-        context! { class_name => &class_name },
+        crate::alef_context! { class_name => &class_name },
     ));
 
     let bridge_param_names_pub: ahash::AHashSet<&str> = crate::backends::php::trait_bridge::active_bridges(config)
@@ -102,7 +101,7 @@ pub(super) fn generate_public_api(
         if func.doc.is_empty() {
             content.push_str(&crate::backends::php::template_env::render(
                 "php_phpdoc_text_line.jinja",
-                context! { text => &format!("{}.", method_name) },
+                crate::alef_context! { text => &format!("{}.", method_name) },
             ));
         } else {
             let sections = doc_emission::parse_rustdoc_sections(&func.doc);
@@ -122,7 +121,7 @@ pub(super) fn generate_public_api(
             let nullable_prefix = if p.optional && !ptype.starts_with('?') { "?" } else { "" };
             content.push_str(&crate::backends::php::template_env::render(
                 "php_phpdoc_param_line.jinja",
-                context! {
+                crate::alef_context! {
                     nullable_prefix => nullable_prefix,
                     param_type => &ptype,
                     param_name => &p.name,
@@ -132,12 +131,12 @@ pub(super) fn generate_public_api(
         let return_phpdoc = enum_aware_php_phpdoc_type(&func.return_type, &enum_names);
         content.push_str(&crate::backends::php::template_env::render(
             "php_phpdoc_return_line.jinja",
-            context! { return_type => &return_phpdoc },
+            crate::alef_context! { return_type => &return_phpdoc },
         ));
         if func.error_type.is_some() {
             content.push_str(&crate::backends::php::template_env::render(
                 "php_phpdoc_throws_line.jinja",
-                context! {
+                crate::alef_context! {
                     namespace => namespace.as_str(),
                     class_name => &class_name,
                 },
@@ -206,12 +205,12 @@ pub(super) fn generate_public_api(
         } else {
             content.push_str(&crate::backends::php::template_env::render(
                 "php_method_signature_start.jinja",
-                context! { method_name => &method_name },
+                crate::alef_context! { method_name => &method_name },
             ));
             content.push_str(&params.join(", "));
             content.push_str(&crate::backends::php::template_env::render(
                 "php_method_signature_end.jinja",
-                context! { return_type => &return_php_type },
+                crate::alef_context! { return_type => &return_php_type },
             ));
         }
         let ext_method_name = func.name.to_lower_camel_case();
@@ -236,12 +235,12 @@ pub(super) fn generate_public_api(
         if is_void {
             content.push_str(&crate::backends::php::template_env::render(
                 "php_method_call_statement.jinja",
-                context! { call_expr => &call_expr },
+                crate::alef_context! { call_expr => &call_expr },
             ));
         } else {
             content.push_str(&crate::backends::php::template_env::render(
                 "php_method_call_return.jinja",
-                context! { call_expr => &call_expr },
+                crate::alef_context! { call_expr => &call_expr },
             ));
         }
         content.push_str(&crate::backends::php::template_env::render(
@@ -262,7 +261,7 @@ pub(super) fn generate_public_api(
             ));
             content.push_str(&crate::backends::php::template_env::render(
                 "php_phpdoc_text_line.jinja",
-                context! { text => &format!("{}.", method_name) },
+                crate::alef_context! { text => &format!("{}.", method_name) },
             ));
             content.push_str(&crate::backends::php::template_env::render(
                 "php_phpdoc_empty_line.jinja",
@@ -271,7 +270,7 @@ pub(super) fn generate_public_api(
             let interface_name = &bridge_cfg.trait_name;
             content.push_str(&crate::backends::php::template_env::render(
                 "php_phpdoc_param_line.jinja",
-                context! {
+                crate::alef_context! {
                     nullable_prefix => "",
                     param_type => interface_name,
                     param_name => "backend",
@@ -279,7 +278,7 @@ pub(super) fn generate_public_api(
             ));
             content.push_str(&crate::backends::php::template_env::render(
                 "php_phpdoc_return_line.jinja",
-                context! { return_type => "void" },
+                crate::alef_context! { return_type => "void" },
             ));
             content.push_str(&crate::backends::php::template_env::render(
                 "php_phpdoc_block_end.jinja",
@@ -287,16 +286,16 @@ pub(super) fn generate_public_api(
             ));
             content.push_str(&crate::backends::php::template_env::render(
                 "php_method_signature_start.jinja",
-                context! { method_name => &method_name },
+                crate::alef_context! { method_name => &method_name },
             ));
             content.push_str(&crate::backends::php::template_env::render(
                 "php_trait_bridge_api_method.jinja",
-                context! { interface_name => interface_name },
+                crate::alef_context! { interface_name => interface_name },
             ));
             let call_expr = format!("\\{namespace}\\{class_name}Api::{method_name}($backend)");
             content.push_str(&crate::backends::php::template_env::render(
                 "php_method_call_statement.jinja",
-                context! { call_expr => &call_expr },
+                crate::alef_context! { call_expr => &call_expr },
             ));
             content.push_str(&crate::backends::php::template_env::render(
                 "php_method_end.jinja",
@@ -311,7 +310,7 @@ pub(super) fn generate_public_api(
             ));
             content.push_str(&crate::backends::php::template_env::render(
                 "php_phpdoc_text_line.jinja",
-                context! { text => &format!("{}.", method_name) },
+                crate::alef_context! { text => &format!("{}.", method_name) },
             ));
             content.push_str(&crate::backends::php::template_env::render(
                 "php_phpdoc_empty_line.jinja",
@@ -319,7 +318,7 @@ pub(super) fn generate_public_api(
             ));
             content.push_str(&crate::backends::php::template_env::render(
                 "php_phpdoc_param_line.jinja",
-                context! {
+                crate::alef_context! {
                     nullable_prefix => "",
                     param_type => "string",
                     param_name => "name",
@@ -327,7 +326,7 @@ pub(super) fn generate_public_api(
             ));
             content.push_str(&crate::backends::php::template_env::render(
                 "php_phpdoc_return_line.jinja",
-                context! { return_type => "void" },
+                crate::alef_context! { return_type => "void" },
             ));
             content.push_str(&crate::backends::php::template_env::render(
                 "php_phpdoc_block_end.jinja",
@@ -335,13 +334,13 @@ pub(super) fn generate_public_api(
             ));
             content.push_str(&crate::backends::php::template_env::render(
                 "php_method_signature_start.jinja",
-                context! { method_name => &method_name },
+                crate::alef_context! { method_name => &method_name },
             ));
             content.push_str("string $name) : void\n    {\n");
             let call_expr = format!("\\{namespace}\\{class_name}Api::{method_name}($name)");
             content.push_str(&crate::backends::php::template_env::render(
                 "php_method_call_statement.jinja",
-                context! { call_expr => &call_expr },
+                crate::alef_context! { call_expr => &call_expr },
             ));
             content.push_str(&crate::backends::php::template_env::render(
                 "php_method_end.jinja",
@@ -356,7 +355,7 @@ pub(super) fn generate_public_api(
             ));
             content.push_str(&crate::backends::php::template_env::render(
                 "php_phpdoc_text_line.jinja",
-                context! { text => &format!("{}.", method_name) },
+                crate::alef_context! { text => &format!("{}.", method_name) },
             ));
             content.push_str(&crate::backends::php::template_env::render(
                 "php_phpdoc_empty_line.jinja",
@@ -364,7 +363,7 @@ pub(super) fn generate_public_api(
             ));
             content.push_str(&crate::backends::php::template_env::render(
                 "php_phpdoc_return_line.jinja",
-                context! { return_type => "void" },
+                crate::alef_context! { return_type => "void" },
             ));
             content.push_str(&crate::backends::php::template_env::render(
                 "php_phpdoc_block_end.jinja",
@@ -372,13 +371,13 @@ pub(super) fn generate_public_api(
             ));
             content.push_str(&crate::backends::php::template_env::render(
                 "php_method_signature_start.jinja",
-                context! { method_name => &method_name },
+                crate::alef_context! { method_name => &method_name },
             ));
             content.push_str(") : void\n    {\n");
             let call_expr = format!("\\{namespace}\\{class_name}Api::{method_name}()");
             content.push_str(&crate::backends::php::template_env::render(
                 "php_method_call_statement.jinja",
-                context! { call_expr => &call_expr },
+                crate::alef_context! { call_expr => &call_expr },
             ));
             content.push_str(&crate::backends::php::template_env::render(
                 "php_method_end.jinja",

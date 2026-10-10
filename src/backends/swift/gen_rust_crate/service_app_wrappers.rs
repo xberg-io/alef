@@ -36,7 +36,7 @@ pub fn emit_service_app_wrappers(api: &ApiSurface, source_crate: &str) -> String
 
         out.push_str(&crate::backends::swift::template_env::render(
             "rust_service_app_wrapper.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 service_name => service_name,
                 service_path => service_path,
                 constructor => constructor,
@@ -46,7 +46,7 @@ pub fn emit_service_app_wrappers(api: &ApiSurface, source_crate: &str) -> String
         let service_snake_local = service_name.to_lowercase();
         out.push_str(&crate::backends::swift::template_env::render(
             "rust_service_app_free_fns.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 service_name => service_name,
                 service_snake => service_snake_local,
             },
@@ -97,7 +97,7 @@ pub fn emit_service_app_wrappers(api: &ApiSurface, source_crate: &str) -> String
                 let ctor = &wc.constructor_method;
                 out.push_str(&crate::backends::swift::template_env::render(
                     "rust_wrapper_constructor_fn.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         wrapper_type => wrapper_type,
                         fn_name => fn_name,
                         params => params_str,
@@ -112,7 +112,7 @@ pub fn emit_service_app_wrappers(api: &ApiSurface, source_crate: &str) -> String
                 let raw_ptr_fn_snake = format!("{}_raw_ptr", wc.wrapper_type_name.to_snake_case());
                 out.push_str(&crate::backends::swift::template_env::render(
                     "rust_wrapper_raw_ptr_fn.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         wrapper_type => wrapper_type,
                         fn_snake => raw_ptr_fn_snake,
                     },

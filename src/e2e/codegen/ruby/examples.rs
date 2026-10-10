@@ -596,7 +596,7 @@ pub(super) fn render_example(
 
     crate::e2e::template_env::render(
         "ruby/test_function.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             test_name => test_name,
             description => description_literal,
             expects_error => expects_error,

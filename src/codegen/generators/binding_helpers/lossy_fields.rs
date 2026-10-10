@@ -88,7 +88,7 @@ fn gen_lossy_binding_to_core_fields_inner(
             if !core_has_default {
                 out.push_str(&crate::codegen::template_env::render(
                     "binding_helpers/struct_field_default.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &field.name,
                     },
                 ));
@@ -104,7 +104,7 @@ fn gen_lossy_binding_to_core_fields_inner(
         if field.sanitized && field.core_wrapper != CoreWrapper::Cow {
             out.push_str(&crate::codegen::template_env::render(
                 "binding_helpers/struct_field_default.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => &field.name,
                 },
             ));
@@ -121,7 +121,7 @@ fn gen_lossy_binding_to_core_fields_inner(
         if is_opaque_named {
             out.push_str(&crate::codegen::template_env::render(
                 "binding_helpers/struct_field_default.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => &field.name,
                 },
             ));
@@ -138,7 +138,7 @@ fn gen_lossy_binding_to_core_fields_inner(
         if is_skip_named {
             out.push_str(&crate::codegen::template_env::render(
                 "binding_helpers/default_field.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => &name,
                 },
             ));
@@ -351,7 +351,7 @@ fn gen_lossy_binding_to_core_fields_inner(
         };
         out.push_str(&crate::codegen::template_env::render(
             "binding_helpers/struct_field_line.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &field.name,
                 expr => &expr,
             },

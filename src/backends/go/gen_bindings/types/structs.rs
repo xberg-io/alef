@@ -1,7 +1,5 @@
 use std::borrow::Cow;
 
-use minijinja::context;
-
 use crate::backends::go::type_map::{go_field_type, go_optional_field_type};
 use crate::codegen::c_consumer;
 use crate::codegen::naming::{go_type_name, to_go_name, wire_field_name};
@@ -18,7 +16,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_opaque_type(typ: &TypeDef, ffi_
 
     crate::backends::go::template_env::render(
         "opaque_type.jinja",
-        context! {
+        crate::alef_context! {
             go_name => go_name,
             ffi_prefix => ffi_prefix,
             type_snake => type_snake,
@@ -141,7 +139,7 @@ fn render_struct_field(typ: &TypeDef, field: &FieldDef, sets: &GoStructTypeSets<
     let doc_lines: Vec<&str> = field.doc.lines().map(str::trim).collect();
     crate::backends::go::template_env::render(
         "struct_field.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             doc_lines => doc_lines,
             field_name => to_go_name(&field.name),
             field_type => &field_type,
@@ -158,12 +156,12 @@ fn render_struct_fields(typ: &TypeDef, sets: &GoStructTypeSets<'_>, trait_bridge
             if !doc_lines.is_empty() {
                 out.push_str(&crate::backends::go::template_env::render(
                     "visitor_field_doc.jinja",
-                    minijinja::context! { doc_lines => &doc_lines },
+                    crate::alef_context! { doc_lines => &doc_lines },
                 ));
             }
             out.push_str(&crate::backends::go::template_env::render(
                 "visitor_field.jinja",
-                minijinja::context! { field_name => to_go_name(&field.name) },
+                crate::alef_context! { field_name => to_go_name(&field.name) },
             ));
             out.push('\n');
         } else {
@@ -198,7 +196,7 @@ fn render_marshal_aux_fields(
         let json_tag = go_struct_field_json_tag(typ, field, sets, true);
         out.push_str(&crate::backends::go::template_env::render(
             "struct_marshal_aux_field.jinja",
-            context! { field_name => to_go_name(&field.name), field_type => &field_type, json_tag => &json_tag },
+            crate::alef_context! { field_name => to_go_name(&field.name), field_type => &field_type, json_tag => &json_tag },
         ));
     }
     out
@@ -227,7 +225,7 @@ fn render_marshal_aux_assignments(
         };
         out.push_str(&crate::backends::go::template_env::render(
             template,
-            context! { go_field => &go_field },
+            crate::alef_context! { go_field => &go_field },
         ));
     }
     out
@@ -246,7 +244,7 @@ fn render_struct_marshal_json(
     out.push('\n');
     out.push_str(&crate::backends::go::template_env::render(
         "struct_marshal_json_header.jinja",
-        context! { go_name => go_name },
+        crate::alef_context! { go_name => go_name },
     ));
     out.push_str(&render_marshal_aux_fields(typ, sets, trait_bridges));
     out.push_str(&crate::backends::go::template_env::render(
@@ -353,7 +351,7 @@ fn render_unmarshal_raw_field(
     );
     crate::backends::go::template_env::render(
         "struct_unmarshal_raw_field.jinja",
-        minijinja::context! { go_field_name => &go_name, field_type => &field_type, json_tag => &json_tag },
+        crate::alef_context! { go_field_name => &go_name, field_type => &field_type, json_tag => &json_tag },
     )
 }
 
@@ -371,7 +369,7 @@ fn render_unmarshal_assignments(
         if fields.iter().all(|definition| definition.go_name != go_name) {
             out.push_str(&crate::backends::go::template_env::render(
                 "struct_unmarshal_copy_field.jinja",
-                minijinja::context! { go_field_name => &go_name },
+                crate::alef_context! { go_field_name => &go_name },
             ));
         }
     }
@@ -383,7 +381,7 @@ fn render_unmarshal_assignments(
         };
         out.push_str(&crate::backends::go::template_env::render(
             template,
-            minijinja::context! {
+            crate::alef_context! {
                 go_name => &field.go_name,
                 enum_go_name => &field.enum_go_name,
                 unmarshal_fn => format!("Unmarshal{}", field.enum_go_name),
@@ -407,7 +405,7 @@ fn render_struct_unmarshal_json(
     out.push('\n');
     out.push_str(&crate::backends::go::template_env::render(
         "struct_unmarshal_json_header.jinja",
-        minijinja::context! { go_name => go_name },
+        crate::alef_context! { go_name => go_name },
     ));
     out.push_str(&render_unmarshal_raw_fields(typ, &fields, sets, trait_bridges));
     out.push_str(&crate::backends::go::template_env::render(
@@ -440,7 +438,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_struct_type(
     emit_type_doc(&mut out, &go_name, &typ.doc, "is a type.");
     out.push_str(&crate::backends::go::template_env::render(
         "struct_type_decl.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => &go_name,
         },
     ));

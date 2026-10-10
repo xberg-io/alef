@@ -120,7 +120,7 @@ pub(in crate::e2e::codegen::zig) fn render_snippet_body(
     }
     Ok(crate::e2e::template_env::render(
         "zig/snippet_body.jinja",
-        minijinja::context! { module => module_name, body => body, body_is_indented => true,
+        crate::alef_context! { module => module_name, body => body, body_is_indented => true,
         presentation => presentation },
     ))
 }

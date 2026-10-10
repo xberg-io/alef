@@ -278,7 +278,7 @@ pub(super) fn emit_java_visitor_method(
 
     let rendered = crate::e2e::template_env::render(
         "java/visitor_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             camel_method,
             params,
             result_type => &binding.result_type,

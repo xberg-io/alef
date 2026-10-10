@@ -52,7 +52,7 @@ pub(crate) fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Re
     let mut content = String::new();
     let mut header = crate::backends::dart::template_env::render(
         "dart_ffi_file_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             module_name => module_name.as_str(),
         },
     );
@@ -125,7 +125,7 @@ pub(crate) fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Re
 
     let wrapper_content = crate::backends::dart::template_env::render(
         "dart_ffi_wrapper_file.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             module_name => module_name.as_str(),
         },
     );
@@ -166,21 +166,21 @@ fn emit_lib_loader(lib_name: &str, out: &mut String) {
     out.push_str("  if (Platform.isMacOS) {\n");
     out.push_str(&crate::backends::dart::template_env::render(
         "ffi_lib_path_macos_return.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             lib_name => lib_name,
         },
     ));
     out.push_str("  } else if (Platform.isWindows) {\n");
     out.push_str(&crate::backends::dart::template_env::render(
         "ffi_lib_path_windows_return.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             lib_name => lib_name,
         },
     ));
     out.push_str("  } else {\n");
     out.push_str(&crate::backends::dart::template_env::render(
         "ffi_lib_path_linux_return.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             lib_name => lib_name,
         },
     ));

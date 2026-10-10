@@ -194,7 +194,7 @@ pub(crate) fn gen_last_error_exception(api: &ApiSurface, prefix: &str, main_clas
 
     crate::backends::java::template_env::render(
         "helper_last_error_exception.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             exception_class => format!("{main_class}Exception"),
             fields => fields_ctx,
             cases => cases,

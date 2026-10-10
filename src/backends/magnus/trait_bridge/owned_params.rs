@@ -20,7 +20,7 @@ pub(super) fn owned_param_bindings(method: &MethodDef, suffix: &str) -> String {
 
             template_env::render(
                 "trait_bridge_owned_binding.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => param.name.as_str(),
                     suffix => suffix,
                     conversion => conversion,

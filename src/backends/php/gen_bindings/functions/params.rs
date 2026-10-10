@@ -1,7 +1,6 @@
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::TypeRef;
 use ahash::AHashSet;
-use minijinja::context;
 
 pub(crate) struct PhpParamTypeSets<'a> {
     pub(crate) opaque: &'a AHashSet<String>,
@@ -183,7 +182,7 @@ pub(super) fn gen_php_serde_let_bindings(
                     if p.optional {
                         out.push_str(&crate::backends::php::template_env::render(
                             "php_serde_ref_named_optional_let_binding.jinja",
-                            context! {
+                            crate::alef_context! {
                                 pname => &php_param_name,
                                 core_import => core_import,
                                 name => name,
@@ -192,13 +191,13 @@ pub(super) fn gen_php_serde_let_bindings(
                         if p.is_mut {
                             out.push_str(&crate::backends::php::template_env::render(
                                 "php_optional_mut_unwrap_binding.jinja",
-                                context! { php_name => &php_param_name },
+                                crate::alef_context! { php_name => &php_param_name },
                             ));
                         }
                     } else {
                         out.push_str(&crate::backends::php::template_env::render(
                             "php_serde_ref_named_let_binding.jinja",
-                            context! {
+                            crate::alef_context! {
                                 pname => &php_param_name,
                                 core_import => core_import,
                                 name => name,
@@ -209,7 +208,7 @@ pub(super) fn gen_php_serde_let_bindings(
                     if p.optional {
                         out.push_str(&crate::backends::php::template_env::render(
                             "php_let_binding_named_optional.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 pname => &php_param_name,
                                 core_import => core_import,
                                 name => name,
@@ -218,7 +217,7 @@ pub(super) fn gen_php_serde_let_bindings(
                     } else {
                         out.push_str(&crate::backends::php::template_env::render(
                             "php_let_binding_named.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 pname => &php_param_name,
                                 core_import => core_import,
                                 name => name,
@@ -233,7 +232,7 @@ pub(super) fn gen_php_serde_let_bindings(
                         if enum_names.contains(name.as_str()) {
                             out.push_str(&crate::backends::php::template_env::render(
                                 "php_let_binding_vec_named.jinja",
-                                context! {
+                                crate::alef_context! {
                                     pname => php_param_name.as_str(),
                                     core_import => core_import,
                                     name => name.as_str(),
@@ -242,7 +241,7 @@ pub(super) fn gen_php_serde_let_bindings(
                         } else {
                             out.push_str(&crate::backends::php::template_env::render(
                                 "php_vec_named_struct_let_binding.jinja",
-                                context! {
+                                crate::alef_context! {
                                     php_name => &php_param_name,
                                     core_import => core_import,
                                     struct_name => name,
@@ -256,14 +255,14 @@ pub(super) fn gen_php_serde_let_bindings(
                     if p.optional {
                         out.push_str(&crate::backends::php::template_env::render(
                             "php_let_binding_sanitized_vec_string_optional.jinja",
-                            context! {
+                            crate::alef_context! {
                                 pname => &php_param_name,
                             },
                         ));
                     } else {
                         out.push_str(&crate::backends::php::template_env::render(
                             "php_let_binding_sanitized_vec_string.jinja",
-                            context! {
+                            crate::alef_context! {
                                 pname => &php_param_name,
                             },
                         ));
@@ -271,7 +270,7 @@ pub(super) fn gen_php_serde_let_bindings(
                 } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref {
                     out.push_str(&crate::backends::php::template_env::render(
                         "php_let_binding_string_refs.jinja",
-                        context! {
+                        crate::alef_context! {
                             pname => &php_param_name,
                         },
                     ));
@@ -282,7 +281,7 @@ pub(super) fn gen_php_serde_let_bindings(
                 if p.optional {
                     out.push_str(&crate::backends::php::template_env::render(
                         "php_json_let_binding_optional.jinja",
-                        context! {
+                        crate::alef_context! {
                             php_name => &php_param_name,
                             bound_name => &bound_name,
                         },
@@ -290,7 +289,7 @@ pub(super) fn gen_php_serde_let_bindings(
                 } else {
                     out.push_str(&crate::backends::php::template_env::render(
                         "php_json_let_binding.jinja",
-                        context! {
+                        crate::alef_context! {
                             php_name => &php_param_name,
                             bound_name => &bound_name,
                         },

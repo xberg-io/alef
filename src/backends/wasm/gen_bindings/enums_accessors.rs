@@ -93,7 +93,7 @@ pub(super) fn gen_payload_accessors(
 fn gen_payload_getter(payload: &PayloadField) -> String {
     crate::backends::wasm::template_env::render(
         "gen_payload_field_getter",
-        minijinja::context! {
+        crate::alef_context! {
             js_name => to_node_name(&payload.field.name),
             getter_ident => method_stem(&payload.field),
             field_ident => field_ident(&payload.field),
@@ -111,7 +111,7 @@ fn gen_payload_setter(payload: &PayloadField) -> String {
     let Some(class_type) = payload.class_type.as_deref() else {
         return crate::backends::wasm::template_env::render(
             "gen_payload_field_setter",
-            minijinja::context! {
+            crate::alef_context! {
                 js_name => to_node_name(&payload.field.name),
                 setter_ident => format!("set_{}", method_stem(&payload.field)),
                 field_ident => field_ident(&payload.field),
@@ -121,7 +121,7 @@ fn gen_payload_setter(payload: &PayloadField) -> String {
     };
     crate::backends::wasm::template_env::render(
         "gen_class_field_setter",
-        minijinja::context! {
+        crate::alef_context! {
             js_name_attr => format!(", js_name = \"{}\"", to_node_name(&payload.field.name)),
             setter_ident => format!("set_{}", method_stem(&payload.field)),
             field_ident => field_ident(&payload.field),
@@ -145,7 +145,7 @@ fn gen_payload_clear(payload: &PayloadField, reserved_idents: &AHashSet<String>)
     }
     Some(crate::backends::wasm::template_env::render(
         "gen_class_field_clear",
-        minijinja::context! {
+        crate::alef_context! {
             js_name => to_node_name(&clear_ident),
             clear_ident => clear_ident,
             field_ident => field_ident(&payload.field),
@@ -164,7 +164,7 @@ fn indented(block: &str) -> Vec<String> {
             } else {
                 crate::codegen::template_env::render(
                     "builders/indented_line.jinja",
-                    minijinja::context! { line => line },
+                    crate::alef_context! { line => line },
                 )
                 .trim_end()
                 .to_string()

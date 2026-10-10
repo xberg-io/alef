@@ -115,14 +115,14 @@ fn gen_service_struct(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
 
     out.push_str(&crate::backends::zig::template_env::render(
         "service_struct_open.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_name => service_name,
         },
     ));
 
     out.push_str(&crate::backends::zig::template_env::render(
         "service_init.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_name => service_name,
             new_fn => format!("{prefix_lower}_{service_snake}_new"),
         },
@@ -130,7 +130,7 @@ fn gen_service_struct(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
 
     out.push_str(&crate::backends::zig::template_env::render(
         "service_deinit.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             service_name => service_name,
             free_fn => format!("{prefix_lower}_{service_snake}_free"),
         },
@@ -176,7 +176,7 @@ fn gen_registration_method(
     }
     out.push_str(&crate::backends::zig::template_env::render(
         "service_registration_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             doc => format!("Register a handler for method '{}'", reg.method),
             method_name => reg_method_snake,
             service_name => service_name,
@@ -220,7 +220,7 @@ fn gen_registration_variant_method(
     let default_doc = format!("Register a handler for {variant_name}");
     out.push_str(&crate::backends::zig::template_env::render(
         "service_registration_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             doc => variant.doc.as_deref().unwrap_or(&default_doc),
             method_name => variant_name,
             service_name => service_name,
@@ -266,7 +266,7 @@ fn gen_entrypoint_method(
     }
     out.push_str(&crate::backends::zig::template_env::render(
         "service_entrypoint_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             ep_method => ep_method,
             method_name => ep_name_snake,
             service_name => service_name,

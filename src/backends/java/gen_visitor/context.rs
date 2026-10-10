@@ -44,7 +44,7 @@ pub(super) fn context_decoding(context_def: &TypeDef, api: &ApiSurface, context_
         .fields
         .iter()
         .map(|field| {
-            minijinja::context! {
+            crate::alef_context! {
                 constant => offset_constant(&field.name),
                 name => field.name.escape_debug().to_string(),
             }
@@ -58,7 +58,7 @@ pub(super) fn context_decoding(context_def: &TypeDef, api: &ApiSurface, context_
     ContextDecoding {
         layout: render(
             "visitor_context_layout.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 context_type => context_type,
                 members => members,
                 offsets => offsets,
@@ -68,7 +68,7 @@ pub(super) fn context_decoding(context_def: &TypeDef, api: &ApiSurface, context_
         ),
         decode_method: render(
             "visitor_context_decode.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 context_type => context_type,
                 arguments => arguments,
             },
@@ -87,10 +87,10 @@ fn argument(field: &FieldDef, abi: &ContextAbi, api: &ApiSurface) -> Value {
     };
     let constant = offset_constant(&abi_field.name);
     match abi_field.shape {
-        ContextFieldShape::RequiredString => minijinja::context! { kind => "required_string", constant },
-        ContextFieldShape::OptionalString => minijinja::context! { kind => "optional_string", constant },
-        ContextFieldShape::Bool => minijinja::context! { kind => "bool", constant },
-        ContextFieldShape::Integer => minijinja::context! {
+        ContextFieldShape::RequiredString => crate::alef_context! { kind => "required_string", constant },
+        ContextFieldShape::OptionalString => crate::alef_context! { kind => "optional_string", constant },
+        ContextFieldShape::Bool => crate::alef_context! { kind => "bool", constant },
+        ContextFieldShape::Integer => crate::alef_context! {
             kind => "integer",
             constant,
             value_layout => value_layout(abi_field.scalar),
@@ -106,7 +106,7 @@ fn enum_argument(field: &FieldDef, api: &ApiSurface, constant: String) -> Value 
     let decodable = matches!(&field.ty, TypeRef::Named(name)
         if api.enums.iter().any(|enum_def| enum_def.name == *name && emits_get_value(enum_def)));
     if decodable {
-        minijinja::context! {
+        crate::alef_context! {
             kind => "enum",
             constant,
             enum_type => java_type(&field.ty).into_owned(),
@@ -127,7 +127,7 @@ fn enum_argument(field: &FieldDef, api: &ApiSurface, constant: String) -> Value 
 /// Widening the FFI struct is what actually fixes such a field; this only keeps the rest of the
 /// context decodable. ~keep
 fn absent_argument(field: &FieldDef) -> Value {
-    minijinja::context! { kind => "absent", absent_value => absent_value(field) }
+    crate::alef_context! { kind => "absent", absent_value => absent_value(field) }
 }
 
 fn absent_value(field: &FieldDef) -> &'static str {

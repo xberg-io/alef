@@ -84,7 +84,7 @@ pub(super) fn gen_async_free_function(
                         if p.optional {
                             serde_bindings.push_str(&crate::backends::wasm::template_env::render(
                                 "serde_named_optional",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     param_name => &p.name,
                                     core_path => &core_path,
                                     err_conv => &err_conv,
@@ -95,7 +95,7 @@ pub(super) fn gen_async_free_function(
                             let has_default = type_has_default(name, api);
                             serde_bindings.push_str(&crate::backends::wasm::template_env::render(
                                 "serde_named_required",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     param_name => &p.name,
                                     core_path => &core_path,
                                     err_conv => &err_conv,
@@ -108,7 +108,7 @@ pub(super) fn gen_async_free_function(
                     } else if p.optional {
                         serde_bindings.push_str(&crate::backends::wasm::template_env::render(
                             "wasm_typed_named_optional",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 param_name => &p.name,
                                 core_path => &core_path,
                             },
@@ -118,7 +118,7 @@ pub(super) fn gen_async_free_function(
                         let has_default = type_has_default(name, api);
                         serde_bindings.push_str(&crate::backends::wasm::template_env::render(
                             "wasm_typed_named_required",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 param_name => &p.name,
                                 core_path => &core_path,
                                 has_default => has_default,
@@ -143,7 +143,7 @@ pub(super) fn gen_async_free_function(
                 };
                 serde_bindings.push_str(&crate::backends::wasm::template_env::render(
                     template_name,
-                    minijinja::context! {
+                    crate::alef_context! {
                         param_name => &p.name,
                         core_path => &core_path,
                     },
@@ -178,7 +178,7 @@ pub(super) fn gen_async_free_function(
     });
     let body = crate::backends::wasm::template_env::render(
         "gen_result_body",
-        minijinja::context! {
+        crate::alef_context! {
             let_bindings => &let_bindings,
             core_call => &core_call,
             return_expr => &return_expr,
@@ -190,7 +190,7 @@ pub(super) fn gen_async_free_function(
     );
     let fn_code = crate::backends::wasm::template_env::render(
         "gen_free_function",
-        minijinja::context! {
+        crate::alef_context! {
             attrs => &attrs,
             js_name_attr => &js_name_attr,
             is_async => true,

@@ -61,7 +61,7 @@ pub fn gen_trait_bridges_file(
     // NOTE: package_and_cgo.jinja already emits "package {name}\n\n/*\n#cgo..."
     out.push_str(&crate::backends::go::template_env::render(
         "package_and_cgo.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             pkg_name => pkg_name,
             to_root => to_root,
             ffi_crate_dir => ffi_crate_dir,
@@ -84,7 +84,7 @@ pub fn gen_trait_bridges_file(
                 let c_return_type = c_callback_return_type(&method_substituted);
                 out.push_str(&crate::backends::go::template_env::render(
                     "extern_trampoline_decl.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         export_name => export_name,
                         c_sig => c_sig,
                         c_return_type => c_return_type,
@@ -93,35 +93,35 @@ pub fn gen_trait_bridges_file(
             }
             out.push_str(&crate::backends::go::template_env::render(
                 "plugin_trampoline_decl.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     pascal => pascal.clone(),
                     method => "Name",
                 },
             ));
             out.push_str(&crate::backends::go::template_env::render(
                 "plugin_trampoline_decl.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     pascal => pascal.clone(),
                     method => "Version",
                 },
             ));
             out.push_str(&crate::backends::go::template_env::render(
                 "plugin_trampoline_decl.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     pascal => pascal.clone(),
                     method => "Initialize",
                 },
             ));
             out.push_str(&crate::backends::go::template_env::render(
                 "plugin_trampoline_decl.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     pascal => pascal.clone(),
                     method => "Shutdown",
                 },
             ));
             out.push_str(&crate::backends::go::template_env::render(
                 "plugin_free_user_data_extern.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     pascal => &pascal,
                 },
             ));
@@ -161,7 +161,7 @@ pub fn gen_trait_bridges_file(
 
             out.push_str(&crate::backends::go::template_env::render(
                 "vtable_constructor_helper.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     c_vtable_struct => &c_vtable_struct,
                     method_field_names => method_field_names,
                     method_pascal_names => method_pascal_names,
@@ -206,7 +206,7 @@ pub fn gen_trait_bridges_file(
                 let trait_snake = super::helpers::registry_var_stem(&bridge_cfg.trait_name);
                 out.push_str(&crate::backends::go::template_env::render(
                     "handle_registry_var.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         trait_snake => &trait_snake,
                     },
                 ));
@@ -297,14 +297,14 @@ pub(super) fn gen_trait_bridge(
 
     out.push_str(&crate::backends::go::template_env::render(
         "trait_interface_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => trait_name,
         },
     ));
 
     out.push_str(&crate::backends::go::template_env::render(
         "plugin_method_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             doc => "Name returns the plugin name.",
             method => "Name",
             return_type => "string",
@@ -313,7 +313,7 @@ pub(super) fn gen_trait_bridge(
 
     out.push_str(&crate::backends::go::template_env::render(
         "plugin_method_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             doc => "Version returns the plugin version.",
             method => "Version",
             return_type => "string",
@@ -322,7 +322,7 @@ pub(super) fn gen_trait_bridge(
 
     out.push_str(&crate::backends::go::template_env::render(
         "plugin_method_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             doc => "Initialize is called when the plugin is loaded.",
             method => "Initialize",
             return_type => "error",
@@ -331,7 +331,7 @@ pub(super) fn gen_trait_bridge(
 
     out.push_str(&crate::backends::go::template_env::render(
         "plugin_method_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             doc => "Shutdown is called when the plugin is unloaded.",
             method => "Shutdown",
             return_type => "error",
@@ -366,7 +366,7 @@ pub(super) fn gen_trait_bridge(
         let export_name = format!("go{}{}", trait_pascal, method.name.to_pascal_case());
         out.push_str(&crate::backends::go::template_env::render(
             "export_marker.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &export_name,
             },
         ));
@@ -378,7 +378,7 @@ pub(super) fn gen_trait_bridge(
 
     out.push_str(&crate::backends::go::template_env::render(
         "register_function_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => trait_name,
             register_fn => super::registration_surface::register_fn_name(trait_name),
         },
@@ -394,7 +394,7 @@ pub(super) fn gen_trait_bridge(
     let vtable_constructor = c_symbols::go_vtable_constructor_symbol(ffi_prefix, trait_name);
     out.push_str(&crate::backends::go::template_env::render(
         "vtable_allocation_via_c_helper.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             export_names => export_names,
             vtable_constructor => &vtable_constructor,
         },
@@ -402,7 +402,7 @@ pub(super) fn gen_trait_bridge(
 
     out.push_str(&crate::backends::go::template_env::render(
         "register_c_call.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             c_function => register_symbol(bridge_cfg, ffi_prefix, trait_name),
             free_string_fn => c_symbols::free_string_symbol(ffi_prefix),
             trait_name => trait_name,
@@ -414,7 +414,7 @@ pub(super) fn gen_trait_bridge(
 
     out.push_str(&crate::backends::go::template_env::render(
         "unregister_function_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => trait_name,
             unregister_fn => super::registration_surface::unregister_fn_name(trait_name),
         },
@@ -422,7 +422,7 @@ pub(super) fn gen_trait_bridge(
 
     out.push_str(&crate::backends::go::template_env::render(
         "unregister_c_call.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             c_function => c_symbols::trait_unregister_symbol(ffi_prefix, trait_name),
             free_string_fn => c_symbols::free_string_symbol(ffi_prefix),
             trait_name => trait_name,

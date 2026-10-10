@@ -12,7 +12,7 @@ impl FfiBridgeGenerator {
 
         out.push_str(&crate::backends::ffi::template_env::render(
             "vtable_struct_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 trait_name => &spec.trait_def.name,
                 vtable_name => &vtable,
             },
@@ -21,7 +21,7 @@ impl FfiBridgeGenerator {
         if spec.bridge_config.super_trait.is_some() {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "vtable_super_trait_methods.jinja",
-                minijinja::context! {},
+                crate::alef_context! {},
             ));
         }
 
@@ -39,7 +39,7 @@ impl FfiBridgeGenerator {
                     .collect();
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "vtable_method_doc_lines.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         doc_lines => method_doc_lines,
                     },
                 ));
@@ -58,7 +58,7 @@ impl FfiBridgeGenerator {
 
             out.push_str(&crate::backends::ffi::template_env::render(
                 "vtable_method_field.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     method_name => &method.name,
                     params_str => params.join(", "),
                     ret_ty => ret_ty,
@@ -69,7 +69,7 @@ impl FfiBridgeGenerator {
         let vtable = self.vtable_name(spec);
         out.push_str(&crate::backends::ffi::template_env::render(
             "vtable_free_user_data.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 vtable_name => &vtable,
             },
         ));
@@ -97,7 +97,7 @@ impl FfiBridgeGenerator {
 
         crate::backends::ffi::template_env::render(
             "bridge_struct.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 trait_name => &spec.trait_def.name,
                 bridge_name => &bridge,
                 vtable_name => &vtable,
@@ -112,7 +112,7 @@ impl FfiBridgeGenerator {
 
         crate::backends::ffi::template_env::render(
             "bridge_drop.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 bridge_name => &bridge,
             },
         )
@@ -136,7 +136,7 @@ impl FfiBridgeGenerator {
 
         out.push_str(&crate::backends::ffi::template_env::render(
             "plugin_impl_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 super_trait_path => &super_trait_path,
                 bridge_name => &bridge,
             },
@@ -144,7 +144,7 @@ impl FfiBridgeGenerator {
 
         out.push_str(&crate::backends::ffi::template_env::render(
             "plugin_impl_version.jinja",
-            minijinja::context! {},
+            crate::alef_context! {},
         ));
 
         let plugin_error_expr = self
@@ -154,7 +154,7 @@ impl FfiBridgeGenerator {
 
         out.push_str(&crate::backends::ffi::template_env::render(
             "plugin_impl_initialize.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 core_import => core_import,
                 error_type => error_type,
                 plugin_error_expr => plugin_error_expr,
@@ -163,7 +163,7 @@ impl FfiBridgeGenerator {
 
         out.push_str(&crate::backends::ffi::template_env::render(
             "plugin_impl_shutdown.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 core_import => core_import,
                 error_type => error_type,
                 plugin_error_expr => plugin_error_expr,

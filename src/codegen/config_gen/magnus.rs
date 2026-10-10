@@ -133,7 +133,7 @@ fn gen_magnus_hash_constructor(
                 )
             };
 
-            minijinja::context! {
+            crate::alef_context! {
                 name => field.name.clone(),
                 assignment => assignment,
                 // The field's own gate: a field whose type is itself conditionally compiled
@@ -149,7 +149,7 @@ fn gen_magnus_hash_constructor(
 
     crate::codegen::template_env::render(
         "config_gen/magnus_hash_constructor.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             fields => fields,
         },
     )

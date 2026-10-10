@@ -24,7 +24,7 @@ pub(super) fn emit_method_catch_chain(out: &mut String, exception_class: &str) {
 pub(super) fn emit_visitor_operation_open(out: &mut String, exception_class: &str) {
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_visitor_operation_open.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             exception_class,
             indent => VISITOR_OPERATION_INDENT,
         },
@@ -42,7 +42,7 @@ pub(super) fn emit_visitor_operation_catch_chain(out: &mut String, exception_cla
 fn render_into(out: &mut String, exception_class: &str, indent: &str, capture_operation_failure: bool, trailer: &str) {
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_typed_rethrow_catch.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             exception_class,
             indent,
             capture_operation_failure,

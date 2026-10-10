@@ -156,7 +156,7 @@ pub fn gen_native_methods_trait_bridges(
         let (options_pascal, options_field_pascal, options_set_fn) =
             options_setter.unwrap_or_else(|| (String::new(), String::new(), String::new()));
 
-        bridge_data.push(Value::from_serialize(serde_json::json!({
+        bridge_data.push(crate::template::to_value(serde_json::json!({
             "trait_name": trait_name,
             "trait_pascal": trait_pascal,
             "has_register": has_register,
@@ -175,7 +175,7 @@ pub fn gen_native_methods_trait_bridges(
         })));
     }
 
-    let ctx = Value::from_serialize(serde_json::json!({
+    let ctx = crate::template::to_value(serde_json::json!({
         "bridges": bridge_data,
         "handle_type": handle_pinvoke_type,
     }));
@@ -208,11 +208,10 @@ pub fn gen_trait_bridges_file(
     visible_type_names: &HashSet<&str>,
 ) -> TraitBridgesFile {
     use crate::backends::csharp::template_env::render;
-    use minijinja::Value;
 
     let mut out = render(
         "trait_bridges_header.jinja",
-        Value::from_serialize(serde_json::json!({
+        crate::template::to_value(serde_json::json!({
             "namespace": namespace,
         })),
     );
@@ -266,7 +265,6 @@ pub fn gen_bridge_adapters_file(
     visible_type_names: &HashSet<&str>,
 ) -> Option<(String, String)> {
     use crate::backends::csharp::template_env::render;
-    use minijinja::Value;
 
     let adapter_bridges: Vec<_> = bridges
         .iter()
@@ -347,7 +345,7 @@ pub fn gen_bridge_adapters_file(
 
     let content = render(
         "trait_bridge_adapters.csharp.jinja",
-        Value::from_serialize(serde_json::json!({
+        crate::template::to_value(serde_json::json!({
             "namespace": namespace,
             "traits": trait_data,
         })),
@@ -369,7 +367,6 @@ fn gen_single_trait_bridge(
     visible_type_names: &HashSet<&str>,
 ) -> Vec<String> {
     use crate::backends::csharp::template_env::render;
-    use minijinja::Value;
 
     let trait_pascal = csharp_type_name(trait_name);
     let _trait_snake = trait_name.to_snake_case();
@@ -418,7 +415,7 @@ fn gen_single_trait_bridge(
 
     out.push_str(&render(
         "trait_interface.jinja",
-        Value::from_serialize(serde_json::json!({
+        crate::template::to_value(serde_json::json!({
             "trait_pascal": trait_pascal,
             "has_super_trait": has_super_trait,
             "methods": methods,
@@ -484,16 +481,16 @@ fn gen_single_trait_bridge(
         slot_names.push("name_fn".to_string());
         vtable_slots.push_str(&render(
             "vtable_slot_comment.jinja",
-            minijinja::context! { slot_idx => offset, slot_name => "name_fn" },
+            crate::alef_context! { slot_idx => offset, slot_name => "name_fn" },
         ));
         vtable_slots.push_str("        var nameFn = new NameFn(NameFnCallback);\n");
         vtable_slots.push_str(&render(
             "vtable_slot_assign.jinja",
-            minijinja::context! { slot_idx => offset, fn_var => "name" },
+            crate::alef_context! { slot_idx => offset, fn_var => "name" },
         ));
         vtable_slots.push_str(&render(
             "vtable_write_intptr.jinja",
-            minijinja::context! { byte_offset => offset * ptr_size, fn_var => "name" },
+            crate::alef_context! { byte_offset => offset * ptr_size, fn_var => "name" },
         ));
         vtable_slots.push('\n');
         offset += 1;
@@ -501,16 +498,16 @@ fn gen_single_trait_bridge(
         slot_names.push("version_fn".to_string());
         vtable_slots.push_str(&render(
             "vtable_slot_comment.jinja",
-            minijinja::context! { slot_idx => offset, slot_name => "version_fn" },
+            crate::alef_context! { slot_idx => offset, slot_name => "version_fn" },
         ));
         vtable_slots.push_str("        var versionFn = new VersionFn(VersionFnCallback);\n");
         vtable_slots.push_str(&render(
             "vtable_slot_assign.jinja",
-            minijinja::context! { slot_idx => offset, fn_var => "version" },
+            crate::alef_context! { slot_idx => offset, fn_var => "version" },
         ));
         vtable_slots.push_str(&render(
             "vtable_write_intptr.jinja",
-            minijinja::context! { byte_offset => offset * ptr_size, fn_var => "version" },
+            crate::alef_context! { byte_offset => offset * ptr_size, fn_var => "version" },
         ));
         vtable_slots.push('\n');
         offset += 1;
@@ -518,16 +515,16 @@ fn gen_single_trait_bridge(
         slot_names.push("initialize_fn".to_string());
         vtable_slots.push_str(&render(
             "vtable_slot_comment.jinja",
-            minijinja::context! { slot_idx => offset, slot_name => "initialize_fn" },
+            crate::alef_context! { slot_idx => offset, slot_name => "initialize_fn" },
         ));
         vtable_slots.push_str("        var initFn = new InitializeFn(InitializeFnCallback);\n");
         vtable_slots.push_str(&render(
             "vtable_slot_assign.jinja",
-            minijinja::context! { slot_idx => offset, fn_var => "init" },
+            crate::alef_context! { slot_idx => offset, fn_var => "init" },
         ));
         vtable_slots.push_str(&render(
             "vtable_write_intptr.jinja",
-            minijinja::context! { byte_offset => offset * ptr_size, fn_var => "init" },
+            crate::alef_context! { byte_offset => offset * ptr_size, fn_var => "init" },
         ));
         vtable_slots.push('\n');
         offset += 1;
@@ -535,16 +532,16 @@ fn gen_single_trait_bridge(
         slot_names.push("shutdown_fn".to_string());
         vtable_slots.push_str(&render(
             "vtable_slot_comment.jinja",
-            minijinja::context! { slot_idx => offset, slot_name => "shutdown_fn" },
+            crate::alef_context! { slot_idx => offset, slot_name => "shutdown_fn" },
         ));
         vtable_slots.push_str("        var shutdownFn = new ShutdownFn(ShutdownFnCallback);\n");
         vtable_slots.push_str(&render(
             "vtable_slot_assign.jinja",
-            minijinja::context! { slot_idx => offset, fn_var => "shutdown" },
+            crate::alef_context! { slot_idx => offset, fn_var => "shutdown" },
         ));
         vtable_slots.push_str(&render(
             "vtable_write_intptr.jinja",
-            minijinja::context! { byte_offset => offset * ptr_size, fn_var => "shutdown" },
+            crate::alef_context! { byte_offset => offset * ptr_size, fn_var => "shutdown" },
         ));
         vtable_slots.push('\n');
         offset += 1;
@@ -557,19 +554,19 @@ fn gen_single_trait_bridge(
         slot_names.push(method.name.clone());
         vtable_slots.push_str(&render(
             "vtable_slot_comment.jinja",
-            minijinja::context! { slot_idx => offset, slot_name },
+            crate::alef_context! { slot_idx => offset, slot_name },
         ));
         vtable_slots.push_str(&render(
             "vtable_method_fn_new.jinja",
-            minijinja::context! { method_camel, method_pascal },
+            crate::alef_context! { method_camel, method_pascal },
         ));
         vtable_slots.push_str(&render(
             "vtable_slot_assign.jinja",
-            minijinja::context! { slot_idx => offset, fn_var => &method_camel },
+            crate::alef_context! { slot_idx => offset, fn_var => &method_camel },
         ));
         vtable_slots.push_str(&render(
             "vtable_write_intptr.jinja",
-            minijinja::context! { byte_offset => offset * ptr_size, fn_var => &method_camel },
+            crate::alef_context! { byte_offset => offset * ptr_size, fn_var => &method_camel },
         ));
         vtable_slots.push('\n');
         offset += 1;
@@ -578,16 +575,16 @@ fn gen_single_trait_bridge(
     slot_names.push("free_string".to_string());
     vtable_slots.push_str(&render(
         "vtable_slot_comment.jinja",
-        minijinja::context! { slot_idx => offset, slot_name => "free_string" },
+        crate::alef_context! { slot_idx => offset, slot_name => "free_string" },
     ));
     vtable_slots.push_str("        var freeStringFn = new FreeStringFn(FreeStringCallback);\n");
     vtable_slots.push_str(&render(
         "vtable_slot_assign.jinja",
-        minijinja::context! { slot_idx => offset, fn_var => "freeString" },
+        crate::alef_context! { slot_idx => offset, fn_var => "freeString" },
     ));
     vtable_slots.push_str(&render(
         "vtable_write_intptr.jinja",
-        minijinja::context! { byte_offset => offset * ptr_size, fn_var => "freeString" },
+        crate::alef_context! { byte_offset => offset * ptr_size, fn_var => "freeString" },
     ));
     vtable_slots.push('\n');
     offset += 1;
@@ -595,16 +592,16 @@ fn gen_single_trait_bridge(
     slot_names.push("free_user_data".to_string());
     vtable_slots.push_str(&render(
         "vtable_slot_comment.jinja",
-        minijinja::context! { slot_idx => offset, slot_name => "free_user_data" },
+        crate::alef_context! { slot_idx => offset, slot_name => "free_user_data" },
     ));
     vtable_slots.push_str("        var freeFn = new FreeUserDataFn(FreeUserDataCallback);\n");
     vtable_slots.push_str(&render(
         "vtable_slot_assign.jinja",
-        minijinja::context! { slot_idx => offset, fn_var => "free" },
+        crate::alef_context! { slot_idx => offset, fn_var => "free" },
     ));
     vtable_slots.push_str(&render(
         "vtable_write_intptr.jinja",
-        minijinja::context! { byte_offset => offset * ptr_size, fn_var => "free" },
+        crate::alef_context! { byte_offset => offset * ptr_size, fn_var => "free" },
     ));
 
     let mut callbacks = String::with_capacity(4096);
@@ -612,7 +609,7 @@ fn gen_single_trait_bridge(
     if has_super_trait {
         callbacks.push_str(&render(
             "plugin_string_callback.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 callback_name => "NameFnCallback",
                 out_name => "outName",
                 local_name => "_name",
@@ -624,7 +621,7 @@ fn gen_single_trait_bridge(
 
         callbacks.push_str(&render(
             "plugin_string_callback.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 callback_name => "VersionFnCallback",
                 out_name => "outVersion",
                 local_name => "_version",
@@ -636,7 +633,7 @@ fn gen_single_trait_bridge(
 
         callbacks.push_str(&render(
             "plugin_void_callback.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 callback_name => "InitializeFnCallback",
                 trait_pascal,
                 method_name => "Initialize",
@@ -646,7 +643,7 @@ fn gen_single_trait_bridge(
 
         callbacks.push_str(&render(
             "plugin_void_callback.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 callback_name => "ShutdownFnCallback",
                 trait_pascal,
                 method_name => "Shutdown",
@@ -682,7 +679,7 @@ fn gen_single_trait_bridge(
             };
             callbacks.push_str(&render(
                 "callback_header_void.jinja",
-                minijinja::context! { method_pascal, params_with_userdata },
+                crate::alef_context! { method_pascal, params_with_userdata },
             ));
         } else if is_primitive_return {
             let return_c_type = match &method.return_type {
@@ -710,24 +707,24 @@ fn gen_single_trait_bridge(
             };
             callbacks.push_str(&render(
                 "callback_header_primitive.jinja",
-                minijinja::context! { return_c_type, method_pascal, params_with_userdata },
+                crate::alef_context! { return_c_type, method_pascal, params_with_userdata },
             ));
         } else {
             if is_options_field {
                 callbacks.push_str(&render(
                     "callback_header_options.jinja",
-                    minijinja::context! { method_pascal, params_decl },
+                    crate::alef_context! { method_pascal, params_decl },
                 ));
             } else {
                 callbacks.push_str(&render(
                     "callback_header_full.jinja",
-                    minijinja::context! { method_pascal, params_decl },
+                    crate::alef_context! { method_pascal, params_decl },
                 ));
             }
         }
         callbacks.push_str(&render(
             "callback_registry_acquire.jinja",
-            minijinja::context! { trait_pascal },
+            crate::alef_context! { trait_pascal },
         ));
 
         callbacks.push_str("        if (_bridgeFromRegistry == null) {\n");
@@ -762,7 +759,7 @@ fn gen_single_trait_bridge(
                 TypeRef::String | TypeRef::Char => {
                     callbacks.push_str(&render(
                         "callback_string_param.jinja",
-                        minijinja::context! { param_name },
+                        crate::alef_context! { param_name },
                     ));
                     param_call_parts.push(format!("managed_{param_name}"));
                 }
@@ -770,21 +767,21 @@ fn gen_single_trait_bridge(
                     let len_name = format!("{param_name}Len");
                     callbacks.push_str(&render(
                         "callback_bytes_param.jinja",
-                        minijinja::context! { param_name, len_name },
+                        crate::alef_context! { param_name, len_name },
                     ));
                     param_call_parts.push(format!("managed_{param_name}"));
                 }
                 _ => {
                     callbacks.push_str(&render(
                         "callback_json_from_ptr.jinja",
-                        minijinja::context! { param_name },
+                        crate::alef_context! { param_name },
                     ));
                     if is_non_api {
                         param_call_parts.push(format!("json_{param_name}"));
                     } else {
                         callbacks.push_str(&render(
                             "callback_json_deserialize.jinja",
-                            minijinja::context! { param_name, managed_type },
+                            crate::alef_context! { param_name, managed_type },
                         ));
                         param_call_parts.push(format!("managed_{param_name}"));
                     }
@@ -797,7 +794,7 @@ fn gen_single_trait_bridge(
         if method.return_type == TypeRef::Unit {
             callbacks.push_str(&render(
                 "callback_void_call.jinja",
-                minijinja::context! { method_pascal, param_call },
+                crate::alef_context! { method_pascal, param_call },
             ));
             callbacks.push_str("            return 0;\n");
         } else if is_primitive_return {
@@ -808,7 +805,7 @@ fn gen_single_trait_bridge(
             };
             callbacks.push_str(&render(
                 "callback_primitive_call.jinja",
-                minijinja::context! { method_call_syntax },
+                crate::alef_context! { method_call_syntax },
             ));
             if matches!(&method.return_type, TypeRef::Primitive(PrimitiveType::Bool)) {
                 callbacks.push_str("            return methodResult ? 1 : 0;\n");
@@ -819,7 +816,7 @@ fn gen_single_trait_bridge(
             let is_property = method.params.is_empty();
             callbacks.push_str(&render(
                 "callback_result_call.jinja",
-                minijinja::context! { method_pascal, param_call, result_var => "methodResult", is_property },
+                crate::alef_context! { method_pascal, param_call, result_var => "methodResult", is_property },
             ));
             let is_named_visible =
                 matches!(&method.return_type, TypeRef::Named(n) if visible_type_names.contains(n.as_str()));
@@ -830,7 +827,7 @@ fn gen_single_trait_bridge(
             };
             callbacks.push_str(&render(
                 "callback_result_serialize.jinja",
-                minijinja::context! { serialize_expr },
+                crate::alef_context! { serialize_expr },
             ));
             if !is_options_field {
                 callbacks.push_str("            outError = IntPtr.Zero;\n");
@@ -897,7 +894,7 @@ fn gen_single_trait_bridge(
 
     callbacks.push_str(&render(
         "free_user_data_callback.jinja",
-        minijinja::context! { trait_pascal },
+        crate::alef_context! { trait_pascal },
     ));
     callbacks.push('\n');
 
@@ -908,7 +905,7 @@ fn gen_single_trait_bridge(
 
     out.push_str(&render(
         "trait_bridge_class.jinja",
-        Value::from_serialize(serde_json::json!({
+        crate::template::to_value(serde_json::json!({
             "trait_pascal": trait_pascal,
             "has_super_trait": has_super_trait,
             "num_vtable_fields": num_vtable_fields,
@@ -926,7 +923,7 @@ fn gen_single_trait_bridge(
     let clear_fn = bridge_cfg.clear_fn.as_deref().unwrap_or("").to_string();
     out.push_str(&render(
         "trait_registry_class.jinja",
-        Value::from_serialize(serde_json::json!({
+        crate::template::to_value(serde_json::json!({
             "trait_pascal": trait_pascal,
             "registry_class": registration_surface::registry_class_name(trait_name),
             "register_method": registration_surface::register_method_name(trait_name),

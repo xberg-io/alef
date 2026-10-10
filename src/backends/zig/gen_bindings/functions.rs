@@ -156,7 +156,7 @@ pub(crate) fn emit_function(
 
     out.push_str(&crate::backends::zig::template_env::render(
         "function_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             func_name => &f.name,
             params => params.join(", "),
             return_ty => &return_ty,
@@ -215,14 +215,14 @@ pub(crate) fn emit_function(
         if !result_is_pointer {
             out.push_str(&crate::backends::zig::template_env::render(
                 "function_call_unit.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     c_call => &c_call,
                 },
             ));
         } else {
             out.push_str(&crate::backends::zig::template_env::render(
                 "function_call_result.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     c_call => &c_call,
                 },
             ));
@@ -230,13 +230,13 @@ pub(crate) fn emit_function(
         if result_is_pointer {
             out.push_str(&crate::backends::zig::template_env::render(
                 "function_error_check.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     prefix => prefix,
                 },
             ));
             out.push_str(&crate::backends::zig::template_env::render(
                 "function_error_return.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     error_type => error_type,
                 },
             ));
@@ -245,7 +245,7 @@ pub(crate) fn emit_function(
                 out.push_str("    if (_result == null) {\n");
                 out.push_str(&crate::backends::zig::template_env::render(
                     "function_error_return.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         error_type => error_type,
                     },
                 ));
@@ -254,13 +254,13 @@ pub(crate) fn emit_function(
         } else {
             out.push_str(&crate::backends::zig::template_env::render(
                 "function_error_check.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     prefix => prefix,
                 },
             ));
             out.push_str(&crate::backends::zig::template_env::render(
                 "function_error_return.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     error_type => error_type,
                 },
             ));
@@ -269,7 +269,7 @@ pub(crate) fn emit_function(
         if let Some(len_call) = &c_len_call {
             out.push_str(&crate::backends::zig::template_env::render(
                 "function_result_len.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     len_call => len_call,
                 },
             ));
@@ -286,7 +286,7 @@ pub(crate) fn emit_function(
             out.push_str("    const _owned = try std.heap.c_allocator.dupe(u8, _out_ptr[0.._out_len]);\n");
             out.push_str(&crate::backends::zig::template_env::render(
                 "function_free_bytes.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     prefix => prefix,
                 },
             ));
@@ -303,7 +303,7 @@ pub(crate) fn emit_function(
             );
             out.push_str(&crate::backends::zig::template_env::render(
                 "function_return.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     ret_expr => ret_expr,
                 },
             ));
@@ -315,7 +315,7 @@ pub(crate) fn emit_function(
         if returns_bytes {
             out.push_str(&crate::backends::zig::template_env::render(
                 "function_call_unit.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     c_call => &c_call,
                 },
             ));
@@ -325,7 +325,7 @@ pub(crate) fn emit_function(
             out.push_str("    const _owned = try std.heap.c_allocator.dupe(u8, _out_ptr[0.._out_len]);\n");
             out.push_str(&crate::backends::zig::template_env::render(
                 "function_free_bytes.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     prefix => prefix,
                 },
             ));
@@ -333,21 +333,21 @@ pub(crate) fn emit_function(
         } else if matches!(f.return_type, TypeRef::Unit) {
             out.push_str(&crate::backends::zig::template_env::render(
                 "function_call_unit.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     c_call => &c_call,
                 },
             ));
         } else {
             out.push_str(&crate::backends::zig::template_env::render(
                 "function_call_result.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     c_call => &c_call,
                 },
             ));
             if let Some(len_call) = &c_len_call {
                 out.push_str(&crate::backends::zig::template_env::render(
                     "function_result_len.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         len_call => len_call,
                     },
                 ));
@@ -355,7 +355,7 @@ pub(crate) fn emit_function(
             let ret_expr = unwrap_return_expr("_result", &f.return_type, prefix, struct_names, None);
             out.push_str(&crate::backends::zig::template_env::render(
                 "function_return.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     ret_expr => ret_expr,
                 },
             ));
@@ -413,7 +413,7 @@ fn emit_capsule_function(
 
     out.push_str(&crate::backends::zig::template_env::render(
         "function_signature.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             func_name => &f.name,
             params => params.join(", "),
             return_ty => &return_ty,
@@ -439,7 +439,7 @@ fn emit_capsule_function(
     let c_call = format!("c.{prefix}_{}({})", f.name, c_args.join(", "));
     out.push_str(&crate::backends::zig::template_env::render(
         "function_call_result.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             c_call => &c_call,
         },
     ));
@@ -451,11 +451,11 @@ fn emit_capsule_function(
     if let Some(error_type) = &zig_error_type {
         out.push_str(&crate::backends::zig::template_env::render(
             "function_error_check.jinja",
-            minijinja::context! { prefix => prefix },
+            crate::alef_context! { prefix => prefix },
         ));
         out.push_str(&crate::backends::zig::template_env::render(
             "function_error_return.jinja",
-            minijinja::context! { error_type => error_type },
+            crate::alef_context! { error_type => error_type },
         ));
         out.push_str("    }\n");
     }
@@ -596,7 +596,7 @@ fn emit_param_conversion(
         if let Some((creator_fn, config_snake)) = opaque_creator_map.get(opaque_name) {
             out.push_str(&crate::backends::zig::template_env::render(
                 "param_opaque_config_from_json.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => name,
                     prefix => prefix,
                     creator_fn => creator_fn,
@@ -617,11 +617,11 @@ fn emit_param_conversion(
         if is_optional {
             out.push_str(&crate::backends::zig::template_env::render(
                 "param_optional_string_alloc.jinja",
-                minijinja::context! { name => name },
+                crate::alef_context! { name => name },
             ));
             out.push_str(&crate::backends::zig::template_env::render(
                 "param_optional_struct_handle.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => name,
                     prefix => prefix,
                     snake => &snake,
@@ -631,15 +631,15 @@ fn emit_param_conversion(
         } else {
             out.push_str(&crate::backends::zig::template_env::render(
                 "param_string_line1.jinja",
-                minijinja::context! { name => name },
+                crate::alef_context! { name => name },
             ));
             out.push_str(&crate::backends::zig::template_env::render(
                 "param_string_line2.jinja",
-                minijinja::context! { name => name },
+                crate::alef_context! { name => name },
             ));
             out.push_str(&crate::backends::zig::template_env::render(
                 "param_struct_handle.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => name,
                     prefix => prefix,
                     snake => &snake,
@@ -658,7 +658,7 @@ fn emit_param_conversion(
     if is_optional_string && matches!(unwrap_optional(&p.ty), TypeRef::String | TypeRef::Path) {
         out.push_str(&crate::backends::zig::template_env::render(
             "param_optional_string_alloc.jinja",
-            minijinja::context! { name => name },
+            crate::alef_context! { name => name },
         ));
         return;
     }
@@ -666,13 +666,13 @@ fn emit_param_conversion(
         TypeRef::String | TypeRef::Path => {
             out.push_str(&crate::backends::zig::template_env::render(
                 "param_string_line1.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => name,
                 },
             ));
             out.push_str(&crate::backends::zig::template_env::render(
                 "param_string_line2.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => name,
                 },
             ));
@@ -681,13 +681,13 @@ fn emit_param_conversion(
             out.push_str("    // Vec/Map parameters are passed as JSON strings across the FFI boundary.\n");
             out.push_str(&crate::backends::zig::template_env::render(
                 "param_string_line1.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => name,
                 },
             ));
             out.push_str(&crate::backends::zig::template_env::render(
                 "param_string_line2.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => name,
                 },
             ));
@@ -867,7 +867,7 @@ pub(super) fn emit_param_free(
             let config_name = format!("{name}_config");
             out.push_str(&crate::backends::zig::template_env::render(
                 "param_optional_free.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => &config_name,
                 },
             ));
@@ -966,7 +966,7 @@ fn unwrap_return_expr(
         TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             crate::backends::zig::template_env::render(
                 "return_owned_bytes_block.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     raw => raw,
                     error_type => error_type,
                 },
@@ -976,7 +976,7 @@ fn unwrap_return_expr(
             let snake = c_symbol_component(name);
             crate::backends::zig::template_env::render(
                 "return_named_json_block.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     prefix => prefix,
                     snake => &snake,
                     raw => raw,
@@ -996,7 +996,7 @@ fn unwrap_return_expr(
             TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                 crate::backends::zig::template_env::render(
                     "return_optional_owned_bytes_block.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         raw => raw,
                     },
                 )
@@ -1005,7 +1005,7 @@ fn unwrap_return_expr(
                 let snake = c_symbol_component(name);
                 let inner_block = crate::backends::zig::template_env::render(
                     "return_named_json_block.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         prefix => prefix,
                         snake => &snake,
                         raw => raw,

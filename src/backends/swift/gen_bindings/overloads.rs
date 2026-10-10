@@ -161,7 +161,7 @@ pub(super) fn emit_json_string_overloads(
             if let Some((json_fn_name, type_var_name)) = json_local_names.get(&pos) {
                 decode_lines.push_str(&crate::backends::swift::template_env::render(
                     "swift_json_decode_line.swift.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         json_fn_name => json_fn_name,
                         type_var_name => type_var_name,
                     },
@@ -171,7 +171,7 @@ pub(super) fn emit_json_string_overloads(
         let await_kw = if func.is_async { "await " } else { "" };
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_json_string_overload.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 function_name => &swift_func_name,
                 params => &params_sig,
                 async_clause => async_clause,
@@ -275,7 +275,7 @@ pub(super) fn emit_from_json_forwarders(
         if first_class_set.contains(type_name) {
             out.push_str(&crate::backends::swift::template_env::render(
                 "swift_from_json_decode.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     function_name => &swift_name,
                     type_name => type_name,
                 },
@@ -283,7 +283,7 @@ pub(super) fn emit_from_json_forwarders(
         } else {
             out.push_str(&crate::backends::swift::template_env::render(
                 "swift_from_json_bridge.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     function_name => &swift_name,
                     type_name => type_name,
                 },
@@ -303,7 +303,7 @@ pub(super) fn emit_from_json_forwarders(
         if codable_enum_set.contains(enum_name) {
             out.push_str(&crate::backends::swift::template_env::render(
                 "swift_from_json_decode.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     function_name => &swift_name,
                     type_name => enum_name,
                 },
@@ -311,7 +311,7 @@ pub(super) fn emit_from_json_forwarders(
         } else {
             out.push_str(&crate::backends::swift::template_env::render(
                 "swift_from_json_bridge.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     function_name => &swift_name,
                     type_name => enum_name,
                 },
@@ -351,7 +351,7 @@ pub(super) fn emit_bytes_overloads(func: &FunctionDef, _all_names: &std::collect
 
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_bytes_string_overload.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             wrapper_name => &wrapper_name,
             trailing_params => &trailing_param_text,
             throws_clause => throws_clause,
@@ -364,7 +364,7 @@ pub(super) fn emit_bytes_overloads(func: &FunctionDef, _all_names: &std::collect
 
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_bytes_array_overload.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             wrapper_name => &wrapper_name,
             trailing_params => &trailing_param_text,
             throws_clause => throws_clause,
@@ -395,7 +395,7 @@ pub(super) fn emit_path_overload(func: &FunctionDef, _all_names: &std::collectio
 
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_path_overload.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             wrapper_name => &wrapper_name,
             trailing_params => &trailing_param_text,
             throws_clause => throws_clause,
@@ -418,7 +418,7 @@ pub(super) fn render_trailing_params<'a>(params: impl Iterator<Item = &'a crate:
         };
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_trailing_param.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 swift_name => &swift_name,
                 ty_str => &ty_str,
             },
@@ -437,7 +437,7 @@ pub(super) fn render_trailing_params_with_defaults<'a>(
             let ty_str = swift_type_name(&p.ty);
             out.push_str(&crate::backends::swift::template_env::render(
                 "swift_trailing_param_optional_default.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     swift_name => &swift_name,
                     ty_str => &ty_str,
                 },
@@ -446,7 +446,7 @@ pub(super) fn render_trailing_params_with_defaults<'a>(
             let ty_str = swift_type_name(&p.ty);
             out.push_str(&crate::backends::swift::template_env::render(
                 "swift_trailing_param.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     swift_name => &swift_name,
                     ty_str => &ty_str,
                 },
@@ -462,7 +462,7 @@ pub(super) fn render_trailing_args<'a>(params: impl Iterator<Item = &'a crate::c
         let swift_name = p.name.to_lower_camel_case();
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_trailing_arg.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 swift_name => &swift_name,
             },
         ));

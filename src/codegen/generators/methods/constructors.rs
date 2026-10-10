@@ -36,7 +36,7 @@ pub fn gen_constructor_with_renames(
 
     crate::codegen::template_env::render(
         "generators/methods/constructor.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             has_too_many_args => typ.fields.len() > 7,
             needs_signature => cfg.needs_signature,
             signature_prefix => cfg.signature_prefix,

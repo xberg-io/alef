@@ -183,7 +183,7 @@ pub(super) fn render_snippet_body(
     }
     Ok(crate::e2e::template_env::render(
         "python/snippet_body.py.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             imports => imports, body => body, is_async => is_async, presentation => presentation,
             expects_error => expects_error,
             error_type => error_type,

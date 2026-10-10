@@ -452,17 +452,17 @@ fn render_not_empty_arm(out: &mut String, assertion: &Assertion, context: EmptyP
     if bare_result_is_option && !context.kotlin_android_style {
         out.push_str(&crate::e2e::template_env::render(
             "kotlin/not_empty_assertion.kt.jinja",
-            minijinja::context! { predicate => format!("{}.isPresent", context.field_expr) },
+            crate::alef_context! { predicate => format!("{}.isPresent", context.field_expr) },
         ));
     } else if context.field_is_collection && (bare_result_is_option || context.field_is_optional) {
         out.push_str(&crate::e2e::template_env::render(
             "kotlin/not_empty_assertion.kt.jinja",
-            minijinja::context! { predicate => format!("{}?.isNotEmpty() == true", context.field_expr) },
+            crate::alef_context! { predicate => format!("{}?.isNotEmpty() == true", context.field_expr) },
         ));
     } else if bare_result_is_option || context.field_is_optional {
         out.push_str(&crate::e2e::template_env::render(
             "kotlin/not_empty_assertion.kt.jinja",
-            minijinja::context! { predicate => format!("{} != null", context.field_expr) },
+            crate::alef_context! { predicate => format!("{} != null", context.field_expr) },
         ));
     } else {
         let _ = writeln!(
@@ -479,7 +479,7 @@ fn render_is_empty_arm(out: &mut String, assertion: &Assertion, context: EmptyPr
     if bare_result_is_option && !context.kotlin_android_style {
         out.push_str(&crate::e2e::template_env::render(
             "kotlin/is_empty_assertion.kt.jinja",
-            minijinja::context! { predicate => format!("{}.isEmpty", context.field_expr) },
+            crate::alef_context! { predicate => format!("{}.isEmpty", context.field_expr) },
         ));
     } else if context.field_is_collection && (bare_result_is_option || context.field_is_optional) {
         // Symmetric with `not_empty`'s `field_is_collection && (bare_result_is_option ||
@@ -491,17 +491,17 @@ fn render_is_empty_arm(out: &mut String, assertion: &Assertion, context: EmptyPr
         // assertion type. ~keep
         out.push_str(&crate::e2e::template_env::render(
             "kotlin/is_empty_assertion.kt.jinja",
-            minijinja::context! { predicate => format!("({}?.isEmpty() ?: true)", context.field_expr) },
+            crate::alef_context! { predicate => format!("({}?.isEmpty() ?: true)", context.field_expr) },
         ));
     } else if bare_result_is_option || context.field_is_optional {
         out.push_str(&crate::e2e::template_env::render(
             "kotlin/is_empty_assertion.kt.jinja",
-            minijinja::context! { predicate => format!("{} == null", context.field_expr) },
+            crate::alef_context! { predicate => format!("{} == null", context.field_expr) },
         ));
     } else {
         out.push_str(&crate::e2e::template_env::render(
             "kotlin/is_empty_assertion.kt.jinja",
-            minijinja::context! { predicate => format!("{}.isEmpty()", context.string_field_expr) },
+            crate::alef_context! { predicate => format!("{}.isEmpty()", context.string_field_expr) },
         ));
     }
 }

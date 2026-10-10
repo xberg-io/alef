@@ -297,7 +297,7 @@ pub(super) fn assemble_kt_content(package: &str, imports: &BTreeSet<String>, bod
     let imports = imports.iter().cloned().collect::<Vec<_>>();
     template_env::render(
         "kt_file.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             package => package,
             imports => imports,
             suppressions => suppressions,

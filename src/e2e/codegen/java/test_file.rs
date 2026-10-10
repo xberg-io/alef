@@ -312,7 +312,7 @@ pub(super) fn render_test_file(
 
     crate::e2e::template_env::render(
         "java/test_file.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             header => header,
             java_group_id => java_group_id,
             test_class_name => test_class_name,

@@ -326,7 +326,7 @@ pub(crate) fn gen_constructor_field_inits(
     let prelude = if needs_core_defaults {
         crate::backends::php::template_env::render(
             "php_core_defaults_let_binding.jinja",
-            minijinja::context! { binding => core_defaults.as_str() },
+            crate::alef_context! { binding => core_defaults.as_str() },
         )
     } else {
         String::new()

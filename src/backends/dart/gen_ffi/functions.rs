@@ -37,7 +37,7 @@ pub(super) fn emit_function(
         let doc_lines: Vec<String> = f.doc.lines().map(ToString::to_string).collect();
         out.push_str(&template_env::render(
             "doc_comment.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => "",
                 lines => doc_lines,
             },
@@ -46,7 +46,7 @@ pub(super) fn emit_function(
     if let Some(ref error_ty) = f.error_type {
         out.push_str(&template_env::render(
             "ffi_error_throws_doc.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 error_ty => error_ty.as_str(),
             },
         ));
@@ -65,7 +65,7 @@ pub(super) fn emit_function(
 
     out.push_str(&template_env::render(
         "ffi_typedef_native_sig.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             typedef_native => typedef_native.as_str(),
             native_return => native_return.as_str(),
             native_params => native_params.join(", "),
@@ -73,7 +73,7 @@ pub(super) fn emit_function(
     ));
     out.push_str(&template_env::render(
         "ffi_typedef_dart_sig.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             typedef_dart => typedef_dart.as_str(),
             dart_return => dart_return.as_str(),
             dart_params => dart_params.join(", "),
@@ -81,7 +81,7 @@ pub(super) fn emit_function(
     ));
     out.push_str(&template_env::render(
         "ffi_function_lookup_sig.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             dart_return => dart_return.as_str(),
             dart_params => dart_params.join(", "),
             fn_name => fn_name.as_str(),
@@ -107,7 +107,7 @@ pub(super) fn emit_function(
 
     out.push_str(&template_env::render(
         "ffi_wrapper_fn_open.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             wrapper_return => wrapper_return.as_str(),
             fn_name => fn_name.as_str(),
             dart_wrapper_params => dart_wrapper_params.join(", "),
@@ -124,7 +124,7 @@ pub(super) fn emit_function(
     if matches!(f.return_type, TypeRef::Unit) {
         out.push_str(&template_env::render(
             "ffi_call_void.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => fn_name.as_str(),
                 call_args_str => call_args_str.as_str(),
             },
@@ -146,7 +146,7 @@ pub(super) fn emit_function(
         }
         out.push_str(&template_env::render(
             "ffi_call_result.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => fn_name.as_str(),
                 call_args_str => call_args_str.as_str(),
             },
@@ -158,7 +158,7 @@ pub(super) fn emit_function(
         let ret_expr = unwrap_return_expr("_result", &f.return_type, free_symbol, error_code_symbol);
         out.push_str(&template_env::render(
             "ffi_return_value.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 ret_expr => ret_expr,
             },
         ));
@@ -175,7 +175,7 @@ fn emit_param_alloc(p: &ParamDef, out: &mut String) {
         TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             out.push_str(&template_env::render(
                 "ffi_param_alloc_string.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => name.as_str(),
                 },
             ));
@@ -193,7 +193,7 @@ fn emit_param_free_all(params: &[ParamDef], out: &mut String) {
             TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                 out.push_str(&template_env::render(
                     "ffi_param_free_string.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => name.as_str(),
                     },
                 ));
@@ -233,7 +233,7 @@ fn emit_capsule_function(
         let doc_lines: Vec<String> = f.doc.lines().map(ToString::to_string).collect();
         out.push_str(&template_env::render(
             "doc_comment.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => "",
                 lines => doc_lines,
             },
@@ -253,7 +253,7 @@ fn emit_capsule_function(
 
     out.push_str(&template_env::render(
         "ffi_typedef_native_sig.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             typedef_native => typedef_native.as_str(),
             native_return => native_return.as_str(),
             native_params => native_params.join(", "),
@@ -261,7 +261,7 @@ fn emit_capsule_function(
     ));
     out.push_str(&template_env::render(
         "ffi_typedef_dart_sig.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             typedef_dart => typedef_dart.as_str(),
             dart_return => dart_return.as_str(),
             dart_params => dart_params.join(", "),
@@ -269,7 +269,7 @@ fn emit_capsule_function(
     ));
     out.push_str(&template_env::render(
         "ffi_function_lookup_sig.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             dart_return => dart_return.as_str(),
             dart_params => dart_params.join(", "),
             fn_name => fn_name.as_str(),
@@ -289,7 +289,7 @@ fn emit_capsule_function(
 
     out.push_str(&template_env::render(
         "ffi_wrapper_fn_open.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             wrapper_return => wrapper_return.as_str(),
             fn_name => fn_name.as_str(),
             dart_wrapper_params => dart_wrapper_params.join(", "),
@@ -305,7 +305,7 @@ fn emit_capsule_function(
 
     out.push_str(&template_env::render(
         "ffi_call_result.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             fn_name => fn_name.as_str(),
             call_args_str => call_args_str.as_str(),
         },

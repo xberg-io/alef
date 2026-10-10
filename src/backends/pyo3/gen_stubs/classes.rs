@@ -78,7 +78,7 @@ pub(super) fn gen_opaque_type_stub(
             for param in &mut params {
                 wrapped.push_str(&crate::backends::pyo3::template_env::render(
                     "stub_wrapped_param_line.jinja",
-                    minijinja::context! { param => param },
+                    crate::alef_context! { param => param },
                 ));
             }
             wrapped.push_str("    ) -> None: ...");
@@ -303,12 +303,12 @@ fn gen_type_init_stub(
             if is_python_builtin_name(name) {
                 wrapped.push_str(&crate::backends::pyo3::template_env::render(
                     "stub_param_wrapped_noqa.jinja",
-                    minijinja::context! { param => param, indent => "        " },
+                    crate::alef_context! { param => param, indent => "        " },
                 ));
             } else {
                 wrapped.push_str(&crate::backends::pyo3::template_env::render(
                     "stub_param_wrapped.jinja",
-                    minijinja::context! { param => param, indent => "        " },
+                    crate::alef_context! { param => param, indent => "        " },
                 ));
             }
         }
@@ -405,12 +405,12 @@ fn gen_method_stub(
             if is_python_builtin_name(name) {
                 wrapped.push_str(&crate::backends::pyo3::template_env::render(
                     "stub_param_method_wrapped_noqa.jinja",
-                    minijinja::context! { indent => indent, param => param },
+                    crate::alef_context! { indent => indent, param => param },
                 ));
             } else {
                 wrapped.push_str(&crate::backends::pyo3::template_env::render(
                     "stub_param_method_wrapped.jinja",
-                    minijinja::context! { indent => indent, param => param },
+                    crate::alef_context! { indent => indent, param => param },
                 ));
             }
         }

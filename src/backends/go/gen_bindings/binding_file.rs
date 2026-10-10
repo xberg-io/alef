@@ -236,7 +236,7 @@ pub(super) fn gen_go_file(
 
     header.push_str(&crate::backends::go::template_env::render(
         "package_doc_and_declaration.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             pkg_name => pkg_name,
             crate_name => &config.name,
         },
@@ -244,7 +244,7 @@ pub(super) fn gen_go_file(
     let link_flag_lines = crate::backends::go::cgo_link_flags::cgo_link_flag_lines(config)?;
     header.push_str(&crate::backends::go::template_env::render(
         "cgo_preamble_binding.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             to_root => &to_root,
             ffi_crate_dir => ffi_crate_dir,
             ffi_lib_name => ffi_lib_name,
@@ -613,7 +613,7 @@ pub(super) fn gen_go_file(
     import_lines.sort_by(|a, b| go_import_sort_key(a).cmp(go_import_sort_key(b)));
     let imports_str = crate::backends::go::template_env::render(
         "imports_basic.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             imports => import_lines,
         },
     );
@@ -678,7 +678,7 @@ mod import_order_tests {
         let import_lines = vec!["\"errors\"".to_string(), "\"fmt\"".to_string()];
         let rendered = crate::backends::go::template_env::render(
             "imports_basic.jinja",
-            minijinja::context! { imports => import_lines },
+            crate::alef_context! { imports => import_lines },
         );
         let code = format!("package pkg\n\n{rendered}\nvar _ = fmt.Sprintf\nvar _ = errors.New\n");
 

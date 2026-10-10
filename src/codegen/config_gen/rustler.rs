@@ -57,7 +57,7 @@ pub fn gen_rustler_kwargs_constructor_with_exclude(
                 }
             };
 
-            minijinja::context! {
+            crate::alef_context! {
                 name => crate::codegen::naming::internal_rust_identifier(&field.name),
                 assignment => assignment,
             }
@@ -66,7 +66,7 @@ pub fn gen_rustler_kwargs_constructor_with_exclude(
 
     crate::codegen::template_env::render(
         "config_gen/rustler_kwargs_constructor.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             fields => fields,
         },
     )
@@ -99,7 +99,7 @@ pub fn gen_rustler_kwargs_constructor(typ: &TypeDef, _type_mapper: &dyn Fn(&Type
                 }
             };
 
-            minijinja::context! {
+            crate::alef_context! {
                 name => crate::codegen::naming::internal_rust_identifier(&field.name),
                 assignment => assignment,
             }
@@ -108,7 +108,7 @@ pub fn gen_rustler_kwargs_constructor(typ: &TypeDef, _type_mapper: &dyn Fn(&Type
 
     crate::codegen::template_env::render(
         "config_gen/rustler_kwargs_constructor.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             fields => fields,
         },
     )

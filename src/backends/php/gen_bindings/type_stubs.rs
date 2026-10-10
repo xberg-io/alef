@@ -17,7 +17,6 @@ use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{ApiSurface, EnumDef, FieldDef, TypeRef};
 use ahash::AHashSet;
 use heck::{ToLowerCamelCase, ToPascalCase};
-use minijinja::context;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -71,12 +70,12 @@ pub(super) fn generate_type_stubs(
     content.push('\n');
     content.push_str(&crate::backends::php::template_env::render(
         "php_namespace_block_begin.jinja",
-        context! { namespace => &namespace },
+        crate::alef_context! { namespace => &namespace },
     ));
 
     content.push_str(&crate::backends::php::template_env::render(
         "php_exception_class_declaration.jinja",
-        context! { class_name => &class_name },
+        crate::alef_context! { class_name => &class_name },
     ));
     content.push_str("    public function getErrorCode(): int { throw new \\RuntimeException('Not implemented.'); }\n");
     // These are backed by #[php_method] impls in the generated native extension.
@@ -148,7 +147,7 @@ pub(super) fn generate_type_stubs(
             let sanitized = sanitize_rust_idioms(&typ.doc, DocTarget::PhpDoc);
             content.push_str(&crate::backends::php::template_env::render(
                 "php_phpdoc_lines.jinja",
-                context! {
+                crate::alef_context! {
                     doc_lines => sanitized.lines().collect::<Vec<_>>(),
                     indent => "",
                 },
@@ -157,7 +156,7 @@ pub(super) fn generate_type_stubs(
         }
         content.push_str(&crate::backends::php::template_env::render(
             "php_record_class_stub_declaration.jinja",
-            context! { class_name => &typ.name },
+            crate::alef_context! { class_name => &typ.name },
         ));
 
         // The real extension's `#[php(constructor)]` only accepts fields that pass
@@ -210,7 +209,7 @@ pub(super) fn generate_type_stubs(
             StubConstructorShape::ThrowsNoParams => {
                 content.push_str(&crate::backends::php::template_env::render(
                     "php_constructor_method.jinja",
-                    context! { params => "" },
+                    crate::alef_context! { params => "" },
                 ));
             }
             // `config_gen::gen_php_kwargs_constructor` derives its parameter list from a
@@ -227,7 +226,7 @@ pub(super) fn generate_type_stubs(
                 let params = gen_kwargs_constructor_stub_params(typ, &enum_names);
                 content.push_str(&crate::backends::php::template_env::render(
                     "php_constructor_method.jinja",
-                    context! { params => &params.join(",\n") },
+                    crate::alef_context! { params => &params.join(",\n") },
                 ));
             }
             StubConstructorShape::Positional => {
@@ -240,7 +239,7 @@ pub(super) fn generate_type_stubs(
                 );
                 content.push_str(&crate::backends::php::template_env::render(
                     "php_constructor_method.jinja",
-                    context! { params => &params.join(",\n") },
+                    crate::alef_context! { params => &params.join(",\n") },
                 ));
             }
         }
@@ -258,7 +257,7 @@ pub(super) fn generate_type_stubs(
             );
             content.push_str(&crate::backends::php::template_env::render(
                 "php_stub_method_definition.jinja",
-                context! {
+                crate::alef_context! {
                     static_kw => "static ",
                     method_name => "from_json",
                     params => "string $json",
@@ -314,7 +313,7 @@ pub(super) fn generate_type_stubs(
                 "{ throw new \\RuntimeException('Not implemented — provided by the native extension.'); }";
             content.push_str(&crate::backends::php::template_env::render(
                 "php_stub_method_definition.jinja",
-                context! {
+                crate::alef_context! {
                     static_kw => "",
                     method_name => &getter_method_name,
                     params => "",
@@ -378,7 +377,7 @@ pub(super) fn generate_type_stubs(
             };
             content.push_str(&crate::backends::php::template_env::render(
                 "php_stub_method_definition.jinja",
-                context! {
+                crate::alef_context! {
                     static_kw => static_kw,
                     method_name => &method_name,
                     params => &params.join(", "),
@@ -411,7 +410,7 @@ pub(super) fn generate_type_stubs(
 
         content.push_str(&crate::backends::php::template_env::render(
             "php_api_class_declaration.jinja",
-            context! { class_name => &class_name },
+            crate::alef_context! { class_name => &class_name },
         ));
         for func in api.functions.iter().filter(|f| !exclude_functions.contains(&f.name)) {
             // The stub must document the signature the binding actually emits: a `&mut T` DTO
@@ -453,7 +452,7 @@ pub(super) fn generate_type_stubs(
                     };
                     content.push_str(&crate::backends::php::template_env::render(
                         "php_phpdoc_static_param.jinja",
-                        context! {
+                        crate::alef_context! {
                             nullable_prefix => nullable_prefix,
                             ptype => &ptype,
                             param_name => &p.name,
@@ -462,7 +461,7 @@ pub(super) fn generate_type_stubs(
                 }
                 content.push_str(&crate::backends::php::template_env::render(
                     "php_phpdoc_static_return.jinja",
-                    context! { return_phpdoc => &return_phpdoc },
+                    crate::alef_context! { return_phpdoc => &return_phpdoc },
                 ));
                 content.push_str("     */\n");
             }
@@ -492,7 +491,7 @@ pub(super) fn generate_type_stubs(
             };
             content.push_str(&crate::backends::php::template_env::render(
                 "php_static_method_stub.jinja",
-                context! {
+                crate::alef_context! {
                     method_name => &stub_method_name,
                     params => &params.join(", "),
                     return_type => &return_type,
@@ -513,7 +512,7 @@ pub(super) fn generate_type_stubs(
                 let params = format!("{interface_name} $backend");
                 content.push_str(&crate::backends::php::template_env::render(
                     "php_static_method_stub.jinja",
-                    context! {
+                    crate::alef_context! {
                         method_name => &method_name,
                         params => &params,
                         return_type => "void",
@@ -525,7 +524,7 @@ pub(super) fn generate_type_stubs(
                 let method_name = unregister_fn.to_lower_camel_case();
                 content.push_str(&crate::backends::php::template_env::render(
                     "php_static_method_stub.jinja",
-                    context! {
+                    crate::alef_context! {
                         method_name => &method_name,
                         params => "string $name",
                         return_type => "void",
@@ -537,7 +536,7 @@ pub(super) fn generate_type_stubs(
                 let method_name = clear_fn.to_lower_camel_case();
                 content.push_str(&crate::backends::php::template_env::render(
                     "php_static_method_stub.jinja",
-                    context! {
+                    crate::alef_context! {
                         method_name => &method_name,
                         params => "",
                         return_type => "void",
@@ -937,7 +936,7 @@ fn gen_data_enum_variant_constructor_stubs(
             };
             let method = crate::backends::php::template_env::render(
                 "php_static_method_stub.jinja",
-                context! {
+                crate::alef_context! {
                     method_name => to_php_name(&ctor.snake_name),
                     params => &params.join(", "),
                     return_type => &enum_def.name,
@@ -971,7 +970,7 @@ fn gen_labeled_string_enum_variant_constructor_stubs(enum_def: &EnumDef, is_host
             };
             crate::backends::php::template_env::render(
                 "php_static_method_stub.jinja",
-                context! {
+                crate::alef_context! {
                     method_name => to_php_name(&pascal_to_snake(&variant.name)),
                     params => &params,
                     return_type => &enum_def.name,

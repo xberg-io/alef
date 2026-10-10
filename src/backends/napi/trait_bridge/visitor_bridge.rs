@@ -75,7 +75,7 @@ pub(super) fn gen_visitor_bridge(
 
     Ok(crate::backends::napi::template_env::render(
         "visitor_bridge.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             core_crate => core_crate,
             context_type_path => context_helper.type_path,
             context_field_lines => context_helper.field_lines,
@@ -175,7 +175,7 @@ fn gen_visitor_method_napi(
 
     out.push_str(&crate::backends::napi::template_env::render(
         "visitor_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => name,
             js_method_name => js_method_name,
             signature => signature,
@@ -365,7 +365,7 @@ fn named_napi_arg(p: &ParamDef, n: &str, ctx: &NapiArgCtx<'_>) -> String {
     if Some(n) == ctx.bridge_cfg.context_type.as_deref() {
         return crate::backends::napi::template_env::render(
             "visitor_context_arg_expr.jinja",
-            minijinja::context! { ref_prefix => if p.is_ref { "" } else { "&" }, name => p.name.as_str() },
+            crate::alef_context! { ref_prefix => if p.is_ref { "" } else { "&" }, name => p.name.as_str() },
         )
         .trim_end()
         .to_string();

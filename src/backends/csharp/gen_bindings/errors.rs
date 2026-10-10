@@ -76,7 +76,6 @@ pub(super) fn compute_variant_dispatch(errors: &[ErrorDef]) -> (bool, String, Ve
 /// the throw.
 pub(super) fn gen_exception_class(namespace: &str, class_name: &str, errors: &[ErrorDef]) -> String {
     use crate::backends::csharp::template_env::render;
-    use minijinja::Value;
 
     let (has_base_error, base_exception_class, variant_dispatch_lines) = compute_variant_dispatch(errors);
     let last_error_bases = crate::codegen::error_gen::csharp_error_bases_with_last_error_fields(
@@ -86,7 +85,7 @@ pub(super) fn gen_exception_class(namespace: &str, class_name: &str, errors: &[E
 
     render(
         "exception_class.jinja",
-        Value::from_serialize(serde_json::json!({
+        crate::template::to_value(serde_json::json!({
             "namespace": namespace,
             "class_name": class_name,
             "has_base_error": has_base_error,
@@ -172,10 +171,10 @@ pub(super) fn emit_return_marshalling_indented(
     }
 
     if returns_string(return_type) {
-        out.push_str(&render("return_string_utf8.jinja", minijinja::context! { indent }));
-        out.push_str(&render("free_native_string.jinja", minijinja::context! { indent }));
+        out.push_str(&render("return_string_utf8.jinja", crate::alef_context! { indent }));
+        out.push_str(&render("free_native_string.jinja", crate::alef_context! { indent }));
     } else if returns_bool_via_int(return_type) {
-        out.push_str(&render("return_bool_from_int.jinja", minijinja::context! { indent }));
+        out.push_str(&render("return_bool_from_int.jinja", crate::alef_context! { indent }));
     } else if let TypeRef::Named(type_name) = return_type {
         let pascal = csharp_type_name(type_name);
         if true_opaque_types.contains(type_name)
@@ -185,7 +184,7 @@ pub(super) fn emit_return_marshalling_indented(
         {
             out.push_str(&render(
                 "return_opaque_ctor.jinja",
-                minijinja::context! { indent, pascal },
+                crate::alef_context! { indent, pascal },
             ));
         } else if !enum_names.contains(&pascal) || enum_data_variant_names.contains(&pascal) {
             // A data struct, or *any* enum (fieldless or data-carrying), is boxed by
@@ -205,44 +204,44 @@ pub(super) fn emit_return_marshalling_indented(
             let cs_ty = csharp_type(return_type);
             out.push_str(&render(
                 "native_to_json_ptr.jinja",
-                minijinja::context! { indent, to_json_method },
+                crate::alef_context! { indent, to_json_method },
             ));
             out.push_str(&render(
                 "json_from_ptr.jinja",
-                minijinja::context! { indent, ptr_var => "jsonPtr" },
+                crate::alef_context! { indent, ptr_var => "jsonPtr" },
             ));
             out.push_str(&render(
                 "free_string_ptr.jinja",
-                minijinja::context! { indent, ptr_var => "jsonPtr" },
+                crate::alef_context! { indent, ptr_var => "jsonPtr" },
             ));
             out.push_str(&render(
                 "free_native_handle.jinja",
-                minijinja::context! { indent, free_method },
+                crate::alef_context! { indent, free_method },
             ));
             out.push_str(&render(
                 "deserialize_json.jinja",
-                minijinja::context! { indent, cs_type => cs_ty },
+                crate::alef_context! { indent, cs_type => cs_ty },
             ));
         } else {
             let cs_ty = csharp_type(return_type);
             out.push_str(&render(
                 "json_from_ptr.jinja",
-                minijinja::context! { indent, ptr_var => "nativeResult" },
+                crate::alef_context! { indent, ptr_var => "nativeResult" },
             ));
             out.push_str(&render(
                 "free_string_ptr.jinja",
-                minijinja::context! { indent, ptr_var => "nativeResult" },
+                crate::alef_context! { indent, ptr_var => "nativeResult" },
             ));
             out.push_str(&render(
                 "deserialize_json.jinja",
-                minijinja::context! { indent, cs_type => cs_ty },
+                crate::alef_context! { indent, cs_type => cs_ty },
             ));
         }
     } else if returns_json_object(return_type) {
         if let TypeRef::Optional(inner) = return_type {
             if returns_string(inner) {
-                out.push_str(&render("return_ptr_as_string.jinja", minijinja::context! { indent }));
-                out.push_str(&render("free_native_string.jinja", minijinja::context! { indent }));
+                out.push_str(&render("return_ptr_as_string.jinja", crate::alef_context! { indent }));
+                out.push_str(&render("free_native_string.jinja", crate::alef_context! { indent }));
                 return;
             }
             if let TypeRef::Named(type_name) = inner.as_ref() {
@@ -254,7 +253,7 @@ pub(super) fn emit_return_marshalling_indented(
                 {
                     out.push_str(&render(
                         "return_opaque_ctor.jinja",
-                        minijinja::context! { indent, pascal },
+                        crate::alef_context! { indent, pascal },
                     ));
                     return;
                 }
@@ -263,23 +262,23 @@ pub(super) fn emit_return_marshalling_indented(
                 let cs_ty = csharp_type(return_type);
                 out.push_str(&render(
                     "native_to_json_ptr.jinja",
-                    minijinja::context! { indent, to_json_method },
+                    crate::alef_context! { indent, to_json_method },
                 ));
                 out.push_str(&render(
                     "json_from_ptr.jinja",
-                    minijinja::context! { indent, ptr_var => "jsonPtr" },
+                    crate::alef_context! { indent, ptr_var => "jsonPtr" },
                 ));
                 out.push_str(&render(
                     "free_string_ptr.jinja",
-                    minijinja::context! { indent, ptr_var => "jsonPtr" },
+                    crate::alef_context! { indent, ptr_var => "jsonPtr" },
                 ));
                 out.push_str(&render(
                     "free_native_handle.jinja",
-                    minijinja::context! { indent, free_method },
+                    crate::alef_context! { indent, free_method },
                 ));
                 out.push_str(&render(
                     "deserialize_json.jinja",
-                    minijinja::context! { indent, cs_type => cs_ty },
+                    crate::alef_context! { indent, cs_type => cs_ty },
                 ));
                 return;
             }
@@ -287,18 +286,18 @@ pub(super) fn emit_return_marshalling_indented(
         let cs_ty = csharp_type(return_type);
         out.push_str(&render(
             "json_from_ptr.jinja",
-            minijinja::context! { indent, ptr_var => "nativeResult" },
+            crate::alef_context! { indent, ptr_var => "nativeResult" },
         ));
         out.push_str(&render(
             "free_string_ptr.jinja",
-            minijinja::context! { indent, ptr_var => "nativeResult" },
+            crate::alef_context! { indent, ptr_var => "nativeResult" },
         ));
         out.push_str(&render(
             "deserialize_json.jinja",
-            minijinja::context! { indent, cs_type => cs_ty },
+            crate::alef_context! { indent, cs_type => cs_ty },
         ));
     } else {
-        out.push_str(&render("return_native_result.jinja", minijinja::context! { indent }));
+        out.push_str(&render("return_native_result.jinja", crate::alef_context! { indent }));
     }
 }
 
@@ -307,7 +306,7 @@ pub(super) fn emit_return_statement_indented(out: &mut String, return_type: &Typ
     if *return_type != TypeRef::Unit {
         out.push_str(&crate::backends::csharp::template_env::render(
             "return_value.jinja",
-            minijinja::context! { indent },
+            crate::alef_context! { indent },
         ));
     }
 }

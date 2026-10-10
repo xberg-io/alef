@@ -5,7 +5,6 @@ use crate::backends::rustler::gen_bindings::service_api::helpers::{
 };
 use crate::backends::rustler::template_env::render;
 use crate::core::ir::{ApiSurface, HandlerShape, RegistrationDef, RegistrationVariantStyle, ServiceDef};
-use minijinja::context;
 
 pub(super) fn gen_registration_method(
     out: &mut String,
@@ -45,7 +44,7 @@ pub(super) fn gen_registration_method(
 
     out.push_str(&render(
         "service_api_registration_method.ex.jinja",
-        context! {
+        crate::alef_context! {
             method_name => method_name,
             params => params,
             meta_tuple => meta_tuple,
@@ -60,7 +59,7 @@ pub(super) fn gen_registration_method(
         let conn_module = prefixed_module(module_prefix, "Conn");
         out.push_str(&render(
             "service_api_handler_wrapper.ex.jinja",
-            context! {
+            crate::alef_context! {
                 conn_module => conn_module,
             },
         ));
@@ -216,7 +215,7 @@ fn emit_verb_decorator_variant(
 
     out.push_str(&render(
         "service_api_verb_decorator.ex.jinja",
-        context! {
+        crate::alef_context! {
             variant_name => variant_name,
             params => params,
             wrapper_expr => wrapper_expr,
@@ -255,7 +254,7 @@ fn emit_builder_variant(
 
     out.push_str(&render(
         "service_api_builder_variant.ex.jinja",
-        context! {
+        crate::alef_context! {
             builder_name => builder_name,
             params => params,
             variant_name => variant_name,

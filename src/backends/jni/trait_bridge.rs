@@ -53,7 +53,7 @@ impl JniBridgeGenerator {
             .params
             .iter()
             .map(|p| {
-                minijinja::context! {
+                crate::alef_context! {
                     name => &p.name,
                     expr => Self::arg_expr(p),
                 }
@@ -75,7 +75,7 @@ impl JniBridgeGenerator {
 
         template_env::render(
             "trait_bridge_method_body.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => name,
                 wrapper => spec.wrapper_name(),
                 args => args,
@@ -131,7 +131,7 @@ impl TraitBridgeGenerator for JniBridgeGenerator {
     fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
         template_env::render(
             "trait_bridge_constructor.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 wrapper_name => spec.wrapper_name(),
                 trait_name => &spec.trait_def.name,
                 has_super_trait => spec.bridge_config.super_trait.is_some(),
@@ -144,7 +144,7 @@ impl TraitBridgeGenerator for JniBridgeGenerator {
         let register_extra_args = spec.bridge_config.register_extra_args.as_deref().unwrap_or_default();
         template_env::render(
             "trait_bridge_register_shim.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 symbol => &self.register_symbol,
                 wrapper_name => spec.wrapper_name(),
                 trait_name => &spec.trait_def.name,

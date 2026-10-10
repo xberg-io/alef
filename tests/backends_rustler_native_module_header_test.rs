@@ -1,4 +1,4 @@
-use minijinja::context;
+use alef::alef_context as context;
 
 #[test]
 fn force_build_uses_mix_env_not_system_get_env() {

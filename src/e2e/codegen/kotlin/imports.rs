@@ -41,7 +41,7 @@ impl ImportBlock {
     pub(super) fn render(&self) -> String {
         crate::e2e::template_env::render(
             "kotlin/test_imports.kt.jinja",
-            minijinja::context! { imports => self.paths },
+            crate::alef_context! { imports => self.paths },
         )
     }
 }

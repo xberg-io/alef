@@ -386,7 +386,7 @@ fn render_docs_snippet(
         .collect::<Vec<_>>();
     Ok(crate::e2e::template_env::render(
         "rust/snippet_body.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             imports => imports, body => body, is_async => is_async, presentation => presentation,
             display_result => display_result, result_var => result_var,
             expects_error => expects_error, returns_void => call.returns_void,

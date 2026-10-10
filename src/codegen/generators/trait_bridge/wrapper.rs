@@ -12,12 +12,12 @@ pub fn gen_bridge_wrapper_struct(spec: &TraitBridgeSpec, generator: &dyn TraitBr
     let extra_fields: Vec<minijinja::Value> = generator
         .extra_bridge_fields(spec)
         .into_iter()
-        .map(|(name, ty)| minijinja::context! { name => name, ty => ty })
+        .map(|(name, ty)| crate::alef_context! { name => name, ty => ty })
         .collect();
 
     crate::codegen::template_env::render(
         "generators/trait_bridge/wrapper_struct.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             wrapper_prefix => spec.wrapper_prefix,
             trait_name => &spec.trait_def.name,
             wrapper_name => wrapper,
@@ -36,7 +36,7 @@ pub fn gen_bridge_debug_impl(spec: &TraitBridgeSpec) -> String {
     let wrapper = spec.wrapper_name();
     crate::codegen::template_env::render(
         "generators/trait_bridge/debug_impl.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             wrapper_name => wrapper,
         },
     )
@@ -158,7 +158,7 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
 
     Some(crate::codegen::template_env::render(
         "generators/trait_bridge/plugin_impl.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             super_trait_path => super_trait_path,
             wrapper_name => wrapper,
             error_path => error_path,

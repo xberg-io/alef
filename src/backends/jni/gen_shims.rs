@@ -15,8 +15,6 @@
 
 use std::path::PathBuf;
 
-use minijinja::context;
-
 use crate::backends::jni::template_env;
 use crate::codegen::generators::collect_trait_imports;
 use crate::codegen::naming::to_class_name;

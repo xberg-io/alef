@@ -29,7 +29,7 @@ pub fn gen_convert_no_visitor(
     let visitor_function = no_visitor_function_spec(prefix, function, core_import, bridge_cfg);
     render(
         "ffi_visitor_no_callback_function.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             prefix,
             fn_name => visitor_function.fn_name,
             params => visitor_function.ffi_params,

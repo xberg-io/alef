@@ -629,7 +629,7 @@ pub(super) fn build_args_and_setup(
                                 setup_lines.push(
                                     crate::e2e::template_env::render(
                                         "kotlin/docs_file_read.jinja",
-                                        minijinja::context! {
+                                        crate::alef_context! {
                                             variable => arg.name,
                                             index => index,
                                             path => escape_kotlin(path),
@@ -642,7 +642,7 @@ pub(super) fn build_args_and_setup(
                             setup_lines.push(
                                 crate::e2e::template_env::render(
                                     "kotlin/snippet_json_object_setup.jinja",
-                                    minijinja::context! {
+                                    crate::alef_context! {
                                         variable => var_name,
                                         json_literal => super::values::kotlin_string_literal(&json_str),
                                         replacements => replacements,

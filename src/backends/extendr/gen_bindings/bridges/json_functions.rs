@@ -144,7 +144,7 @@ pub fn gen_extendr_json_bridged_function(
                 sig_params.push(format!("{}: Option<String>", param.name));
                 body_preamble.push_str(&crate::backends::extendr::template_env::render(
                     "json_vec_optional_preamble.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &param.name,
                         ty => &core_ty_path,
                         err_map => &err_map,
@@ -156,7 +156,7 @@ pub fn gen_extendr_json_bridged_function(
                 sig_params.push(format!("{}: String", param.name));
                 body_preamble.push_str(&crate::backends::extendr::template_env::render(
                     "json_vec_required_preamble.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &param.name,
                         ty => &core_ty_path,
                         err_map => &err_map,
@@ -186,7 +186,7 @@ pub fn gen_extendr_json_bridged_function(
                 sig_params.push(format!("{}: Option<String>", param.name));
                 body_preamble.push_str(&template_env::render(
                     "json_struct_optional_preamble.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         mut_kw => mut_kw,
                         name => &param.name,
                         ty => &core_ty_path,
@@ -198,7 +198,7 @@ pub fn gen_extendr_json_bridged_function(
                 sig_params.push(format!("{}: String", param.name));
                 body_preamble.push_str(&template_env::render(
                     "json_struct_required_preamble.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         mut_kw => mut_kw,
                         name => &param.name,
                         ty => &core_ty_path,
@@ -286,7 +286,7 @@ pub fn gen_extendr_json_bridged_function(
             if param.optional {
                 named_let_bindings.push_str(&template_env::render(
                     "named_let_optional_binding.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &param.name,
                         ci => core_import,
                         n => n,
@@ -296,7 +296,7 @@ pub fn gen_extendr_json_bridged_function(
             } else {
                 named_let_bindings.push_str(&template_env::render(
                     "named_let_required_binding.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &param.name,
                         ci => core_import,
                         n => n,

@@ -407,7 +407,7 @@ fn emit_client_type_file(
     let java_fqn = format!("{java_package}.{class_name}");
     body.push_str(&template_env::render(
         "client_class_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             java_fqn => java_fqn,
             class_name => class_name,
         },
@@ -439,7 +439,7 @@ fn emit_client_type_file(
 
     body.push_str(&template_env::render(
         "client_close_method.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     body.push_str("}\n");
 
@@ -472,7 +472,7 @@ fn emit_client_method(m: &MethodDef, out: &mut String, imports: &mut BTreeSet<St
         for line in m.doc.lines() {
             out.push_str(&template_env::render(
                 "line_comment.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     indent => "    ",
                     line => line,
                 },
@@ -505,7 +505,7 @@ fn emit_client_method(m: &MethodDef, out: &mut String, imports: &mut BTreeSet<St
     };
     out.push_str(&template_env::render(
         "kotlin_client_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             async_kw => async_kw,
             method_name => method_name,
             params => params_with_types.join(", "),
@@ -610,7 +610,7 @@ fn emit_streaming_client_method(
 
     out.push_str(&template_env::render(
         "kotlin_streaming_client_method.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => method_name,
             params => params.join(", "),
             item_type => item_type,
@@ -812,7 +812,7 @@ fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
 
         body.push_str(&crate::backends::kotlin::template_env::render(
             "object_declaration.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => module_name,
             },
         ));
@@ -861,7 +861,7 @@ fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     );
     content.push_str(&crate::backends::kotlin::template_env::render(
         "package_declaration.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             package => package,
         },
     ));

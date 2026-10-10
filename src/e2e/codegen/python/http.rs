@@ -133,7 +133,7 @@ pub(super) fn render_http_test_function(out: &mut String, fixture: &Fixture) {
                 .iter()
                 .map(|(key, val)| {
                     let py_val = json_to_python_literal(val);
-                    minijinja::context! {
+                    crate::alef_context! {
                         key => escape_python(key),
                         py_val => py_val,
                     }
@@ -163,7 +163,7 @@ pub(super) fn render_http_test_function(out: &mut String, fixture: &Fixture) {
             "<<uuid>>" => ("uuid", String::new()),
             exact => ("exact", escape_python(exact)),
         };
-        header_assertions.push(minijinja::context! {
+        header_assertions.push(crate::alef_context! {
             name => escaped_name,
             assertion_type => assertion_type,
             value => val,
@@ -181,7 +181,7 @@ pub(super) fn render_http_test_function(out: &mut String, fixture: &Fixture) {
                     let loc_py: Vec<String> = ve.loc.iter().map(|s| format!("\"{}\"", escape_python(s))).collect();
                     let loc_str = loc_py.join(", ");
                     let escaped_msg = escape_python(&ve.msg);
-                    minijinja::context! {
+                    crate::alef_context! {
                         loc_py => loc_str,
                         escaped_msg => escaped_msg,
                     }
@@ -195,7 +195,7 @@ pub(super) fn render_http_test_function(out: &mut String, fixture: &Fixture) {
         (false, Vec::new())
     };
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         fn_name => fn_name,
         description => desc_with_period,
         method => method,

@@ -76,7 +76,7 @@ impl client::TestClientRenderer for JavaTestClientRenderer {
         let escaped_reason = skip_reason.map(escape_java);
         let rendered = crate::e2e::template_env::render(
             "java/http_test_open.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => fn_name,
                 description => description,
                 skip_reason => escaped_reason,
@@ -87,7 +87,7 @@ impl client::TestClientRenderer for JavaTestClientRenderer {
 
     /// Emit the closing `}` for a test method.
     fn render_test_close(&self, out: &mut String) {
-        let rendered = crate::e2e::template_env::render("java/http_test_close.jinja", minijinja::context! {});
+        let rendered = crate::e2e::template_env::render("java/http_test_close.jinja", crate::alef_context! {});
         out.push_str(&rendered);
     }
 
@@ -190,7 +190,7 @@ impl client::TestClientRenderer for JavaTestClientRenderer {
 
         let rendered = crate::e2e::template_env::render(
             "java/http_request.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method => method,
                 path => path,
                 body_publisher => body_publisher,
@@ -207,7 +207,7 @@ impl client::TestClientRenderer for JavaTestClientRenderer {
     fn render_assert_status(&self, out: &mut String, response_var: &str, status: u16) {
         let rendered = crate::e2e::template_env::render(
             "java/http_assertions.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 response_var => response_var,
                 status_code => status,
                 headers => Vec::<std::collections::HashMap<&str, String>>::new(),
@@ -253,7 +253,7 @@ impl client::TestClientRenderer for JavaTestClientRenderer {
 
         let rendered = crate::e2e::template_env::render(
             "java/http_assertions.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 response_var => response_var,
                 status_code => 0u16,
                 headers => headers,
@@ -287,7 +287,7 @@ impl client::TestClientRenderer for JavaTestClientRenderer {
 
         let rendered = crate::e2e::template_env::render(
             "java/http_assertions.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 response_var => response_var,
                 status_code => 0u16,
                 headers => Vec::<std::collections::HashMap<&str, String>>::new(),
@@ -317,7 +317,7 @@ impl client::TestClientRenderer for JavaTestClientRenderer {
 
             let rendered = crate::e2e::template_env::render(
                 "java/http_assertions.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     response_var => response_var,
                     status_code => 0u16,
                     headers => Vec::<std::collections::HashMap<&str, String>>::new(),
@@ -350,7 +350,7 @@ impl client::TestClientRenderer for JavaTestClientRenderer {
 
         let rendered = crate::e2e::template_env::render(
             "java/http_assertions.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 response_var => response_var,
                 status_code => 0u16,
                 headers => Vec::<std::collections::HashMap<&str, String>>::new(),
@@ -377,7 +377,7 @@ pub(super) fn render_http_test_method(out: &mut String, fixture: &Fixture, http:
         let description = &fixture.description;
         out.push_str(&crate::e2e::template_env::render(
             "java/http_test_skip_101.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_name => method_name,
                 description => description,
             },

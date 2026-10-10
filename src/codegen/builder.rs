@@ -41,7 +41,7 @@ impl RustFileBuilder {
         };
         let rendered = crate::codegen::template_env::render(
             "builders/inner_attribute.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 attr => &attr,
             },
         );
@@ -96,7 +96,7 @@ impl RustFileBuilder {
             for import in &self.imports {
                 out.push_str(&crate::codegen::template_env::render(
                     "builders/use_import.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         import => import,
                     },
                 ));
@@ -195,7 +195,7 @@ impl StructBuilder {
         if !self.derives.is_empty() {
             let rendered = crate::codegen::template_env::render(
                 "builders/derive_attr.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     derives => self.derives.join(", "),
                 },
             );
@@ -208,7 +208,7 @@ impl StructBuilder {
         for attr in &self.attrs {
             let rendered = crate::codegen::template_env::render(
                 "builders/generic_attr.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     attr => attr,
                 },
             );
@@ -220,7 +220,7 @@ impl StructBuilder {
 
         let rendered_header = crate::codegen::template_env::render(
             "builders/struct_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 visibility => &self.visibility,
                 name => &self.name,
             },
@@ -235,7 +235,7 @@ impl StructBuilder {
                 for line in doc.lines() {
                     let rendered = crate::codegen::template_env::render(
                         "builders/doc_line.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             line => line,
                         },
                     );
@@ -248,7 +248,7 @@ impl StructBuilder {
             for attr in attrs {
                 let rendered = crate::codegen::template_env::render(
                     "builders/generic_attr.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         attr => attr,
                     },
                 );
@@ -259,7 +259,7 @@ impl StructBuilder {
             }
             let rendered_field = crate::codegen::template_env::render(
                 "builders/struct_field.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => name,
                     ty => ty,
                 },
@@ -312,7 +312,7 @@ impl ImplBuilder {
         for attr in &self.attrs {
             let rendered = crate::codegen::template_env::render(
                 "builders/generic_attr.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     attr => attr,
                 },
             );
@@ -324,7 +324,7 @@ impl ImplBuilder {
 
         let rendered_header = crate::codegen::template_env::render(
             "builders/impl_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 target => &self.target,
             },
         );
@@ -340,7 +340,7 @@ impl ImplBuilder {
                 } else {
                     let rendered = crate::codegen::template_env::render(
                         "builders/indented_line.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             line => line,
                         },
                     );

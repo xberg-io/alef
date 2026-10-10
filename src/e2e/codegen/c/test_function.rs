@@ -380,7 +380,7 @@ pub(super) fn render_snippet_body(context: SnippetContext<'_>) -> anyhow::Result
         }
         return Ok(crate::e2e::template_env::render(
             "c/snippet_body.jinja",
-            minijinja::context! { header => header, declarations => "", body => standalone_success_exit(body.trim_end()) },
+            crate::alef_context! { header => header, declarations => "", body => standalone_success_exit(body.trim_end()) },
         ));
     }
     validate_c_snippet_metadata(
@@ -453,7 +453,7 @@ pub(super) fn render_snippet_body(context: SnippetContext<'_>) -> anyhow::Result
     )?;
     Ok(crate::e2e::template_env::render(
         "c/snippet_body.jinja",
-        minijinja::context! { header => header, declarations => snippet_declarations(&body), body => body },
+        crate::alef_context! { header => header, declarations => snippet_declarations(&body), body => body },
     ))
 }
 
@@ -546,7 +546,7 @@ pub(super) fn render_test_function_impl(
         } else {
             out.push_str(&crate::e2e::template_env::render(
                 "c/test_skip_if_env_missing.jinja",
-                minijinja::context! { env_var => var },
+                crate::alef_context! { env_var => var },
             ));
         }
     }
@@ -798,7 +798,7 @@ pub(super) fn render_test_function_impl(
                         // resources to free.
                         out.push_str(&crate::e2e::template_env::render(
                             "c/test_pass_if_null.jinja",
-                            minijinja::context! { variable => var_name },
+                            crate::alef_context! { variable => var_name },
                         ));
                     } else {
                         let _ = writeln!(out, "    assert({var_name} != 0 && \"failed to build request\");");
@@ -1716,7 +1716,7 @@ fn build_json_object_arg_handles(
         let handle = format!("{}_handle", sanitize_ident(&arg.name));
         out.push_str(&crate::e2e::template_env::render(
             "c/typed_handle.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 prefix_upper => prefix_upper,
                 type_name => type_name,
                 handle => handle,
@@ -1736,7 +1736,7 @@ fn render_typed_arg_cleanup(out: &mut String, prefix: &str, handles: &[(String, 
     for (handle, type_snake) in handles {
         out.push_str(&crate::e2e::template_env::render(
             "c/typed_handle_free.jinja",
-            minijinja::context! { prefix => prefix, type_snake => type_snake, handle => handle },
+            crate::alef_context! { prefix => prefix, type_snake => type_snake, handle => handle },
         ));
     }
 }

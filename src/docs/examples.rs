@@ -151,7 +151,7 @@ fn render_example_block(lang: Language, body: String) -> String {
     out.push_str("**Example:**\n\n");
     out.push_str(&template_env::render(
         "code_block.jinja",
-        minijinja::context! { lang_code => lang_code_fence(lang), body => body },
+        crate::alef_context! { lang_code => lang_code_fence(lang), body => body },
     ));
     out.push('\n');
     out

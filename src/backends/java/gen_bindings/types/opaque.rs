@@ -161,7 +161,7 @@ fn render_opaque_class_body(
     emit_javadoc(&mut body, &typ.doc, "");
     body.push_str(&crate::backends::java::template_env::render(
         "opaque_handle_header.jinja",
-        minijinja::context! { class_name => typ.name },
+        crate::alef_context! { class_name => typ.name },
     ));
     let naming = ClassNamingContext {
         prefix,
@@ -172,7 +172,7 @@ fn render_opaque_class_body(
     let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_snake.to_uppercase());
     body.push_str(&crate::backends::java::template_env::render(
         "opaque_handle_close.jinja",
-        minijinja::context! { free_handle, class_name => typ.name },
+        crate::alef_context! { free_handle, class_name => typ.name },
     ));
     if needs_helpers {
         gen_streaming_helpers(&mut body, prefix, main_class);
@@ -205,7 +205,7 @@ pub(crate) fn gen_opaque_handle_class(
     let imports = opaque_class_imports(&body, needs_helpers, has_static_factories);
     let mut out = crate::backends::java::template_env::render(
         "java_file_header.jinja",
-        minijinja::context! { header => header, package => package, imports => &imports },
+        crate::alef_context! { header => header, package => package, imports => &imports },
     );
     out.push('\n');
     out.push_str(&body);
@@ -256,12 +256,12 @@ fn emit_java_resource_declarations(
             let type_name = named_type_name(&param.ty).expect("opaque named parameter");
             out.push_str(&crate::backends::java::template_env::render(
                 "opaque_resource_declaration.jinja",
-                minijinja::context! { type_name, c_name => cname },
+                crate::alef_context! { type_name, c_name => cname },
             ));
         } else if named_type_name(&param.ty).is_some_and(|name| !enum_names.contains(name)) {
             out.push_str(&crate::backends::java::template_env::render(
                 "opaque_resource_declaration.jinja",
-                minijinja::context! { type_name => "", c_name => cname },
+                crate::alef_context! { type_name => "", c_name => cname },
             ));
         }
     }
@@ -280,7 +280,7 @@ fn render_java_resource_cleanup(
         if is_opaque_param(param, opaque_type_names) {
             cleanup_actions.push_str(&crate::backends::java::template_env::render(
                 "opaque_cleanup_lease.jinja",
-                minijinja::context! { indent, c_name => cname },
+                crate::alef_context! { indent, c_name => cname },
             ));
         } else if let Some(type_name) = named_type_name(&param.ty).filter(|name| !enum_names.contains(*name)) {
             let free_handle = format!(
@@ -289,7 +289,7 @@ fn render_java_resource_cleanup(
             );
             cleanup_actions.push_str(&crate::backends::java::template_env::render(
                 "opaque_cleanup_handle.jinja",
-                minijinja::context! { indent, c_name => cname, free_handle },
+                crate::alef_context! { indent, c_name => cname, free_handle },
             ));
         }
     }

@@ -20,7 +20,7 @@ pub(super) fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, 
     super::client::emit_doc_comment(&error.doc, "", out);
     out.push_str(&crate::backends::swift::template_env::render(
         "error_enum_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => &name,
         },
     ));
@@ -30,7 +30,7 @@ pub(super) fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, 
         if variant.is_unit || variant.fields.is_empty() {
             out.push_str(&crate::backends::swift::template_env::render(
                 "error_case.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     case_name => &case_name,
                 },
             ));
@@ -61,7 +61,7 @@ pub(super) fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, 
             }
             out.push_str(&crate::backends::swift::template_env::render(
                 "error_case_with_data.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     case_name => &case_name,
                     associated_values => assoc.join(", "),
                 },
@@ -125,7 +125,7 @@ pub(super) fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, 
                 };
                 cases.push_str(&crate::backends::swift::template_env::render(
                     "swift_error_property_case.swift.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         case_name => &case_name,
                         wildcard => &wildcard,
                         return_expression => &ret_expr,
@@ -135,7 +135,7 @@ pub(super) fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, 
             if !has_validation_variant {
                 cases.push_str(&crate::backends::swift::template_env::render(
                     "swift_error_property_case.swift.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         case_name => "validation",
                         wildcard => "(message: _, source: _)",
                         return_expression => &default_val,
@@ -144,7 +144,7 @@ pub(super) fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, 
             }
             properties.push_str(&crate::backends::swift::template_env::render(
                 "swift_error_property.swift.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     property_name => &prop_name,
                     return_type => &return_ty,
                     cases => cases,
@@ -153,7 +153,7 @@ pub(super) fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, 
         }
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_error_extension.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &name,
                 properties => properties,
             },

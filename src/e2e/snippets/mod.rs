@@ -778,7 +778,7 @@ fn render_snippet_markdown(
     let requires = serde_json::to_string(&requirements).unwrap_or_else(|_| "[]".to_string());
     let rendered = crate::e2e::template_env::render(
         "snippets/file.md.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             description => docs.description.as_deref().unwrap_or(&fixture.description),
             fence => language.code_fence(),
             id => snippet_id,

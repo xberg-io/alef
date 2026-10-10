@@ -62,7 +62,7 @@ pub(super) fn gen_conversion_options_r(opts_type: &TypeDef) -> String {
                 rname.to_string()
             };
 
-            minijinja::context! {
+            crate::alef_context! {
                 rname => rname,
                 doc => doc_text,
                 cfg => field.cfg.is_some(),
@@ -73,7 +73,7 @@ pub(super) fn gen_conversion_options_r(opts_type: &TypeDef) -> String {
 
     crate::backends::extendr::template_env::render(
         "conversion_options.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             params => params,
             fields => fields,
         },
@@ -587,7 +587,7 @@ fn r_function_component(name: &str) -> String {
 fn gen_optional_numeric_field(field: &FieldDef, decode_type: &str, cast_type: Option<&str>) -> String {
     crate::backends::extendr::template_env::render(
         "optional_numeric_field.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             field_name => &field.name,
             lookup_name => field.name.trim_start_matches('_'),
             decode_type => decode_type,

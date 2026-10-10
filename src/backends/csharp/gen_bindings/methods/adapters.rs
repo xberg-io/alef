@@ -50,7 +50,7 @@ pub(super) fn gen_opaque_streaming_static_wrapper(
 
     out.push_str(&render(
         "opaque_streaming_static_wrapper.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             doc_lines,
             opaque_type_name,
             param_docs,
@@ -150,7 +150,7 @@ pub(super) fn gen_adapter_wrapper(
 
     render(
         "streaming_adapter_wrapper.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             item_type => cs_item_type,
             method_name,
             params_decl,

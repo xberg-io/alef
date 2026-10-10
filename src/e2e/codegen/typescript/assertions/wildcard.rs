@@ -44,14 +44,14 @@ pub(super) fn render_wildcard_assertion(
             }
         }
         "not_empty" => {
-            out.push_str(&render(minijinja::context! {
+            out.push_str(&render(crate::alef_context! {
                 kind => "not_empty",
                 guarded => guarded,
                 element => elem_accessor,
             }));
         }
         other => {
-            out.push_str(&render(minijinja::context! {
+            out.push_str(&render(crate::alef_context! {
                 kind => "unsupported_assertion",
                 assertion_type => other,
                 field => field,
@@ -77,14 +77,14 @@ fn push_quantifier(out: &mut String, element: &WildcardElement<'_>, expected: &s
     match element_predicate(element.elem_accessor, expected, element.napi_enum_tag) {
         Some(predicate) => {
             let truth_literal = if truth { "true" } else { "false" };
-            out.push_str(&render(minijinja::context! {
+            out.push_str(&render(crate::alef_context! {
                 kind => "quantifier",
                 guarded => element.guarded,
                 predicate => predicate,
                 truth => truth_literal,
             }));
         }
-        None => out.push_str(&render(minijinja::context! {
+        None => out.push_str(&render(crate::alef_context! {
             kind => "unsupported_value",
             value_kind => value_kind(expected),
             field => element.field,

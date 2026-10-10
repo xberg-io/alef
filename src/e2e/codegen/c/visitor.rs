@@ -143,7 +143,7 @@ pub(super) fn render_visitor_test_file(
         // Create visitor handle.
         out.push_str(&crate::e2e::template_env::render(
             "c/managed_handle_create.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 prefix_upper => &prefix_upper,
                 handle => "_visitor",
                 expression => format!("{prefix}_visitor_create(&_callbacks)"),
@@ -258,7 +258,7 @@ pub(super) fn render_visitor_snippet(
         .join("\n");
     Ok(crate::e2e::template_env::render(
         "c/snippet_body.jinja",
-        minijinja::context! { header => header, declarations => declarations, body => body },
+        crate::alef_context! { header => header, declarations => declarations, body => body },
     ))
 }
 

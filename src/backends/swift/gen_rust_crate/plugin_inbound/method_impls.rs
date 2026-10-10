@@ -87,7 +87,7 @@ pub(super) fn emit_inbound_method_impl(
     let params = sig_params.join(", ");
     out.push_str(&crate::backends::swift::template_env::render(
         "inbound_method_open.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             async_kw => async_kw,
             method_snake => &method_snake,
             params => &params,
@@ -99,7 +99,7 @@ pub(super) fn emit_inbound_method_impl(
         if let Some(line) = inbound_param_to_bridge(p) {
             out.push_str(&crate::backends::swift::template_env::render(
                 "inbound_method_binding.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     line => &line,
                 },
             ));
@@ -116,7 +116,7 @@ pub(super) fn emit_inbound_method_impl(
         if matches!(method.return_type, TypeRef::Unit) {
             out.push_str(&crate::backends::swift::template_env::render(
                 "inbound_method_result_unit.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     call_expr => &call_expr,
                 },
             ));
@@ -124,7 +124,7 @@ pub(super) fn emit_inbound_method_impl(
             let native_ty = inbound_native_return_ty(&method.return_type, source_crate, type_paths);
             out.push_str(&crate::backends::swift::template_env::render(
                 "inbound_method_result_value.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     call_expr => &call_expr,
                     native_ty => &native_ty,
                 },
@@ -133,7 +133,7 @@ pub(super) fn emit_inbound_method_impl(
     } else if is_mime_types_pattern {
         out.push_str(&crate::backends::swift::template_env::render(
             "inbound_method_mime_types.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 call_expr => &call_expr,
             },
         ));
@@ -150,7 +150,7 @@ pub(super) fn emit_inbound_method_impl(
         let native_ty = inbound_native_return_ty(&method.return_type, source_crate, type_paths);
         out.push_str(&crate::backends::swift::template_env::render(
             "inbound_method_json_vec_return.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 call_expr => &call_expr,
                 elem_native_ty => &elem_native_ty,
                 native_ty => &native_ty,
@@ -178,7 +178,7 @@ pub(super) fn emit_inbound_method_impl(
         let vec_native_ty = format!("Vec<{elem_native_ty}>");
         out.push_str(&crate::backends::swift::template_env::render(
             "inbound_method_json_optional_vec_return.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 call_expr => &call_expr,
                 elem_native_ty => &elem_native_ty,
                 vec_native_ty => &vec_native_ty,
@@ -190,7 +190,7 @@ pub(super) fn emit_inbound_method_impl(
         let native_ty = inbound_native_return_ty(&method.return_type, source_crate, type_paths);
         out.push_str(&crate::backends::swift::template_env::render(
             "inbound_method_json_return.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 call_expr => &call_expr,
                 native_ty => &native_ty,
                 trait_snake => trait_snake,
@@ -201,13 +201,13 @@ pub(super) fn emit_inbound_method_impl(
         match &method.return_type {
             TypeRef::Unit => out.push_str(&crate::backends::swift::template_env::render(
                 "inbound_method_unit_call.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     call_expr => &call_expr,
                 },
             )),
             _ => out.push_str(&crate::backends::swift::template_env::render(
                 "inbound_method_value_call.rs.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     call_expr => &call_expr,
                 },
             )),

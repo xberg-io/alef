@@ -485,7 +485,7 @@ pub(super) fn render_bytes_test_function(
                         // resources to free.
                         out.push_str(&crate::e2e::template_env::render(
                             "c/test_pass_if_null.jinja",
-                            minijinja::context! { variable => var_name },
+                            crate::alef_context! { variable => var_name },
                         ));
                     } else {
                         let _ = writeln!(out, "    assert({var_name} != 0 && \"failed to build request\");");

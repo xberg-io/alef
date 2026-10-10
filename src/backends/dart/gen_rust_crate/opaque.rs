@@ -116,7 +116,7 @@ pub(super) fn emit_opaque_impl_block(
     for path in &trait_uses {
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_use.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 path => path.as_str(),
                 source_cfg => impl_cfg.as_str(),
             },
@@ -125,7 +125,7 @@ pub(super) fn emit_opaque_impl_block(
 
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_impl_open.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             type_name => type_name,
             source_cfg => impl_cfg.as_str(),
         },
@@ -144,7 +144,7 @@ pub(super) fn emit_opaque_impl_block(
             } else {
                 out.push_str(&crate::backends::dart::template_env::render(
                     "rust_skipped_sanitized_method_comment.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         method_name => method_name,
                     },
                 ));
@@ -221,7 +221,7 @@ fn emit_streaming_sink_method(
 
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_streaming_sink_method.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_name => method_name,
             params_str => params_str.as_str(),
             item_type => item_type,
@@ -272,7 +272,7 @@ fn emit_opaque_method(
     let params_str = params.join(", ");
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_opaque_method_open.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             async_kw => async_kw,
             method_name => method_name,
             self_param => self_param,
@@ -331,7 +331,7 @@ fn emit_static_opaque_method(
     let params_str = params.join(", ");
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_static_opaque_method_open.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             async_kw => async_kw,
             method_name => method_name,
             params_str => params_str.as_str(),
@@ -499,7 +499,7 @@ fn emit_opaque_call_return(out: &mut String, call: &str, wrap_return: &str, is_a
 
     out.push_str(&crate::backends::dart::template_env::render(
         template,
-        minijinja::context! {
+        crate::alef_context! {
             call => call,
             wrap_return => wrap_return,
             wrap_return_impl => wrap_return_impl.as_str(),
@@ -770,7 +770,7 @@ fn emit_named_from_json_fn(
 
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_from_json_bridge_fn.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             fn_name => fn_name.as_str(),
             type_name => type_name,
             core_ty => core_ty,

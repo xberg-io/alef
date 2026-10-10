@@ -757,7 +757,7 @@ pub fn gen_function_with_mutex(
 
     crate::codegen::template_env::render(
         "generators/functions/function_definition.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             has_too_many_arguments => total_params > 7,
             has_missing_errors_doc => func.error_type.is_some(),
             attr_inner => attr_inner,

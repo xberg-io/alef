@@ -3,7 +3,6 @@ use crate::codegen::conversions::{core_enum_path, core_type_path};
 use crate::codegen::naming::{pascal_to_snake, wire_variant_value};
 use crate::core::ir::{CoreWrapper, EnumDef, FieldDef, TypeDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
-use minijinja::context;
 
 use super::field_ownership::field_accessor_ownership_lines;
 use super::functions::{
@@ -63,7 +62,7 @@ pub(super) fn gen_type_from_json(typ: &TypeDef, prefix: &str, core_import: &str)
 
     crate::backends::ffi::template_env::render(
         "type_from_json.jinja",
-        context! {
+        crate::alef_context! {
             type_name => type_name,
             type_snake => type_snake,
             prefix => prefix,
@@ -86,7 +85,7 @@ pub(super) fn gen_type_to_json(typ: &TypeDef, prefix: &str, core_import: &str) -
 
     crate::backends::ffi::template_env::render(
         "type_to_json.jinja",
-        context! {
+        crate::alef_context! {
             type_name => type_name,
             type_snake => type_snake,
             prefix => prefix,
@@ -109,7 +108,7 @@ pub(super) fn gen_type_free(typ: &TypeDef, prefix: &str, core_import: &str) -> S
 
     crate::backends::ffi::template_env::render(
         "type_free.jinja",
-        context! {
+        crate::alef_context! {
             type_name => type_name,
             type_snake => type_snake,
             prefix => prefix,
@@ -237,7 +236,7 @@ pub(super) fn gen_field_accessor(
 
     Ok(crate::backends::ffi::template_env::render(
         "field_accessor_header.jinja",
-        context! {
+        crate::alef_context! {
             field_name => field_name,
             type_name => type_name,
             type_snake => type_snake,
@@ -270,7 +269,7 @@ pub(super) fn gen_field_presence_accessor(typ: &TypeDef, field: &FieldDef, prefi
 
     crate::backends::ffi::template_env::render(
         "field_presence_accessor.jinja",
-        context! {
+        crate::alef_context! {
             field_name => &field.name,
             type_name => type_name,
             type_snake => type_snake,
@@ -317,7 +316,7 @@ fn gen_field_access_body(
         if needs_len_out {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "match_field_start.jinja",
-                context! { field_name => field_name },
+                crate::alef_context! { field_name => field_name },
             ));
             out.push_str("        Some(val) => {\n");
             out.push_str("            if !out_len.is_null() {\n");
@@ -354,26 +353,26 @@ fn gen_field_access_body(
             };
             out.push_str(&crate::backends::ffi::template_env::render(
                 "match_field_start.jinja",
-                context! { field_name => field_name },
+                crate::alef_context! { field_name => field_name },
             ));
             out.push_str("        Some(Some(inner_val)) => {\n");
             out.push_str(&crate::backends::ffi::template_env::render(
                 "emitted_code_block.jinja",
-                context! {
+                crate::alef_context! {
                     content => gen_value_to_c(&inner_val_expr, inner, "            ", enum_names, clone_names),
                 },
             ));
             out.push_str("        }\n");
             out.push_str(&crate::backends::ffi::template_env::render(
                 "match_arm_value.jinja",
-                context! {
+                crate::alef_context! {
                     pattern => "Some(None)",
                     value => &inner_null.to_string(),
                 },
             ));
             out.push_str(&crate::backends::ffi::template_env::render(
                 "match_arm_value.jinja",
-                context! {
+                crate::alef_context! {
                     pattern => "None",
                     value => &null_return_value(&TypeRef::Optional(Box::new(field.ty.clone()))).to_string(),
                 },
@@ -397,19 +396,19 @@ fn gen_field_access_body(
             };
             out.push_str(&crate::backends::ffi::template_env::render(
                 "match_field_start.jinja",
-                context! { field_name => field_name },
+                crate::alef_context! { field_name => field_name },
             ));
             out.push_str("        Some(val) => {\n");
             out.push_str(&crate::backends::ffi::template_env::render(
                 "emitted_code_block.jinja",
-                context! {
+                crate::alef_context! {
                     content => gen_value_to_c(&val_expr, &field.ty, "            ", enum_names, clone_names),
                 },
             ));
             out.push_str("        }\n");
             out.push_str(&crate::backends::ffi::template_env::render(
                 "match_arm_value.jinja",
-                context! {
+                crate::alef_context! {
                     pattern => "None",
                     value => &null_return_value(&TypeRef::Optional(Box::new(field.ty.clone()))).to_string(),
                 },
@@ -419,7 +418,7 @@ fn gen_field_access_body(
     } else if needs_len_out {
         out.push_str(&crate::backends::ffi::template_env::render(
             "bytes_field_access.jinja",
-            context! { field_name => field_name },
+            crate::alef_context! { field_name => field_name },
         ));
         out.push_str("    if !out_len.is_null() {\n");
         out.push_str("// SAFETY: null check above guarantees out_len is a valid pointer.\n");
@@ -442,7 +441,7 @@ fn gen_field_access_body(
         };
         out.push_str(&crate::backends::ffi::template_env::render(
             "emitted_code_block.jinja",
-            context! {
+            crate::alef_context! {
                 content => gen_value_to_c(&access_expr, &field.ty, "    ", enum_names, clone_names),
             },
         ));
@@ -506,12 +505,12 @@ pub(super) fn gen_enum_from_i32(
     let is_host_enum = crate::codegen::cfg::is_host_owned_rust_path(host_crate_name, &enum_def.rust_path);
     let variants: Vec<minijinja::Value> = declared_variant_indices(enum_def, is_host_enum, configured_features)
         .into_iter()
-        .map(|(index, variant)| context! { index => index, name => variant.name.clone() })
+        .map(|(index, variant)| crate::alef_context! { index => index, name => variant.name.clone() })
         .collect();
 
     crate::backends::ffi::template_env::render(
         "enum_from_i32.jinja",
-        context! {
+        crate::alef_context! {
             enum_name => enum_name,
             enum_snake => enum_snake,
             prefix => prefix,
@@ -539,13 +538,13 @@ pub(super) fn gen_enum_to_i32(
         .map(|(index, variant)| {
             let serde_rename_all = enum_def.serde_rename_all.as_deref();
             let wire_value = wire_variant_value(&variant.name, variant.serde_rename.as_deref(), serde_rename_all);
-            context! { index => index, wire_value => wire_value }
+            crate::alef_context! { index => index, wire_value => wire_value }
         })
         .collect();
 
     crate::backends::ffi::template_env::render(
         "enum_to_i32.jinja",
-        context! {
+        crate::alef_context! {
             enum_name => enum_name,
             enum_snake => enum_snake,
             prefix => prefix,
@@ -594,7 +593,7 @@ pub(super) fn gen_enum_from_i32_rs_helper(enum_def: &EnumDef, core_import: &str,
         }
         arms.push_str(&crate::backends::ffi::template_env::render(
             "ffi_enum_from_i32_rs_arm.jinja",
-            context! {
+            crate::alef_context! {
                 index => i,
                 qualified => qualified.clone(),
                 variant_name => variant.name.clone(),
@@ -609,7 +608,7 @@ pub(super) fn gen_enum_from_i32_rs_helper(enum_def: &EnumDef, core_import: &str,
 
     crate::backends::ffi::template_env::render(
         "ffi_enum_from_i32_rs_helper.jinja",
-        context! {
+        crate::alef_context! {
             enum_snake => enum_snake,
             qualified => qualified,
             arms => arms,
@@ -645,7 +644,7 @@ pub(super) fn gen_enum_free(enum_def: &EnumDef, prefix: &str, core_import: &str)
 
     crate::backends::ffi::template_env::render(
         "enum_free.jinja",
-        context! {
+        crate::alef_context! {
             enum_name => enum_name,
             enum_snake => enum_snake,
             prefix => prefix,
@@ -666,7 +665,7 @@ pub(super) fn gen_enum_to_json(enum_def: &EnumDef, prefix: &str, core_import: &s
 
     crate::backends::ffi::template_env::render(
         "enum_to_json.jinja",
-        context! {
+        crate::alef_context! {
             enum_name => enum_name,
             enum_snake => enum_snake,
             prefix => prefix,
@@ -690,7 +689,7 @@ pub(super) fn gen_enum_to_string(enum_def: &EnumDef, prefix: &str, core_import: 
 
     crate::backends::ffi::template_env::render(
         "enum_to_string.jinja",
-        context! {
+        crate::alef_context! {
             enum_name => enum_name,
             enum_snake => enum_snake,
             prefix => prefix,
@@ -712,7 +711,7 @@ pub(super) fn gen_enum_from_json(enum_def: &EnumDef, prefix: &str, core_import: 
 
     crate::backends::ffi::template_env::render(
         "enum_from_json.jinja",
-        context! {
+        crate::alef_context! {
             enum_name => enum_name,
             enum_snake => enum_snake,
             prefix => prefix,
@@ -736,7 +735,7 @@ pub(super) fn gen_type_new(
 
     crate::backends::ffi::template_env::render(
         "type_new.jinja",
-        context! {
+        crate::alef_context! {
             type_name => type_name,
             type_snake => type_snake,
             prefix => prefix,
@@ -818,7 +817,7 @@ pub(super) fn gen_opaque_static_constructor(
 
     out.push_str(&crate::backends::ffi::template_env::render(
         "ffi_opaque_constructor_header.jinja",
-        context! {
+        crate::alef_context! {
             allow_clippy => allow_clippy,
             ffi_fn_name => ffi_fn_name.clone(),
             ffi_params => ffi_params.join(",\n"),
@@ -857,7 +856,7 @@ pub(super) fn gen_opaque_static_constructor(
             TypeRef::String if !p.optional && !param_has_explicit_newtype(p) => {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "ffi_opaque_constructor_string_param.jinja",
-                    context! { name => p.name.clone() },
+                    crate::alef_context! { name => p.name.clone() },
                 ));
             }
             TypeRef::String | TypeRef::Char | TypeRef::Bytes => {
@@ -869,7 +868,7 @@ pub(super) fn gen_opaque_static_constructor(
                 let rs_name = format!("{param_name}_rs");
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "ffi_enum_discriminant_match.jinja",
-                    context! {
+                    crate::alef_context! {
                         rs_name => rs_name,
                         enum_snake => enum_snake,
                         name => param_name,
@@ -885,7 +884,7 @@ pub(super) fn gen_opaque_static_constructor(
                 let clone_suffix = if p.is_ref { "" } else { ".clone()" };
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "ffi_opaque_constructor_named_param.jinja",
-                    context! {
+                    crate::alef_context! {
                         rs_name => rs_name,
                         param_name => param_name,
                         clone_suffix => clone_suffix,
@@ -895,13 +894,13 @@ pub(super) fn gen_opaque_static_constructor(
             TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "ffi_opaque_constructor_bool_param.jinja",
-                    context! { name => p.name.clone() },
+                    crate::alef_context! { name => p.name.clone() },
                 ));
             }
             _ => {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "ffi_opaque_constructor_passthrough_param.jinja",
-                    context! { name => p.name.clone() },
+                    crate::alef_context! { name => p.name.clone() },
                 ));
             }
         }
@@ -926,7 +925,7 @@ pub(super) fn gen_opaque_static_constructor(
     let _ = type_name;
     out.push_str(&crate::backends::ffi::template_env::render(
         "ffi_opaque_constructor_call.jinja",
-        context! {
+        crate::alef_context! {
             qualified => qualified,
             method_name => method.name.clone(),
             call_args => call_args,

@@ -229,7 +229,7 @@ pub(super) fn gen_serde_defaults_module(api: &ApiSurface, enum_names: &AHashSet<
         .filter_map(|(typ, field)| {
             let source = serde_default_source(typ, field, enum_names, api)?;
             let (return_type, body) = default_fn_signature(&source, field, api);
-            Some(minijinja::context! {
+            Some(crate::alef_context! {
                 name => default_fn_ident(&typ.name, &field.name),
                 return_type,
                 body,
@@ -241,7 +241,7 @@ pub(super) fn gen_serde_defaults_module(api: &ApiSurface, enum_names: &AHashSet<
         return None;
     }
     Some(
-        crate::backends::php::template_env::render("serde_defaults_module.jinja", minijinja::context! { functions })
+        crate::backends::php::template_env::render("serde_defaults_module.jinja", crate::alef_context! { functions })
             .trim_end()
             .to_string(),
     )

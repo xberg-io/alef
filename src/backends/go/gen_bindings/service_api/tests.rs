@@ -193,9 +193,9 @@ fn go_service_response_deallocator_compiles_and_runs_when_go_is_available() {
     std::fs::write(directory.path().join("test_crate.h"), GO_ALLOCATOR_HEADER).expect("write allocator header");
     let preamble = crate::backends::go::template_env::render(
         "service_file_preamble.jinja",
-        minijinja::context! { pkg_name => "binding", ffi_header => "test_crate.h" },
+        crate::alef_context! { pkg_name => "binding", ffi_header => "test_crate.h" },
     );
-    let registry = crate::backends::go::template_env::render("service_handler_registry.jinja", minijinja::context! {});
+    let registry = crate::backends::go::template_env::render("service_handler_registry.jinja", crate::alef_context! {});
     let source = format!("{preamble}\n{registry}\n{GO_ALLOCATOR_CONTROL}");
     std::fs::write(directory.path().join("service.go"), source).expect("write generated Go allocator control");
     std::fs::write(directory.path().join("service_test.go"), GO_ALLOCATOR_TEST).expect("write Go allocator test");

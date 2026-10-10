@@ -107,7 +107,7 @@ fn capsule_wrapper_constructs_host_language_without_alef_close_path() {
 fn opaque_handle_header_clears_ownership_before_idempotent_free() {
     let rendered = crate::backends::kotlin_android::template_env::render(
         "handle_wrapper_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             class_name => "ResourceHandle",
             bridge_name => "SampleBridge",
             free_name => "nativeFreeResourceHandle",
@@ -215,7 +215,7 @@ fn android_trait_bridge_lifecycle_functions_are_managed_by_bridge_object() {
 fn facade_jackson_config_uses_the_non_deprecated_default_property_inclusion_setter() {
     let rendered = crate::backends::kotlin_android::template_env::render(
         "android_facade_jackson_config.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             duration_millis_module => crate::backends::kotlin::duration_millis_jackson_module(8),
         },
     );
@@ -241,15 +241,15 @@ fn every_android_dto_mapper_encodes_kotlin_duration_as_milliseconds() {
     let module = crate::backends::kotlin::duration_millis_jackson_module(8);
     let facade = crate::backends::kotlin_android::template_env::render(
         "android_facade_jackson_config.jinja",
-        minijinja::context! { duration_millis_module => module.clone() },
+        crate::alef_context! { duration_millis_module => module.clone() },
     );
     let streaming = crate::backends::kotlin_android::template_env::render(
         "android_streaming_mapper.jinja",
-        minijinja::context! { duration_millis_module => module.clone() },
+        crate::alef_context! { duration_millis_module => module.clone() },
     );
     let value_method = crate::backends::kotlin::template_env::render(
         "value_method_mapper.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => "VALUE_METHOD_MAPPER",
             duration_millis_module => crate::backends::kotlin::duration_millis_jackson_module(4),
         },

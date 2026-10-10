@@ -49,7 +49,7 @@ pub(super) fn presence_capture(return_type: &TypeRef, primary_c_symbol: &str, c_
     }
     Some(render(
         "native_presence_capture.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             local => PRESENCE_LOCAL,
             symbol => result_presence_symbol(primary_c_symbol),
             args => c_args.join(", "),

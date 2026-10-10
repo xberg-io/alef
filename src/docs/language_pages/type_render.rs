@@ -125,7 +125,7 @@ pub(super) fn render_type(
 
     out.push_str(&template_env::render(
         "heading.jinja",
-        minijinja::context! { marker => "####", title => tname },
+        crate::alef_context! { marker => "####", title => tname },
     ));
 
     push_version_annotation(&mut out, &ty.version);
@@ -166,7 +166,7 @@ pub(super) fn render_type(
             };
             out.push_str(&template_env::render(
                 "field_row.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => escape_table_cell(&fname),
                     ty => escape_table_cell(&fty),
                     default => escape_table_cell(&fdefault),
@@ -198,7 +198,7 @@ pub(super) fn render_type(
         };
         out.push_str(&template_env::render(
             "heading.jinja",
-            minijinja::context! { marker => "#####", title => methods_heading },
+            crate::alef_context! { marker => "#####", title => methods_heading },
         ));
         for method in methods {
             out.push_str(&render_method(

@@ -51,7 +51,7 @@ pub(crate) fn emit_type_with_imports(
     if ty.fields.is_empty() {
         out.push_str(&crate::backends::kotlin::template_env::render(
             "empty_class.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &ty.name,
             },
         ));
@@ -139,7 +139,7 @@ pub(crate) fn emit_type_with_imports(
     if use_single_line {
         out.push_str(&crate::backends::kotlin::template_env::render(
             "data_class_inline.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 prefix => prefix,
                 fields => field_strings.join(", "),
             },
@@ -147,7 +147,7 @@ pub(crate) fn emit_type_with_imports(
     } else {
         out.push_str(&crate::backends::kotlin::template_env::render(
             "data_class_header_only.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 prefix => prefix,
             },
         ));
@@ -176,7 +176,7 @@ pub(crate) fn emit_type_with_imports(
             if let Some(wire_name) = &wire_name {
                 out.push_str(&crate::backends::kotlin::template_env::render(
                     "json_property_annotation.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         indent => "    ",
                         value => escape_kotlin_string(wire_name),
                     },
@@ -189,7 +189,7 @@ pub(crate) fn emit_type_with_imports(
             }
             out.push_str(&crate::backends::kotlin::template_env::render(
                 "data_class_field_line.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     indent => "    ",
                     field => field_str,
                 },
@@ -197,7 +197,7 @@ pub(crate) fn emit_type_with_imports(
         }
         out.push_str(&crate::backends::kotlin::template_env::render(
             "data_class_close.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => "",
                 suffix => if has_instance_methods { " {" } else { "" },
             },
@@ -306,7 +306,7 @@ fn emit_value_method(
 fn emit_value_method_mapper(out: &mut String) {
     let declaration = crate::backends::kotlin::template_env::render(
         "value_method_mapper.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => VALUE_METHOD_MAPPER,
             duration_millis_module => super::super::shared::duration_millis_jackson_module(4),
         },

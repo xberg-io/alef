@@ -48,7 +48,7 @@ pub(super) fn render_call_line(
     if is_fallible {
         crate::e2e::template_env::render(
             "c/snippet_status_call.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 result_var => result_var,
                 function_name => function_name,
                 args => args,
@@ -58,7 +58,7 @@ pub(super) fn render_call_line(
     } else {
         crate::e2e::template_env::render(
             "c/snippet_void_call.jinja",
-            minijinja::context! { function_name => function_name, args => args },
+            crate::alef_context! { function_name => function_name, args => args },
         )
     }
 }

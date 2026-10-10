@@ -39,7 +39,7 @@ pub(crate) fn emit_type_wrapper(
     }
     out.push_str(&crate::backends::swift::template_env::render(
         "struct_newtype.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => &ty.name,
             source_path => &source_path,
             has_lifetime_params => ty.has_lifetime_params,
@@ -52,7 +52,7 @@ pub(crate) fn emit_type_wrapper(
         }
         out.push_str(&crate::backends::swift::template_env::render(
             "impl_header.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &ty.name,
             },
         ));
@@ -96,7 +96,7 @@ pub(crate) fn emit_type_wrapper(
             }
             out.push_str(&crate::backends::swift::template_env::render(
                 "fn_new_signature.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     params => params.join(", "),
                     name => &ty.name,
                 },
@@ -124,7 +124,7 @@ pub(crate) fn emit_type_wrapper(
                 );
                 out.push_str(&crate::backends::swift::template_env::render(
                     "struct_literal_open.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &ty.name,
                         source_path => &source_path,
                     },

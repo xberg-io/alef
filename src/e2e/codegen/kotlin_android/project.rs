@@ -268,7 +268,7 @@ pub(super) fn generate(
             path: test_base.join("ExcludedBindingsTest.kt"),
             content: crate::e2e::template_env::render(
                 "kotlin_android/excluded_fixtures.kt.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     package_name => kotlin_pkg_id.clone(),
                     entries => excluded_entries,
                 },

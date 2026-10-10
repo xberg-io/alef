@@ -150,7 +150,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_adapter_wrapper(
 
     crate::backends::go::template_env::render(
         "adapter_wrapper.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             go_func_name => &go_func_name,
             go_func_with_context_name => format!("{go_func_name}WithContext"),
             owner_type => owner_type,

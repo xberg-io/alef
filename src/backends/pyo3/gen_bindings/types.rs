@@ -179,7 +179,7 @@ fn render_native_delegation_methods(
     if type_has_from_json(typ, api, has_serde) {
         out.push_str(&crate::backends::pyo3::template_env::render(
             "trait_bridge/options_from_json_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 class_name => &typ.name,
                 module_name => module_name,
                 from_native_fn => from_native_converter_name(&typ.name),
@@ -218,7 +218,7 @@ fn gen_from_native_converters(api: &ApiSurface, dto: &DtoConfig, reexported_type
                 } else {
                     inner_expr
                 };
-                minijinja::context! {
+                crate::alef_context! {
                     name => &safe_name,
                     expr => expr,
                 }
@@ -226,7 +226,7 @@ fn gen_from_native_converters(api: &ApiSurface, dto: &DtoConfig, reexported_type
             .collect();
         out.push_str(&crate::backends::pyo3::template_env::render(
             "trait_bridge/options_from_native.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => from_native_converter_name(&typ.name),
                 class_name => &typ.name,
                 fields => fields,

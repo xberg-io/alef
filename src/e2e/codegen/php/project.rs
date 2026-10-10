@@ -109,7 +109,7 @@ pub(super) fn render_composer_json(
 
     crate::e2e::template_env::render(
         "php/composer.json.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             e2e_pkg_name => e2e_pkg_name,
             e2e_autoload_ns => e2e_autoload_ns,
             require_section => require_section,
@@ -271,7 +271,7 @@ echo "$EXTENSION_NAME extension installed and loaded"
 }
 
 pub(super) fn render_phpunit_xml() -> String {
-    crate::e2e::template_env::render("php/phpunit.xml.jinja", minijinja::context! {})
+    crate::e2e::template_env::render("php/phpunit.xml.jinja", crate::alef_context! {})
 }
 
 /// Render the app harness script for server-pattern HTTP fixtures.
@@ -361,7 +361,7 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
     };
     let method_enum_import = route_builder_import.clone();
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         header => header,
         imports => imports,
         app_class => app_class.as_deref().unwrap_or("App"),
@@ -431,7 +431,7 @@ pub(super) fn render_bootstrap(options: BootstrapOptions<'_>) -> String {
     let env_setup = render_env_setup_block(e2e_config);
     crate::e2e::template_env::render(
         "php/bootstrap.php.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             header => header,
             env_setup => env_setup,
             pkg_path => pkg_path,

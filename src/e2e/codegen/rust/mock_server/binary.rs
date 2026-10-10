@@ -430,7 +430,7 @@ pub fn render_mock_server_binary() -> String {
     out.push_str(BINARY_INTRO_SOURCE);
     out.push_str(&crate::e2e::template_env::render(
         "rust/mock_server_fixture.rs.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     out.push_str(BINARY_AFTER_FIXTURE_SOURCE);
     out.push_str(render_origins_source());

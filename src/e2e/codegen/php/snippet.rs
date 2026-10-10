@@ -189,7 +189,7 @@ pub(super) fn render_snippet_body_with_ir(
     let api_key_var = crate::e2e::fixture::FixtureEnv::api_key_var_or_default(fixture.env.as_ref());
     let body = crate::e2e::template_env::render(
         "php/snippet_body.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             namespace => namespace, class_name => class_name, setup_lines => setup_lines,
             client_factory => config_call.as_ref().map(|(from_json_factory, _)| *from_json_factory).or(client_factory),
             client_args => config_call.as_ref().map_or_else(
@@ -254,10 +254,10 @@ fn render_http_snippet(fixture: &Fixture) -> Result<String> {
     });
     Ok(crate::e2e::template_env::render(
         "php/http_snippet.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method => http.request.method.to_uppercase(),
             path => format!("/fixtures/{}{}", fixture.id, http.request.path),
-            headers => headers.iter().map(|(key, value)| minijinja::context! {
+            headers => headers.iter().map(|(key, value)| crate::alef_context! {
                 key => crate::e2e::escape::escape_php(key), value => crate::e2e::escape::escape_php(value),
             }).collect::<Vec<_>>(),
             body => plan.body.as_ref().map(super::values::json_to_php),

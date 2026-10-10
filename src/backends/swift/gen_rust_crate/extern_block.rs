@@ -91,7 +91,7 @@ pub(crate) fn emit_extern_block_for_type(
     block.push_str("    extern \"Rust\" {\n");
     block.push_str(&crate::backends::swift::template_env::render(
         "extern_type_decl.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => &ty.name,
         },
     ));
@@ -115,11 +115,11 @@ pub(crate) fn emit_extern_block_for_type(
             .collect();
         block.push_str(&crate::backends::swift::template_env::render(
             "extern_init_attr.jinja",
-            minijinja::context! {},
+            crate::alef_context! {},
         ));
         block.push_str(&crate::backends::swift::template_env::render(
             "extern_fn_new.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 params => params.join(", "),
                 return_type => &ty.name,
             },
@@ -160,14 +160,14 @@ pub(crate) fn emit_extern_block_for_type(
         if swift_name != name {
             block.push_str(&crate::backends::swift::template_env::render(
                 "extern_swift_name_attr.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     swift_name => &swift_name,
                 },
             ));
         }
         block.push_str(&crate::backends::swift::template_env::render(
             "extern_fn_getter.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &name,
                 return_type => &bridge_ty,
             },
@@ -179,7 +179,7 @@ pub(crate) fn emit_extern_block_for_type(
         let noop_fn_name = format!("{type_snake}_noop");
         block.push_str(&crate::backends::swift::template_env::render(
             "extern_fn_noop.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => &noop_fn_name,
                 type_name => &ty.name,
             },
@@ -211,7 +211,7 @@ pub(crate) fn emit_extern_block_for_enum(en: &EnumDef) -> String {
     block.push_str("    extern \"Rust\" {\n");
     block.push_str(&crate::backends::swift::template_env::render(
         "extern_enum_type.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => &en.name,
         },
     ));
@@ -288,14 +288,14 @@ pub(crate) fn emit_extern_block_for_type_methods(
         if swift_name != fn_name {
             block.push_str(&crate::backends::swift::template_env::render(
                 "extern_swift_name_attr.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     swift_name => &swift_name,
                 },
             ));
         }
         block.push_str(&crate::backends::swift::template_env::render(
             "extern_fn_decl.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => &fn_name,
                 params => &params_str,
                 return_type => &return_ty,
@@ -324,14 +324,14 @@ pub(crate) fn emit_extern_block_for_type_constructor(ty: &TypeDef) -> Option<Str
     if swift_name != fn_name {
         block.push_str(&crate::backends::swift::template_env::render(
             "extern_swift_name_attr.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 swift_name => &swift_name,
             },
         ));
     }
     block.push_str(&crate::backends::swift::template_env::render(
         "extern_fn_decl.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             fn_name => &fn_name,
             params => "api_key: String, base_url: Option<String>",
             return_type => format!("Result<{}, String>", ty.name),
@@ -393,14 +393,14 @@ pub(crate) fn emit_extern_block_for_first_class_dto_methods(
         if swift_name != fn_name {
             block.push_str(&crate::backends::swift::template_env::render(
                 "extern_swift_name_attr.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     swift_name => &swift_name,
                 },
             ));
         }
         block.push_str(&crate::backends::swift::template_env::render(
             "extern_fn_decl.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => &fn_name,
                 params => &params_str,
                 return_type => return_ty,
@@ -430,7 +430,7 @@ pub(crate) fn emit_extern_block_for_functions(
     for ty_name in deferred_empty_handle_types {
         block.push_str(&crate::backends::swift::template_env::render(
             "extern_type_decl.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => ty_name,
             },
         ));
@@ -438,7 +438,7 @@ pub(crate) fn emit_extern_block_for_functions(
         let noop_fn_name = format!("{type_snake}_noop");
         block.push_str(&crate::backends::swift::template_env::render(
             "extern_fn_noop.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => &noop_fn_name,
                 type_name => ty_name,
             },
@@ -502,14 +502,14 @@ pub(crate) fn emit_extern_block_for_functions(
         if swift_name != fn_name {
             block.push_str(&crate::backends::swift::template_env::render(
                 "extern_swift_name_attr.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     swift_name => &swift_name,
                 },
             ));
         }
         block.push_str(&crate::backends::swift::template_env::render(
             "extern_fn_decl.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => &fn_name,
                 params => &params_str,
                 return_type => &return_ty,
@@ -549,7 +549,7 @@ pub(crate) fn emit_extern_block_for_vec_accessors(visible_types: &[&TypeDef], vi
         let type_snake = ty.name.to_snake_case();
         block.push_str(&crate::backends::swift::template_env::render(
             "rust_phantom_vec_decl.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_snake => &type_snake,
                 type_name => &ty.name,
             },
@@ -559,7 +559,7 @@ pub(crate) fn emit_extern_block_for_vec_accessors(visible_types: &[&TypeDef], vi
         let enum_snake = en.name.to_snake_case();
         block.push_str(&crate::backends::swift::template_env::render(
             "rust_phantom_vec_decl.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_snake => &enum_snake,
                 type_name => &en.name,
             },
@@ -588,7 +588,7 @@ pub(crate) fn emit_phantom_vec_impl(visible_types: &[&TypeDef], visible_enums: &
         let type_snake = ty.name.to_snake_case();
         out.push_str(&crate::backends::swift::template_env::render(
             "rust_phantom_vec_impl.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_snake => &type_snake,
                 type_name => &ty.name,
             },
@@ -601,7 +601,7 @@ pub(crate) fn emit_phantom_vec_impl(visible_types: &[&TypeDef], visible_enums: &
         let enum_snake = en.name.to_snake_case();
         out.push_str(&crate::backends::swift::template_env::render(
             "rust_phantom_vec_impl.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 type_snake => &enum_snake,
                 type_name => &en.name,
             },
@@ -655,7 +655,7 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(
         if !declared_owner_types.contains(owner_type) {
             block.push_str(&crate::backends::swift::template_env::render(
                 "extern_type_decl.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => owner_type,
                 },
             ));
@@ -669,7 +669,7 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(
         let handle_name = format!("{owner_pascal}{adapter_pascal}StreamHandle");
         block.push_str(&crate::backends::swift::template_env::render(
             "extern_type_decl.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 name => &handle_name,
             },
         ));
@@ -697,12 +697,12 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(
         if swift_start != fn_start {
             block.push_str(&crate::backends::swift::template_env::render(
                 "extern_swift_name_attr.jinja",
-                minijinja::context! { swift_name => &swift_start },
+                crate::alef_context! { swift_name => &swift_start },
             ));
         }
         block.push_str(&crate::backends::swift::template_env::render(
             "extern_fn_decl.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => &fn_start,
                 params => &start_params_str,
                 return_type => format!("Result<{handle_name}, String>"),
@@ -712,7 +712,7 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(
 
         block.push_str(&crate::backends::swift::template_env::render(
             "extern_fn_decl.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 fn_name => "next",
                 params => format!("self: &{handle_name}"),
                 return_type => "Result<String, String>",

@@ -139,7 +139,7 @@ pub(super) fn gen_capsule_function(
             .collect();
         out.push_str(&crate::backends::pyo3::template_env::render(
             "pyo3_capsule_signature.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 sig => sig_names.join(", "),
             },
         ));
@@ -147,7 +147,7 @@ pub(super) fn gen_capsule_function(
 
     out.push_str(&crate::backends::pyo3::template_env::render(
         "pyo3_capsule_function_header.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => func.name.as_str(),
             params => sig_params.join(", "),
             ret => return_type_str,
@@ -177,7 +177,7 @@ pub(super) fn gen_capsule_function(
                 let capsule_cstr = capsule_name_str.replace('.', "_").to_ascii_uppercase();
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "pyo3_capsule_input_const.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         cstr => capsule_cstr.as_str(),
                         capsule_name => capsule_name_str,
                     },
@@ -185,7 +185,7 @@ pub(super) fn gen_capsule_function(
                 if is_optional {
                     out.push_str(&crate::backends::pyo3::template_env::render(
                         "pyo3_capsule_input_optional.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             param => param.name.as_str(),
                             cstr => capsule_cstr.as_str(),
                         },
@@ -193,7 +193,7 @@ pub(super) fn gen_capsule_function(
                 } else {
                     out.push_str(&crate::backends::pyo3::template_env::render(
                         "pyo3_capsule_input_required.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             param => param.name.as_str(),
                             cstr => capsule_cstr.as_str(),
                             capsule_type_name => capsule_type_name,
@@ -252,7 +252,7 @@ pub(super) fn gen_capsule_function(
                 let capsule_cstr = capsule_name_str.replace('.', "_").to_ascii_uppercase();
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "pyo3_capsule_input_const.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         cstr => capsule_cstr.as_str(),
                         capsule_name => capsule_name_str.as_str(),
                     },
@@ -261,7 +261,7 @@ pub(super) fn gen_capsule_function(
                     let err_converter = error_converter_name(&func.error_type, error_converters);
                     out.push_str(&crate::backends::pyo3::template_env::render(
                         "pyo3_capsule_call_result_err.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             target => "result",
                             core_fn_path => core_fn_path.as_str(),
                             args => core_args.join(", "),
@@ -271,7 +271,7 @@ pub(super) fn gen_capsule_function(
                 } else {
                     out.push_str(&crate::backends::pyo3::template_env::render(
                         "pyo3_capsule_call_result.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             target => "result",
                             core_fn_path => core_fn_path.as_str(),
                             args => core_args.join(", "),
@@ -288,7 +288,7 @@ pub(super) fn gen_capsule_function(
                 };
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "pyo3_capsule_ptr_from_raw.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         cstr => capsule_cstr.as_str(),
                         module_path => module_path,
                         class_name => class_name,
@@ -326,14 +326,14 @@ pub(super) fn gen_capsule_function(
                     if let Some(dep_expr) = dep_expr {
                         out.push_str(&crate::backends::pyo3::template_env::render(
                             "pyo3_capsule_construct_comment.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 python_type => python_type.as_str(),
                             },
                         ));
                         if let Some((module_path, class_name)) = python_type.rsplit_once('.') {
                             out.push_str(&crate::backends::pyo3::template_env::render(
                                 "pyo3_capsule_construct_with_module.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     dep_expr => dep_expr,
                                     module_path => module_path,
                                     class_name => class_name,
@@ -342,7 +342,7 @@ pub(super) fn gen_capsule_function(
                         } else {
                             out.push_str(&crate::backends::pyo3::template_env::render(
                                 "pyo3_capsule_construct_with_builtin.jinja",
-                                minijinja::context! {
+                                crate::alef_context! {
                                     dep_expr => dep_expr,
                                     python_type => python_type,
                                 },
@@ -351,7 +351,7 @@ pub(super) fn gen_capsule_function(
                     } else {
                         out.push_str(&crate::backends::pyo3::template_env::render(
                             "pyo3_capsule_no_dependency_param.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 construct_from => construct_from.as_str(),
                             },
                         ));
@@ -369,7 +369,7 @@ pub(super) fn gen_capsule_function(
             let err_converter = error_converter_name(&func.error_type, error_converters);
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "pyo3_capsule_call_result_err_inline.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     core_fn_path => core_fn_path.as_str(),
                     args => core_args.join(", "),
                     err_converter => err_converter,
@@ -378,7 +378,7 @@ pub(super) fn gen_capsule_function(
         } else {
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "pyo3_capsule_call_no_capsule_return.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     core_fn_path => core_fn_path.as_str(),
                     args => core_args.join(", "),
                 },

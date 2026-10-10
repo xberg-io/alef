@@ -47,7 +47,7 @@ pub(super) fn gen_opaque_struct(typ: &TypeDef, core_import: &str, module_name: &
 
     crate::backends::magnus::template_env::render(
         "opaque_struct.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             struct_name => &typ.name,
             class_path => &class_path,
             core_path => &core_path,
@@ -139,7 +139,7 @@ fn build_method_preamble(
                 if p.optional {
                     out.push_str(&crate::backends::magnus::template_env::render(
                         "method_optional_named_ref_preamble.rs.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             param_name => &p.name,
                             core_path => &core_path,
                         },
@@ -148,7 +148,7 @@ fn build_method_preamble(
                 } else {
                     out.push_str(&crate::backends::magnus::template_env::render(
                         "method_named_ref_preamble.rs.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             param_name => &p.name,
                             core_path => &core_path,
                         },
@@ -163,7 +163,7 @@ fn build_method_preamble(
                     if p.optional {
                         out.push_str(&crate::backends::magnus::template_env::render(
                             "method_optional_named_vec_binding.rs.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 param_name => &p.name,
                                 vec_ty => &vec_ty,
                             },
@@ -172,7 +172,7 @@ fn build_method_preamble(
                     } else {
                         out.push_str(&crate::backends::magnus::template_env::render(
                             "method_named_vec_binding.rs.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 param_name => &p.name,
                                 vec_ty => &vec_ty,
                             },
@@ -185,7 +185,7 @@ fn build_method_preamble(
                 if p.optional {
                     out.push_str(&crate::backends::magnus::template_env::render(
                         "method_optional_string_vec_ref_preamble.rs.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             param_name => &p.name,
                         },
                     ));
@@ -193,7 +193,7 @@ fn build_method_preamble(
                 } else {
                     out.push_str(&crate::backends::magnus::template_env::render(
                         "method_string_vec_ref_preamble.rs.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             param_name => &p.name,
                         },
                     ));
@@ -203,7 +203,7 @@ fn build_method_preamble(
             TypeRef::Bytes if !p.optional => {
                 out.push_str(&crate::backends::magnus::template_env::render(
                     "method_bytes_ref_preamble.rs.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         param_name => &p.name,
                     },
                 ));
@@ -472,7 +472,7 @@ pub(super) fn gen_struct(
                 field.serde_rename.as_deref(),
                 typ.serde_rename_all.as_deref(),
             );
-            minijinja::context! {
+            crate::alef_context! {
                 serde_rename => (wire_name != field.name).then(|| format!("{wire_name:?}")),
                 name => &field.name,
                 field_type => &field_type,
@@ -490,7 +490,7 @@ pub(super) fn gen_struct(
     let typ_cfg = typ.cfg.as_deref();
     let mut rendered = crate::backends::magnus::template_env::render(
         "struct_def.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             struct_name => &typ.name,
             class_path => &class_path,
             fields => &fields,
@@ -684,7 +684,7 @@ fn gen_instance_method(
     let method_cfg = method.rust_cfg_attribute();
     crate::backends::magnus::template_env::render(
         "instance_method.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method_cfg => method_cfg,
             trait_method => generators::is_trait_method_name(&method.name),
             unused_variables => !can_delegate,

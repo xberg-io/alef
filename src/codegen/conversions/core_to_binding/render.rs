@@ -40,7 +40,7 @@ pub fn gen_from_core_to_binding_cfg(
             needs_clippy_allow(std::iter::once(newtype_inner_expr.as_str()));
         return crate::codegen::template_env::render(
             "conversions/core_to_binding_impl",
-            minijinja::context! {
+            crate::alef_context! {
                 core_path => core_path,
                 binding_name => binding_name,
                 has_lifetime_params => typ.has_lifetime_params,
@@ -273,7 +273,7 @@ pub fn gen_from_core_to_binding_cfg(
 
     crate::codegen::template_env::render(
         "conversions/core_to_binding_impl",
-        minijinja::context! {
+        crate::alef_context! {
             core_path => core_path,
             binding_name => binding_name,
             has_lifetime_params => typ.has_lifetime_params,

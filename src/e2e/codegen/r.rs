@@ -223,7 +223,7 @@ impl E2eCodegen for RCodegen {
             .unwrap_or_else(|| call.module.clone());
         Ok(crate::e2e::template_env::render(
             "r/snippet_body.jinja",
-            minijinja::context! { package => package, body => body, presentation => presentation },
+            crate::alef_context! { package => package, body => body, presentation => presentation },
         ))
     }
 }

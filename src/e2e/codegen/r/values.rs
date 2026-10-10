@@ -42,7 +42,7 @@ pub(super) fn json_to_r_preserve_arrays_with_files(
     if let Some(file) = files.iter().find(|file| file.field == pointer) {
         return crate::e2e::template_env::render(
             "r/docs_file_read.jinja",
-            minijinja::context! { path => escape_r(&file.path) },
+            crate::alef_context! { path => escape_r(&file.path) },
         )
         .trim_end()
         .to_string();

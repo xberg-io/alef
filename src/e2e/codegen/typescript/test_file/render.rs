@@ -687,7 +687,7 @@ pub fn render_test_file(
     // Emit for non-HTTP fixtures (tree assertions) AND for HTTP-only files that reference
     // `_alefE2eDecompressAndParseJson` (JSON body / partial body / validation error assertions).
     let mut helper_functions = if has_non_http_fixtures || http_fixtures_need_decompress_helper {
-        crate::e2e::template_env::render("typescript/helpers.jinja", minijinja::context! {})
+        crate::e2e::template_env::render("typescript/helpers.jinja", crate::alef_context! {})
     } else {
         String::new()
     };
@@ -712,7 +712,7 @@ pub fn render_test_file(
     // Build env var setup
     let env_setup = render_env_setup(&e2e_config.env);
 
-    let ctx = minijinja::context! {
+    let ctx = crate::alef_context! {
         header => hash::e2e_header(CommentStyle::DoubleSlash),
         import_vitest => import_vitest,
         import_modules => import_modules,

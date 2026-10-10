@@ -560,7 +560,7 @@ fn push_run_step_config(
     if has_file_fixtures {
         content.push_str(&crate::e2e::template_env::render(
             "zig/guarded_set_cwd.zig.jinja",
-            minijinja::context! { run_var => run_var, test_documents_path => test_documents_path },
+            crate::alef_context! { run_var => run_var, test_documents_path => test_documents_path },
         ));
     }
     for (key, value) in sorted_env {
@@ -632,7 +632,7 @@ fn render_zig_mock_server_spawn(alt_host: &str) -> String {
 "#;
     let alt_host_env = crate::e2e::template_env::render(
         "zig/mock_server_spawn_env.zig.jinja",
-        minijinja::context! { alt_host => alt_host },
+        crate::alef_context! { alt_host => alt_host },
     );
     let after_spawn = r#"        const _spawned = std.process.spawn(_io, .{
             .argv = &.{ _bin, _fixtures },

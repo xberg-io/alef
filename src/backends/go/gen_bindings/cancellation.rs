@@ -82,7 +82,7 @@ pub(super) fn prelude_with_stop_closure(ffi_prefix: &str, err_return_prefix: &st
 fn render_prelude(ffi_prefix: &str, err_return_prefix: &str, defer_cleanup: bool) -> String {
     crate::backends::go::template_env::render(
         "ctx_cancel_prelude.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             defer_cleanup => defer_cleanup,
             err_return_prefix => err_return_prefix,
             new_fn => c_consumer::cancel_token_new_symbol(ffi_prefix),
@@ -123,7 +123,7 @@ pub(super) fn last_error_call(with_context: bool) -> &'static str {
 pub(super) fn gen_last_error_context_helper(ffi_prefix: &str) -> String {
     crate::backends::go::template_env::render(
         "last_error_context_helper.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             last_error_code_fn => crate::backends::go::c_symbols::last_error_code_symbol(ffi_prefix),
             cancelled_code => ApiSurface::FFI_ERROR_CODE_CANCELLED,
         },

@@ -63,7 +63,7 @@ fn emit_string_param(out: &mut String, optional: bool, c_name: &str, go_param: &
     emit(
         out,
         template,
-        minijinja::context! { c_name => c_name, go_param => go_param },
+        crate::alef_context! { c_name => c_name, go_param => go_param },
     );
 }
 
@@ -86,14 +86,14 @@ fn emit_named_param(out: &mut String, name: &str, c_name: &str, go_param: &str, 
         emit(
             out,
             "param_opaque_cast.jinja",
-            minijinja::context! { c_name => c_name, go_param => go_param },
+            crate::alef_context! { c_name => c_name, go_param => go_param },
         );
     } else if ctx.ffi_param_enum_names.contains(name) {
         let enum_snake = c_symbols::type_component(name);
         emit(
             out,
             "param_enum_to_i32.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 c_name => c_name,
                 go_param => go_param,
                 ffi_prefix => ctx.ffi_prefix,
@@ -114,7 +114,7 @@ fn emit_named_param(out: &mut String, name: &str, c_name: &str, go_param: &str, 
         emit(
             out,
             "param_named_type.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 c_name => c_name,
                 go_param => go_param,
                 err_action => &marshal_err_action(ctx),
@@ -134,18 +134,18 @@ fn emit_optional_param(out: &mut String, inner: &TypeRef, c_name: &str, go_param
             emit(
                 out,
                 "param_optional_opaque.jinja",
-                minijinja::context! { c_name => c_name, c_type => &c_type, go_param => go_param },
+                crate::alef_context! { c_name => c_name, c_type => &c_type, go_param => go_param },
             );
         }
         TypeRef::Named(_) => emit(
             out,
             "param_optional_named_inline.jinja",
-            minijinja::context! { c_name => c_name, go_param => go_param },
+            crate::alef_context! { c_name => c_name, go_param => go_param },
         ),
         _ => emit(
             out,
             "param_optional_decl.jinja",
-            minijinja::context! { c_name => c_name },
+            crate::alef_context! { c_name => c_name },
         ),
     }
 }
@@ -159,14 +159,14 @@ fn emit_primitive_param(out: &mut String, prim: &PrimitiveType, optional: bool, 
             emit(
                 out,
                 "param_optional_primitive_bool.jinja",
-                minijinja::context! { c_name => c_name, cgo_ty => &cgo_ty, go_param => go_param },
+                crate::alef_context! { c_name => c_name, cgo_ty => &cgo_ty, go_param => go_param },
             );
         } else {
             let sentinel = primitive_max_sentinel(prim);
             emit(
                 out,
                 "param_optional_primitive_numeric.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     c_name => c_name,
                     cgo_ty => &cgo_ty,
                     go_ty => &go_ty,
@@ -179,13 +179,13 @@ fn emit_primitive_param(out: &mut String, prim: &PrimitiveType, optional: bool, 
         emit(
             out,
             "param_primitive_bool.jinja",
-            minijinja::context! { c_name => c_name, cgo_ty => &cgo_ty, go_param => go_param },
+            crate::alef_context! { c_name => c_name, cgo_ty => &cgo_ty, go_param => go_param },
         );
     } else {
         emit(
             out,
             "param_primitive_numeric.jinja",
-            minijinja::context! { c_name => c_name, cgo_ty => &cgo_ty, go_ty => &go_ty, go_param => go_param },
+            crate::alef_context! { c_name => c_name, cgo_ty => &cgo_ty, go_ty => &go_ty, go_param => go_param },
         );
     }
 }
@@ -203,13 +203,13 @@ pub(in crate::backends::go::gen_bindings) fn gen_param_to_c(param: &ParamDef, ct
         TypeRef::Bytes => emit(
             &mut out,
             "bytes_to_c_pointer.jinja",
-            minijinja::context! { c_name => &c_name, go_param => &go_param },
+            crate::alef_context! { c_name => &c_name, go_param => &go_param },
         ),
         TypeRef::Named(name) => emit_named_param(&mut out, name, &c_name, &go_param, ctx),
         TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Json => emit(
             &mut out,
             "param_vec_or_map.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 c_name => &c_name,
                 go_param => &go_param,
                 err_action => &marshal_err_action(ctx),

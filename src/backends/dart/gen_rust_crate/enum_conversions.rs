@@ -24,7 +24,7 @@ pub(super) fn emit_from_mirror_to_core_enum(
 
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_from_mirror_enum_open.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             core_ty => core_ty.as_str(),
             name => name.as_str(),
             source_cfg => en.cfg.as_deref().unwrap_or(""),
@@ -61,7 +61,7 @@ pub(super) fn emit_from_mirror_to_core_enum(
                     .collect();
                 out.push_str(&crate::backends::dart::template_env::render(
                     "rust_enum_stripped_tuple_to_core_arm.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => name.as_str(),
                         vname => vname.as_str(),
                         core_ty => core_ty.as_str(),
@@ -75,7 +75,7 @@ pub(super) fn emit_from_mirror_to_core_enum(
                     .collect();
                 out.push_str(&crate::backends::dart::template_env::render(
                     "rust_enum_stripped_struct_to_core_arm.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => name.as_str(),
                         vname => vname.as_str(),
                         core_ty => core_ty.as_str(),
@@ -89,7 +89,7 @@ pub(super) fn emit_from_mirror_to_core_enum(
             if visible_fields.is_empty() {
                 out.push_str(&crate::backends::dart::template_env::render(
                     "rust_enum_unit_to_core_arm.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => name.as_str(),
                         vname => vname.as_str(),
                         core_ty => core_ty.as_str(),
@@ -104,7 +104,7 @@ pub(super) fn emit_from_mirror_to_core_enum(
                     .collect();
                 out.push_str(&crate::backends::dart::template_env::render(
                     "rust_enum_tuple_to_core_arm.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => name.as_str(),
                         vname => vname.as_str(),
                         core_ty => core_ty.as_str(),
@@ -131,7 +131,7 @@ pub(super) fn emit_from_mirror_to_core_enum(
                 core_args.extend(excluded_args);
                 out.push_str(&crate::backends::dart::template_env::render(
                     "rust_enum_struct_to_core_arm.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => name.as_str(),
                         vname => vname.as_str(),
                         core_ty => core_ty.as_str(),
@@ -174,7 +174,7 @@ pub(super) fn emit_from_mirror_to_core_enum(
 
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_from_impl_close.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
 }
 
@@ -285,7 +285,7 @@ pub(super) fn emit_from_impl_for_enum(
 
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_from_core_enum_open.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             core_ty => core_ty.as_str(),
             name => name.as_str(),
             source_cfg => en.cfg.as_deref().unwrap_or(""),
@@ -301,7 +301,7 @@ pub(super) fn emit_from_impl_for_enum(
         };
         out.push_str(&crate::backends::dart::template_env::render(
             template,
-            minijinja::context! {
+            crate::alef_context! {
                 core_ty => core_ty.as_str(),
                 vname => vname.as_str(),
                 name => name.as_str(),
@@ -339,7 +339,7 @@ pub(super) fn emit_from_impl_for_enum(
             };
             out.push_str(&crate::backends::dart::template_env::render(
                 template,
-                minijinja::context! {
+                crate::alef_context! {
                     core_ty => core_ty.as_str(),
                     vname => vname.as_str(),
                     name => name.as_str(),
@@ -348,7 +348,7 @@ pub(super) fn emit_from_impl_for_enum(
         } else if visible_fields.is_empty() {
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_enum_unit_from_core_arm.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     core_ty => core_ty.as_str(),
                     vname => vname.as_str(),
                     name => name.as_str(),
@@ -366,7 +366,7 @@ pub(super) fn emit_from_impl_for_enum(
                 .collect();
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_enum_tuple_from_core_arm.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     core_ty => core_ty.as_str(),
                     vname => vname.as_str(),
                     name => name.as_str(),
@@ -386,7 +386,7 @@ pub(super) fn emit_from_impl_for_enum(
                 .collect();
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_enum_struct_from_core_arm.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     core_ty => core_ty.as_str(),
                     vname => vname.as_str(),
                     name => name.as_str(),
@@ -424,7 +424,7 @@ pub(super) fn emit_from_impl_for_enum(
 
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_from_impl_close.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
 
     if en.has_serde {

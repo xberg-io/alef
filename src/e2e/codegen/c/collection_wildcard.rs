@@ -187,7 +187,7 @@ fn render_quantifier(
 ) {
     out.push_str(&crate::e2e::template_env::render(
         "c/wildcard_collection_assertion.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             array_var => array_var,
             key_snake => key_snake,
             needles => needles,

@@ -291,7 +291,7 @@ tasks.matching {{ it.name.startsWith("processDebug") || it.name.startsWith("proc
         // plain-Kotlin generator's guard (`kotlin::project::render_build_gradle`).
         let guarded_working_dir = crate::e2e::template_env::render(
             "gradle/guarded_working_dir.kt.jinja",
-            minijinja::context! { test_documents_path => test_documents_path },
+            crate::alef_context! { test_documents_path => test_documents_path },
         );
         format!(
             r#"// Build host JNI library for JVM unit tests (macOS/Linux/Windows).

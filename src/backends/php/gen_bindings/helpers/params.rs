@@ -4,7 +4,6 @@ use crate::codegen::shared::binding_fields;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::ir::TypeRef;
 use ahash::AHashSet;
-use minijinja::context;
 
 use super::primitives::{core_prim_str, needs_i64_cast};
 
@@ -363,7 +362,7 @@ pub(crate) fn gen_php_named_let_bindings(
             let bound_name = format!("__{}_ahash", p.name);
             out.push_str(&crate::backends::php::template_env::render(
                 "php_ahash_cow_value_let_binding.jinja",
-                context! {
+                crate::alef_context! {
                     bound_name => &bound_name,
                     php_name => &php_name,
                 },
@@ -375,7 +374,7 @@ pub(crate) fn gen_php_named_let_bindings(
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) && enum_names.contains(name.as_str()) => {
                 out.push_str(&crate::backends::php::template_env::render(
                     "php_named_enum_serde_let_binding.jinja",
-                    context! {
+                    crate::alef_context! {
                         php_name => &php_param_name,
                         core_import => core_import,
                         type_name => name.as_str(),
@@ -386,7 +385,7 @@ pub(crate) fn gen_php_named_let_bindings(
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 out.push_str(&crate::backends::php::template_env::render(
                     "php_named_let_binding.jinja",
-                    context! {
+                    crate::alef_context! {
                         php_name => &php_param_name,
                         core_import => core_import,
                         type_name => name.as_str(),
@@ -397,7 +396,7 @@ pub(crate) fn gen_php_named_let_bindings(
                 if p.optional && p.is_mut {
                     out.push_str(&crate::backends::php::template_env::render(
                         "php_optional_mut_unwrap_binding.jinja",
-                        context! { php_name => &php_param_name },
+                        crate::alef_context! { php_name => &php_param_name },
                     ));
                 }
             }
@@ -407,7 +406,7 @@ pub(crate) fn gen_php_named_let_bindings(
                         if enum_names.contains(name.as_str()) {
                             out.push_str(&crate::backends::php::template_env::render(
                                 "php_let_binding_vec_named.jinja",
-                                context! {
+                                crate::alef_context! {
                                     pname => php_param_name.as_str(),
                                     core_import => core_import,
                                     name => name.as_str(),
@@ -416,7 +415,7 @@ pub(crate) fn gen_php_named_let_bindings(
                         } else {
                             out.push_str(&crate::backends::php::template_env::render(
                                 "php_vec_named_struct_let_binding.jinja",
-                                context! {
+                                crate::alef_context! {
                                     php_name => &php_param_name,
                                     core_import => core_import,
                                     struct_name => name,
@@ -429,7 +428,7 @@ pub(crate) fn gen_php_named_let_bindings(
                 } else if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some() {
                     out.push_str(&crate::backends::php::template_env::render(
                         "php_sanitized_vec_let_binding.jinja",
-                        context! {
+                        crate::alef_context! {
                             param_name => &php_param_name,
                             is_optional => p.optional,
                         },
@@ -437,7 +436,7 @@ pub(crate) fn gen_php_named_let_bindings(
                 } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref && p.vec_inner_is_ref {
                     out.push_str(&crate::backends::php::template_env::render(
                         "php_vec_string_refs_let_binding.jinja",
-                        context! {
+                        crate::alef_context! {
                             param_name => &php_param_name,
                         },
                     ));

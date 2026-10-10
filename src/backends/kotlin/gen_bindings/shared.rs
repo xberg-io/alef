@@ -297,7 +297,7 @@ pub fn assemble_kt_file(package: &str, imports: &std::collections::BTreeSet<Stri
     );
     content.push_str(&crate::backends::kotlin::template_env::render(
         "package_declaration.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             package => package,
         },
     ));

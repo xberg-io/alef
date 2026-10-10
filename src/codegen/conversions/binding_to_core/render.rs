@@ -38,7 +38,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             needs_clippy_allow(std::iter::once(newtype_inner_expr.as_str()));
         return crate::codegen::template_env::render(
             "conversions/binding_to_core_impl",
-            minijinja::context! {
+            crate::alef_context! {
                 core_path => core_path,
                 binding_name => binding_name,
                 has_lifetime_params => typ.has_lifetime_params,
@@ -64,7 +64,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         }
         return crate::codegen::template_env::render(
             "conversions/binding_to_core_impl",
-            minijinja::context! {
+            crate::alef_context! {
                 core_path => &core_path,
                 binding_name => &binding_name,
                 has_lifetime_params => true,
@@ -88,7 +88,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         }
         return crate::codegen::template_env::render(
             "conversions/binding_to_core_impl",
-            minijinja::context! {
+            crate::alef_context! {
                 core_path => &core_path,
                 binding_name => &binding_name,
                 has_lifetime_params => false,
@@ -178,7 +178,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             needs_clippy_allow(statements.iter().map(String::as_str));
         return crate::codegen::template_env::render(
             "conversions/binding_to_core_impl",
-            minijinja::context! {
+            crate::alef_context! {
                 core_path => core_path,
                 binding_name => binding_name,
                 has_lifetime_params => typ.has_lifetime_params,
@@ -301,7 +301,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
 
     crate::codegen::template_env::render(
         "conversions/binding_to_core_impl",
-        minijinja::context! {
+        crate::alef_context! {
             core_path => core_path,
             binding_name => binding_name,
             has_lifetime_params => typ.has_lifetime_params,

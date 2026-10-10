@@ -415,7 +415,7 @@ fn emit_bool_assertion(out: &mut String, pred: &str, assertion_type: &str, field
     let field_name = field.to_string();
     let rendered = crate::e2e::template_env::render(
         "typescript/synthetic_assertion.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             assertion_type,
             pred,
             field_name,
@@ -435,7 +435,7 @@ fn render_embeddings_assertion(out: &mut String, assertion: &Assertion, result_v
                 let js_val = json_to_js(val);
                 let rendered = crate::e2e::template_env::render(
                     "typescript/synthetic_assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type,
                         result_var,
                         field_name,
@@ -448,7 +448,7 @@ fn render_embeddings_assertion(out: &mut String, assertion: &Assertion, result_v
         "not_empty" | "is_empty" => {
             let rendered = crate::e2e::template_env::render(
                 "typescript/synthetic_assertion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     assertion_type,
                     result_var,
                     field_name,
@@ -459,7 +459,7 @@ fn render_embeddings_assertion(out: &mut String, assertion: &Assertion, result_v
         _ => {
             let rendered = crate::e2e::template_env::render(
                 "typescript/synthetic_assertion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     assertion_type,
                     field_name,
                 },
@@ -481,7 +481,7 @@ fn render_embedding_dimensions(out: &mut String, assertion: &Assertion, result_v
                 let js_val = json_to_js(val);
                 let rendered = crate::e2e::template_env::render(
                     "typescript/synthetic_assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type,
                         expr,
                         field_name,
@@ -494,7 +494,7 @@ fn render_embedding_dimensions(out: &mut String, assertion: &Assertion, result_v
         _ => {
             let rendered = crate::e2e::template_env::render(
                 "typescript/synthetic_assertion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     assertion_type,
                     field_name,
                 },
@@ -531,7 +531,7 @@ fn render_standard_assertion(
                 let js_val = json_to_js(expected);
                 let rendered = crate::e2e::template_env::render(
                     "typescript/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => assertion_type,
                         field_expr => field_expr,
                         field_is_optional => field_is_optional,
@@ -550,7 +550,7 @@ fn render_standard_assertion(
                 let js_val = json_to_js(expected);
                 let rendered = crate::e2e::template_env::render(
                     "typescript/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => assertion_type,
                         field_expr => field_expr,
                         field_is_optional => field_is_optional,
@@ -569,7 +569,7 @@ fn render_standard_assertion(
                 let items: Vec<String> = values.iter().map(json_to_js).collect();
                 let rendered = crate::e2e::template_env::render(
                     "typescript/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => assertion_type,
                         field_expr => field_expr,
                         field_is_optional => field_is_optional,
@@ -587,7 +587,7 @@ fn render_standard_assertion(
                 let js_val = json_to_js(expected);
                 let rendered = crate::e2e::template_env::render(
                     "typescript/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => assertion_type,
                         field_expr => field_expr,
                         field_is_array => field_is_array,
@@ -603,7 +603,7 @@ fn render_standard_assertion(
         "not_empty" => {
             let rendered = crate::e2e::template_env::render(
                 "typescript/assertion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     assertion_type => assertion_type,
                     field_expr => field_expr,
                     field_is_optional => field_is_optional,
@@ -614,7 +614,7 @@ fn render_standard_assertion(
         "is_empty" => {
             let rendered = crate::e2e::template_env::render(
                 "typescript/assertion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     assertion_type => assertion_type,
                     field_expr => field_expr,
                 },
@@ -626,7 +626,7 @@ fn render_standard_assertion(
                 let items: Vec<String> = values.iter().map(json_to_js).collect();
                 let rendered = crate::e2e::template_env::render(
                     "typescript/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => assertion_type,
                         field_expr => field_expr,
                         field_is_array => field_is_array,
@@ -643,7 +643,7 @@ fn render_standard_assertion(
                 let js_val = json_to_js(val);
                 let rendered = crate::e2e::template_env::render(
                     "typescript/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => assertion_type,
                         field_expr => field_expr,
                         js_val => js_val,
@@ -658,7 +658,7 @@ fn render_standard_assertion(
                 let js_val = json_to_js(expected);
                 let rendered = crate::e2e::template_env::render(
                     "typescript/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => assertion_type,
                         field_expr => field_expr,
                         field_is_optional => field_is_optional,
@@ -675,7 +675,7 @@ fn render_standard_assertion(
             {
                 let rendered = crate::e2e::template_env::render(
                     "typescript/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => assertion_type,
                         field_expr => field_expr,
                         n => n,
@@ -687,7 +687,7 @@ fn render_standard_assertion(
         "is_true" => {
             let rendered = crate::e2e::template_env::render(
                 "typescript/assertion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     assertion_type => assertion_type,
                     field_expr => field_expr,
                     field_is_optional => field_is_optional,
@@ -698,7 +698,7 @@ fn render_standard_assertion(
         "is_false" => {
             let rendered = crate::e2e::template_env::render(
                 "typescript/assertion.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     assertion_type => assertion_type,
                     field_expr => field_expr,
                     field_is_optional => field_is_optional,
@@ -714,7 +714,7 @@ fn render_standard_assertion(
                 let js_val = json_to_js(expected);
                 let rendered = crate::e2e::template_env::render(
                     "typescript/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => assertion_type,
                         field_expr => field_expr,
                         js_val => js_val,
@@ -730,7 +730,7 @@ fn render_standard_assertion(
             {
                 let rendered = crate::e2e::template_env::render(
                     "typescript/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => assertion_type,
                         field_expr => field_expr,
                         expected_pattern => pattern,
@@ -763,7 +763,7 @@ fn render_method_result_assertion(out: &mut String, assertion: &Assertion, resul
                     let js_val = json_to_js(val);
                     let rendered = crate::e2e::template_env::render(
                         "typescript/assertion.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             assertion_type => "method_result",
                             check => check,
                             call_expr => call_expr,
@@ -777,7 +777,7 @@ fn render_method_result_assertion(out: &mut String, assertion: &Assertion, resul
             "is_true" => {
                 let rendered = crate::e2e::template_env::render(
                     "typescript/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "method_result",
                         check => check,
                         call_expr => call_expr,
@@ -788,7 +788,7 @@ fn render_method_result_assertion(out: &mut String, assertion: &Assertion, resul
             "is_false" => {
                 let rendered = crate::e2e::template_env::render(
                     "typescript/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "method_result",
                         check => check,
                         call_expr => call_expr,
@@ -801,7 +801,7 @@ fn render_method_result_assertion(out: &mut String, assertion: &Assertion, resul
                     let n = val.as_u64().unwrap_or(0);
                     let rendered = crate::e2e::template_env::render(
                         "typescript/assertion.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             assertion_type => "method_result",
                             check => check,
                             call_expr => call_expr,
@@ -816,7 +816,7 @@ fn render_method_result_assertion(out: &mut String, assertion: &Assertion, resul
                     let n = val.as_u64().unwrap_or(0);
                     let rendered = crate::e2e::template_env::render(
                         "typescript/assertion.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             assertion_type => "method_result",
                             check => check,
                             call_expr => call_expr,
@@ -831,7 +831,7 @@ fn render_method_result_assertion(out: &mut String, assertion: &Assertion, resul
                     let js_val = json_to_js(val);
                     let rendered = crate::e2e::template_env::render(
                         "typescript/assertion.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             assertion_type => "method_result",
                             check => check,
                             call_expr => call_expr,
@@ -845,7 +845,7 @@ fn render_method_result_assertion(out: &mut String, assertion: &Assertion, resul
             "is_error" => {
                 let rendered = crate::e2e::template_env::render(
                     "typescript/assertion.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         assertion_type => "method_result",
                         check => check,
                         call_expr => call_expr,

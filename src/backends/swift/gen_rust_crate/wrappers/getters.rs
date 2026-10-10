@@ -124,7 +124,7 @@ pub(super) fn emit_getters(
             }
             out.push_str(&crate::backends::swift::template_env::render(
                 "getter_skip_comment.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => &name,
                 },
             ));
@@ -154,7 +154,7 @@ pub(super) fn emit_getters(
         } else if field_needs_json_bridge(&field.ty, field.optional) {
             out.push_str(&crate::backends::swift::template_env::render(
                 "getter_json_bridge.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     getter_name => &ctx.getter_name,
                     return_type => &ctx.bridge_ty_owned,
                     name => &ctx.name,
@@ -214,7 +214,7 @@ fn emit_remaining_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx: &
     };
     out.push_str(&crate::backends::swift::template_env::render(
         template,
-        minijinja::context! {
+        crate::alef_context! {
             getter_name => &ctx.getter_name,
             return_type => &ctx.bridge_ty_owned,
             name => &ctx.name,
@@ -266,7 +266,7 @@ fn emit_enum_string_getter(
         };
         out.push_str(&crate::backends::swift::template_env::render(
             "getter_enum_string_optional.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 getter_name => getter_name,
                 map_expr => map_expr,
             },
@@ -287,7 +287,7 @@ fn emit_enum_string_getter(
         };
         out.push_str(&crate::backends::swift::template_env::render(
             "getter_enum_string.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 getter_name => getter_name,
                 expr => expr,
             },
@@ -335,7 +335,7 @@ fn emit_vec_enum_string_getter(
     if field.optional {
         out.push_str(&crate::backends::swift::template_env::render(
             "getter_vec_enum_string_optional.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 getter_name => getter_name,
                 name => name,
                 elem_expr => elem_expr,
@@ -344,7 +344,7 @@ fn emit_vec_enum_string_getter(
     } else {
         out.push_str(&crate::backends::swift::template_env::render(
             "getter_vec_enum_string.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 getter_name => getter_name,
                 name => name,
                 elem_expr => elem_expr,
@@ -370,7 +370,7 @@ fn emit_vec_struct_serde_getter(field: &crate::core::ir::FieldDef, ctx: &GetterC
     if field.optional {
         out.push_str(&crate::backends::swift::template_env::render(
             "getter_vec_enum_string_optional.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 getter_name => getter_name,
                 name => name,
                 elem_expr => elem_expr,
@@ -379,7 +379,7 @@ fn emit_vec_struct_serde_getter(field: &crate::core::ir::FieldDef, ctx: &GetterC
     } else {
         out.push_str(&crate::backends::swift::template_env::render(
             "getter_vec_enum_string.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 getter_name => getter_name,
                 name => name,
                 elem_expr => elem_expr,
@@ -418,7 +418,7 @@ fn emit_named_getter(
         };
         out.push_str(&crate::backends::swift::template_env::render(
             "getter_optional_named.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 getter_name => getter_name,
                 wrapper => wrapper,
                 getter_expr => &getter_expr,
@@ -444,7 +444,7 @@ fn emit_named_getter(
         };
         out.push_str(&crate::backends::swift::template_env::render(
             "getter_named.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 getter_name => getter_name,
                 wrapper => wrapper,
                 expr => &expr,
@@ -482,7 +482,7 @@ fn emit_vec_getter(
             if field.optional {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "getter_vec_named_optional.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         getter_name => &ctx.getter_name,
                         wrapper => wrapper,
                         name => &ctx.name,
@@ -492,7 +492,7 @@ fn emit_vec_getter(
             } else {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "getter_vec_named.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         getter_name => &ctx.getter_name,
                         wrapper => wrapper,
                         name => &ctx.name,
@@ -506,7 +506,7 @@ fn emit_vec_getter(
             if field.optional {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "getter_vec_complex_serde_optional.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         getter_name => &ctx.getter_name,
                         return_type => &ctx.bridge_ty_owned,
                         name => &ctx.name,
@@ -515,7 +515,7 @@ fn emit_vec_getter(
             } else {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "getter_vec_complex_serde.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         getter_name => &ctx.getter_name,
                         return_type => &ctx.bridge_ty_owned,
                         name => &ctx.name,
@@ -525,7 +525,7 @@ fn emit_vec_getter(
         } else {
             out.push_str(&crate::backends::swift::template_env::render(
                 "getter_vec_complex_skip.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => &ctx.name,
                 },
             ));
@@ -535,7 +535,7 @@ fn emit_vec_getter(
             if field.optional {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "getter_vec_primitive_serde_optional.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         getter_name => &ctx.getter_name,
                         return_type => &ctx.bridge_ty_owned,
                         name => &ctx.name,
@@ -544,7 +544,7 @@ fn emit_vec_getter(
             } else {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "getter_vec_primitive_serde.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         getter_name => &ctx.getter_name,
                         return_type => &ctx.bridge_ty_owned,
                         name => &ctx.name,
@@ -554,7 +554,7 @@ fn emit_vec_getter(
         } else {
             out.push_str(&crate::backends::swift::template_env::render(
                 "getter_vec_primitive_clone.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     getter_name => &ctx.getter_name,
                     return_type => &ctx.bridge_ty_owned,
                     name => &ctx.name,
@@ -572,7 +572,7 @@ fn emit_string_like_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx:
         if field.optional {
             out.push_str(&crate::backends::swift::template_env::render(
                 "getter_char_optional.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     getter_name => getter_name,
                     return_type => bridge_ty_owned,
                     name => name,
@@ -581,7 +581,7 @@ fn emit_string_like_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx:
         } else {
             out.push_str(&crate::backends::swift::template_env::render(
                 "getter_char.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     getter_name => getter_name,
                     return_type => bridge_ty_owned,
                     name => name,
@@ -598,7 +598,7 @@ fn emit_string_like_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx:
         if field.optional {
             out.push_str(&crate::backends::swift::template_env::render(
                 "getter_path_optional.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     getter_name => getter_name,
                     return_type => bridge_ty_owned,
                     name => name,
@@ -607,7 +607,7 @@ fn emit_string_like_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx:
         } else {
             out.push_str(&crate::backends::swift::template_env::render(
                 "getter_path.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     getter_name => getter_name,
                     return_type => bridge_ty_owned,
                     name => name,
@@ -621,7 +621,7 @@ fn emit_string_like_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx:
         if field.optional {
             out.push_str(&crate::backends::swift::template_env::render(
                 "getter_string_like_debug_optional.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     getter_name => getter_name,
                     return_type => bridge_ty_owned,
                     name => name,
@@ -630,7 +630,7 @@ fn emit_string_like_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx:
         } else {
             out.push_str(&crate::backends::swift::template_env::render(
                 "getter_string_like_debug.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     getter_name => getter_name,
                     return_type => bridge_ty_owned,
                     name => name,
@@ -643,7 +643,7 @@ fn emit_string_like_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx:
     {
         out.push_str(&crate::backends::swift::template_env::render(
             "getter_simple_clone.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 getter_name => getter_name,
                 return_type => bridge_ty_owned,
                 name => name,
@@ -655,7 +655,7 @@ fn emit_string_like_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx:
     {
         out.push_str(&crate::backends::swift::template_env::render(
             "getter_string_cow.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 getter_name => getter_name,
                 return_type => bridge_ty_owned,
                 name => name,
@@ -667,7 +667,7 @@ fn emit_string_like_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx:
     {
         out.push_str(&crate::backends::swift::template_env::render(
             "getter_string_cow_optional.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 getter_name => getter_name,
                 return_type => bridge_ty_owned,
                 name => name,
@@ -676,7 +676,7 @@ fn emit_string_like_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx:
     } else if field.optional {
         out.push_str(&crate::backends::swift::template_env::render(
             "getter_string_like_serde_optional.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 getter_name => getter_name,
                 return_type => bridge_ty_owned,
                 name => name,
@@ -685,7 +685,7 @@ fn emit_string_like_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx:
     } else {
         out.push_str(&crate::backends::swift::template_env::render(
             "getter_string_like_serde.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 getter_name => getter_name,
                 return_type => bridge_ty_owned,
                 name => name,

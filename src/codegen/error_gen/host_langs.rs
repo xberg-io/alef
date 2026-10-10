@@ -49,7 +49,7 @@ pub fn gen_go_sentinel_errors(errors: &[ErrorDef]) -> String {
 
     crate::codegen::template_env::render(
         "error_gen/go_sentinel_errors.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             sentinels => sentinels,
         },
     )
@@ -95,7 +95,7 @@ pub fn gen_go_error_struct(error: &ErrorDef, pkg_name: &str, carries_sentinel: b
 
     crate::codegen::template_env::render(
         "error_gen/go_error_struct.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             go_type_name => go_type_name.as_str(),
             methods => methods,
             has_methods => has_methods,
@@ -210,7 +210,7 @@ pub fn gen_java_error_types(error: &ErrorDef, package: &str, main_class: &str) -
 
     let base = crate::codegen::template_env::render(
         "error_gen/java_error_base.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             package => package,
             base_name => base_name.as_str(),
             main_class => main_class,
@@ -230,7 +230,7 @@ pub fn gen_java_error_types(error: &ErrorDef, package: &str, main_class: &str) -
 
         let content = crate::codegen::template_env::render(
             "error_gen/java_error_variant.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 package => package,
                 class_name => class_name.as_str(),
                 base_name => base_name.as_str(),
@@ -394,7 +394,7 @@ pub fn gen_csharp_error_types(
     {
         let out = crate::codegen::template_env::render(
             "error_gen/csharp_error_base.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 namespace => namespace,
                 base_name => base_name.as_str(),
                 base_parent => base_parent,
@@ -421,7 +421,7 @@ pub fn gen_csharp_error_types(
 
         let out = crate::codegen::template_env::render(
             "error_gen/csharp_error_variant.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 namespace => namespace,
                 class_name => class_name.as_str(),
                 base_name => base_name.as_str(),

@@ -70,18 +70,18 @@ fn exclude_component_contract_types(api: &mut ApiSurface, config: &ResolvedCrate
         if implementations
             .iter()
             .any(|path| *path == typ.rust_path || *path == short || path.rsplit("::").next() == Some(short))
-            || error_type_names.iter().any(|name| *name == typ.name)
+            || error_type_names.contains(&typ.name)
         {
             typ.binding_excluded = true;
         }
     }
     for enum_def in &mut api.enums {
-        if error_type_names.iter().any(|name| *name == enum_def.name) {
+        if error_type_names.contains(&enum_def.name) {
             enum_def.binding_excluded = true;
         }
     }
     for error in &mut api.errors {
-        if error_type_names.iter().any(|name| *name == error.name) {
+        if error_type_names.contains(&error.name) {
             error.binding_excluded = true;
         }
     }

@@ -314,7 +314,7 @@ pub(crate) fn gen_php_struct(
                     vec![
                         crate::backends::php::template_env::render(
                             "php_json_map_field_doc.jinja",
-                            minijinja::context! { field_name => &field.name },
+                            crate::alef_context! { field_name => &field.name },
                         )
                         .trim_end()
                         .to_owned(),
@@ -645,7 +645,7 @@ fn gen_struct_methods_impl(
                         let php_param_name = crate::codegen::naming::to_php_name(&f.name);
                         let_bindings.push_str(&crate::backends::php::template_env::render(
                             "php_vec_named_struct_let_binding.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 php_name => php_param_name.as_str(),
                                 core_import => core_import,
                                 struct_name => name.as_str(),
@@ -746,7 +746,7 @@ fn gen_struct_methods_impl(
                         let php_param_name = crate::codegen::naming::to_php_name(&f.name);
                         let_bindings.push_str(&crate::backends::php::template_env::render(
                             "php_vec_named_struct_let_binding.jinja",
-                            minijinja::context! {
+                            crate::alef_context! {
                                 php_name => php_param_name.as_str(),
                                 core_import => core_import,
                                 struct_name => name.as_str(),
@@ -878,7 +878,7 @@ fn gen_struct_methods_impl(
             let value_expr = "value.map(|value| value.clone().into())";
             let setter_method = crate::backends::php::template_env::render(
                 "php_optional_named_setter.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     setter_ident,
                     inner_php_type,
                     field_name => &field.name,

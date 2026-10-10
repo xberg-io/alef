@@ -124,7 +124,7 @@ pub(crate) fn gen_facade_class(
                 vec![]
             };
 
-            minijinja::context! {
+            crate::alef_context! {
                 javadoc => javadoc,
                 return_type => return_type,
                 is_void => is_void,
@@ -238,7 +238,7 @@ pub(crate) fn gen_facade_class(
 
     let class_body = crate::backends::java::template_env::render(
         "facade_class.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             class_name => public_class,
             raw_class => raw_class,
             functions => functions,
@@ -255,7 +255,7 @@ pub(crate) fn gen_facade_class(
 
     crate::backends::java::template_env::render(
         "facade_file.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             header => header,
             package => package,
             has_list => has_list,

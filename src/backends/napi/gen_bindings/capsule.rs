@@ -233,7 +233,7 @@ pub(super) fn gen_type_tag_constants(capsule_types: &HashMap<String, NodeCapsule
             let upper = tag.upper.trim_start_matches("0x");
             out.push_str(&crate::backends::napi::template_env::render(
                 "capsule_type_tag_constant.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => name.to_ascii_uppercase(),
                     lower => lower,
                     upper => upper,

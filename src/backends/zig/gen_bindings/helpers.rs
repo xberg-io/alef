@@ -37,7 +37,7 @@ pub(crate) fn emit_helpers(prefix: &str, declared_errors: &[ErrorDef], out: &mut
     out.push_str("/// Free a string allocated by the FFI layer.\n");
     out.push_str(&crate::backends::zig::template_env::render(
         "helper_free_string_doc1.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             prefix => prefix,
         },
     ));
@@ -45,7 +45,7 @@ pub(crate) fn emit_helpers(prefix: &str, declared_errors: &[ErrorDef], out: &mut
     out.push_str("pub fn _free_string(ptr: [*c]u8) void {\n");
     out.push_str(&crate::backends::zig::template_env::render(
         "helper_free_string_doc2.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             free_symbol => free_symbol,
         },
     ));
@@ -74,14 +74,14 @@ pub(crate) fn emit_helpers(prefix: &str, declared_errors: &[ErrorDef], out: &mut
     out.push_str("fn _capture_error_message() void {\n");
     out.push_str(&crate::backends::zig::template_env::render(
         "helper_last_error_code.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             symbol => error_code_symbol,
         },
     ));
     out.push_str("    if (_code == 0) return;\n");
     out.push_str(&crate::backends::zig::template_env::render(
         "helper_last_error_ctx.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             symbol => error_context_symbol,
         },
     ));

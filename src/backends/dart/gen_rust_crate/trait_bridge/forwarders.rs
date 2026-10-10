@@ -33,7 +33,7 @@ pub(super) fn emit_register_forwarder(
 
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_trait_register_forwarder.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => bridge_config.trait_name.as_str(),
             registry_getter => registry_getter,
             register_fn => register_fn,
@@ -58,7 +58,7 @@ pub(super) fn emit_unregister_forwarder(out: &mut String, bridge_config: &TraitB
 
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_trait_unregister_forwarder.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => bridge_config.trait_name.as_str(),
             registry_getter => registry_getter,
             unregister_fn => unregister_fn,
@@ -82,7 +82,7 @@ pub(super) fn emit_clear_forwarder(out: &mut String, bridge_config: &TraitBridge
 
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_trait_clear_forwarder.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             trait_name => bridge_config.trait_name.as_str(),
             clear_fn => clear_fn,
             host_path => host_path,

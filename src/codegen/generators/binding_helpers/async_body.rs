@@ -78,7 +78,7 @@ pub fn gen_async_body_with_error_type(
             };
             crate::codegen::template_env::render(
                 "binding_helpers/async_body_pyo3.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     result_handling => result_handling,
                     extra_binding => extra_binding,
                     ok_expr => ok_expr,
@@ -103,7 +103,7 @@ pub fn gen_async_body_with_error_type(
             };
             crate::codegen::template_env::render(
                 "binding_helpers/async_body_wasm.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     result_handling => result_handling,
                     ok_expr => ok_expr,
                 },
@@ -132,7 +132,7 @@ pub fn gen_async_body_with_error_type(
             };
             crate::codegen::template_env::render(
                 "binding_helpers/async_body_napi.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     result_handling => result_handling,
                     needs_ok_wrapper => needs_ok_wrapper,
                     ok_expr => ok_expr,
@@ -156,7 +156,7 @@ pub fn gen_async_body_with_error_type(
             let err_map = ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))";
             crate::codegen::template_env::render(
                 "binding_helpers/async_body_tokio.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     has_error => has_error,
                     is_opaque => is_opaque,
                     is_unit_return => is_unit_return,

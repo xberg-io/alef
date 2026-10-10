@@ -29,6 +29,6 @@ pub(in crate::e2e::codegen::typescript::test_file) fn detect_cache_isolation_nee
 
 /// Emit the cache isolation setup code (beforeAll/afterAll blocks).
 pub(in crate::e2e::codegen::typescript::test_file) fn emit_cache_isolation_setup(out: &mut String) {
-    let rendered = crate::e2e::template_env::render("typescript/cache_isolation_setup.jinja", minijinja::context! {});
+    let rendered = crate::e2e::template_env::render("typescript/cache_isolation_setup.jinja", crate::alef_context! {});
     out.push_str(&rendered);
 }

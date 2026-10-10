@@ -85,7 +85,7 @@ pub(super) fn emit_capsule_free_function_forwarder(
 
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_sync_forwarder.swift.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             function_name => swift_name,
             params => &sig,
             throws_clause => throws_clause,

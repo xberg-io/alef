@@ -60,12 +60,12 @@ pub(super) fn generate_lang_doc(
 
     out.push_str(&template_env::render(
         "front_matter.jinja",
-        minijinja::context! { title => format!("{lang_display} API Reference") },
+        crate::alef_context! { title => format!("{lang_display} API Reference") },
     ));
     out.push('\n');
     out.push_str(&template_env::render(
         "version_heading.jinja",
-        minijinja::context! { marker => "##", title => format!("{lang_display} API Reference"), version => version },
+        crate::alef_context! { marker => "##", title => format!("{lang_display} API Reference"), version => version },
     ));
 
     let public_fns: Vec<&FunctionDef> = api

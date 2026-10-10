@@ -44,7 +44,7 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
                 guard_emitted = true;
                 let guard = crate::codegen::template_env::render(
                     "generators/trait_bridge/default_method_guard.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         absence => absence,
                         delegate_name => default_delegate_name(spec, method),
                         method_name => &method.name,
@@ -104,7 +104,7 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
 
         methods_code.push_str(&crate::codegen::template_env::render(
             "generators/trait_bridge/trait_method.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 async_kw => async_kw,
                 method_name => &method.name,
                 all_params => all_params,
@@ -116,7 +116,7 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
 
     crate::codegen::template_env::render(
         "generators/trait_bridge/trait_impl.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             has_async_methods => has_async_methods,
             async_trait_is_send => async_trait_is_send,
             trait_path => trait_path,

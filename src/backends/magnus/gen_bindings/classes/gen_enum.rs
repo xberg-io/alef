@@ -149,7 +149,7 @@ pub fn gen_enum_with_module(
                     } else {
                         positional_field_serde_rename(f, idx, &variant.name, variant.fields.len())
                     };
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => &f.name,
                         field_type => field_type_for_serde(f),
                         flatten_newtype => flatten_newtype,
@@ -165,7 +165,7 @@ pub fn gen_enum_with_module(
                 enum_def.serde_rename_all.as_deref(),
             );
 
-            minijinja::context! {
+            crate::alef_context! {
                 name => &variant.name,
                 serde_rename => &variant.serde_rename,
                 fields => &fields,
@@ -187,7 +187,7 @@ pub fn gen_enum_with_module(
     let has_sensitive = crate::codegen::generators::enum_has_sensitive_representation(enum_def);
     let mut rendered = crate::backends::magnus::template_env::render(
         "enum_magnus.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             enum_name => &enum_def.name,
             module_name => module_name,
             native_payload => is_native_payload_enum(enum_def),
@@ -412,7 +412,7 @@ pub fn gen_data_enum_variant_constructors(
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
-            minijinja::context! {
+            crate::alef_context! {
                 rust_fn_name => format!("_factory_{}", ctor.snake_name),
                 variant_name => ctor.variant_name,
                 params => params,
@@ -423,7 +423,7 @@ pub fn gen_data_enum_variant_constructors(
 
     crate::backends::magnus::template_env::render(
         "enum_variant_constructor.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             enum_name => &enum_def.name,
             constructors => rendered,
         },

@@ -3,7 +3,6 @@
 use crate::core::config::manifest_extras::ManifestExtras;
 use crate::core::hash::{self, CommentStyle};
 use crate::core::template_versions as tv;
-use minijinja::context;
 
 pub(crate) fn render_package_json(
     pkg_name: &str,
@@ -26,7 +25,7 @@ pub(crate) fn render_package_json(
 
     let rendered = crate::e2e::template_env::render(
         "typescript/package.json.jinja",
-        context! {
+        crate::alef_context! {
             pkg_name => pkg_name,
             dep_value => dep_value,
             vitest => tv::npm::VITEST,
@@ -96,7 +95,7 @@ fn merge_into(
 }
 
 pub(super) fn render_tsconfig() -> String {
-    crate::e2e::template_env::render("typescript/tsconfig.jinja", context! {})
+    crate::e2e::template_env::render("typescript/tsconfig.jinja", crate::alef_context! {})
 }
 
 pub(super) fn render_vitest_config(with_global_setup: bool, with_file_setup: bool) -> String {
@@ -104,7 +103,7 @@ pub(super) fn render_vitest_config(with_global_setup: bool, with_file_setup: boo
 
     crate::e2e::template_env::render(
         "typescript/vitest.config.ts.jinja",
-        context! {
+        crate::alef_context! {
             header => header,
             with_global_setup => with_global_setup,
             with_file_setup => with_file_setup,
@@ -117,7 +116,7 @@ pub(super) fn render_file_setup(test_documents_dir: &str) -> String {
 
     crate::e2e::template_env::render(
         "typescript/setup.ts.jinja",
-        context! {
+        crate::alef_context! {
             header => header,
             test_documents_dir => test_documents_dir,
         },
@@ -135,7 +134,7 @@ pub fn render_global_setup(use_server_pattern: bool, alt_host: &str) -> String {
 
     crate::e2e::template_env::render(
         template,
-        context! {
+        crate::alef_context! {
             header => header,
             alt_host => alt_host,
         },

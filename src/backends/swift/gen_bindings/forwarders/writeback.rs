@@ -34,7 +34,7 @@ pub(super) fn emit_free_function_forwarder(
         let return_stmt = format!("        return try {struct_name}(_rb_obj)");
         let body = crate::backends::swift::template_env::render(
             "swift_forwarder_dto_return_body.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 bridge_call => &bridge_call,
                 return_statement => &return_stmt,
             },
@@ -50,7 +50,7 @@ pub(super) fn emit_free_function_forwarder(
     } else {
         let body = crate::backends::swift::template_env::render(
             "swift_sync_forwarder_dto_return_body.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 bridge_call_try => if func.error_type.is_some() { "try " } else { "" },
                 function_name => swift_name,
                 args => &args,
@@ -59,7 +59,7 @@ pub(super) fn emit_free_function_forwarder(
         );
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_sync_forwarder.swift.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 function_name => swift_name,
                 params => &sig,
                 throws_clause => " throws",
@@ -94,7 +94,7 @@ fn build_params(func: &FunctionDef, known_dto_names: &HashSet<String>) -> (Strin
     for line in &conversion_lines {
         conversion_body.push_str(&crate::backends::swift::template_env::render(
             "swift_forwarder_conversion_line.swift.jinja",
-            minijinja::context! { line => line, },
+            crate::alef_context! { line => line, },
         ));
     }
 

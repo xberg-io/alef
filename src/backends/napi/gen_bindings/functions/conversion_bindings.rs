@@ -8,7 +8,7 @@ pub(super) fn gen_vec_f32_conversion_bindings(params: &[ParamDef]) -> String {
             let conv_name = format!("{}_f32", p.name);
             bindings.push_str(&crate::backends::napi::template_env::render(
                 "vec_f32_conversion_binding.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     conv_name => conv_name,
                     param_name => &p.name,
                 },
@@ -35,7 +35,7 @@ pub(super) fn gen_napi_buffer_conversion_bindings(params: &[ParamDef]) -> String
             };
             bindings.push_str(&crate::backends::napi::template_env::render(
                 template,
-                minijinja::context! {
+                crate::alef_context! {
                     param_name => &p.name,
                 },
             ));

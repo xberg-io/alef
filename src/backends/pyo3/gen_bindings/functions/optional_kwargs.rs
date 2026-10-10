@@ -13,7 +13,7 @@ pub(super) fn emit_optional_kwarg_helper(
     let value_type = optional_kwarg_python_type(&field.ty);
     out.push_str(&crate::backends::pyo3::template_env::render(
         "converters/optional_kwarg_helper.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             helper_name => &helper_name,
             kwargs_name => &kwargs_name,
             parameter_name => parameter_name,

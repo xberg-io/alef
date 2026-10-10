@@ -22,7 +22,7 @@ pub(crate) fn emit_extern_block_for_inbound_registration(
         let camel = heck::AsLowerCamelCase(register_fn).to_string();
         block.push_str(&crate::backends::swift::template_env::render(
             "inbound_registration_fn.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 camel => &camel,
                 fn_name => register_fn,
                 params => format!("swift_box: {box_name}"),
@@ -34,7 +34,7 @@ pub(crate) fn emit_extern_block_for_inbound_registration(
         let camel = heck::AsLowerCamelCase(unregister_fn).to_string();
         block.push_str(&crate::backends::swift::template_env::render(
             "inbound_registration_fn.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 camel => &camel,
                 fn_name => unregister_fn,
                 params => "name: String",
@@ -46,7 +46,7 @@ pub(crate) fn emit_extern_block_for_inbound_registration(
         let camel = heck::AsLowerCamelCase(clear_fn).to_string();
         block.push_str(&crate::backends::swift::template_env::render(
             "inbound_registration_fn.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 camel => &camel,
                 fn_name => clear_fn,
                 params => "",
@@ -78,7 +78,7 @@ pub(crate) fn emit_extern_block_for_inbound(trait_def: &TypeDef, bridge_config: 
     block.push_str("    extern \"Swift\" {\n");
     block.push_str(&crate::backends::swift::template_env::render(
         "inbound_swift_type.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             box_name => &box_name,
         },
     ));
@@ -108,7 +108,7 @@ pub(crate) fn emit_extern_block_for_inbound(trait_def: &TypeDef, bridge_config: 
         let params_str = params.join(", ");
         block.push_str(&crate::backends::swift::template_env::render(
             "inbound_swift_method.rs.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 method_snake => &method_snake,
                 params => &params_str,
                 return_ty => &return_ty,

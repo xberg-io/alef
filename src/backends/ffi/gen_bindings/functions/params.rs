@@ -1,7 +1,6 @@
 use crate::backends::ffi::type_map::is_void_return;
 use crate::core::ir::{NewtypeContainer, NewtypeConversion, ParamDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
-use minijinja::context;
 
 use super::super::helpers::ffi_null_return_value;
 use super::signatures::c_symbol_component;
@@ -210,7 +209,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_param_conversion_with_enums(
             TypeRef::String | TypeRef::Char => {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_optional_string_conversion.jinja",
-                    context! {
+                    crate::alef_context! {
                         rs_name => rs_name.clone(),
                         name => name.clone(),
                         fail_ret => fail_ret.to_string(),
@@ -221,7 +220,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_param_conversion_with_enums(
                 out.push(' ');
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_path_conversion.jinja",
-                    context! {
+                    crate::alef_context! {
                         rs_name => rs_name.clone(),
                         name => name.clone(),
                         is_ref => param.is_ref,
@@ -232,7 +231,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_param_conversion_with_enums(
             TypeRef::Json => {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_optional_json_conversion.jinja",
-                    context! {
+                    crate::alef_context! {
                         rs_name => rs_name.clone(),
                         name => name.clone(),
                         fail_ret => fail_ret.to_string(),
@@ -244,7 +243,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_param_conversion_with_enums(
                 let enum_snake = c_symbol_component(type_name);
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "ffi_enum_discriminant_match.jinja",
-                    context! {
+                    crate::alef_context! {
                         rs_name => rs_name.clone(),
                         enum_snake => enum_snake,
                         name => name.clone(),
@@ -256,7 +255,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_param_conversion_with_enums(
             TypeRef::Named(type_name) => {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_optional_named_conversion.jinja",
-                    context! {
+                    crate::alef_context! {
                         rs_name => rs_name.clone(),
                         name => name.clone(),
                         is_ref => param.is_ref,
@@ -271,7 +270,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_param_conversion_with_enums(
                 };
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_optional_named_conversion.jinja",
-                    context! {
+                    crate::alef_context! {
                         rs_name => rs_name.clone(),
                         name => name.clone(),
                         is_ref => param.is_ref,
@@ -284,7 +283,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_param_conversion_with_enums(
                 out.push(' ');
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_optional_bool_conversion.jinja",
-                    context! {
+                    crate::alef_context! {
                         rs_name => rs_name.clone(),
                         name => name.clone(),
                     },
@@ -313,7 +312,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_param_conversion_with_enums(
                 out.push(' ');
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_optional_numeric_conversion.jinja",
-                    context! {
+                    crate::alef_context! {
                         rs_name => rs_name.clone(),
                         name => name.clone(),
                         max_val => max_val,
@@ -343,7 +342,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_param_conversion_with_enums(
                 out.push(' ');
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_optional_vec_map_conversion.jinja",
-                    context! {
+                    crate::alef_context! {
                         rs_name => rs_name.clone(),
                         name => name.clone(),
                         turbofish => type_hint,
@@ -354,7 +353,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_param_conversion_with_enums(
             TypeRef::Bytes => {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_optional_bytes_conversion.jinja",
-                    context! {
+                    crate::alef_context! {
                         rs_name => rs_name.clone(),
                         name => name.clone(),
                         fail_ret => fail_ret.to_string(),
@@ -364,7 +363,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_param_conversion_with_enums(
             _ => {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_optional_fallback.jinja",
-                    context! {
+                    crate::alef_context! {
                         rs_name => rs_name.clone(),
                         name => name.clone(),
                         fail_ret => fail_ret.to_string(),
@@ -377,7 +376,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_param_conversion_with_enums(
             TypeRef::String | TypeRef::Char => {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_non_optional_string_conversion.jinja",
-                    context! {
+                    crate::alef_context! {
                         name => name.clone(),
                         fail_ret => fail_ret.to_string(),
                         rs_name => rs_name.clone(),
@@ -387,7 +386,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_param_conversion_with_enums(
             TypeRef::Path => {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_non_optional_path_conversion.jinja",
-                    context! {
+                    crate::alef_context! {
                         rs_name => rs_name.clone(),
                         name => name.clone(),
                         fail_ret => fail_ret.to_string(),
@@ -399,7 +398,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_param_conversion_with_enums(
                 let mut_keyword = String::new();
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_non_optional_json_conversion.jinja",
-                    context! {
+                    crate::alef_context! {
                         name => name.clone(),
                         fail_ret => fail_ret.to_string(),
                         rs_name => rs_name.clone(),
@@ -408,35 +407,33 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_param_conversion_with_enums(
                     },
                 ));
             }
-            TypeRef::Primitive(prim) => {
-                match prim {
-                    crate::core::ir::PrimitiveType::Bool => {
+            TypeRef::Primitive(prim) => match prim {
+                crate::core::ir::PrimitiveType::Bool => {
+                    out.push_str(&crate::backends::ffi::template_env::render(
+                        "param_primitive_bool.jinja",
+                        crate::alef_context! { rs_name => rs_name.clone(), name => name.clone() },
+                    ));
+                }
+                _ => {
+                    if let Some(newtype_path) = param
+                        .newtype_wrapper
+                        .as_deref()
+                        .filter(|wrapper| !crate::codegen::conversions::helpers::is_explicit_newtype(wrapper))
+                    {
+                        out.push_str(&crate::backends::ffi::template_env::render("param_primitive_newtype.jinja", crate::alef_context! { rs_name => rs_name.clone(), newtype_path => newtype_path, name => name.clone() }));
+                    } else {
                         out.push_str(&crate::backends::ffi::template_env::render(
-                            "param_primitive_bool.jinja",
-                            context! { rs_name => rs_name.clone(), name => name.clone() },
+                            "param_primitive_passthrough.jinja",
+                            crate::alef_context! { rs_name => rs_name.clone(), name => name.clone() },
                         ));
                     }
-                    _ => {
-                        if let Some(newtype_path) = param
-                            .newtype_wrapper
-                            .as_deref()
-                            .filter(|wrapper| !crate::codegen::conversions::helpers::is_explicit_newtype(wrapper))
-                        {
-                            out.push_str(&crate::backends::ffi::template_env::render("param_primitive_newtype.jinja", context! { rs_name => rs_name.clone(), newtype_path => newtype_path, name => name.clone() }));
-                        } else {
-                            out.push_str(&crate::backends::ffi::template_env::render(
-                                "param_primitive_passthrough.jinja",
-                                context! { rs_name => rs_name.clone(), name => name.clone() },
-                            ));
-                        }
-                    }
                 }
-            }
+            },
             TypeRef::Named(type_name) if enum_names.contains(type_name.as_str()) => {
                 let enum_snake = c_symbol_component(type_name);
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "ffi_enum_discriminant_match.jinja",
-                    context! {
+                    crate::alef_context! {
                         rs_name => rs_name.clone(),
                         enum_snake => enum_snake,
                         name => name.clone(),
@@ -448,7 +445,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_param_conversion_with_enums(
             TypeRef::Named(type_name) => {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_non_optional_named_conversion.jinja",
-                    context! {
+                    crate::alef_context! {
                         rs_name => rs_name.clone(),
                         name => name.clone(),
                         fail_ret => fail_ret.to_string(),
@@ -461,7 +458,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_param_conversion_with_enums(
             TypeRef::Bytes => {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_non_optional_bytes_conversion.jinja",
-                    context! {
+                    crate::alef_context! {
                         rs_name => rs_name.clone(),
                         name => name.clone(),
                         fail_ret => fail_ret.to_string(),
@@ -490,7 +487,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_param_conversion_with_enums(
                 };
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_non_optional_json_conversion.jinja",
-                    context! {
+                    crate::alef_context! {
                         name => name.clone(),
                         fail_ret => fail_ret.to_string(),
                         rs_name => rs_name.clone(),
@@ -502,13 +499,13 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_param_conversion_with_enums(
             TypeRef::Optional(_) => {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_optional_passthrough.jinja",
-                    context! { rs_name => rs_name.clone(), name => name.clone() },
+                    crate::alef_context! { rs_name => rs_name.clone(), name => name.clone() },
                 ));
             }
             TypeRef::Duration => {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_duration_conversion.jinja",
-                    context! { rs_name => rs_name.clone(), name => name.clone() },
+                    crate::alef_context! { rs_name => rs_name.clone(), name => name.clone() },
                 ));
             }
             TypeRef::Unit => {}

@@ -37,7 +37,7 @@ pub(super) fn render(
         }),
         "not_empty" => out.push_str(&crate::e2e::template_env::render(
             "typescript/assertion.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 assertion_type => "not_empty",
                 field_expr => expression,
                 field_is_optional => false,

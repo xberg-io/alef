@@ -42,7 +42,7 @@ pub(super) fn emit_error(error: &ErrorDef, out: &mut String, imports: &mut BTree
         let doc_lines: Vec<String> = error.doc.lines().map(ToString::to_string).collect();
         out.push_str(&template_env::render(
             "doc_comment.jinja",
-            minijinja::context! {
+            crate::alef_context! {
                 indent => "",
                 lines => doc_lines,
             },
@@ -64,7 +64,7 @@ pub(super) fn emit_error(error: &ErrorDef, out: &mut String, imports: &mut BTree
         .collect();
     out.push_str(&template_env::render(
         "error_sealed_class.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => error.name.as_str(),
             methods => methods_ctx,
         },
@@ -75,7 +75,7 @@ pub(super) fn emit_error(error: &ErrorDef, out: &mut String, imports: &mut BTree
             let doc_lines: Vec<String> = variant.doc.lines().map(ToString::to_string).collect();
             out.push_str(&template_env::render(
                 "doc_comment.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     indent => "",
                     lines => doc_lines,
                 },
@@ -86,28 +86,28 @@ pub(super) fn emit_error(error: &ErrorDef, out: &mut String, imports: &mut BTree
             let msg = escape_dart_string_literal(&raw_msg);
             out.push_str(&template_env::render(
                 "error_class_header.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => variant.name.as_str(),
                     error_name => error.name.as_str(),
                 },
             ));
             out.push_str(&template_env::render(
                 "override_message_getter.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     msg => msg,
                 },
             ));
             out.push_str(&template_env::render(
                 "const_constructor.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => variant.name.as_str(),
                 },
             ));
-            out.push_str(&template_env::render("class_close.jinja", minijinja::context! {}));
+            out.push_str(&template_env::render("class_close.jinja", crate::alef_context! {}));
         } else {
             out.push_str(&template_env::render(
                 "error_class_header.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     name => variant.name.as_str(),
                     error_name => error.name.as_str(),
                 },
@@ -117,7 +117,7 @@ pub(super) fn emit_error(error: &ErrorDef, out: &mut String, imports: &mut BTree
                 let fname = dart_safe_ident(&f.name.to_lower_camel_case());
                 out.push_str(&template_env::render(
                     "final_field_decl.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         ty_str => ty_str,
                         name => fname.as_str(),
                     },
@@ -128,7 +128,7 @@ pub(super) fn emit_error(error: &ErrorDef, out: &mut String, imports: &mut BTree
             out.push_str("  @override\n");
             out.push_str(&template_env::render(
                 "override_message_getter.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     msg => msg,
                 },
             ));
@@ -136,7 +136,7 @@ pub(super) fn emit_error(error: &ErrorDef, out: &mut String, imports: &mut BTree
                 let fname = dart_safe_ident(&variant.fields[0].name.to_lower_camel_case());
                 out.push_str(&template_env::render(
                     "single_param_constructor.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => variant.name.as_str(),
                         param_name => fname.as_str(),
                     },
@@ -144,7 +144,7 @@ pub(super) fn emit_error(error: &ErrorDef, out: &mut String, imports: &mut BTree
             } else {
                 out.push_str(&template_env::render(
                     "multi_param_constructor_open.jinja",
-                    minijinja::context! {
+                    crate::alef_context! {
                         name => variant.name.as_str(),
                     },
                 ));
@@ -152,14 +152,17 @@ pub(super) fn emit_error(error: &ErrorDef, out: &mut String, imports: &mut BTree
                     let fname = dart_safe_ident(&f.name.to_lower_camel_case());
                     out.push_str(&template_env::render(
                         "constructor_required_param.jinja",
-                        minijinja::context! {
+                        crate::alef_context! {
                             name => fname.as_str(),
                         },
                     ));
                 }
-                out.push_str(&template_env::render("constructor_close.jinja", minijinja::context! {}));
+                out.push_str(&template_env::render(
+                    "constructor_close.jinja",
+                    crate::alef_context! {},
+                ));
             }
-            out.push_str(&template_env::render("class_close.jinja", minijinja::context! {}));
+            out.push_str(&template_env::render("class_close.jinja", crate::alef_context! {}));
         }
     }
 }

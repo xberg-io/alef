@@ -3,7 +3,6 @@
 
 use super::*;
 use crate::readme::template::{escape_markdown_heading_text, render_performance_table};
-use minijinja::Value;
 use std::fs;
 use std::path::PathBuf;
 
@@ -46,7 +45,7 @@ fn test_render_performance_table_ops_sec() {
             {"name": "large.json", "size": "1 MB", "ops_sec": 42}
         ]
     });
-    let v = Value::from_serialize(&perf);
+    let v = crate::template::to_value(&perf);
     let result = render_performance_table(&v, "parse");
     assert!(result.contains("Apple M2"), "Got: {result}");
     assert!(result.contains("| Document | Size | Ops/sec |"), "Got: {result}");
@@ -69,7 +68,7 @@ fn test_render_performance_table_throughput() {
             }
         ]
     });
-    let v = Value::from_serialize(&perf);
+    let v = crate::template::to_value(&perf);
     let result = render_performance_table(&v, "extract");
     assert!(
         result.contains("| Document | Size | Latency | Throughput |"),

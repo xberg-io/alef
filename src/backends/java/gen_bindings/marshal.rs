@@ -165,7 +165,7 @@ fn render_marshaled_value(out: &mut String, template: &str, name: &str) {
     let cname = format!("c{name}");
     out.push_str(&crate::backends::java::template_env::render(
         template,
-        minijinja::context! { cname, name },
+        crate::alef_context! { cname, name },
     ));
 }
 
@@ -196,7 +196,7 @@ fn marshal_named(out: &mut String, name: &str, type_name: &str, shape: NamedFiel
     };
     out.push_str(&crate::backends::java::template_env::render(
         template,
-        minijinja::context! {
+        crate::alef_context! {
             cname => format!("c{name}"), name,
             from_json_handle => format!("NativeLib.{prefix_upper}_{type_upper}_FROM_JSON"),
             free_handle => format!("NativeLib.{prefix_upper}_{type_upper}_FREE"), resources,
@@ -233,7 +233,7 @@ fn marshal_optional_primitive(out: &mut String, name: &str, primitive: &Primitiv
     out.push_str(&range_check);
     out.push_str(&crate::backends::java::template_env::render(
         "marshal_optional_primitive.jinja",
-        minijinja::context! { cname => format!("c{name}"), name, prim_kw, none_lit, value_expr },
+        crate::alef_context! { cname => format!("c{name}"), name, prim_kw, none_lit, value_expr },
     ));
 }
 
@@ -293,7 +293,7 @@ pub(crate) fn marshal_param_to_ffi(
             let java_writer = build_collection_writer_for(inner, ty, opaque_types);
             out.push_str(&crate::backends::java::template_env::render(
                 "marshal_vec_map.jinja",
-                minijinja::context! { cname => format!("c{name}"), name, java_writer },
+                crate::alef_context! { cname => format!("c{name}"), name, java_writer },
             ));
         }
         _ => {}
@@ -472,7 +472,7 @@ pub(crate) const INFRASTRUCTURE_ERROR_CLASSES: [(&str, u32, &str); 4] = [
 fn emit_error_helper(out: &mut String, prefix: &str) {
     out.push_str(&crate::backends::java::template_env::render(
         "helper_check_last_error.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             prefix_upper => prefix.to_uppercase(),
         },
     ));
@@ -481,7 +481,7 @@ fn emit_error_helper(out: &mut String, prefix: &str) {
 fn emit_simple_helper(out: &mut String, template: &str) {
     out.push_str(&crate::backends::java::template_env::render(
         template,
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
 }
 
@@ -489,7 +489,7 @@ fn emit_read_json_list_helper(out: &mut String, prefix: &str, class_name: &str) 
     let free_handle = format!("NativeLib.{}_FREE_STRING", prefix.to_uppercase());
     out.push_str(&crate::backends::java::template_env::render(
         "helper_read_json_list.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             class_name => class_name,
             free_handle => free_handle,
         },
@@ -521,7 +521,7 @@ pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &st
 
     out.push_str(&crate::backends::java::template_env::render(
         "gen_helper_methods_header.jinja",
-        minijinja::context! {},
+        crate::alef_context! {},
     ));
     out.push('\n');
 

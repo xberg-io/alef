@@ -42,7 +42,7 @@ pub(super) fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -
 
     let rendered = crate::backends::magnus::template_env::render(
         "visitor_bridge.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             core_crate => core_crate,
             context_type_path => context_helper.type_path,
             context_field_lines => context_helper.field_lines,
@@ -108,7 +108,7 @@ fn gen_visitor_method_magnus(
 
     crate::backends::magnus::template_env::render(
         "visitor_method.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             name => name,
             signature => signature,
             return_type => return_type,

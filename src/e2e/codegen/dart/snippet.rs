@@ -127,7 +127,7 @@ pub(super) fn render_snippet_body_with_ir(
     );
     Ok(crate::e2e::template_env::render(
         "dart/snippet_body.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             package => package, module => module, bridge_module => bridge_module,
             statements => statements, needs_json => needs_json,
             needs_io => needs_io,
@@ -171,10 +171,10 @@ fn render_http_snippet(fixture: &Fixture) -> Result<String> {
     });
     Ok(crate::e2e::template_env::render(
         "dart/http_snippet.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             method => http.request.method.to_uppercase(),
             path => format!("/fixtures/{}{}", fixture.id, http.request.path),
-            headers => headers.iter().map(|(key, value)| minijinja::context! {
+            headers => headers.iter().map(|(key, value)| crate::alef_context! {
                 key => super::values::escape_dart(key), value => super::values::escape_dart(value),
             }).collect::<Vec<_>>(),
             body_json => plan.body.as_ref().map(serde_json::to_string).transpose()?,

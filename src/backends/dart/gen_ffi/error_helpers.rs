@@ -16,7 +16,7 @@ pub(super) fn emit_error_helpers(
     out.push_str("final void Function(Pointer<Char>) _freeString =\n");
     out.push_str(&template_env::render(
         "ffi_free_string_lookup.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             free_symbol => free_symbol,
         },
     ));
@@ -27,7 +27,7 @@ pub(super) fn emit_error_helpers(
     out.push_str("final int Function() _lastErrorCode =\n");
     out.push_str(&template_env::render(
         "ffi_last_error_code_lookup.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             error_code_symbol => error_code_symbol,
         },
     ));
@@ -38,7 +38,7 @@ pub(super) fn emit_error_helpers(
     out.push_str("final Pointer<Utf8> Function() _lastErrorContext =\n");
     out.push_str(&template_env::render(
         "ffi_last_error_context_lookup.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             error_context_symbol => error_context_symbol,
         },
     ));

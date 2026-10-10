@@ -55,7 +55,7 @@ pub fn gen_native_lib_visitor_handles(prefix: &str, options_fields: &[String]) -
             let field_snake = field.to_snake_case();
             crate::backends::java::template_env::render(
                 "native_lib_options_set_visitor_handle.jinja",
-                minijinja::context! {
+                crate::alef_context! {
                     handle_name => format!("{}_OPTIONS_SET_{}", pu, field_snake.to_uppercase()),
                     ffi_name => format!("{prefix}_options_set_{field_snake}"),
                 },
@@ -65,7 +65,7 @@ pub fn gen_native_lib_visitor_handles(prefix: &str, options_fields: &[String]) -
         .join("");
     crate::backends::java::template_env::render(
         "native_lib_visitor_handles.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             prefix => prefix,
             prefix_upper => pu,
             options_set_handles => options_set_handles,
@@ -127,7 +127,7 @@ pub fn gen_convert_with_visitor_method(method: &ConvertWithVisitorMethod<'_>) ->
     let pu = method.prefix.to_uppercase();
     crate::backends::java::template_env::render(
         "convert_with_visitor.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             return_type => method.return_type,
             method_name => method.method_name,
             params => method.params,

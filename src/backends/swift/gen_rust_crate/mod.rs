@@ -279,7 +279,7 @@ fn emit_lib_rs(
 
     out.push_str(&crate::backends::swift::template_env::render(
         "ffi_keep_alive_shim.rs.jinja",
-        minijinja::context! {
+        crate::alef_context! {
             ffi_import => config.ffi_crate_package_name().replace('-', "_"),
             ffi_version_fn => format!("{}_version", config.ffi_prefix()),
         },
