@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ignored shutdown exceptions when unread streams remain active or a warm runtime is inherited by a fork.
 - Generated crate manifests emit only one of `license` / `license-file`, preferring the SPDX
   `license` when a workspace declares both, so `cargo` no longer warns that only one is necessary.
+- Generated R constructors now reject invalid enum option strings with field-specific errors instead
+  of silently keeping defaults, and generated Swift constructors preserve required and optional
+  unit-enum options when converting back to Rust. Swift DTOs with data-carrying enum options now
+  use the reversible JSON bridge instead of a payload-erasing initializer.
 
 ## [0.109.0] - 2026-10-10
 

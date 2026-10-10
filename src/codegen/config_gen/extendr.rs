@@ -39,6 +39,13 @@ pub fn gen_extendr_kwargs_constructor(
         })
         .collect();
 
+    let has_named_enum = typ.fields.iter().any(|field| {
+        !field.binding_excluded
+            && field.cfg.is_none()
+            && !is_named_struct(&field.ty)
+            && !is_optional_named_struct(&field.ty)
+            && is_named_enum(&field.ty)
+    });
     let body_assignments: Vec<_> = typ
         .fields
         .iter()
@@ -54,7 +61,6 @@ pub fn gen_extendr_kwargs_constructor(
             }
         })
         .collect();
-
     crate::codegen::template_env::render(
         "config_gen/extendr_kwargs_constructor.jinja",
         crate::alef_context! {
@@ -62,6 +68,7 @@ pub fn gen_extendr_kwargs_constructor(
             type_name_lower => typ.name.to_lowercase(),
             params => emittable_fields,
             body_assignments => body_assignments,
+            has_named_enum => has_named_enum,
         },
     )
 }

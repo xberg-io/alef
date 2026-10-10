@@ -59,7 +59,12 @@ fn constructor_fields_filters_cfg_gated_fields() {
     assert_eq!(fields_with[0].name, "text");
     assert_eq!(fields_with[1].name, "extraction_confidence");
     assert!(
-        !has_constructor_extern(&ty, &exclude_fields, &empty_features),
+        !has_constructor_extern(
+            &ty,
+            &exclude_fields,
+            &empty_features,
+            super::super::default_construction::EnumKinds::new(&HashSet::new(), &HashSet::new()),
+        ),
         "non-primitive serde DTOs still require Default-based construction"
     );
 }

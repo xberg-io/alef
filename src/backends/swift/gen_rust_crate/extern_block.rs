@@ -3,6 +3,7 @@
 //! Covers type declarations, enum declarations, and top-level function declarations.
 //! Trait bridge extern blocks live in `trait_bridge.rs`.
 
+use crate::backends::swift::gen_rust_crate::default_construction::EnumKinds;
 use crate::backends::swift::gen_rust_crate::type_bridge::{
     bridge_result_ok_type_with_handles, bridge_type, bridge_type_enum_and_serde_struct_aware, bridge_type_enum_aware,
     bridge_type_enum_aware_ref, bridge_type_with_handles, forces_fallible_enum_bridge, is_vec_of_enum,
@@ -45,9 +46,19 @@ pub(crate) fn has_constructor_extern(
     ty: &TypeDef,
     exclude_fields: &HashSet<String>,
     configured_features: &std::collections::HashSet<&str>,
+    enum_kinds: EnumKinds<'_, '_>,
 ) -> bool {
     let fields = constructor_fields(ty, exclude_fields, configured_features);
     if fields.is_empty() {
+        return false;
+    }
+    // ~keep Tagged enums and nested enum containers cannot cross this init ABI without losing
+    // payload or shape. Omitting the init forces first-class Swift DTOs through their complete
+    // Codable JSON bridge instead of silently substituting the Rust default.
+    if fields
+        .iter()
+        .any(|field| !enum_kinds.supports_constructor_field(&field.ty))
+    {
         return false;
     }
     if fields
@@ -83,7 +94,7 @@ pub(crate) fn emit_extern_block_for_type(
     type_paths: &HashMap<String, String>,
     no_serde_names: &HashSet<&str>,
     first_class_names: &HashSet<&str>,
-    enum_names: &HashSet<String>,
+    enum_kinds: EnumKinds<'_, '_>,
     configured_features: &std::collections::HashSet<&str>,
 ) -> String {
     let parent_first_class = first_class_names.contains(ty.name.as_str());
@@ -97,7 +108,7 @@ pub(crate) fn emit_extern_block_for_type(
     ));
 
     let constructor_fields = constructor_fields(ty, exclude_fields, configured_features);
-    let emit_constructor = has_constructor_extern(ty, exclude_fields, configured_features);
+    let emit_constructor = has_constructor_extern(ty, exclude_fields, configured_features, enum_kinds);
 
     if emit_constructor {
         let params: Vec<String> = constructor_fields
@@ -137,13 +148,13 @@ pub(crate) fn emit_extern_block_for_type(
         ) {
             continue;
         }
-        let enum_set: HashSet<&str> = enum_names.iter().map(|s| s.as_str()).collect();
+        let enum_set = enum_kinds.all();
         let bridge_ty =
-            bridge_type_enum_and_serde_struct_aware(&field.ty, &enum_set, no_serde_names, parent_first_class);
+            bridge_type_enum_and_serde_struct_aware(&field.ty, enum_set, no_serde_names, parent_first_class);
         let bridge_ty = if super::type_bridge::field_needs_json_bridge(&field.ty, field.optional) {
             "String".to_string()
         } else if field.optional {
-            if is_vec_of_enum(&field.ty, &enum_set)
+            if is_vec_of_enum(&field.ty, enum_set)
                 || (parent_first_class
                     && matches!(&field.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !no_serde_names.contains(n.as_str())))
                     && !matches!(&field.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if enum_set.contains(n.as_str()))))

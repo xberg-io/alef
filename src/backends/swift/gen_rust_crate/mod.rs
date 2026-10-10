@@ -328,6 +328,7 @@ fn emit_lib_rs(
         .filter(|e| e.variants.iter().any(|v| !v.fields.is_empty()))
         .map(|e| e.name.as_str())
         .collect();
+    let enum_kinds = default_construction::EnumKinds::new(&enum_names, &unit_enum_names);
 
     let visible_type_names: HashSet<&str> = visible_types
         .iter()
@@ -397,7 +398,7 @@ fn emit_lib_rs(
     for ty in &visible_types {
         let is_handle_returned = handle_returned_types.contains(&ty.name);
         let would_be_empty_type_block = ty.fields.is_empty()
-            && !extern_block::has_constructor_extern(ty, exclude_fields, configured_features)
+            && !extern_block::has_constructor_extern(ty, exclude_fields, configured_features, enum_kinds)
             && ty
                 .methods
                 .iter()
@@ -422,7 +423,7 @@ fn emit_lib_rs(
             &type_paths,
             &no_serde_names,
             &first_class_names,
-            &enum_names_owned,
+            enum_kinds,
             configured_features,
         );
         extern_blocks.push(format!("{cfg_open}{raw_block}"));

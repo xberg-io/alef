@@ -1,1 +1,3 @@
-        // alef: {{ name }} ({{ type_name }}) is an enum; reverse From not generated — left at default
+{% if optional %}        __target.{{ name }} = {{ param }}.map(|value| {{ helper }}(&value.to_string()).expect("valid {{ type_name }} bridge value"));
+{% else %}        __target.{{ name }} = {{ helper }}(&{{ param }}.to_string()).expect("valid {{ type_name }} bridge value");
+{% endif %}

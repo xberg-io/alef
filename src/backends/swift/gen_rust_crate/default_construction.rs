@@ -6,13 +6,57 @@
 //! field individually via serde JSON round-trips and native unwrapping.
 
 use crate::backends::swift::gen_rust_crate::feature_gate;
-use crate::backends::swift::gen_rust_crate::type_bridge::{needs_json_bridge, swift_bridge_rust_type};
+use crate::backends::swift::gen_rust_crate::type_bridge::{
+    enum_from_string_fn_name, needs_json_bridge, swift_bridge_rust_type,
+};
 use crate::codegen::conversions::helpers::{
     apply_explicit_field_newtype_to_core, apply_field_newtype_to_core, is_explicit_newtype,
 };
 use crate::core::ir::{CoreWrapper, FieldDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 use std::collections::{HashMap, HashSet};
+
+#[derive(Clone, Copy)]
+pub(crate) struct EnumKinds<'sets, 'names> {
+    all: &'sets HashSet<&'names str>,
+    unit: &'sets HashSet<&'names str>,
+}
+
+impl<'sets, 'names> EnumKinds<'sets, 'names> {
+    pub(crate) fn new(all: &'sets HashSet<&'names str>, unit: &'sets HashSet<&'names str>) -> Self {
+        Self { all, unit }
+    }
+
+    pub(crate) fn all(self) -> &'sets HashSet<&'names str> {
+        self.all
+    }
+
+    fn contains(self, name: &str) -> bool {
+        self.all.contains(name)
+    }
+
+    fn is_unit(self, name: &str) -> bool {
+        self.unit.contains(name)
+    }
+
+    pub(crate) fn supports_constructor_field(self, ty: &TypeRef) -> bool {
+        match ty {
+            TypeRef::Named(name) if self.contains(name) => self.is_unit(name),
+            TypeRef::Optional(inner) | TypeRef::Vec(inner) => !self.contains_enum(inner),
+            TypeRef::Map(key, value) => !self.contains_enum(key) && !self.contains_enum(value),
+            _ => true,
+        }
+    }
+
+    fn contains_enum(self, ty: &TypeRef) -> bool {
+        match ty {
+            TypeRef::Named(name) => self.contains(name),
+            TypeRef::Optional(inner) | TypeRef::Vec(inner) => self.contains_enum(inner),
+            TypeRef::Map(key, value) => self.contains_enum(key) || self.contains_enum(value),
+            _ => false,
+        }
+    }
+}
 
 fn is_explicitly_excluded(ty: &TypeDef, field: &FieldDef, exclude_fields: &HashSet<String>) -> bool {
     let field_key = format!("{}.{}", ty.name, field.name.to_snake_case());
@@ -27,7 +71,7 @@ pub(crate) fn emit_default_construction_body(
     ty: &TypeDef,
     source_path: &str,
     type_paths: &HashMap<String, String>,
-    enum_names: &HashSet<&str>,
+    enum_kinds: EnumKinds<'_, '_>,
     no_serde_names: &HashSet<&str>,
     exclude_fields: &HashSet<String>,
     configured_features: &std::collections::HashSet<&str>,
@@ -111,15 +155,20 @@ pub(crate) fn emit_default_construction_body(
                 },
             ));
         } else if let TypeRef::Named(n) = &f.ty {
-            let is_enum = enum_names.contains(n.as_str());
-            if is_enum {
+            let is_enum = enum_kinds.contains(n);
+            if is_enum && enum_kinds.is_unit(n) {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_enum_assign.jinja",
                     crate::alef_context! {
                         name => &name,
+                        param => &param,
                         type_name => n,
+                        helper => enum_from_string_fn_name(n),
+                        optional => f.optional,
                     },
                 ));
+            } else if is_enum {
+                unreachable!("tagged enum field `{name}` must use the parent JSON bridge")
             } else if f.optional {
                 if f.is_boxed {
                     out.push_str(&crate::backends::swift::template_env::render(
@@ -173,15 +222,9 @@ pub(crate) fn emit_default_construction_body(
             }
         } else if let TypeRef::Vec(inner) = &f.ty {
             if let TypeRef::Named(inner_n) = inner.as_ref() {
-                let is_enum = enum_names.contains(inner_n.as_str());
+                let is_enum = enum_kinds.contains(inner_n);
                 if is_enum {
-                    out.push_str(&crate::backends::swift::template_env::render(
-                        "default_field_vec_named_enum_skip.jinja",
-                        crate::alef_context! {
-                            name => &name,
-                            inner_name => inner_n,
-                        },
-                    ));
+                    unreachable!("enum collection field `{name}` must use the parent JSON bridge")
                 } else {
                     let unwrap_expr = match f.vec_inner_core_wrapper {
                         CoreWrapper::Arc => "std::sync::Arc::new(w.0)".to_string(),
@@ -319,7 +362,7 @@ pub(crate) fn emit_default_construction_body(
 pub(crate) fn emit_direct_field_inits(
     ty: &TypeDef,
     type_paths: &HashMap<String, String>,
-    enum_names: &HashSet<&str>,
+    enum_kinds: EnumKinds<'_, '_>,
     no_serde_names: &HashSet<&str>,
     exclude_fields: &HashSet<String>,
     configured_features: &std::collections::HashSet<&str>,
@@ -372,9 +415,19 @@ pub(crate) fn emit_direct_field_inits(
                     "            {name}: serde_json::from_str::<{opt_ty}>(&{name}).expect(\"valid JSON for {name}\")"
                 )
             } else if let TypeRef::Named(n) = &f.ty {
-                let is_enum = enum_names.contains(n.as_str());
-                if is_enum {
-                    format!("            {name}: ::std::default::Default::default()")
+                let is_enum = enum_kinds.contains(n);
+                if is_enum && enum_kinds.is_unit(n) {
+                    crate::backends::swift::template_env::render(
+                        "default_field_enum_direct.jinja",
+                        crate::alef_context! {
+                            name => &name,
+                            type_name => n,
+                            helper => enum_from_string_fn_name(n),
+                            optional => f.optional,
+                        },
+                    )
+                } else if is_enum {
+                    unreachable!("tagged enum field `{name}` must use the parent JSON bridge")
                 } else if f.optional {
                     if matches!(f.core_wrapper, CoreWrapper::Arc) {
                         format!("            {name}: {name}.map(|w| std::sync::Arc::new(w.0))")
@@ -388,9 +441,9 @@ pub(crate) fn emit_direct_field_inits(
                 }
             } else if let TypeRef::Vec(inner) = &f.ty {
                 if let TypeRef::Named(inner_n) = inner.as_ref() {
-                    let is_enum = enum_names.contains(inner_n.as_str());
+                    let is_enum = enum_kinds.contains(inner_n);
                     if is_enum {
-                        format!("            {name}: ::std::default::Default::default()")
+                        unreachable!("enum collection field `{name}` must use the parent JSON bridge")
                     } else {
                         let unwrap_expr = match f.vec_inner_core_wrapper {
                             CoreWrapper::Arc => "std::sync::Arc::new(w.0)".to_string(),
@@ -448,4 +501,131 @@ pub(crate) fn emit_direct_field_inits(
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod enum_option_tests {
+    use super::*;
+
+    fn options_type(optional: bool) -> TypeDef {
+        TypeDef {
+            name: "Options".to_string(),
+            rust_path: "sample::Options".to_string(),
+            has_default: true,
+            fields: vec![FieldDef {
+                name: "heading_style".to_string(),
+                ty: TypeRef::Named("HeadingStyle".to_string()),
+                optional,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    fn names() -> HashSet<&'static str> {
+        ["HeadingStyle"].into_iter().collect()
+    }
+
+    #[test]
+    fn constructor_supports_only_scalar_unit_enum_fields() {
+        let all: HashSet<&str> = ["HeadingStyle", "Routing"].into_iter().collect();
+        let unit: HashSet<&str> = ["HeadingStyle"].into_iter().collect();
+        let enum_kinds = EnumKinds::new(&all, &unit);
+
+        assert!(enum_kinds.supports_constructor_field(&TypeRef::Named("HeadingStyle".to_string())));
+        assert!(!enum_kinds.supports_constructor_field(&TypeRef::Named("Routing".to_string())));
+        assert!(
+            !enum_kinds
+                .supports_constructor_field(&TypeRef::Vec(Box::new(TypeRef::Named("HeadingStyle".to_string(),))))
+        );
+    }
+
+    #[test]
+    fn default_construction_converts_required_enum_option_to_core() {
+        let output = emit_default_construction_body(
+            &options_type(false),
+            "sample::Options",
+            &HashMap::new(),
+            EnumKinds::new(&names(), &names()),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+
+        assert!(
+            output.contains(
+                "__target.heading_style = \
+                 __alef_heading_style_from_swift_string(&heading_style.to_string())\
+                 .expect(\"valid HeadingStyle bridge value\");"
+            ),
+            "the caller's enum option must replace the core default:\n{output}"
+        );
+        assert!(!output.contains("reverse From not generated"), "{output}");
+    }
+
+    #[test]
+    fn default_construction_converts_optional_enum_option_to_core() {
+        let output = emit_default_construction_body(
+            &options_type(true),
+            "sample::Options",
+            &HashMap::new(),
+            EnumKinds::new(&names(), &names()),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+
+        assert!(
+            output.contains(
+                "__target.heading_style = heading_style.map(|value| \
+                 __alef_heading_style_from_swift_string(&value.to_string())\
+                 .expect(\"valid HeadingStyle bridge value\"));"
+            ),
+            "an optional enum option must preserve Some and None:\n{output}"
+        );
+    }
+
+    #[test]
+    fn direct_construction_converts_enum_option_to_core() {
+        let output = emit_direct_field_inits(
+            &options_type(false),
+            &HashMap::new(),
+            EnumKinds::new(&names(), &names()),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+
+        assert_eq!(
+            output,
+            vec![
+                "            heading_style: \
+                 __alef_heading_style_from_swift_string(&heading_style.to_string())\
+                 .expect(\"valid HeadingStyle bridge value\")"
+                    .to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn direct_construction_converts_optional_enum_option_to_core() {
+        let output = emit_direct_field_inits(
+            &options_type(true),
+            &HashMap::new(),
+            EnumKinds::new(&names(), &names()),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+
+        assert_eq!(
+            output,
+            vec![
+                "            heading_style: heading_style.map(|value| \
+                 __alef_heading_style_from_swift_string(&value.to_string())\
+                 .expect(\"valid HeadingStyle bridge value\"))"
+                    .to_string()
+            ]
+        );
+    }
 }

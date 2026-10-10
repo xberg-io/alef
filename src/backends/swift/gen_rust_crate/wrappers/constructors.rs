@@ -8,7 +8,7 @@
 //! Enum wrappers live in `enums.rs`.
 
 use crate::backends::swift::gen_rust_crate::default_construction::{
-    emit_default_construction_body, emit_direct_field_inits,
+    EnumKinds, emit_default_construction_body, emit_direct_field_inits,
 };
 use crate::backends::swift::gen_rust_crate::extern_block::{constructor_fields, has_constructor_extern};
 use crate::backends::swift::gen_rust_crate::type_bridge::{bridge_type, needs_json_bridge};
@@ -89,8 +89,8 @@ pub(crate) fn emit_type_wrapper(
                     .iter()
                     .any(|f| needs_json_bridge(&f.ty) || matches!(f.ty, TypeRef::Named(_))));
 
-        if !has_constructor_extern(ty, exclude_fields, configured_features) {
-        } else {
+        let enum_kinds = EnumKinds::new(enum_names, unit_enum_names);
+        if has_constructor_extern(ty, exclude_fields, configured_features, enum_kinds) {
             if !needs_default_construction && ty.has_default {
                 out.push_str("    #[allow(clippy::needless_update)]\n");
             }
@@ -107,7 +107,7 @@ pub(crate) fn emit_type_wrapper(
                     ty,
                     &source_path,
                     type_paths,
-                    enum_names,
+                    enum_kinds,
                     no_serde_names,
                     exclude_fields,
                     configured_features,
@@ -117,7 +117,7 @@ pub(crate) fn emit_type_wrapper(
                 let field_inits = emit_direct_field_inits(
                     ty,
                     type_paths,
-                    enum_names,
+                    enum_kinds,
                     no_serde_names,
                     exclude_fields,
                     configured_features,

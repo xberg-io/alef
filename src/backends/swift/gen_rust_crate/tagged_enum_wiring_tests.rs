@@ -16,6 +16,8 @@
 //!    `{t}(value)` against an enum type (`E0423`).
 
 use super::emit;
+use crate::backends::swift::gen_bindings::SwiftBackend;
+use crate::core::backend::Backend;
 use crate::core::config::{NewAlefConfig, ResolvedCrateConfig};
 use crate::core::ir::{
     ApiSurface, EnumDef, EnumVariant, FieldDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef,
@@ -34,6 +36,7 @@ fn tagged_enum() -> EnumDef {
     EnumDef {
         name: "Routing".to_string(),
         rust_path: "test_lib::Routing".to_string(),
+        has_serde: true,
         variants: vec![
             EnumVariant {
                 name: "Direct".to_string(),
@@ -60,6 +63,18 @@ fn api_with_tagged_enum() -> ApiSurface {
         version: "0.1.0".to_string(),
         enums: vec![tagged_enum()],
         types: vec![
+            TypeDef {
+                name: "Options".to_string(),
+                rust_path: "test_lib::Options".to_string(),
+                has_default: true,
+                has_serde: true,
+                fields: vec![FieldDef {
+                    name: "routing".to_string(),
+                    ty: TypeRef::Named("Routing".to_string()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
             TypeDef {
                 name: "Client".to_string(),
                 rust_path: "test_lib::Client".to_string(),
@@ -101,6 +116,18 @@ fn lib_rs(files: &[crate::core::backend::GeneratedFile]) -> String {
         .iter()
         .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
         .expect("emit must produce the bridge crate's lib.rs")
+        .content
+        .clone()
+}
+
+fn swift_source(files: &[crate::core::backend::GeneratedFile]) -> String {
+    files
+        .iter()
+        .find(|f| {
+            f.path.extension().is_some_and(|extension| extension == "swift")
+                && f.content.contains("public struct Options")
+        })
+        .expect("emit must produce the public Swift module")
         .content
         .clone()
 }
@@ -150,5 +177,35 @@ fn data_carrying_enum_trait_return_is_converted_with_from_not_a_tuple_struct_cal
     assert!(
         !generated.contains("Routing(this.0.current_routing())"),
         "must not call the enum type as a tuple-struct constructor, got:\n{generated}"
+    );
+}
+
+#[test]
+fn data_carrying_enum_option_uses_reversible_parent_json_bridge() {
+    let config = swift_config_with_trait_bridge();
+    let api = api_with_tagged_enum();
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+    let generated_rust = lib_rs(&files);
+    let generated_swift = swift_source(&files);
+
+    assert!(
+        !generated_rust.contains("#[swift_bridge(init)]\n        fn new(routing: Routing) -> Options;"),
+        "a payload-erasing bridge enum must not be exposed as an Options constructor argument:\n{generated_rust}"
+    );
+    assert!(
+        !generated_rust.contains("routing (Routing) is an enum; reverse From not generated — left at default"),
+        "tagged enum options must never be silently left at their default:\n{generated_rust}"
+    );
+    assert!(
+        generated_swift.contains("let data = try JSONEncoder().encode(self)"),
+        "Options.intoRust() must serialize its complete tagged-enum payload:\n{generated_swift}"
+    );
+    assert!(
+        generated_swift.contains("return try RustBridge.optionsFromJson(json)"),
+        "Options.intoRust() must use the reversible parent JSON bridge:\n{generated_swift}"
+    );
+    assert!(
+        !generated_swift.contains("return RustBridge.Options(try self.routing.intoRust())"),
+        "the tagged enum's payload-erasing mirror must not feed the Options constructor:\n{generated_swift}"
     );
 }

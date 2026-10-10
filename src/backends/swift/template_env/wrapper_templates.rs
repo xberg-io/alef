@@ -143,10 +143,6 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/default_field_json_bridge.jinja"),
     ),
     (
-        "default_field_enum_skip.jinja",
-        include_str!("../templates/default_field_enum_skip.jinja"),
-    ),
-    (
         "default_field_named_optional_boxed.jinja",
         include_str!("../templates/default_field_named_optional_boxed.jinja"),
     ),
@@ -169,10 +165,6 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
     (
         "default_field_named_plain.jinja",
         include_str!("../templates/default_field_named_plain.jinja"),
-    ),
-    (
-        "default_field_vec_named_enum_skip.jinja",
-        include_str!("../templates/default_field_vec_named_enum_skip.jinja"),
     ),
     (
         "default_field_vec_named_arc_optional.jinja",
@@ -253,6 +245,10 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
     (
         "default_field_enum_assign.jinja",
         include_str!("../templates/default_field_enum_assign.jinja"),
+    ),
+    (
+        "default_field_enum_direct.jinja",
+        include_str!("../templates/default_field_enum_direct.jinja"),
     ),
     (
         "default_field_excluded_comment.jinja",

@@ -253,11 +253,41 @@ fn test_magnus_hash_constructor_no_double_option_when_ty_is_optional() {
 }
 
 #[test]
-fn extendr_enum_constructor_combines_presence_and_parse_guards() {
+fn extendr_enum_constructor_propagates_invalid_values_with_field_context() {
     let mut typ = make_test_type();
     typ.fields = vec![make_field("style", TypeRef::Named("Style".to_string()))];
     let enums = ["Style".to_string()].into_iter().collect();
     let output = gen_extendr_kwargs_constructor(&typ, &simple_type_mapper, &enums);
-    assert!(output.contains("if let Some(v) = style && let Ok(parsed)"), "{output}");
+    assert!(output.contains("-> extendr_api::Result<Config>"), "{output}");
+    assert!(
+        output.contains("serde_json::from_value(serde_json::Value::String(v))"),
+        "enum values must be decoded through serde's declared wire names:\n{output}"
+    );
+    assert!(
+        output.contains("invalid value for `style`: {e}"),
+        "the R error must name the rejected option and preserve serde's accepted-values message:\n{output}"
+    );
+    assert!(
+        !output.contains("let Ok(parsed)"),
+        "parse failures must not be discarded:\n{output}"
+    );
     assert!(output.contains("__out.style = parsed;"), "{output}");
+    assert!(output.contains("Ok(__out)"), "{output}");
+}
+
+#[test]
+fn extendr_optional_enum_constructor_propagates_invalid_values() {
+    let mut field = make_field("style", TypeRef::Named("Style".to_string()));
+    field.optional = true;
+    let mut typ = make_test_type();
+    typ.fields = vec![field];
+    let enums = ["Style".to_string()].into_iter().collect();
+    let output = gen_extendr_kwargs_constructor(&typ, &simple_type_mapper, &enums);
+
+    assert!(output.contains("-> extendr_api::Result<Config>"), "{output}");
+    assert!(output.contains("__out.style = Some(parsed);"), "{output}");
+    assert!(
+        !output.contains(".ok()"),
+        "parse failures must not become None:\n{output}"
+    );
 }

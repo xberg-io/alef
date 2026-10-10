@@ -1,4 +1,5 @@
 use crate::backends::swift::gen_bindings::zero_arg_default::zero_arg_named_default;
+use crate::backends::swift::gen_rust_crate::default_construction::EnumKinds;
 use crate::backends::swift::naming::{swift_rust_shim_ident as swift_ident, swift_source_ident as swift_case_ident};
 use crate::backends::swift::type_map::SwiftMapper;
 use crate::codegen::shared::binding_fields;
@@ -426,7 +427,20 @@ pub(super) fn emit_first_class_struct(
 
     // when the swift-bridge `#[swift_bridge(init)] fn new(...)` extern is emitted for
     let mut into_rust_body = String::new();
-    let direct_call = emit_into_rust_direct_call(ty, mapper, exclude_fields, type_name, configured_features);
+    let all_enum_names: HashSet<&str> = unit_enum_names
+        .iter()
+        .chain(untagged_enum_names.iter())
+        .map(String::as_str)
+        .collect();
+    let unit_enum_names: HashSet<&str> = unit_enum_names.iter().map(String::as_str).collect();
+    let direct_call = emit_into_rust_direct_call(
+        ty,
+        mapper,
+        exclude_fields,
+        type_name,
+        configured_features,
+        EnumKinds::new(&all_enum_names, &unit_enum_names),
+    );
     match direct_call {
         Some(call) => into_rust_body.push_str(&call),
         None => {
@@ -702,10 +716,11 @@ pub(super) fn emit_into_rust_direct_call(
     exclude_fields: &HashSet<String>,
     type_name: &str,
     configured_features: &std::collections::HashSet<&str>,
+    enum_kinds: EnumKinds<'_, '_>,
 ) -> Option<String> {
     use crate::backends::swift::gen_rust_crate::extern_block::{constructor_fields, has_constructor_extern};
 
-    if !has_constructor_extern(ty, exclude_fields, configured_features) {
+    if !has_constructor_extern(ty, exclude_fields, configured_features, enum_kinds) {
         return None;
     }
 
