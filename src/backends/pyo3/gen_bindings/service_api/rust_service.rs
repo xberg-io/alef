@@ -162,9 +162,18 @@ fn gen_run_pyfunction(
     ));
 
     let ctor_call = build_ctor_call(service, owner_path, core_import);
+    // Keep `mut` (an entrypoint may take `&mut self`), but silence `-D unused-mut` when no
+    // registration method actually needs it. ~keep
+    let owner_needs_mut = service
+        .registrations
+        .iter()
+        .any(|reg| matches!(reg.receiver, Some(crate::core::ir::ReceiverKind::RefMut)));
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_rs_owner_ctor.rs.jinja",
-        crate::alef_context! { ctor_call => ctor_call },
+        crate::alef_context! {
+            ctor_call => ctor_call,
+            allow_attr => if owner_needs_mut { "" } else { "#[allow(unused_mut)]\n    " },
+        },
     ));
     out.push('\n');
 
