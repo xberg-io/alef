@@ -1,4 +1,5 @@
 [package]
+authors = ["Na'aman Hirschfeld <naaman@xberg.io>", "Tobias Perlstein <tobias@xberg.io>"]
 name = "alef-component-abi"
 version = "0.109.0"
 edition = "2024"
