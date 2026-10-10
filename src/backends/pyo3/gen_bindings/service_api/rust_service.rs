@@ -299,8 +299,8 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef, _co
 
     if ep.is_async {
         format!(
-            "    {bind}_py.detach(|| {{\n        \
-             pyo3_async_runtimes::tokio::get_runtime().block_on(owner.{ep_method}({args_str}))\n    \
+            "    let __async_runtime = crate::alef_async_runtime::get_runtime_checked()?;\n    {bind}_py.detach(|| {{\n        \
+             __async_runtime.block_on(owner.{ep_method}({args_str}))\n    \
              }})\n        \
              .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;\n"
         )

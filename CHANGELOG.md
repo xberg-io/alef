@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Close Python async runtimes before interpreter finalization, reject use of an inherited initialized executor after fork, and warn about thread-bound opaque async parameters and receivers.
 - Preserve registered Python exception categories from async free functions and methods, including serde-converted parameters.
 
 ## [0.107.12] - 2026-10-09

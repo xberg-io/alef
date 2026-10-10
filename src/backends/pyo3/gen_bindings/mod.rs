@@ -1,5 +1,6 @@
 //! PyO3 (Python) backend: orchestration and `Backend` trait implementation.
 
+mod async_thread_safety;
 pub(crate) mod binding_exclusions;
 pub mod capsule;
 mod capsule_methods;
@@ -136,11 +137,7 @@ impl Backend for Pyo3Backend {
             builder.add_import(&trait_path);
         }
 
-        let has_async = api.functions.iter().any(|f| f.is_async && !f.sanitized)
-            || api
-                .types
-                .iter()
-                .any(|t| t.methods.iter().any(|m| m.is_async && !m.sanitized));
+        let has_async = managed_runtime::has_async(api);
         if has_async {
             builder.add_import("pyo3_async_runtimes");
             let has_async_error = api
@@ -270,6 +267,13 @@ impl Backend for Pyo3Backend {
         // a generated class name and must not name one this loop skips. ~keep
         let py_exclude_types = binding_exclusions::pyclass_absent_type_names(config, &api.types, &api.errors);
         let send_sync_types = config_opaque::send_sync_type_names(api, config, &py_exclude_types)?;
+        async_thread_safety::warn_thread_bound_async_handles(
+            api,
+            &opaque_types,
+            &send_sync_types,
+            &py_exclude_types,
+            &py_exclude_functions,
+        );
         // Types listed in capsule_types bypass #[pyclass] generation entirely — they are
         let capsule_types = config
             .python
@@ -844,7 +848,7 @@ impl Backend for Pyo3Backend {
         let mut content = builder.build();
         postprocess::clear_bridge_builder_opaque_params(&mut content, config);
         postprocess::wrap_optional_default_args(&mut content, api, config);
-        if has_async && managed_runtime::enabled(config) {
+        if has_async {
             content = managed_runtime::rewrite(content);
             content.push_str(&managed_runtime::support());
         }
@@ -881,7 +885,7 @@ impl Backend for Pyo3Backend {
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
         let mut files = service_api::generate(&crate::backends::ir_order::with_sorted_items(api), config)?;
-        if managed_runtime::enabled(config) && managed_runtime::has_async(api) {
+        if managed_runtime::has_async(api) {
             for file in files
                 .iter_mut()
                 .filter(|file| file.path.extension().is_some_and(|ext| ext == "rs"))

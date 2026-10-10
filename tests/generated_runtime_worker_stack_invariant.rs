@@ -207,6 +207,47 @@ struct ScanReport {
     unwidened_calling_thread: Vec<(String, String)>,
 }
 
+fn is_stopped_handle_site(relative: &str, lines: &[&str], index: usize) -> bool {
+    if relative != "src/backends/pyo3/templates/managed_runtime.rs.jinja" {
+        return false;
+    }
+    // This handle is shut down before escaping; generic spawn cancels without driving a future. ~keep
+    let end = (index + STACK_SIZE_LOOKAHEAD_LINES).min(lines.len());
+    let window = lines[index..end]
+        .iter()
+        .filter(|line| !is_comment_line(line))
+        .copied()
+        .collect::<Vec<_>>()
+        .join("\n");
+    let Some((before, after)) = window.split_once("runtime.shutdown_background();") else {
+        return false;
+    };
+    before.contains("let handle = runtime.handle().clone();")
+        && after.contains("RuntimeHandle { runtime: handle, _lease: Lease(false) }")
+        && !window.contains("block_on")
+}
+
+#[test]
+fn stopped_handle_exception_rejects_live_or_driven_runtimes() {
+    let path = "src/backends/pyo3/templates/managed_runtime.rs.jinja";
+    let source = "let runtime = Builder::new_current_thread().build().unwrap();\nlet handle = runtime.handle().clone();\nruntime.shutdown_background();\nRuntimeHandle { runtime: handle, _lease: Lease(false) }";
+    assert!(is_stopped_handle_site(path, &source.lines().collect::<Vec<_>>(), 0));
+    for invalid in [
+        source.replace("runtime.shutdown_background();", ""),
+        source.replace(
+            "runtime.shutdown_background();",
+            "runtime.block_on(work); runtime.shutdown_background();",
+        ),
+    ] {
+        assert!(!is_stopped_handle_site(path, &invalid.lines().collect::<Vec<_>>(), 0));
+    }
+    assert!(!is_stopped_handle_site(
+        "src/another.rs",
+        &source.lines().collect::<Vec<_>>(),
+        0
+    ));
+}
+
 fn scan(files: &[PathBuf], repo_root: &Path) -> ScanReport {
     let mut report = ScanReport {
         files_scanned: files.len(),
@@ -255,7 +296,7 @@ fn scan(files: &[PathBuf], repo_root: &Path) -> ScanReport {
                     .collect::<Vec<&str>>()
                     .join("\n");
                 let widened = window.contains(THREAD_BUILDER) && window.contains(THREAD_STACK_SIZE_SETTER);
-                if !widened {
+                if !widened && !is_stopped_handle_site(&relative, &lines, index) {
                     report.unwidened_calling_thread.push((relative.to_string(), location));
                 }
             }

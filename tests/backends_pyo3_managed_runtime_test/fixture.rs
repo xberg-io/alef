@@ -27,6 +27,15 @@ mod runtime_tests {
             globals.set_item("native", module).unwrap();
             let script = std::ffi::CString::new(include_str!("runtime.py")).unwrap();
             py.run(&script, Some(&globals), None).unwrap();
+            let close = std::ffi::CString::new("import atexit; atexit._run_exitfuncs()").unwrap();
+            py.run(&close, Some(&globals), None).unwrap();
+            py.detach(|| {
+                let outer = tokio::runtime::Builder::new_current_thread().build().unwrap();
+                outer.block_on(async {
+                    let handle = crate::alef_async_runtime::get_runtime();
+                    assert!(handle.spawn(async {}).await.unwrap_err().is_cancelled());
+                });
+            });
         });
     }
 }
@@ -60,6 +69,7 @@ pub fn run() {
         .find(|file| file.path.ends_with("lib.rs"))
         .unwrap()
         .content;
+    source = source.replace("    fn get_runtime()", "    pub(crate) fn get_runtime()");
     source.push_str(RUNTIME_TEST);
     std::fs::write(binding.join("src/lib.rs"), source).unwrap();
     std::fs::write(binding.join("src/runtime.py"), include_str!("runtime.py")).unwrap();
