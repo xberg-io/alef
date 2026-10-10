@@ -216,6 +216,79 @@ fn a_second_run_leaves_a_hand_edited_declared_seed_alone() {
     assert_eq!(second.user_owned_count(), 1, "the declared skip must be counted");
 }
 
+fn stale_dart_pubspec() -> &'static str {
+    r#"name: sample
+environment:
+  sdk: '>=3.11.0 <4.0.0'
+executables:
+  download_libs:
+dependencies:
+  crypto: '^3.0.7'
+dev_dependencies:
+  freezed: '^4.0.0'
+"#
+}
+
+/// Scaffold migrations run after the guarded write loop. A declared path must remain protected
+/// through that second phase; otherwise Alef reports a user-owned skip and then mutates the same
+/// file behind that report. ~keep
+#[test]
+fn a_declared_user_owned_manifest_is_not_rewritten_by_a_scaffold_migration() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let base_dir = temp.path();
+    seed_config(base_dir, &["packages/dart/pubspec.yaml"]);
+    let target = seed_existing(base_dir, "packages/dart/pubspec.yaml", stale_dart_pubspec());
+
+    let report = super::scaffold::write_scaffold_files_report(
+        &[generated(
+            "packages/dart/pubspec.yaml",
+            "name: generated\nenvironment:\n  sdk: '>=3.13.0 <4.0.0'\n",
+            false,
+        )],
+        base_dir,
+        true,
+    )
+    .expect("write");
+
+    assert_eq!(
+        std::fs::read_to_string(&target).expect("read back"),
+        stale_dart_pubspec(),
+        "the migration phase must preserve a declared user-owned manifest byte-for-byte"
+    );
+    assert_eq!(report.user_owned_count(), 1, "the guarded writer must report the skip");
+}
+
+/// Negative control for the migration guard: protecting declared paths must not disable the
+/// repair for ordinary Alef-managed create-once manifests. ~keep
+#[test]
+fn an_undeclared_manifest_still_receives_its_scaffold_migration() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let base_dir = temp.path();
+    seed_config(base_dir, &[]);
+    let target = seed_existing(base_dir, "packages/dart/pubspec.yaml", stale_dart_pubspec());
+
+    super::scaffold::write_scaffold_files_report(
+        &[generated(
+            "packages/dart/pubspec.yaml",
+            "name: generated\nenvironment:\n  sdk: '>=3.13.0 <4.0.0'\n",
+            false,
+        )],
+        base_dir,
+        true,
+    )
+    .expect("write");
+
+    let migrated = std::fs::read_to_string(target).expect("read migrated manifest");
+    assert!(
+        migrated.contains(crate::core::template_versions::toolchain::DART_SDK_CONSTRAINT),
+        "the undeclared Alef manifest must still migrate: {migrated}"
+    );
+    assert!(
+        !migrated.contains(">=3.11.0"),
+        "the negative control must prove that the migration actually fired: {migrated}"
+    );
+}
+
 /// The same disposition applied by the binding writer, which has no create-once concept at all:
 /// `write_files_report` refuses an unmarked pre-existing file on EVERY run regardless of any
 /// flag, so a declaration that only reached the scaffold writer would leave half the reported

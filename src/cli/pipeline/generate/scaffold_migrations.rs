@@ -16,20 +16,29 @@ use std::path::Path;
 /// a consumer may have hand-edited. Each helper below is called in a fixed, load-bearing order --
 /// see `migrate_zig_build_config`'s doc for the one documented ordering dependency. ~keep
 pub(super) fn apply_pending_migrations(files: &[GeneratedFile], base_dir: &Path) -> anyhow::Result<()> {
-    migrate_zig_build_config(files, base_dir)?;
-    migrate_dart_placeholder_test_file(files, base_dir)?;
-    migrate_dart_pubspec_sdk_floor_file(files, base_dir)?;
-    migrate_swift_placeholder_test_file(files, base_dir)?;
-    migrate_swift_package_manifests(files, base_dir)?;
-    migrate_dart_pubignore_file(files, base_dir)?;
-    migrate_wasm_package_json_file(files, base_dir)?;
-    migrate_node_package_json_service_file(files, base_dir)?;
-    migrate_zig_example_file(files, base_dir)?;
-    migrate_kotlin_build_gradle_file(files, base_dir)?;
-    migrate_php_composer_files(files, base_dir)?;
-    migrate_java_checkstyle_file(files, base_dir)?;
-    migrate_wasm_cargo_config_unconditional(base_dir)?;
-    migrate_poly_toml_unconditional(base_dir)?;
+    let declared = crate::cli::pipeline::generate::user_owned::declared_user_owned(base_dir)?;
+    let mut migratable_files = Vec::with_capacity(files.len());
+    for file in files {
+        let full_path = crate::cli::pipeline::generate::write::contained_output_path(base_dir, &file.path)?;
+        if !declared.matches(base_dir, &full_path) {
+            migratable_files.push(file.clone());
+        }
+    }
+
+    migrate_zig_build_config(&migratable_files, base_dir)?;
+    migrate_dart_placeholder_test_file(&migratable_files, base_dir)?;
+    migrate_dart_pubspec_sdk_floor_file(&migratable_files, base_dir)?;
+    migrate_swift_placeholder_test_file(&migratable_files, base_dir)?;
+    migrate_swift_package_manifests(&migratable_files, base_dir)?;
+    migrate_dart_pubignore_file(&migratable_files, base_dir)?;
+    migrate_wasm_package_json_file(&migratable_files, base_dir)?;
+    migrate_node_package_json_service_file(&migratable_files, base_dir)?;
+    migrate_zig_example_file(&migratable_files, base_dir)?;
+    migrate_kotlin_build_gradle_file(&migratable_files, base_dir)?;
+    migrate_php_composer_files(&migratable_files, base_dir)?;
+    migrate_java_checkstyle_file(&migratable_files, base_dir)?;
+    migrate_wasm_cargo_config_unconditional(base_dir, &declared)?;
+    migrate_poly_toml_unconditional(base_dir, &declared)?;
 
     Ok(())
 }
@@ -276,7 +285,13 @@ fn migrate_java_checkstyle_file(files: &[GeneratedFile], base_dir: &Path) -> any
 // therefore called unconditionally on every run; it is self-guarding via an exact byte match
 // against the one known pre-fix constant, so it is a no-op on any non-wasm project, any
 // `[scaffold.cargo]`-driven config, or a file that doesn't exist at all. ~keep
-fn migrate_wasm_cargo_config_unconditional(base_dir: &Path) -> anyhow::Result<()> {
+fn migrate_wasm_cargo_config_unconditional(
+    base_dir: &Path,
+    declared: &crate::core::config::UserOwnedPaths,
+) -> anyhow::Result<()> {
+    if declared.matches(base_dir, &base_dir.join(".cargo/config.toml")) {
+        return Ok(());
+    }
     crate::scaffold::migrate_wasm_cargo_config_allow_multiple_definition(base_dir)
         .context("failed to migrate pre-existing .cargo/config.toml wasm32 rustflags")?;
     Ok(())
@@ -289,7 +304,13 @@ fn migrate_wasm_cargo_config_unconditional(base_dir: &Path) -> anyhow::Result<()
 // `migrate_poly_toml_drop_unrunnable_snapshot_hooks`'s doc for the second, independent
 // instance of the same defect (the `rubocop`/`steep`/`dart-analyze`/`dart-e2e-analyze`
 // hooks `8ed9ad8d4` retracted from generation without a matching repair). ~keep
-fn migrate_poly_toml_unconditional(base_dir: &Path) -> anyhow::Result<()> {
+fn migrate_poly_toml_unconditional(
+    base_dir: &Path,
+    declared: &crate::core::config::UserOwnedPaths,
+) -> anyhow::Result<()> {
+    if declared.matches(base_dir, &base_dir.join("poly.toml")) {
+        return Ok(());
+    }
     crate::scaffold::migrate_poly_toml_drop_snippet_hook(base_dir)
         .context("failed to migrate pre-existing poly.toml alef-snippets pre-commit hook")?;
     crate::scaffold::migrate_poly_toml_drop_unrunnable_snapshot_hooks(base_dir).context(

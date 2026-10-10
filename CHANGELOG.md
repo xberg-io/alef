@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Scaffold migration and repair passes now honor `[workspace.ownership] user_owned`, so a
+  declared create-once manifest is not rewritten after the guarded scaffold writer skips it.
 - Generated Python, Ruby, Elixir, WebAssembly, and Swift package manifests preserve configured
   author, maintainer, and email metadata in each registry's native fields.
 - Generated managed Python bindings register only the private executor exit hook, preventing
