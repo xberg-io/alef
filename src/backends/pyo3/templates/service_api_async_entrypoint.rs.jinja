@@ -1,0 +1,5 @@
+    let __alef_runtime = crate::alef_async_runtime::get_runtime_checked()?;
+    {{ bind }}_py.detach(move || {
+        __alef_runtime.block_on(owner.{{ ep_method }}({{ args }}))
+    }){% if has_error %}
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?{% endif %};

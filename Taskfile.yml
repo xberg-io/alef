@@ -44,8 +44,17 @@ tasks:
       # or `.cargo/config.toml` `build.target-dir` resets the same directory `test:census` (via
       # `scripts/toolchain-census.sh`'s own default) reads back below.
       - rm -rf "$(scripts/toolchain-census-dir.sh)"
-      - cargo test --workspace
+      - task: test:run
       - task: test:census
+
+  test:run:
+    desc: "Run Rust tests with platform-specific test profile settings"
+    vars:
+      # Apple's compact-unwind offsets overflow for the unoptimized unit-test executable.
+      # Optimize only alef's test profile to shrink it while retaining panic unwinding. ~keep
+      TEST_CONFIG: '{{if eq OS "darwin"}}--config profile.test.package.alef.opt-level=1{{end}}'
+    cmds:
+      - cargo {{.TEST_CONFIG}} test --workspace {{.CLI_ARGS}}
 
   test:census:
     desc: "Report how many toolchain-dependent fixtures the last test run actually executed"

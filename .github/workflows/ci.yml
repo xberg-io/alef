@@ -63,6 +63,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+      - name: Install Task
+        uses: xberg-io/actions/install-task@f2be77fcc9149c34363aa08de6ba8abb60b04d0c
+        with:
+          version: "3.54.0"
       - uses: xberg-io/actions/setup-rust@v1
         with:
           install-llvm-cov: "false"
@@ -225,14 +229,14 @@ jobs:
         # `backends_wasm_gen_bindings_test` masked a second, unrelated failure in
         # `ci_poly_pin_gate` across two releases that way -- the log showed one red test and
         # looked complete. Run every target and report every failure. ~keep
-        run: cargo test --workspace --no-fail-fast
+        run: task test:run -- --no-fail-fast
       # Every Elixir escaping oracle is #[ignore]d, so the step above runs none of them and
       # still exits 0. They evaluate generated Elixir through the real interpreter -- the only
       # checks in this repo that do -- so dropping `--ignored` or the filter here retires them
       # silently. `elixir_oracle::gate` reads THIS step's actual `run:` line (not the block, and
       # not this comment, which contains both needles) and fails if either goes missing.
       - name: Run the Elixir escaping oracles
-        run: cargo test --lib elixir_oracle -- --ignored --nocapture
+        run: task test:run -- --lib elixir_oracle -- --ignored --nocapture
       # Counts what the two steps above actually executed, per toolchain, and fails when a
       # toolchain this leg installed executed zero fixtures.
       #
