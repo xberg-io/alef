@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Generated native bindings mark the shared component numeric-status helpers `#[allow(dead_code)]`,
+  so backends that expose only the string status (Swift, Dart, Elixir) build warning-free.
+
 ## [0.109.0] - 2026-10-10
 
 ### Added

@@ -147,6 +147,11 @@ fn alef_component_status_tag(status: &alef_component_runtime::ComponentStatus) -
 /// The stable numeric code for a status, for bindings that would rather branch on an integer
 /// than a string. Kept in lockstep with `alef_component_status_tag` by construction: both
 /// match the same five-variant enum, so the compiler flags either falling behind the other.
+///
+/// Only the FFI backend binds the numeric form; the other backends expose the string status
+/// and leave this (and `alef_component_status_code`) unused, so it carries `allow(dead_code)`
+/// to keep their generated crates -- which do not blanket-allow dead code -- warning-free.
+#[allow(dead_code)]
 fn alef_component_status_numeric_code(status: &alef_component_runtime::ComponentStatus) -> i32 {{
     match status {{
         alef_component_runtime::ComponentStatus::Ready => 0,
@@ -167,7 +172,9 @@ fn alef_component_status(component: &str) -> std::result::Result<String, String>
     }})
 }}
 
-/// The numeric counterpart to `alef_component_status`, stable across releases.
+/// The numeric counterpart to `alef_component_status`, stable across releases. Used only by
+/// the FFI backend; see `alef_component_status_numeric_code` for why it allows dead code.
+#[allow(dead_code)]
 fn alef_component_status_code(component: &str) -> std::result::Result<i32, String> {{
     alef_component_status_typed(component).map(|status| alef_component_status_numeric_code(&status))
 }}
@@ -410,6 +417,23 @@ mod tests {
         let generated = generate(&config, "/components.lock.json");
         assert!(
             generated.contains(r#"manager.offline(std::env::var_os("DEMO_CORE_COMPONENT_OFFLINE").is_some())"#),
+            "{generated}"
+        );
+    }
+
+    #[test]
+    fn numeric_status_helpers_allow_dead_code_for_backends_that_do_not_bind_them() {
+        let config = ResolvedCrateConfig {
+            name: "demo-core".into(),
+            ..ResolvedCrateConfig::default()
+        };
+        let generated = generate(&config, "/components.lock.json");
+        assert!(
+            generated.contains("#[allow(dead_code)]\nfn alef_component_status_numeric_code"),
+            "{generated}"
+        );
+        assert!(
+            generated.contains("#[allow(dead_code)]\nfn alef_component_status_code"),
             "{generated}"
         );
     }
