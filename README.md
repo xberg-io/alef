@@ -367,6 +367,7 @@ The full extension walkthrough covers trait references and per-language emission
 | `alef e2e` | Initialize, scaffold, validate, list, or generate local e2e suites. |
 | `alef test-apps` | Generate and run standalone registry-mode test applications. |
 | `alef publish` | Prepare, build, package, and validate release artifacts. |
+| `alef component` | Build, package, verify, and lock downloadable runtime components. |
 | `alef all` | Run the full generation workflow in one command. |
 
 Run `alef --help` or `alef <command> --help` for the full option set.

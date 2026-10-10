@@ -7,13 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- macOS test builds optimize only Alef's test profile to keep Apple's compact-unwind table within its offset limit while preserving panic unwinding.
-- Windows test builds exclude the C FFI packaging helper with its non-Windows-only test.
-- Generated Python async bindings close their owned executor before interpreter finalization in both runtime modes, reject executors inherited after a warm fork, and cancel unread producers during exit.
-
-## [0.108.0] - 2026-10-10
+## [0.109.0] - 2026-10-10
 
 ### Added
 
@@ -49,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Python: a managed async runtime is shut down by an interpreter exit hook, so its worker threads
   are joined while the interpreter can still hold the GIL instead of being killed mid-cleanup
   (#525).
+
+- macOS test builds optimize only Alef's test profile to keep Apple's compact-unwind table within its offset limit while preserving panic unwinding.
+- Windows test builds exclude the C FFI packaging helper with its non-Windows-only test.
+- Generated Python async bindings close their owned executor before interpreter finalization in both runtime modes, reject executors inherited after a warm fork, and cancel unread producers during exit.
 
 ### Changed
 
