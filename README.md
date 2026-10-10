@@ -170,6 +170,20 @@ Generated binding files carry Alef hashes and are overwritten by generation comm
 package files are generated once unless the command explicitly opts into overwrite behavior; generated
 README and API doc files are owned by `alef readme` and `alef docs`.
 
+### Cargo Package Archives
+
+Generated Rust crates can use Cargo's native package allowlist or denylist:
+
+```toml
+[workspace.package_metadata.cargo]
+include = ["src/**", "build.rs", "!src/**/tests.rs"]
+```
+
+Use `exclude` instead of `include` for a denylist. Alef rejects configuring both because Cargo treats
+`include` as overriding `exclude`. Patterns remain ordered and crate-relative. A
+`[crates.package_metadata.cargo]` table replaces the workspace table for that crate, and an empty
+crate table clears the inherited filters.
+
 ### Transparent String Wrappers
 
 A core type that deliberately hides its string value from `Display` can still be exposed as a

@@ -57,6 +57,7 @@ fn cargo_toml_emits_forwarding_features_block_for_cfg_gated_variants() {
         "../../../crates/sample-lib-ffi",
         &[],
         &[],
+        "",
         &Default::default(),
     );
 
@@ -125,6 +126,7 @@ fn cargo_toml_merges_configured_cargo_lints_with_builtin_unexpected_cfgs() {
         "../../../crates/sample-lib-ffi",
         &[],
         &[],
+        "",
         &cargo_lints,
     );
 
@@ -172,6 +174,7 @@ fn cargo_toml_emits_builtin_clippy_denies_when_cargo_lints_unset() {
         "../../../crates/sample-lib-ffi",
         &[],
         &[],
+        "",
         &Default::default(),
     );
 
@@ -217,6 +220,7 @@ fn cargo_toml_omits_features_block_when_no_cfg_attrs() {
         "../../../crates/sample-lib-ffi",
         &[],
         &[],
+        "",
         &Default::default(),
     );
 
@@ -272,6 +276,7 @@ fn cargo_toml_forwarding_covers_type_level_cfg_attrs() {
         "../../../crates/sample-lib-ffi",
         &[],
         &[],
+        "",
         &Default::default(),
     );
 
@@ -324,6 +329,7 @@ fn cargo_toml_excludes_named_features_from_default_but_keeps_forwarding_entries(
         "../../../crates/sample-lib-ffi",
         &[],
         &[],
+        "",
         &Default::default(),
     );
 
@@ -381,6 +387,7 @@ fn cargo_toml_depends_on_ffi_crate() {
         "../../../crates/sample-lib-ffi",
         &[],
         &[],
+        "",
         &Default::default(),
     );
 
@@ -420,6 +427,7 @@ fn cargo_toml_ffi_crate_honors_ffi_features() {
         "../../../crates/sample-lib-ffi",
         &["full-no-heic".to_string(), "pdf".to_string(), "ocr".to_string()],
         &[],
+        "",
         &Default::default(),
     );
 
@@ -476,6 +484,7 @@ fn cargo_toml_ffi_target_overrides_reproduce_downstream_ios_android_split() {
         "../../../crates/acme-ffi",
         &["full-no-heic".to_string()],
         &ffi_overrides,
+        "",
         &Default::default(),
     );
 
@@ -539,6 +548,7 @@ fn cargo_toml_ffi_target_overrides_empty_is_unchanged_from_flat_ffi_features() {
         "../../../crates/sample-lib-ffi",
         &["full-no-heic".to_string()],
         &[],
+        "",
         &Default::default(),
     );
 
@@ -612,6 +622,7 @@ fn cargo_toml_merges_and_sorts_core_and_ffi_target_blocks_together() {
         "../../../crates/acme-ffi",
         &["full-no-heic".to_string()],
         &ffi_overrides,
+        "",
         &Default::default(),
     );
 
@@ -693,6 +704,7 @@ fn manifest_with_streaming(api: &ApiSurface, has_streaming_adapters: bool) -> St
         "../../../crates/sample-lib-ffi",
         &[],
         &[],
+        "",
         &Default::default(),
     )
 }

@@ -47,6 +47,17 @@ pub(super) fn gen_cargo_toml(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
         let quoted: Vec<String> = keywords.iter().map(|k| format!("\"{k}\"")).collect();
         format!("keywords = [{}]\n", quoted.join(", "))
     };
+    let package_file_filters = crate::scaffold::render_cargo_package_file_filters(
+        config
+            .package_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.cargo.as_ref()),
+    );
+    let package_file_filters_line = if package_file_filters.is_empty() {
+        String::new()
+    } else {
+        format!("{package_file_filters}\n")
+    };
 
     let features = config.features_for_language(Language::Wasm);
     let features_clause = if features.is_empty() {
@@ -231,6 +242,7 @@ license = "{license}"
 description = "{description}"
 repository = "{repository}"
 {keywords_toml}
+{package_file_filters_line}
 [package.metadata.cargo-machete]
 ignored = [
     "futures",
@@ -263,6 +275,7 @@ getrandom_03 = {{ package = "getrandom", version = "0.3", features = ["wasm_js"]
         description = description,
         repository = repository,
         keywords_toml = keywords_toml,
+        package_file_filters_line = package_file_filters_line,
         lints_section = lints_section,
         wasm_opt_line = wasm_opt_line,
         deps_block = deps_block,

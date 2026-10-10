@@ -122,7 +122,15 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     let core_crate_dir = config.core_crate_dir();
     let crate_dir = format!("crates/{core_crate_dir}-ffi");
     let ws = detect_workspace_inheritance_for_crate(config.workspace_root.as_deref(), &crate_dir);
-    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-ffi"), version, "2024", &meta, &ws);
+    let cargo_filters = crate::scaffold::cargo_package_file_filters(config);
+    let pkg_header = cargo_package_header(
+        &format!("{core_crate_dir}-ffi"),
+        version,
+        "2024",
+        &meta,
+        &ws,
+        cargo_filters,
+    );
 
     let rendered_extra_deps = render_extra_deps(config, Language::Ffi);
     let mut extra_dep_lines: Vec<String> = if rendered_extra_deps.is_empty() {

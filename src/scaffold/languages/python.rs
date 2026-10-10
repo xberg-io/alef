@@ -124,7 +124,15 @@ pub(crate) fn scaffold_python_cargo(
     let core_crate_dir = config.core_crate_dir();
     let crate_dir = format!("crates/{core_crate_dir}-py");
     let ws = detect_workspace_inheritance_for_crate(config.workspace_root.as_deref(), &crate_dir);
-    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-py"), version, "2024", &meta, &ws);
+    let cargo_filters = crate::scaffold::cargo_package_file_filters(config);
+    let pkg_header = cargo_package_header(
+        &format!("{core_crate_dir}-py"),
+        version,
+        "2024",
+        &meta,
+        &ws,
+        cargo_filters,
+    );
 
     let extra_deps = render_extra_deps(config, Language::Python);
 

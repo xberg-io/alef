@@ -7,15 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- Generated native bindings mark the shared component numeric-status helpers `#[allow(dead_code)]`,
-  so backends that expose only the string status (Swift, Dart, Elixir) build warning-free.
-
 ## [0.109.0] - 2026-10-10
 
 ### Added
 
+- Generated Rust crates can configure Cargo archive allowlists or denylists with
+  `[workspace.package_metadata.cargo]` or `[crates.package_metadata.cargo]` `include`/`exclude`
+  arrays, matching Cargo's native package filtering semantics.
 - Signed downloadable runtime components: `[[crates.component_contracts]]`, `[[crates.components]]` and
   `[crates.component_distribution]` configuration, generated contract tables and host-side proxies,
   `alef component build|package|verify|lock`, and component load/prefetch/status/cache-path APIs across
@@ -25,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Generated Rust binding manifests preserve configured authors and inherit workspace authors and
+  license-file metadata when available. Their lint rationale no longer assumes a consumer workspace
+  denies unsafe code.
+- Generated native bindings mark the shared component numeric-status helpers `#[allow(dead_code)]`,
+  so backends that expose only the string status (Swift, Dart, Elixir) build warning-free.
 - Python async-safety diagnostics no longer flag generated trait markers as thread-bound opaque
   wrappers or recommend the invalid `python.send_sync_types` configuration for traits.
 - Go trampoline signatures render with Minijinja 3, including the default C return type.

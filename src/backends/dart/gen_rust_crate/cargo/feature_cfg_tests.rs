@@ -9,6 +9,36 @@ fn make_unit_variant(name: &str, cfg: Option<&str>) -> EnumVariant {
     }
 }
 
+#[test]
+fn cargo_toml_emits_configured_package_include() {
+    use crate::core::config::new_config::NewAlefConfig;
+
+    let config: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["dart"]
+[[crates]]
+name = "sample-lib"
+sources = ["src/lib.rs"]
+[crates.package_metadata.cargo]
+include = ["src/**", "build.rs"]
+"#,
+    )
+    .expect("valid config");
+    let config = config.resolve().expect("resolved config").remove(0);
+
+    let file = emit_cargo_toml("packages/dart/rust", &ApiSurface::default(), &config, "sample_lib");
+    let manifest = toml::from_str::<toml::Value>(&file.content).expect("valid generated Cargo.toml");
+
+    assert_eq!(
+        manifest["package"]["include"].as_array().expect("package.include"),
+        &vec![
+            toml::Value::String("src/**".into()),
+            toml::Value::String("build.rs".into()),
+        ]
+    );
+}
+
 /// When the API has cfg-gated enum variants the emitted Cargo.toml must declare
 /// a forwarding `[features]` block mapping each referenced feature to the core
 /// dep. This is Option B — the binding crate re-exports the feature rather than

@@ -178,6 +178,43 @@ fn cargo_toml_contains_swift_bridge_version() {
 }
 
 #[test]
+fn cargo_toml_emits_configured_package_exclude() {
+    let config: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["swift"]
+[[crates]]
+name = "demo-crate"
+sources = ["src/lib.rs"]
+[crates.package_metadata.cargo]
+exclude = ["tests/**", "benches/**"]
+"#,
+    )
+    .expect("test config must parse");
+    let config = config.resolve().expect("test config must resolve").remove(0);
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        ..Default::default()
+    };
+
+    let files = gen_rust_crate::emit(&api, &config).expect("Swift Rust crate generation succeeds");
+    let cargo = files
+        .iter()
+        .find(|file| file.path.ends_with("Cargo.toml"))
+        .expect("Cargo.toml");
+    let manifest = toml::from_str::<toml::Value>(&cargo.content).expect("valid generated Cargo.toml");
+
+    assert_eq!(
+        manifest["package"]["exclude"].as_array().expect("package.exclude"),
+        &vec![
+            toml::Value::String("tests/**".into()),
+            toml::Value::String("benches/**".into()),
+        ]
+    );
+}
+
+#[test]
 fn cargo_toml_contains_crate_name_and_version() {
     let api = ApiSurface {
         unresolved_modules: Vec::new(),

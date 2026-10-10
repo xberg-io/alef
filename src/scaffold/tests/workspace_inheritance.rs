@@ -33,6 +33,8 @@ fn excluded_crate_with_no_reachable_workspace_package_keeps_literal_fields() {
          [workspace.package]\n\
          version = \"9.9.9\"\n\
          license = \"Apache-2.0\"\n\
+         license-file = \"LICENSE\"\n\
+         authors = [\"Ignored\"]\n\
          keywords = [\"ignored\"]\n",
     );
 
@@ -62,6 +64,8 @@ fn excluded_crate_with_no_reachable_workspace_package_keeps_literal_fields() {
     for inherited in [
         "version.workspace = true",
         "license.workspace = true",
+        "license-file.workspace = true",
+        "authors.workspace = true",
         "keywords.workspace = true",
     ] {
         assert!(
@@ -95,7 +99,7 @@ fn self_hosting_excluded_crate_inherits_only_the_fields_its_own_workspace_packag
     fs::write(
         native_dir.join("Cargo.toml"),
         "[package]\nname = \"my_lib_nif\"\nversion.workspace = true\n\n\
-         [workspace]\n\n[workspace.package]\nversion = \"0.1.0\"\n",
+         [workspace]\n\n[workspace.package]\nversion = \"0.1.0\"\nauthors = [\"Maintainer\"]\n",
     )
     .expect("write self-hosting native Cargo.toml");
 
@@ -127,6 +131,16 @@ fn self_hosting_excluded_crate_inherits_only_the_fields_its_own_workspace_packag
          workspace defines it, got:\n{}",
         cargo_toml.content
     );
+    assert!(
+        cargo_toml.content.contains("authors.workspace = true"),
+        "the self-hosted workspace defines authors, so the excluded crate must inherit them, got:\n{}",
+        cargo_toml.content
+    );
+    assert!(
+        !cargo_toml.content.contains("license-file.workspace = true"),
+        "the self-hosted workspace does not define license-file, so the excluded crate must not inherit it, got:\n{}",
+        cargo_toml.content
+    );
 }
 
 /// A real workspace member (not named in the root's `[workspace] exclude`) must
@@ -138,7 +152,7 @@ fn real_workspace_member_still_inherits_from_the_root_workspace_package() {
     let root = dir.path().to_path_buf();
     write_root_cargo_toml(
         &root,
-        "[workspace]\nmembers = [\"crates/*\"]\n\n[workspace.package]\nversion = \"4.2.0\"\nlicense = \"MIT\"\n",
+        "[workspace]\nmembers = [\"crates/*\"]\n\n[workspace.package]\nversion = \"4.2.0\"\nlicense = \"MIT\"\nlicense-file = \"LICENSE\"\nauthors = [\"Maintainer\"]\n",
     );
 
     let mut config = test_config_from_toml("");
@@ -157,7 +171,12 @@ fn real_workspace_member_still_inherits_from_the_root_workspace_package() {
         std::path::Path::new("crates/my-lib-ffi/Cargo.toml"),
         "sanity: must be the member FFI crate's own manifest"
     );
-    for inherited in ["version.workspace = true", "license.workspace = true"] {
+    for inherited in [
+        "version.workspace = true",
+        "license.workspace = true",
+        "license-file.workspace = true",
+        "authors.workspace = true",
+    ] {
         assert!(
             cargo_toml.content.contains(inherited),
             "a real workspace member must inherit `{inherited}` from the root's \

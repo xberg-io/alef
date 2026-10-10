@@ -862,3 +862,34 @@ fn ffi_manifest_should_inherit_workspace_authors_and_license_file() {
     assert_eq!(manifest["package"]["authors"]["workspace"].as_bool(), Some(true));
     assert_eq!(manifest["package"]["license-file"]["workspace"].as_bool(), Some(true));
 }
+
+#[test]
+fn ffi_manifest_should_emit_configured_cargo_package_include() {
+    let config = resolve_config(
+        r#"
+[workspace]
+languages = ["ffi"]
+[[crates]]
+name = "my-lib"
+sources = []
+[crates.package_metadata.cargo]
+include = ["src/**", "build.rs", "include/**"]
+"#,
+    );
+    let files = scaffold_ffi(&crate::core::ir::ApiSurface::default(), &config).expect("scaffold");
+    let cargo = &files
+        .iter()
+        .find(|file| file.path.ends_with("Cargo.toml"))
+        .expect("manifest")
+        .content;
+    let manifest = toml::from_str::<toml::Value>(cargo).expect("valid TOML");
+    assert_eq!(
+        manifest["package"]["include"].as_array().expect("include"),
+        &vec![
+            toml::Value::String("src/**".into()),
+            toml::Value::String("build.rs".into()),
+            toml::Value::String("include/**".into()),
+        ]
+    );
+    assert!(manifest["package"].get("exclude").is_none());
+}

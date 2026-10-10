@@ -1,7 +1,7 @@
 //! Crate manifest header rendering: workspace-package-inheritance detection, scaffold
 //! metadata, and the `[package]` header line assembly that consumes both.
 
-use crate::core::config::ResolvedCrateConfig;
+use crate::core::config::{CargoPackageFilesConfig, ResolvedCrateConfig};
 
 /// Fields available via `[workspace.package]` inheritance detected from the root `Cargo.toml`.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -109,6 +109,7 @@ pub(crate) fn cargo_package_header(
     edition: &str,
     meta: &ScaffoldMeta,
     ws: &WorkspacePackageInheritance,
+    cargo_filters: Option<&CargoPackageFilesConfig>,
 ) -> String {
     let version_line = if ws.version {
         "version.workspace = true".to_string()
@@ -153,6 +154,10 @@ pub(crate) fn cargo_package_header(
         keywords_line,
         categories_line,
     ];
+    let package_file_filters = render_cargo_package_file_filters(cargo_filters);
+    if !package_file_filters.is_empty() {
+        lines.push(package_file_filters);
+    }
     if ws.license_file {
         lines.insert(4, "license-file.workspace = true".to_string());
     }
@@ -230,6 +235,34 @@ pub fn scaffold_meta(config: &ResolvedCrateConfig) -> ScaffoldMeta {
         keywords,
         categories,
     }
+}
+
+pub(crate) fn render_cargo_package_file_filters(config: Option<&CargoPackageFilesConfig>) -> String {
+    let Some(config) = config else {
+        return String::new();
+    };
+    let (name, values) = if !config.include.is_empty() {
+        ("include", &config.include)
+    } else if !config.exclude.is_empty() {
+        ("exclude", &config.exclude)
+    } else {
+        return String::new();
+    };
+    let table = toml::Table::from_iter([(
+        name.to_string(),
+        toml::Value::Array(values.iter().cloned().map(toml::Value::String).collect()),
+    )]);
+    toml::to_string(&table)
+        .expect("Cargo package file filters serialize to TOML")
+        .trim_end()
+        .to_string()
+}
+
+pub(crate) fn cargo_package_file_filters(config: &ResolvedCrateConfig) -> Option<&CargoPackageFilesConfig> {
+    config
+        .package_metadata
+        .as_ref()
+        .and_then(|metadata| metadata.cargo.as_ref())
 }
 
 /// Returns true when `crates.readme.languages.<lang_code>` is configured for this

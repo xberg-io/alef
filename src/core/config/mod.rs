@@ -66,7 +66,7 @@ pub use output::{
     ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, TextReplacement, UpdateConfig,
 };
 pub use ownership::{OwnershipConfig, UserOwnedPaths};
-pub use package_metadata::PackageMetadataConfig;
+pub use package_metadata::{CargoPackageFilesConfig, PackageMetadataConfig};
 pub use poly::{PolyConfig, TyposConfig};
 pub use publish::{PublishConfig, PublishLanguageConfig, VendorMode};
 pub use raw_crate::RawCrateConfig;

@@ -37,7 +37,8 @@ pub(crate) fn scaffold_elixir_cargo(
     let core_crate_dir = config.core_crate_dir();
     let native_crate_dir = elixir_native_crate_dir(config);
     let ws = detect_workspace_inheritance_for_crate(config.workspace_root.as_deref(), &native_crate_dir);
-    let pkg_header = cargo_package_header(&nif_name, version, "2024", &meta, &ws);
+    let cargo_filters = crate::scaffold::cargo_package_file_filters(config);
+    let pkg_header = cargo_package_header(&nif_name, version, "2024", &meta, &ws, cargo_filters);
 
     let extra_deps = render_extra_deps(config, Language::Elixir);
     let has_async = api.functions.iter().any(|f| !f.binding_excluded && f.is_async)

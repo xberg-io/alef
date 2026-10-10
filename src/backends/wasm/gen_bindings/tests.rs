@@ -6,6 +6,8 @@ use crate::core::backend::Backend;
 use crate::core::config::{NewAlefConfig, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, FieldDef, MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef};
 
+mod package_filters;
+
 fn empty_api() -> ApiSurface {
     ApiSurface {
         unresolved_modules: Vec::new(),

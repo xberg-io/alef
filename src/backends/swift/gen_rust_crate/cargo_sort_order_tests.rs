@@ -36,6 +36,7 @@ fn plain_manifest_is_cargo_sort_clean() {
         "../../../crates/sample-lib-ffi",
         &[],
         &[],
+        "",
         &Default::default(),
     );
     assert_canonical_table_order("swift Cargo.toml", &content);
@@ -91,6 +92,7 @@ fn manifest_with_features_and_merged_target_overrides_is_cargo_sort_clean() {
         "../../../crates/acme-ffi",
         &["full-no-heic".to_string()],
         &ffi_overrides,
+        "",
         &Default::default(),
     );
     assert_canonical_table_order("swift Cargo.toml (features + merged target overrides)", &content);

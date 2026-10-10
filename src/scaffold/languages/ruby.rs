@@ -65,7 +65,15 @@ pub(crate) fn scaffold_ruby_cargo(
     let pkg_dir = config.package_dir(Language::Ruby);
     let native_crate_dir = format!("{pkg_dir}/ext/{}_rb/native", core_crate_dir.replace('-', "_"));
     let ws = detect_workspace_inheritance_for_crate(config.workspace_root.as_deref(), &native_crate_dir);
-    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-rb"), version, "2024", &meta, &ws);
+    let cargo_filters = crate::scaffold::cargo_package_file_filters(config);
+    let pkg_header = cargo_package_header(
+        &format!("{core_crate_dir}-rb"),
+        version,
+        "2024",
+        &meta,
+        &ws,
+        cargo_filters,
+    );
 
     let extra_deps = render_extra_deps(config, Language::Ruby);
 

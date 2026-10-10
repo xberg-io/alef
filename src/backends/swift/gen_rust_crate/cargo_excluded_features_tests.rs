@@ -36,6 +36,7 @@ fn cargo_toml_forwards_excluded_feature_not_referenced_by_any_cfg_attribute() {
         "../../../crates/sample-lib-ffi",
         &[],
         &[],
+        "",
         &Default::default(),
     );
 

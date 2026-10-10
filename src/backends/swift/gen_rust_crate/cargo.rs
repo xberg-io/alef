@@ -71,9 +71,15 @@ pub(crate) fn emit_cargo_toml(
     ffi_dep_path: &str,
     ffi_features: &[String],
     ffi_target_overrides: &[crate::core::config::languages::SwiftTargetDepOverride],
+    package_file_filters: &str,
     cargo_lints: &crate::core::config::CargoLintsConfig,
 ) -> String {
     let source_crate_name = core_dep_key;
+    let package_file_filters = if package_file_filters.is_empty() {
+        String::new()
+    } else {
+        format!("{package_file_filters}\n")
+    };
     let features_block = if features.is_empty() {
         String::new()
     } else {
@@ -299,7 +305,7 @@ name = "{crate_name}-swift"
 version = "{version}"
 edition = "2024"
 license = "{license}"
-
+{package_file_filters}
 # `ahash`, `async-trait`, `libc`, `serde`, `serde_json`, and `tokio` are all
 # conditionally referenced by alef-emitted code: `ahash` only when the
 # umbrella crate exposes `AHashMap<Cow<str>, _>` parameters (the conditional

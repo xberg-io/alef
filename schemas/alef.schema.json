@@ -1096,6 +1096,26 @@
       },
       "type": "object"
     },
+    "CargoPackageFilesConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "exclude": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "include": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
     "CitationAuthor": {
       "additionalProperties": false,
       "description": "A person or legal-entity author in a generated `CITATION.cff`. ~keep",
@@ -4711,6 +4731,18 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "cargo": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CargoPackageFilesConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Cargo package archive filters for generated Rust binding crates."
         },
         "categories": {
           "default": [],

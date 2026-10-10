@@ -136,6 +136,12 @@ pub(crate) fn emit_cargo_toml(
     } else {
         format!("version = \"{version}\"")
     };
+    let package_file_filters = crate::scaffold::render_cargo_package_file_filters(
+        config
+            .package_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.cargo.as_ref()),
+    );
     let frb_version = crate::backends::dart::naming::dart_frb_version(config);
     let core_crate_dir = config.core_crate_for_language(crate::core::config::extras::Language::Dart);
     let dart_override = config.dart.as_ref().and_then(|c| c.core_crate_override.as_deref());
@@ -453,6 +459,7 @@ pub(crate) fn emit_cargo_toml(
             crate_name => crate_name,
             version_line => version_line.as_str(),
             license => license,
+            package_file_filters => package_file_filters.as_str(),
             machete_ignored_list => machete_ignored_list.as_str(),
             core_dep_line => core_dep_line.as_str(),
             frb_version => frb_version.as_str(),

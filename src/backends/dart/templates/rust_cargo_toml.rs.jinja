@@ -3,6 +3,9 @@ name = "{{ crate_name }}-dart"
 {{ version_line }}
 edition = "2024"
 license = "{{ license }}"
+{% if package_file_filters %}
+{{ package_file_filters }}
+{% endif %}
 
 [package.metadata.cargo-machete]
 # Umbrella + sibling crates are pulled in so flutter_rust_bridge can resolve

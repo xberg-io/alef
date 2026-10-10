@@ -16,6 +16,8 @@
 //! defaults logic.
 
 mod dependency_versions;
+#[cfg(test)]
+mod package_filter_tests;
 mod preconditions;
 mod wrapper_features;
 
@@ -265,6 +267,25 @@ fn validate_package_metadata(config: &ResolvedCrateConfig) -> Result<(), AlefErr
                 config.name,
                 meta.categories.len()
             )));
+        }
+    }
+    if let Some(cargo) = &meta.cargo {
+        if !cargo.include.is_empty() && !cargo.exclude.is_empty() {
+            return Err(AlefError::Config(format!(
+                "crate `{}` package_metadata.cargo.include and package_metadata.cargo.exclude are mutually exclusive",
+                config.name
+            )));
+        }
+        for (field, patterns) in [("include", &cargo.include), ("exclude", &cargo.exclude)] {
+            if let Some(pattern) = patterns
+                .iter()
+                .find(|pattern| pattern.trim().is_empty() || pattern.chars().any(char::is_control))
+            {
+                return Err(AlefError::Config(format!(
+                    "crate `{}` package_metadata.cargo.{field} contains an empty or control-character pattern: {pattern:?}",
+                    config.name
+                )));
+            }
         }
     }
     Ok(())

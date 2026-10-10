@@ -135,6 +135,12 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         .as_ref()
         .map(|c| c.ffi_target_dep_overrides.as_slice())
         .unwrap_or(&[]);
+    let package_file_filters = crate::scaffold::render_cargo_package_file_filters(
+        config
+            .package_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.cargo.as_ref()),
+    );
     let cargo_toml = cargo::emit_cargo_toml(
         crate_name,
         &core_dep_key,
@@ -154,6 +160,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         &ffi_dep_path,
         ffi_features,
         ffi_target_overrides,
+        &package_file_filters,
         &config.cargo_lints,
     );
     let effective_features = feature_gate::effective_swift_codegen_features(api, config, &core_crate_dir);

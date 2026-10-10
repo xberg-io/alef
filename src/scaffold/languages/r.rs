@@ -97,7 +97,15 @@ pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
     let ws = crate::scaffold::WorkspacePackageInheritance::default();
-    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-r"), version, "2024", &meta, &ws);
+    let cargo_filters = crate::scaffold::cargo_package_file_filters(config);
+    let pkg_header = cargo_package_header(
+        &format!("{core_crate_dir}-r"),
+        version,
+        "2024",
+        &meta,
+        &ws,
+        cargo_filters,
+    );
 
     let has_async = api.functions.iter().any(|f| !f.binding_excluded && f.is_async)
         || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
