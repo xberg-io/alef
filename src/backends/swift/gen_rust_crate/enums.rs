@@ -295,10 +295,17 @@ pub(crate) fn can_reconstruct_legacy_variant(en: &EnumDef, defaultable_names: &H
         return true;
     }
     en.variants.iter().all(|variant| {
-        variant
-            .fields
-            .iter()
-            .all(|field| type_is_defaultable(&field.ty, defaultable_names))
+        variant.fields.iter().all(|field| {
+            // ~keep Extraction resolves newtypes to their inner binding type, but the original
+            // wrapper need not implement Default. Empty containers need no payload default. ~keep
+            let empty_container = matches!(
+                field.ty,
+                crate::core::ir::TypeRef::Optional(_)
+                    | crate::core::ir::TypeRef::Vec(_)
+                    | crate::core::ir::TypeRef::Map(_, _)
+            );
+            (field.newtype_wrapper.is_none() || empty_container) && type_is_defaultable(&field.ty, defaultable_names)
+        })
     })
 }
 
@@ -455,6 +462,47 @@ mod tests {
             out.contains("CacheBackend::OpenDal { r#type: ::std::default::Default::default() }"),
             "struct payload defaults must use valid Rust identifiers:\n{out}"
         );
+    }
+
+    #[test]
+    fn resolved_newtype_payload_does_not_inherit_the_inner_type_default() {
+        use crate::core::ir::{NewtypeWrapper, NewtypeWrapperMetadata, TypeRef};
+
+        for wrapper in [
+            "mylib::SecretString".to_string(),
+            NewtypeWrapper::encode_explicit(&[NewtypeWrapperMetadata::transparent_string(
+                "mylib::SecretString",
+                "from",
+                "into_inner",
+                vec![],
+            )]),
+        ] {
+            for is_tuple in [true, false] {
+                let mut variant = make_struct_variant("Secret");
+                variant.is_tuple = is_tuple;
+                variant.fields[0].newtype_wrapper = Some(wrapper.clone());
+                for (ty, expected) in [
+                    (TypeRef::String, false),
+                    (TypeRef::Optional(Box::new(TypeRef::String)), true),
+                    (TypeRef::Vec(Box::new(TypeRef::String)), true),
+                    (TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)), true),
+                ] {
+                    variant.fields[0].ty = ty;
+                    let en = EnumDef {
+                        name: "Authentication".to_string(),
+                        variants: vec![variant.clone()],
+                        ..Default::default()
+                    };
+                    assert_eq!(can_reconstruct_legacy_variant(&en, &HashSet::new()), expected);
+                    let out = emit_enum_wrapper(&en, "mylib", &HashMap::new(), None);
+                    assert_eq!(
+                        out.contains("__alef_authentication_from_swift_string"),
+                        expected,
+                        "{out}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

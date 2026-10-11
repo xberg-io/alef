@@ -124,30 +124,23 @@ impl Chunk {
     }
 }
 
-pub enum StreamEvent {
-    Data,
-    Error,
-    Done,
-}
+pub struct StreamEvent(pub demo::StreamEvent);
 
 impl From<demo::StreamEvent> for StreamEvent {
     fn from(val: demo::StreamEvent) -> Self {
-        match val {
-            demo::StreamEvent::Data { .. } => Self::Data,
-            demo::StreamEvent::Error { .. } => Self::Error,
-            demo::StreamEvent::Done { .. } => Self::Done,
-        }
+        Self(val)
     }
 }
 
 impl StreamEvent {
     pub fn to_string(&self) -> String {
-        match self {
-            Self::Data => "Data".to_string(),
-            Self::Error => "Error".to_string(),
-            Self::Done => "Done".to_string(),
-        }
+        serde_json::to_string(&self.0).expect("serializable StreamEvent")
     }
+}
+
+#[allow(dead_code)]
+fn __alef_stream_event_from_swift_string(value: &str) -> Result<demo::StreamEvent, String> {
+    serde_json::from_str::<demo::StreamEvent>(value).map_err(|error| error.to_string())
 }
 
 pub fn chunk_from_json(json: String) -> Result<Chunk, String> {

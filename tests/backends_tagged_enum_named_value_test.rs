@@ -57,6 +57,16 @@ fn tagged_enum_surface() -> ApiSurface {
 fn binding_backends() -> Vec<(&'static str, Box<dyn Backend>, &'static [&'static str])> {
     const FULL_SURFACE: &[&str] = &["MatchRule", "Exact", "Suffix", "Pattern", "value"];
     const SNAKE_CASE_VARIANTS: &[&str] = &["MatchRule", "exact", "suffix", "pattern"];
+    const SWIFT_SURFACE: &[&str] = &[
+        "public enum MatchRule: Codable",
+        "case exact(value: String)",
+        "case suffix(value: String)",
+        "case pattern(value: String)",
+        "pub struct MatchRule(pub fixture_core::MatchRule);",
+        "fn __alef_match_rule_from_swift_string",
+        "serde_json::to_string(&self.0)",
+        "serde_json::from_str::<fixture_core::MatchRule>(value)",
+    ];
     vec![
         ("pyo3", Box::new(Pyo3Backend), FULL_SURFACE),
         ("napi", Box::new(NapiBackend), FULL_SURFACE),
@@ -71,7 +81,7 @@ fn binding_backends() -> Vec<(&'static str, Box<dyn Backend>, &'static [&'static
         ("kotlin_android", Box::new(KotlinAndroidBackend), FULL_SURFACE),
         ("csharp", Box::new(CsharpBackend), FULL_SURFACE),
         ("dart", Box::new(DartBackend), FULL_SURFACE),
-        ("swift", Box::new(SwiftBackend), FULL_SURFACE),
+        ("swift", Box::new(SwiftBackend), SWIFT_SURFACE),
         ("zig", Box::new(ZigBackend), SNAKE_CASE_VARIANTS),
         ("gleam", Box::new(GleamBackend), FULL_SURFACE),
         ("rustler", Box::new(RustlerBackend), FULL_SURFACE),
