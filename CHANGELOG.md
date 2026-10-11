@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.110.0] - 2026-10-11
+
 ### Changed (BREAKING)
 
 - Generated C# e2e projects use `xunit.v3.mtp-off` 4.0.2 and `xunit.runner.visualstudio` 4.0.1,
