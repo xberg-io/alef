@@ -149,6 +149,15 @@ impl StreamEvent {
         }
     }
 }
+#[allow(dead_code)]
+fn __alef_stream_event_from_swift_string(value: &str) -> Result<demo::StreamEvent, String> {
+    match value {
+        "Data" => Ok(demo::StreamEvent::Data { chunk: ::std::default::Default::default() }),
+        "Error" => Ok(demo::StreamEvent::Error { message: ::std::default::Default::default() }),
+        "Done" => Ok(demo::StreamEvent::Done { count: ::std::default::Default::default() }),
+        _ => Err(format!("unknown StreamEvent variant: {:?}", value)),
+    }
+}
 
 pub fn chunk_from_json(json: String) -> Result<Chunk, String> {
     serde_json::from_str::<demo::Chunk>(&json)

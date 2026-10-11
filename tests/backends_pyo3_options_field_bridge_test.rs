@@ -116,18 +116,36 @@ fn wrapper_body<'a>(lib: &'a str, name: &str) -> Option<&'a str> {
 fn async_wrapper_awaits_the_core_call_inside_future_into_py() {
     let dir = tempfile::tempdir().expect("tempdir");
     let api = extract(dir.path());
-    let lib = lib_rs(&api, &config_with(""));
-    let body = wrapper_body(&lib, "execute").expect("execute wrapper");
+    for (runtime, expected, absent) in [
+        (
+            None,
+            "pyo3_async_runtimes::tokio::future_into_py",
+            "alef_async_runtime::future_into_py",
+        ),
+        (
+            Some("managed"),
+            "alef_async_runtime::future_into_py",
+            "pyo3_async_runtimes::tokio::future_into_py",
+        ),
+    ] {
+        let mut config = config_with("");
+        config.python.as_mut().expect("Python config").async_runtime = runtime.map(str::to_string);
+        let lib = lib_rs(&api, &config);
+        let body = wrapper_body(&lib, "execute").expect("execute wrapper");
 
-    assert!(
-        body.contains("alef_async_runtime::future_into_py(py, async move {"),
-        "the async options-field wrapper must return a Python awaitable; body:\n{body}"
-    );
-    assert!(
-        body.contains("sample_lib::execute(input, settings_core).await"),
-        "the async options-field wrapper must AWAIT the core call -- returning the bare future \
-         does not type-check against the declared return; body:\n{body}"
-    );
+        assert!(
+            body.contains(&format!("{expected}(py, async move {{")),
+            "the options-field wrapper must use the selected runtime {runtime:?}; body:\n{body}"
+        );
+        assert!(
+            !body.contains(absent),
+            "the options-field wrapper must not use the other runtime {runtime:?}; body:\n{body}"
+        );
+        assert!(
+            body.contains("sample_lib::execute(input, settings_core).await"),
+            "the async options-field wrapper must await the core call in runtime {runtime:?}; body:\n{body}"
+        );
+    }
 }
 
 #[test]
