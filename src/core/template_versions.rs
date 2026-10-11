@@ -508,18 +508,12 @@ pub mod nuget {
     // renovate: datasource=nuget depName=Microsoft.NET.Test.Sdk
     pub const MICROSOFT_NET_TEST_SDK: &str = "18.10.1";
 
-    // renovate: datasource=nuget depName=xunit
-    pub const XUNIT: &str = "2.9.3";
+    // renovate: datasource=nuget depName=xunit.v3.mtp-off
+    pub const XUNIT: &str = "4.0.2";
 
-    // Deliberately held below xunit.runner.visualstudio 4.0.0: that release requires
-    // xUnit.net v3 test projects and drops v2 support ("This package supports xUnit.net
-    // v3 4.0 test projects" per https://xunit.net/releases/visualstudio/4.0.0), while XUNIT
-    // above pins the v2 line (the "xunit" package never publishes a v3; v3 ships under the
-    // separate "xunit.v3" package id). Bumping this to 4.0.0 without also migrating XUNIT to
-    // v3 would break every generated C# test project's `dotnet test` adapter resolution.
-    // 3.1.5 is the latest 3.x release, so this pin is already current for the v2 line. ~keep
+    // ~keep Keep VSTest support on .NET 10; the default v3 package requires MTP runner configuration.
     // renovate: datasource=nuget depName=xunit.runner.visualstudio
-    pub const XUNIT_RUNNER_VISUALSTUDIO: &str = "3.1.5";
+    pub const XUNIT_RUNNER_VISUALSTUDIO: &str = "4.0.1";
 }
 
 pub mod hex {

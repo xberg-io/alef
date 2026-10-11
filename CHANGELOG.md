@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (BREAKING)
+
+- Generated C# e2e projects use `xunit.v3.mtp-off` 4.0.2 and `xunit.runner.visualstudio` 4.0.1,
+  replacing the deprecated xUnit v2 package. Test projects now emit `OutputType=Exe` and retain VSTest compatibility;
+  custom harness extensions using xUnit v2 APIs must migrate to xUnit v3.
+
 ### Fixed
 
 - Split CLI adoption reports, validation diagnostics, extraction deduplication, Swift checksum

@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
@@ -20,7 +21,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="{{ microsoft_net_test_sdk_version }}" />
-    <PackageReference Include="xunit" Version="{{ xunit_version }}" />
+    <PackageReference Include="xunit.v3.mtp-off" Version="{{ xunit_version }}" />
     <PackageReference Include="xunit.runner.visualstudio" Version="{{ xunit_runner_version }}" />
 {% if extras_block %}
 {{ extras_block }}

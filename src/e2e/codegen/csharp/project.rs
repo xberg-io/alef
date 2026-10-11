@@ -364,8 +364,72 @@ mod tests {
 
         // Should not have extras block, only baseline dependencies
         assert!(output.contains("Microsoft.NET.Test.Sdk"));
-        assert!(output.contains("xunit"));
+        assert!(output.contains("<OutputType>Exe</OutputType>"));
+        assert!(output.contains(&format!(
+            "Include=\"xunit.v3.mtp-off\" Version=\"{}\"",
+            tv::nuget::XUNIT
+        )));
+        assert!(!output.contains("Include=\"xunit\""));
         assert!(output.contains("<ProjectReference Include=\"../../packages/csharp/MyLib/MyLib.csproj\" />"));
+    }
+
+    #[test]
+    #[ignore = "requires .NET SDK and NuGet restore"]
+    fn generated_xunit_v3_project_runs_with_dotnet() {
+        let dir = tempfile::tempdir().expect("temporary test workspace");
+        let harness = write_generated_xunit_fixture(dir.path());
+        let test_path = harness.join("Checks.cs");
+        let test = "using Xunit; public class Checks { [Fact] public void Runs() { Assert.Equal(4, 2 + 2); } }";
+        std::fs::write(&test_path, test.replace("Equal(4", "Equal(5")).expect("write failing control");
+        let failed = run_generated_dotnet_test(&harness);
+        let failed_stdout = String::from_utf8_lossy(&failed.stdout);
+        assert!(!failed.status.success(), "failing control must fail: {failed_stdout}");
+        assert!(
+            failed_stdout.contains("Total tests: 1"),
+            "control must run one test: {failed_stdout}"
+        );
+        std::fs::write(&test_path, test).expect("write passing test case");
+        let output = run_generated_dotnet_test(&harness);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success(),
+            "{stdout}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            stdout.contains("Total tests: 1"),
+            "dotnet must execute the generated test: {stdout}"
+        );
+    }
+
+    fn write_generated_xunit_fixture(root: &std::path::Path) -> std::path::PathBuf {
+        let library = root.join("library");
+        let harness = root.join("harness");
+        std::fs::create_dir_all(&library).expect("create library directory");
+        std::fs::create_dir_all(&harness).expect("create harness directory");
+        std::fs::write(
+            library.join("Sample.csproj"),
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>",
+        )
+        .expect("write sample project");
+        let project = render_csproj(
+            "Sample",
+            "Sample",
+            "../library/Sample.csproj",
+            "0.1.0",
+            crate::e2e::config::DependencyMode::Local,
+            None,
+        );
+        std::fs::write(harness.join("Harness.csproj"), project).expect("write generated harness");
+        harness
+    }
+
+    fn run_generated_dotnet_test(harness: &std::path::Path) -> std::process::Output {
+        std::process::Command::new("dotnet")
+            .args(["test", "Harness.csproj", "--verbosity", "normal"])
+            .current_dir(harness)
+            .output()
+            .expect("run dotnet test")
     }
 
     #[test]
