@@ -133,96 +133,96 @@ pub(super) fn dedup_api_surface(api: &mut ApiSurface) {
     let error_names: AHashSet<String> = api.errors.iter().map(|e| e.name.clone()).collect();
     api.types.retain(|t| !error_names.contains(&t.name));
 
-    // gates — a real re-export under `#[cfg(feature = "X")]` plus a stub fallback under
-    // `#[cfg(any(not(feature = "X"), ...))]` (e.g. `LlmBackend` on the android-x86_64 emulator,
-    {
-        let mut best: AHashMap<String, usize> = AHashMap::new();
-        let mut group_indices: AHashMap<String, Vec<usize>> = AHashMap::new();
-        for (i, t) in api.types.iter().enumerate() {
-            group_indices.entry(t.name.clone()).or_default().push(i);
-            best.entry(t.name.clone())
-                .and_modify(|prev_i| {
-                    if api.types[i].rust_path.len() < api.types[*prev_i].rust_path.len() {
-                        *prev_i = i;
-                    }
-                })
-                .or_insert(i);
-        }
-        let merged_cfg_by_canonical: AHashMap<usize, Option<String>> = group_indices
-            .iter()
-            .filter(|(_, indices)| {
-                indices.len() > 1 && {
-                    let first = &api.types[indices[0]].cfg;
-                    indices.iter().any(|&i| &api.types[i].cfg != first)
-                }
-            })
-            .filter_map(|(name, indices)| {
-                best.get(name).map(|&canonical| {
-                    let merged =
-                        crate::codegen::fn_dedup::merge_cfgs(indices.iter().map(|&i| api.types[i].cfg.as_deref()));
-                    (canonical, merged)
-                })
-            })
-            .collect();
-        for (&canonical, merged) in &merged_cfg_by_canonical {
-            api.types[canonical].cfg = merged.clone();
-        }
-        let keep: AHashSet<usize> = best.values().copied().collect();
-        let mut idx = 0;
-        api.types.retain(|_| {
-            let k = keep.contains(&idx);
-            idx += 1;
-            k
-        });
-    }
-
-    {
-        let mut best: AHashMap<String, usize> = AHashMap::new();
-        for (i, e) in api.enums.iter().enumerate() {
-            best.entry(e.name.clone())
-                .and_modify(|prev_i| {
-                    if api.enums[i].rust_path.len() < api.enums[*prev_i].rust_path.len() {
-                        *prev_i = i;
-                    }
-                })
-                .or_insert(i);
-        }
-        let keep: AHashSet<usize> = best.values().copied().collect();
-        let mut idx = 0;
-        api.enums.retain(|_| {
-            let k = keep.contains(&idx);
-            idx += 1;
-            k
-        });
-    }
-
-    // (which synthesises a paired entry under a disjoint cfg for `#[cfg(X)] pub use mod::fn`
-    {
-        let mut best: AHashMap<(String, Option<String>), usize> = AHashMap::new();
-        for (i, f) in api.functions.iter().enumerate() {
-            best.entry((f.name.clone(), f.cfg.clone()))
-                .and_modify(|prev_i| {
-                    if api.functions[i].rust_path.len() < api.functions[*prev_i].rust_path.len() {
-                        *prev_i = i;
-                    }
-                })
-                .or_insert(i);
-        }
-        let keep: AHashSet<usize> = best.values().copied().collect();
-        let mut idx = 0;
-        api.functions.retain(|_| {
-            let k = keep.contains(&idx);
-            idx += 1;
-            k
-        });
-    }
+    dedup_types(api);
+    dedup_enums(api);
+    dedup_functions(api);
 
     let mut seen_errors: AHashSet<String> = AHashSet::new();
     api.errors.retain(|e| seen_errors.insert(e.name.clone()));
 }
 
-/// Rewrite a rust_path using path_mappings.
+fn dedup_types(api: &mut ApiSurface) {
+    let mut best: AHashMap<String, usize> = AHashMap::new();
+    let mut group_indices: AHashMap<String, Vec<usize>> = AHashMap::new();
+    for (i, t) in api.types.iter().enumerate() {
+        group_indices.entry(t.name.clone()).or_default().push(i);
+        best.entry(t.name.clone())
+            .and_modify(|prev_i| {
+                if api.types[i].rust_path.len() < api.types[*prev_i].rust_path.len() {
+                    *prev_i = i;
+                }
+            })
+            .or_insert(i);
+    }
+    let merged_cfg_by_canonical: AHashMap<usize, Option<String>> = group_indices
+        .iter()
+        .filter(|(_, indices)| {
+            indices.len() > 1 && {
+                let first = &api.types[indices[0]].cfg;
+                indices.iter().any(|&i| &api.types[i].cfg != first)
+            }
+        })
+        .filter_map(|(name, indices)| {
+            best.get(name).map(|&canonical| {
+                let merged = crate::codegen::fn_dedup::merge_cfgs(indices.iter().map(|&i| api.types[i].cfg.as_deref()));
+                (canonical, merged)
+            })
+        })
+        .collect();
+    for (&canonical, merged) in &merged_cfg_by_canonical {
+        api.types[canonical].cfg = merged.clone();
+    }
+    let keep: AHashSet<usize> = best.values().copied().collect();
+    let mut idx = 0;
+    api.types.retain(|_| {
+        let k = keep.contains(&idx);
+        idx += 1;
+        k
+    });
+}
+
+fn dedup_enums(api: &mut ApiSurface) {
+    let mut best: AHashMap<String, usize> = AHashMap::new();
+    for (i, e) in api.enums.iter().enumerate() {
+        best.entry(e.name.clone())
+            .and_modify(|prev_i| {
+                if api.enums[i].rust_path.len() < api.enums[*prev_i].rust_path.len() {
+                    *prev_i = i;
+                }
+            })
+            .or_insert(i);
+    }
+    let keep: AHashSet<usize> = best.values().copied().collect();
+    let mut idx = 0;
+    api.enums.retain(|_| {
+        let k = keep.contains(&idx);
+        idx += 1;
+        k
+    });
+}
+
+fn dedup_functions(api: &mut ApiSurface) {
+    let mut best: AHashMap<(String, Option<String>), usize> = AHashMap::new();
+    for (i, f) in api.functions.iter().enumerate() {
+        best.entry((f.name.clone(), f.cfg.clone()))
+            .and_modify(|prev_i| {
+                if api.functions[i].rust_path.len() < api.functions[*prev_i].rust_path.len() {
+                    *prev_i = i;
+                }
+            })
+            .or_insert(i);
+    }
+    let keep: AHashSet<usize> = best.values().copied().collect();
+    let mut idx = 0;
+    api.functions.retain(|_| {
+        let k = keep.contains(&idx);
+        idx += 1;
+        k
+    });
+}
+
 /// Matches the longest prefix first.
+/// Rewrite a rust_path using path_mappings.
 fn rewrite_path(path: &str, mappings: &HashMap<String, String>) -> String {
     let mut sorted: Vec<_> = mappings.iter().collect();
     sorted.sort_by_key(|b| std::cmp::Reverse(b.0.len()));

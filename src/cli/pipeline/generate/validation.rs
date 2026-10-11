@@ -21,28 +21,7 @@ pub(super) fn validate_generation_api<'a>(
     {
         tracing::warn!("{diagnostic}");
     }
-    // `validation_report`'s own warnings (e.g. SerdeContainerConversionUnsupported) previously
-    // had no print path at all here -- only its Errors were ever consulted (for the fatal/
-    // suppressed handling below), so a Warning-severity diagnostic from
-    // `backend_readiness_diagnostics` was silently dropped before reaching the user. Mirrors
-    // the language_diagnostics loop above, and the same suppression precedent as the
-    // fatal-error handling below: a consumer's own `suppress_validation_codes` entry still
-    // demotes this to `debug!` rather than reprinting what they explicitly opted out of. ~keep
-    for diagnostic in validation_report
-        .diagnostics
-        .iter()
-        .filter(|diagnostic| diagnostic.severity == ValidationSeverity::Warning)
-    {
-        if config
-            .suppress_validation_codes
-            .iter()
-            .any(|code| code == &diagnostic.code.to_string())
-        {
-            tracing::debug!("[suppressed] {diagnostic}");
-        } else {
-            tracing::warn!("{diagnostic}");
-        }
-    }
+    report_validation_warnings(&validation_report.diagnostics, config);
     let fatal: Vec<_> = validation_report
         .errors()
         .filter(|diagnostic| {
@@ -57,7 +36,20 @@ pub(super) fn validate_generation_api<'a>(
         .iter()
         .filter(|diagnostic| diagnostic.severity == ValidationSeverity::Error)
         .collect();
-    for diagnostic in validation_report.errors().filter(|diagnostic| {
+    report_suppressed_errors(validation_report.errors(), config);
+    if !fatal.is_empty() || !fatal_language_diagnostics.is_empty() {
+        let formatted = format_fatal_diagnostics(&fatal, &fatal_language_diagnostics);
+        anyhow::bail!("{formatted}");
+    }
+    ValidatedApiSurface::new_with_bridged_traits(api, &config.suppress_validation_codes, &bridged_trait_names)
+        .map_err(|report| anyhow::anyhow!(report.format_errors()))
+}
+
+fn report_suppressed_errors<'a>(
+    diagnostics: impl Iterator<Item = &'a ValidationDiagnostic>,
+    config: &ResolvedCrateConfig,
+) {
+    for diagnostic in diagnostics.filter(|diagnostic| {
         !crate::core::validation::is_critical_unsuppressible(diagnostic.code)
             && config
                 .suppress_validation_codes
@@ -68,25 +60,50 @@ pub(super) fn validate_generation_api<'a>(
         // re-printing it at warn level defeats their own declared setting. ~keep
         tracing::debug!("[suppressed] {diagnostic}");
     }
-    if !fatal.is_empty() || !fatal_language_diagnostics.is_empty() {
-        let formatted = fatal
+}
+
+fn report_validation_warnings(diagnostics: &[ValidationDiagnostic], config: &ResolvedCrateConfig) {
+    // `validation_report`'s own warnings (e.g. SerdeContainerConversionUnsupported) previously
+    // had no print path at all here -- only its Errors were ever consulted (for the fatal/
+    // suppressed handling below), so a Warning-severity diagnostic from
+    // `backend_readiness_diagnostics` was silently dropped before reaching the user. Mirrors
+    // the language_diagnostics loop above, and the same suppression precedent as the
+    // fatal-error handling below: a consumer's own `suppress_validation_codes` entry still
+    // demotes this to `debug!` rather than reprinting what they explicitly opted out of. ~keep
+    for diagnostic in diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.severity == ValidationSeverity::Warning)
+    {
+        if config
+            .suppress_validation_codes
             .iter()
-            .copied()
-            .chain(fatal_language_diagnostics.iter().copied())
-            .map(|diagnostic| {
-                let path = diagnostic
-                    .item_path
-                    .as_deref()
-                    .map(|p| format!(" item `{p}`"))
-                    .unwrap_or_default();
-                format!("- [{}]{path} {}", diagnostic.code, diagnostic.reason)
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        anyhow::bail!("{formatted}");
+            .any(|code| code == &diagnostic.code.to_string())
+        {
+            tracing::debug!("[suppressed] {diagnostic}");
+        } else {
+            tracing::warn!("{diagnostic}");
+        }
     }
-    ValidatedApiSurface::new_with_bridged_traits(api, &config.suppress_validation_codes, &bridged_trait_names)
-        .map_err(|report| anyhow::anyhow!(report.format_errors()))
+}
+
+fn format_fatal_diagnostics(
+    fatal: &[&ValidationDiagnostic],
+    fatal_language_diagnostics: &[&ValidationDiagnostic],
+) -> String {
+    fatal
+        .iter()
+        .copied()
+        .chain(fatal_language_diagnostics.iter().copied())
+        .map(|diagnostic| {
+            let path = diagnostic
+                .item_path
+                .as_deref()
+                .map(|p| format!(" item `{p}`"))
+                .unwrap_or_default();
+            format!("- [{}]{path} {}", diagnostic.code, diagnostic.reason)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn language_backend_readiness_diagnostics(

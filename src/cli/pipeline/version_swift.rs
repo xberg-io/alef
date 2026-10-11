@@ -101,6 +101,32 @@ pub(super) fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow:
         return Ok(None);
     }
 
+    let Some(swift_crate) = configured_swift_crate(config) else {
+        return Ok(None);
+    };
+
+    let Some(zip_path) = swift_artifactbundle(&swift_crate) else {
+        return Ok(None);
+    };
+
+    let checksum = swift_bundle_checksum(&zip_path)?;
+
+    if checksum.is_empty() {
+        // Downstream of the artifactbundle build above; a correct setup without Xcode / Apple
+        // targets reaches this on every non-macOS host. ~keep
+        info!("Computed empty checksum — skipping substitution");
+        return Ok(None);
+    }
+
+    substitute_swift_checksum(pkg_swift_path, &pkg_content, &checksum)?;
+
+    std::fs::create_dir_all("target").ok();
+    std::fs::write("target/alef-swift-checksum.txt", &checksum).context("writing target/alef-swift-checksum.txt")?;
+
+    Ok(Some(checksum))
+}
+
+fn configured_swift_crate(config: &ResolvedCrateConfig) -> Option<String> {
     let swift_crate = format!("{}-swift", config.name);
     let candidate_manifests = [
         format!("crates/{swift_crate}/Cargo.toml"),
@@ -116,10 +142,14 @@ pub(super) fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow:
              skipping checksum precompute. Run with --skip-swift-checksum to suppress.",
             candidate_manifests
         );
-        return Ok(None);
+        return None;
     };
     debug!("Using swift manifest: {swift_manifest}");
 
+    Some(swift_crate)
+}
+
+fn swift_artifactbundle(swift_crate: &str) -> Option<std::path::PathBuf> {
     let bundle_dir = std::path::Path::new("dist/swift-artifactbundle");
     let existing_zip = if bundle_dir.exists() {
         std::fs::read_dir(bundle_dir).ok().and_then(|entries| {
@@ -137,49 +167,63 @@ pub(super) fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow:
             info!("Using pre-built artifactbundle: {}", p.display());
             p
         }
-        None => {
-            info!("Building swift artifactbundle for `{swift_crate}`…");
-            let args = [
-                std::ffi::OsStr::new("build"),
-                std::ffi::OsStr::new("-p"),
-                std::ffi::OsStr::new(&swift_crate),
-                std::ffi::OsStr::new("--release"),
-                std::ffi::OsStr::new("--target"),
-                std::ffi::OsStr::new("aarch64-apple-darwin"),
-            ];
-            match run_argv_captured("cargo", &args) {
-                Ok(_) => {}
-                Err(e) => {
-                    // Fires on every non-macOS host and every pre-release repo without Xcode; a
-                    // correct setup lacking Apple tooling cannot avoid this. ~keep
-                    info!(
-                        "Swift artifactbundle build failed (missing Xcode / Apple targets?): {e}\n\
-                         Re-run with --skip-swift-checksum to skip this step."
-                    );
-                    return Ok(None);
-                }
-            }
-            std::fs::create_dir_all(bundle_dir).ok();
-            match std::fs::read_dir(bundle_dir).ok().and_then(|entries| {
-                entries
-                    .filter_map(|e| e.ok())
-                    .map(|e| e.path())
-                    .find(|p| p.extension().and_then(|e| e.to_str()) == Some("zip"))
-            }) {
-                Some(p) => p,
-                None => {
-                    // Downstream of the artifactbundle build above; a correct setup without Xcode
-                    // / Apple targets reaches this on every non-macOS host. ~keep
-                    info!(
-                        "No .zip found in `dist/swift-artifactbundle/` after build — \
-                         skipping checksum substitution."
-                    );
-                    return Ok(None);
-                }
-            }
-        }
+        None => return build_swift_artifactbundle(swift_crate, bundle_dir),
     };
 
+    Some(zip_path)
+}
+
+fn build_swift_artifactbundle(swift_crate: &str, bundle_dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    if !build_swift_library(swift_crate) {
+        return None;
+    }
+    std::fs::create_dir_all(bundle_dir).ok();
+    let zip_path = match std::fs::read_dir(bundle_dir).ok().and_then(|entries| {
+        entries
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .find(|p| p.extension().and_then(|e| e.to_str()) == Some("zip"))
+    }) {
+        Some(p) => p,
+        None => {
+            // Downstream of the artifactbundle build above; a correct setup without Xcode
+            // / Apple targets reaches this on every non-macOS host. ~keep
+            info!(
+                "No .zip found in `dist/swift-artifactbundle/` after build — \
+                 skipping checksum substitution."
+            );
+            return None;
+        }
+    };
+    Some(zip_path)
+}
+
+fn build_swift_library(swift_crate: &str) -> bool {
+    info!("Building swift artifactbundle for `{swift_crate}`…");
+    let args = [
+        std::ffi::OsStr::new("build"),
+        std::ffi::OsStr::new("-p"),
+        std::ffi::OsStr::new(swift_crate),
+        std::ffi::OsStr::new("--release"),
+        std::ffi::OsStr::new("--target"),
+        std::ffi::OsStr::new("aarch64-apple-darwin"),
+    ];
+    match run_argv_captured("cargo", &args) {
+        Ok(_) => {}
+        Err(e) => {
+            // Fires on every non-macOS host and every pre-release repo without Xcode; a
+            // correct setup lacking Apple tooling cannot avoid this. ~keep
+            info!(
+                "Swift artifactbundle build failed (missing Xcode / Apple targets?): {e}\n\
+                 Re-run with --skip-swift-checksum to skip this step."
+            );
+            return false;
+        }
+    }
+    true
+}
+
+fn swift_bundle_checksum(zip_path: &std::path::Path) -> anyhow::Result<String> {
     let args = [
         std::ffi::OsStr::new("package"),
         std::ffi::OsStr::new("compute-checksum"),
@@ -189,23 +233,24 @@ pub(super) fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow:
         Ok((stdout, _)) => stdout.trim().to_string(),
         Err(_) => {
             info!("`swift` not found — computing SHA-256 in-process");
-            let bytes = std::fs::read(&zip_path).with_context(|| format!("failed to read {}", zip_path.display()))?;
+            let bytes = std::fs::read(zip_path).with_context(|| format!("failed to read {}", zip_path.display()))?;
             compute_sha256_hex(&bytes)
         }
     };
 
-    if checksum.is_empty() {
-        // Downstream of the artifactbundle build above; a correct setup without Xcode / Apple
-        // targets reaches this on every non-macOS host. ~keep
-        info!("Computed empty checksum — skipping substitution");
-        return Ok(None);
-    }
+    Ok(checksum)
+}
 
+fn substitute_swift_checksum(
+    pkg_swift_path: &std::path::Path,
+    pkg_content: &str,
+    checksum: &str,
+) -> anyhow::Result<()> {
     // Assert the substitution will actually change something before performing it, rather than
     // asserting the placeholder's absence afterward -- an absence check is satisfied both by a
     // real substitution and by this field disappearing/renaming underneath us, which is exactly
     // the failure this must catch instead of silently swallow. ~keep
-    let checksum_field_matches = SWIFT_CHECKSUM_FIELD_RE.find_iter(&pkg_content).count();
+    let checksum_field_matches = SWIFT_CHECKSUM_FIELD_RE.find_iter(pkg_content).count();
     if checksum_field_matches == 0 {
         anyhow::bail!(
             "Package.swift has no `checksum:` field holding `__ALEF_SWIFT_CHECKSUM__` or a 64-hex-char \
@@ -214,15 +259,12 @@ pub(super) fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow:
     }
 
     let new_content = SWIFT_CHECKSUM_FIELD_RE
-        .replace_all(&pkg_content, format!("${{1}}{checksum}$2").as_str())
+        .replace_all(pkg_content, format!("${{1}}{checksum}$2").as_str())
         .into_owned();
     std::fs::write(pkg_swift_path, &new_content).context("writing Package.swift with checksum")?;
     info!("Substituted checksum → {checksum} in Package.swift ({checksum_field_matches} field(s))");
 
-    std::fs::create_dir_all("target").ok();
-    std::fs::write("target/alef-swift-checksum.txt", &checksum).context("writing target/alef-swift-checksum.txt")?;
-
-    Ok(Some(checksum))
+    Ok(())
 }
 
 /// Compute a lowercase hex SHA-256 digest of `bytes` without shelling out.

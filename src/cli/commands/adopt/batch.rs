@@ -297,52 +297,7 @@ impl<'m> AdoptSession<'m> {
             ..AdoptReport::default()
         };
 
-        // Partitioned before anything is classified for the report, so an excluded seed
-        // contributes no diff, no converged tally and no adopted entry -- it is not a thing
-        // this run is deciding about, it is a thing this run refuses to decide about.
-        //
-        // `AlreadyOwned` seeds are deliberately not excluded: the file already carries a
-        // marker, so there is no consent left to give and no content this command could put
-        // at risk. Listing them as blocked would be a false alarm on the exact list whose
-        // whole value is that every line on it is genuinely dangerous. ~keep
-        let (adoptable, blocked): (Vec<Rc<AdoptCandidate>>, Vec<Rc<AdoptCandidate>>) =
-            candidates.into_iter().partition(|candidate| {
-                options.clobber_create_once_seeds
-                    || !candidate.create_once
-                    || candidate.state == AdoptionState::AlreadyOwned
-            });
-        for candidate in &blocked {
-            report.skipped_create_once.push(candidate.relative.clone());
-            tracing::warn!(
-                path = %candidate.relative.display(),
-                "create-once seed: alef emits this path only when absent, so adopting it consents to alef \
-                 replacing its contents with a placeholder seed on the next OVERWRITING regen -- an \
-                 `alef version` sync or `alef all --clobber-create-once-seeds`. A plain `alef generate` \
-                 skips it"
-            );
-        }
-
-        for candidate in &adoptable {
-            match candidate.state {
-                AdoptionState::AlreadyOwned => report.already_owned.push(candidate.relative.clone()),
-                AdoptionState::Converged => report.converged.push(candidate.relative.clone()),
-                AdoptionState::Drifted => {
-                    let body = self.diff_body(candidate);
-                    report.diffs.push(AdoptDiff {
-                        relative: candidate.relative.clone(),
-                        state: candidate.state,
-                        body,
-                    });
-                }
-            }
-        }
-
-        for diff in report.drifted() {
-            tracing::warn!(
-                path = %diff.relative.display(),
-                "content differs from generated output: adopting consents to alef replacing it on the next generate"
-            );
-        }
+        let adoptable = self.prepare_adoption_report(candidates, options, &mut report);
 
         if !options.write {
             return Ok(report);
@@ -384,6 +339,66 @@ impl<'m> AdoptSession<'m> {
             }
         }
         Ok(report)
+    }
+
+    fn prepare_adoption_report(
+        &mut self,
+        candidates: Vec<Rc<AdoptCandidate>>,
+        options: &AdoptOptions,
+        report: &mut AdoptReport,
+    ) -> Vec<Rc<AdoptCandidate>> {
+        // Partitioned before anything is classified for the report, so an excluded seed
+        // contributes no diff, no converged tally and no adopted entry -- it is not a thing
+        // this run is deciding about, it is a thing this run refuses to decide about.
+        //
+        // `AlreadyOwned` seeds are deliberately not excluded: the file already carries a
+        // marker, so there is no consent left to give and no content this command could put
+        // at risk. Listing them as blocked would be a false alarm on the exact list whose
+        // whole value is that every line on it is genuinely dangerous. ~keep
+        let (adoptable, blocked): (Vec<Rc<AdoptCandidate>>, Vec<Rc<AdoptCandidate>>) =
+            candidates.into_iter().partition(|candidate| {
+                options.clobber_create_once_seeds
+                    || !candidate.create_once
+                    || candidate.state == AdoptionState::AlreadyOwned
+            });
+        for candidate in &blocked {
+            report.skipped_create_once.push(candidate.relative.clone());
+            tracing::warn!(
+                path = %candidate.relative.display(),
+                "create-once seed: alef emits this path only when absent, so adopting it consents to alef \
+                 replacing its contents with a placeholder seed on the next OVERWRITING regen -- an \
+                 `alef version` sync or `alef all --clobber-create-once-seeds`. A plain `alef generate` \
+                 skips it"
+            );
+        }
+
+        self.classify_adoption_report(&adoptable, report);
+
+        for diff in report.drifted() {
+            tracing::warn!(
+                path = %diff.relative.display(),
+                "content differs from generated output: adopting consents to alef replacing it on the next generate"
+            );
+        }
+
+        adoptable
+    }
+
+    fn classify_adoption_report(&mut self, adoptable: &[Rc<AdoptCandidate>], report: &mut AdoptReport) {
+        for candidate in adoptable {
+            match candidate.state {
+                AdoptionState::AlreadyOwned => report.already_owned.push(candidate.relative.clone()),
+                AdoptionState::Converged => report.converged.push(candidate.relative.clone()),
+                AdoptionState::Drifted => {
+                    let body = self.diff_body(candidate);
+                    report.diffs.push(AdoptDiff {
+                        relative: candidate.relative.clone(),
+                        state: candidate.state,
+                        body,
+                    });
+                }
+            }
+        }
     }
 
     /// Write the accumulated ownership record once for the whole invocation.
