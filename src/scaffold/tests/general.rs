@@ -81,7 +81,7 @@ fn wasm_targets_default_to_all_four_wasm_pack_targets() {
     }
     assert_eq!(
         scripts["build:all"],
-        "npm run build:wasm:web && npm run build:wasm:bundler && npm run build:wasm:nodejs && npm run build:wasm:deno && find pkg -name .gitignore -delete"
+        "pnpm run build:wasm:web && pnpm run build:wasm:bundler && pnpm run build:wasm:nodejs && pnpm run build:wasm:deno && find pkg -name .gitignore -delete"
     );
 }
 
@@ -149,7 +149,7 @@ fn wasm_targets_web_only_ships_single_target() {
     }
     assert_eq!(
         scripts["build:all"],
-        "npm run build:wasm:web && find pkg -name .gitignore -delete"
+        "pnpm run build:wasm:web && find pkg -name .gitignore -delete"
     );
     assert_eq!(scripts["build"], "wasm-pack build --target web --out-dir pkg/web");
 }

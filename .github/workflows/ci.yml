@@ -151,7 +151,7 @@ jobs:
       - name: Install generated Python type checker
         run: uv tool install pyrefly==1.3.1
       - name: Install generated TypeScript compiler
-        run: npm install --global typescript@5.9.2
+        run: pnpm add --global typescript@5.9.2
       # `rust-toolchain.toml` already carries `wasm32-unknown-unknown` on every leg, but the
       # wasm-bindgen CLI is a separate artifact and nothing here installed it before this step.
       # `backends::wasm::wasm_bindgen_js_oracle` is the only check in this repo that reads what

@@ -79,7 +79,7 @@ pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         .collect();
     let build_all = targets
         .iter()
-        .map(|t| format!("npm run build:wasm:{t}"))
+        .map(|t| format!("pnpm run build:wasm:{t}"))
         .collect::<Vec<_>>()
         .join(" && ");
 
@@ -87,6 +87,7 @@ pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         r#"{{
   "name": "{wasm_pkg_name}",
   "version": "{version}",
+  "packageManager": "pnpm@12.11.2",
   "private": false,
   "description": "{description}"{license_block}{repository_block},
   "publishConfig": {{

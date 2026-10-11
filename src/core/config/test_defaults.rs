@@ -51,8 +51,8 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str, ctx: &LangCo
             let pm = ctx.tools.node_pm();
             let (cmd, cov) = match pm {
                 "npm" => (
-                    wrap(format!("cd {output_dir} && npm test"), ctx.run_wrapper),
-                    wrap(format!("cd {output_dir} && npm test -- --coverage"), ctx.run_wrapper),
+                    wrap(format!("cd {output_dir} && pnpm test"), ctx.run_wrapper),
+                    wrap(format!("cd {output_dir} && pnpm test -- --coverage"), ctx.run_wrapper),
                 ),
                 "yarn" => (
                     wrap(format!("cd {output_dir} && yarn test"), ctx.run_wrapper),

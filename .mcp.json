@@ -1,10 +1,13 @@
 {
   "mcpServers": {
     "ai-rulez": {
-      "args": ["mcp"],
-      "command": "ai-rulez",
-      "disabled": false,
-      "transport": "stdio"
+      "args": [
+        "dlx",
+        "ai-rulez@5.0.1",
+        "mcp"
+      ],
+      "command": "pnpm",
+      "type": "stdio"
     },
     "playwright": {
       "args": ["-y", "@playwright/mcp"],

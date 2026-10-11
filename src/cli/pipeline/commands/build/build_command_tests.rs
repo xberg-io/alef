@@ -50,7 +50,7 @@ sources = ["src/lib.rs"]
 /// `alef:hash:` provenance line) to. Every `napi build` invocation this arm emits — the
 /// default node build step every consumer without a `[build_commands.node]` override
 /// runs — used to leave `--dts` unset, so a routine `alef build` (or the scaffolded
-/// `npm run build`, which shares this same command shape) silently clobbered alef's
+/// `pnpm run build`, which shares this same command shape) silently clobbered alef's
 /// canonical `index.d.ts` with napi-rs's own auto-derived one, discarding the
 /// provenance header `alef verify` relies on to detect staleness. ~keep
 #[test]
@@ -649,7 +649,7 @@ fn wasm_build_config() -> BuildConfig {
 /// producing a bare `pkg/` that none of those consumers read while never producing
 /// `pkg/nodejs` at all — so a fresh checkout needed a hand-rolled extra build step.
 /// The emitted command must match the scaffolded `build:wasm:<target>` scripts exactly,
-/// since `publish::package::wasm` re-runs those same scripts via `npm run build:all`
+/// since `publish::package::wasm` re-runs those same scripts via `pnpm run build:all`
 /// and the two must not disagree about where a target lands. ~keep
 #[test]
 fn wasm_build_command_builds_every_default_target_into_its_own_pkg_subdir() {

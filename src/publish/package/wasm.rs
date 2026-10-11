@@ -1,6 +1,6 @@
-//! WASM package builder via wasm-pack + npm pack.
+//! WASM package builder via wasm-pack + pnpm pack.
 //!
-//! Invokes the scaffolded WASM package build, then `npm pack` on the WASM
+//! Invokes the scaffolded WASM package build, then `pnpm pack` on the WASM
 //! crate root so the Alef-managed `package.json` is the published manifest.
 
 use super::PackageArtifact;
@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 /// Produces: `{name}-{version}.tgz` (npm tarball format).
 ///
 /// Steps:
-/// 1. `npm run build:all` inside `crates/{wasm-crate}`
-/// 2. `npm pack` inside the WASM crate root
+/// 1. `pnpm run build:all` inside `crates/{wasm-crate}`
+/// 2. `pnpm pack` inside the WASM crate root
 /// 3. Move `*.tgz` to `output_dir`
 pub fn package_wasm(
     config: &ResolvedCrateConfig,
@@ -33,7 +33,7 @@ pub fn package_wasm(
         anyhow::bail!("WASM package manifest does not exist: {}", manifest.display());
     }
 
-    crate::publish::run_shell_command_in("npm run build:all", &crate_dir)?;
+    crate::publish::run_shell_command_in("pnpm run build:all", &crate_dir)?;
 
     let pkg_dir = crate_dir.join("pkg");
     if !pkg_dir.exists() {
@@ -43,9 +43,9 @@ pub fn package_wasm(
         );
     }
 
-    crate::publish::run_shell_command_in("npm pack", &crate_dir)?;
+    crate::publish::run_shell_command_in("pnpm pack", &crate_dir)?;
 
-    let tgz_path = find_tgz(&crate_dir).context("npm pack: no .tgz found in WASM crate root")?;
+    let tgz_path = find_tgz(&crate_dir).context("pnpm pack: no .tgz found in WASM crate root")?;
     let file_name = tgz_path
         .file_name()
         .context("tgz has no filename")?

@@ -8,7 +8,7 @@
 //! process -- entirely outside the `generated_header` / `.alef-ownership.toml` boundary, which
 //! only guards alef's own `write_files_report` / `write_scaffold_files_report` paths. Nothing
 //! marks the file as protected from napi-rs's point of view, so a routine `alef build` (or the
-//! scaffolded `npm run build`, or `alef publish`) silently clobbered a hand-edited `index.js`.
+//! scaffolded `pnpm run build`, or `alef publish`) silently clobbered a hand-edited `index.js`.
 //!
 //! Unlike the `--dts` collision fixed by redirecting to [`NAPI_AUTO_DTS_FILENAME`], napi-rs
 //! exposes `--no-js` to disable its own JS output outright: alef's hand-derived platform-dispatch

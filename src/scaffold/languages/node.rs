@@ -608,6 +608,7 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         r#"{{
   "name": "{package_name}",
   "version": "{version}",
+  "packageManager": "pnpm@12.11.2",
   "description": "{description}"{license_block}{repository_block}{homepage_block}{bugs_block}{author_block}{keywords_block},
   "main": "{entrypoint}",
   "types": "index.d.ts",
@@ -624,9 +625,9 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     ]
   }},
   "scripts": {{
-    "build": "npx --yes -p @napi-rs/cli@{napi_rs_cli_crate} napi build --platform --no-js --dts {napi_dts} --release",
-    "artifacts": "npx --yes -p @napi-rs/cli@{napi_rs_cli_crate} napi artifacts",
-    "prepublishOnly": "npx --yes -p @napi-rs/cli@{napi_rs_cli_crate} napi prepublish -t npm --skip-optional-publish"
+    "build": "pnpm exec napi build --platform --no-js --dts {napi_dts} --release",
+    "artifacts": "pnpm exec napi artifacts",
+    "prepublishOnly": "pnpm exec napi prepublish -t npm --skip-optional-publish"
   }},
   "engines": {{ "node": "{node_engine}" }},
   "publishConfig": {{ "access": "public" }},
@@ -674,7 +675,7 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         // hand-derived platform-dispatch file already does everything napi-rs's own auto
         // dispatch file would, so nothing consumes the napi-rs version. Without `--no-js`,
         // every `napi build --platform` invocation -- the default node build step, `alef
-        // publish`, and the scaffolded `npm run build` -- would silently overwrite this file. ~keep
+        // publish`, and the scaffolded `pnpm run build` -- would silently overwrite this file. ~keep
         GeneratedFile {
             path: PathBuf::from(format!("crates/{crate_dir}-node/index.js")),
             content: crate_index_js,
@@ -685,7 +686,7 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         // `--dts index.native.d.ts` points napi-rs's auto-derived declarations away from
         // `index.d.ts`, which alef owns. The redirect target is a pure build artifact: it is
         // absent from `files` so npm never receives it, no `types`/`exports` entry names it,
-        // and nothing imports it. Without this, every `npm run build` drops an untracked file
+        // and nothing imports it. Without this, every `pnpm run build` drops an untracked file
         // into the consumer's tree. ~keep
         path: PathBuf::from(format!("crates/{crate_dir}-node/.gitignore")),
         content: format!("{}\n", tv::npm::NAPI_AUTO_DTS_FILENAME),

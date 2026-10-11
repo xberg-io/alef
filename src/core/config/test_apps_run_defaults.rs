@@ -68,7 +68,7 @@ pub fn default_test_apps_run_config(
         Language::Node => {
             let pm = ctx.tools.node_pm();
             let run = match pm {
-                "npm" => format!("cd {dir}/node && npm install --no-package-lock && npm test"),
+                "npm" => format!("cd {dir}/node && pnpm add --no-package-lock && pnpm test"),
                 "yarn" => format!("cd {dir}/node && yarn install && yarn test"),
                 _ => format!(
                     "cd {dir}/node && pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0 && pnpm --config.minimumReleaseAge=0 test"
@@ -84,7 +84,7 @@ pub fn default_test_apps_run_config(
         Language::Wasm => {
             let pm = ctx.tools.node_pm();
             let run = match pm {
-                "npm" => format!("cd {dir}/wasm && npm install --no-package-lock && npm test"),
+                "npm" => format!("cd {dir}/wasm && pnpm add --no-package-lock && pnpm test"),
                 "yarn" => format!("cd {dir}/wasm && yarn install && yarn test"),
                 _ => format!(
                     "cd {dir}/wasm && pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0 && pnpm --config.minimumReleaseAge=0 test"
@@ -489,7 +489,7 @@ mod tests {
             (
                 "npm",
                 "command -v npm >/dev/null 2>&1",
-                "npm install --no-package-lock && npm test",
+                "pnpm add --no-package-lock && pnpm test",
             ),
             ("yarn", "command -v yarn >/dev/null 2>&1", "yarn install && yarn test"),
         ] {

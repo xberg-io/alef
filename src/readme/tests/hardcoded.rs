@@ -394,12 +394,12 @@ fn wasm_readme_installs_the_published_scoped_package_not_the_crate_name() {
         let files = generate_readmes(&api, &config, &[Language::Wasm]).unwrap();
 
         assert!(
-            files[0].content.contains(&format!("npm install {node_pkg}-wasm")),
+            files[0].content.contains(&format!("pnpm add {node_pkg}-wasm")),
             "case {case}, got:\n{}",
             files[0].content
         );
         assert!(
-            !files[0].content.contains(&format!("npm install {name}-wasm")),
+            !files[0].content.contains(&format!("pnpm add {name}-wasm")),
             "case {case}: the unscoped crate-name template installs nothing, got:\n{}",
             files[0].content
         );

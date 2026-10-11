@@ -1,6 +1,6 @@
 //! NAPI-RS Node.js native binding packager.
 //!
-//! Produces a per-platform npm sub-package directory and runs `npm pack` to
+//! Produces a per-platform npm sub-package directory and runs `pnpm pack` to
 //! generate a tarball. The sub-package follows the `@scope/{name}-{platform}`
 //! naming convention used by napi-rs.
 //!
@@ -35,7 +35,7 @@ const DEFAULT_PLATFORMS: &[&str] = &[
 /// Steps:
 /// 1. Locate the `.node` binary from `target/{triple}/release/` or `target/release/`.
 /// 2. Create `output_dir/npm/{platform}/` with `package.json` + `.node` binary.
-/// 3. Run `npm pack` inside that directory and move the `.tgz` to `output_dir`.
+/// 3. Run `pnpm pack` inside that directory and move the `.tgz` to `output_dir`.
 pub fn package_node(
     config: &ResolvedCrateConfig,
     target: &RustTarget,
@@ -96,9 +96,9 @@ pub fn package_node(
     let readme = format!("# {sub_pkg_name}\n\nNative binary for {platform}.\n");
     fs::write(platform_dir.join("README.md"), readme)?;
 
-    crate::publish::run_shell_command_in("npm pack", &platform_dir)?;
+    crate::publish::run_shell_command_in("pnpm pack", &platform_dir)?;
 
-    let tgz = find_tgz(&platform_dir).context("npm pack: no .tgz found")?;
+    let tgz = find_tgz(&platform_dir).context("pnpm pack: no .tgz found")?;
     let tgz_name = tgz
         .file_name()
         .context("tgz has no name")?

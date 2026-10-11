@@ -115,7 +115,7 @@ pub(super) fn build_command_for(
             // into one argument, same shape as the `ffi`/`maturin` manifest-path arms. ~keep
             let node_crate_dir = crate::core::config::shell::quote_word(&node_crate_dir);
             format!(
-                "npx --yes -p @napi-rs/cli@{} napi build --platform --no-js --manifest-path {}/Cargo.toml -o {} \
+                "pnpm --package @napi-rs/cli@{} dlx napi build --platform --no-js --manifest-path {}/Cargo.toml -o {} \
                  --package-json-path {}/package.json --dts {}{}",
                 tv::npm::NAPI_RS_CLI_CRATE,
                 node_crate_dir,
@@ -137,7 +137,7 @@ pub(super) fn build_command_for(
             };
             // Build every configured target into `pkg/<target>`, byte-for-byte matching the
             // `build:wasm:<target>` scripts `scaffold::languages::wasm` writes into the crate's
-            // own `package.json` (and which `publish::package::wasm` re-runs via `npm run
+            // own `package.json` (and which `publish::package::wasm` re-runs via `pnpm run
             // build:all`). Nothing consumes a bare `pkg/`: the scaffolded manifest resolves
             // `main`/`types` to `pkg/<nodejs>/…` and `module` to `pkg/<web>/…`, and `alef e2e`
             // depends on `pkg/nodejs` specifically (`ResolvedCrateConfig::wasm_crate_path`).

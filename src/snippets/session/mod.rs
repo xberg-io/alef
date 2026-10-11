@@ -560,14 +560,14 @@ mod tests {
     }
 
     /// The regression this closes: a `before` hook that builds the whole module from
-    /// `working_directory` (`npm run build`, for a TypeScript session — java no longer takes this
+    /// `working_directory` (`pnpm run build`, for a TypeScript session — java no longer takes this
     /// path at all; see `external_workspace_directory`) runs once, before any of *this* run's
     /// snippets are written — so the only way it can trip over bad scratch source content is a
     /// leftover from a *previous* run's per-snippet validate call, which nothing ever cleaned up.
     /// One bad leftover then failed session preparation and stamped every snippet in the session
     /// as `SnippetStatus::Error`, turning one bad snippet into a whole language going dark. The
     /// `before` command below does not know the fingerprint-derived workspace path in advance
-    /// (neither does a real consumer's `npm run build`), so it searches for the leftover instead
+    /// (neither does a real consumer's `pnpm run build`), so it searches for the leftover instead
     /// of asserting a literal path — exactly what a stale-content bug would trip over. ~keep
     #[test]
     fn stale_workspace_scratch_files_are_purged_before_before_hooks_run() {

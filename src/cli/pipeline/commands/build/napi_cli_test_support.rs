@@ -1,6 +1,6 @@
 //! Shared `npx` gate for the tests that run a real `napi build`.
 //!
-//! Every such test invokes `npx --yes -p @napi-rs/cli@<version> ...`, and `npx` installs the
+//! Every such test invokes `pnpm --package @napi-rs/cli@<version> dlx ...`, and `npx` installs the
 //! package into a shared cache directory keyed by the package spec on first use. Two tests that
 //! reach that first use concurrently -- which `cargo test`'s default thread pool makes routine --
 //! both install into the same directory, and the loser can observe the winner's half-written
@@ -42,7 +42,7 @@ pub(super) fn napi_cli_is_runnable() -> bool {
 }
 
 fn npx_is_runnable() -> bool {
-    std::process::Command::new("npx")
+    std::process::Command::new("pnpm")
         .arg("--version")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -56,11 +56,11 @@ fn npx_is_runnable() -> bool {
 /// broken registry) is reported as "not runnable" so the callers skip, matching the convention
 /// for tests that depend on an external toolchain.
 fn warm_napi_cli_cache() -> bool {
-    std::process::Command::new("npx")
+    std::process::Command::new("pnpm")
         .args([
-            "--yes",
-            "-p",
+            "--package",
             &format!("@napi-rs/cli@{}", tv::npm::NAPI_RS_CLI_CRATE),
+            "dlx",
             "napi",
             "--version",
         ])

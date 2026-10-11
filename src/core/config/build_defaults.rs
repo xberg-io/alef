@@ -110,7 +110,7 @@ pub(crate) fn default_build_config(
             }
         }
         Language::Node => BuildCommandConfig {
-            precondition: Some(require_tool("npm")),
+            precondition: Some(require_tool("pnpm")),
             dependency_precondition: None,
             dependency_remediation: None,
             before: None,
@@ -119,11 +119,11 @@ pub(crate) fn default_build_config(
             // invokes it from), which otherwise bakes the wrong package name into the generated
             // loader whenever the repo also has a workspace-root `package.json`. See alef#368.
             build: Some(StringOrVec::Single(format!(
-                "npx --yes -p @napi-rs/cli@3.7.3 napi build --manifest-path crates/{crate_name}-node/Cargo.toml -o crates/{crate_name}-node --package-json-path crates/{crate_name}-node/package.json --dts {}",
+                "pnpm --package @napi-rs/cli@3.7.3 dlx napi build --manifest-path crates/{crate_name}-node/Cargo.toml -o crates/{crate_name}-node --package-json-path crates/{crate_name}-node/package.json --dts {}",
                 tv::npm::NAPI_AUTO_DTS_FILENAME
             ))),
             build_release: Some(StringOrVec::Single(format!(
-                "npx --yes -p @napi-rs/cli@3.7.3 napi build --manifest-path crates/{crate_name}-node/Cargo.toml -o crates/{crate_name}-node --package-json-path crates/{crate_name}-node/package.json --dts {} --release",
+                "pnpm --package @napi-rs/cli@3.7.3 dlx napi build --manifest-path crates/{crate_name}-node/Cargo.toml -o crates/{crate_name}-node --package-json-path crates/{crate_name}-node/package.json --dts {} --release",
                 tv::npm::NAPI_AUTO_DTS_FILENAME
             ))),
             timeout_seconds: None,
@@ -590,7 +590,7 @@ mod tests {
         let c = cfg(Language::Node, "packages/node", "my-lib");
         let build = c.build.unwrap().commands().join(" ");
         let release = c.build_release.unwrap().commands().join(" ");
-        assert!(build.contains("npx --yes -p @napi-rs/cli@3.7.3 napi"));
+        assert!(build.contains("pnpm --package @napi-rs/cli@3.7.3 dlx napi"));
         assert!(build.contains("build --manifest-path"));
         assert!(build.contains("my-lib-node"));
         assert!(release.contains("--release"));
