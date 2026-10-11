@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Guard non-serde Swift enum payload defaults after resolving transparent newtypes, and align Python runtime and Swift payload snapshot regressions with the generated output.
+
+- Validate migrated governance configuration with the pinned version 5 hook and normalize its formatting.
+
 - Scaffold migration and repair passes now honor `[workspace.ownership] user_owned`, so a
   declared create-once manifest is not rewritten after the guarded scaffold writer skips it.
 - Generated Python, Ruby, Elixir, WebAssembly, and Swift package manifests preserve configured
