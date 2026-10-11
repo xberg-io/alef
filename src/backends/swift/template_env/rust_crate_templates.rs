@@ -226,6 +226,10 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/rust_enum_from_string_variant.rs.jinja"),
     ),
     (
+        "rust_enum_payload_wrapper.rs.jinja",
+        include_str!("../templates/rust_enum_payload_wrapper.rs.jinja"),
+    ),
+    (
         "rust_phantom_vec_decl.rs.jinja",
         include_str!("../templates/rust_phantom_vec_decl.rs.jinja"),
     ),

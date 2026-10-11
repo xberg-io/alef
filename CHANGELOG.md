@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Generated Swift bridges retain public convenience initializers and C symbols when fields use
   data-carrying enums, and those legacy initializers now assign scalar and vector enum selections
   instead of silently retaining the Rust defaults. First-class Swift DTOs remain lossless through JSON.
+- Generated Swift opaque carriers preserve complete data-carrying enum values and serialize their
+  associated payloads as JSON, so legacy constructors no longer replace payloads with defaults.
 
 ## [0.109.0] - 2026-10-10
 

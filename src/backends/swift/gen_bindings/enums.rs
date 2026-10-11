@@ -567,18 +567,16 @@ pub(super) fn emit_enum(
 }
 
 /// Emit a `public func toString() -> String` extension on a payload-carrying (associated-value)
-/// Swift enum that returns the SAME serde wire tag the swift-bridge opaque mirror's own
-/// `to_string()` returns (`gen_rust_crate::enums`'s `rust_enum_to_string_impl.rs.jinja`:
-/// `Self::{variant} => "{serde_name}".to_string()`), dropping any payload exactly as that mirror
-/// method does.
+/// Swift enum that returns the serde wire tag used by the pre-promotion opaque binding, dropping
+/// any payload.
 ///
 /// Before this existed, a promoted payload-carrying enum declared NEITHER `.rawValue` (only the
 /// all-unit shape gets that, see `unit_enum_cases`) NOR `.toString()` -- e2e assertion generators
 /// that called `.toString()` on such a leaf (assuming the pre-promotion opaque shape) produced a
 /// hard Swift compile error. Rather than refuse those assertions (they have a real, reproducible
 /// answer -- the wire tag is data alef already computes), this gives the promoted type the same
-/// accessor name and the same value, so existing `.toString()` call sites keep compiling AND keep
-/// asserting the same thing they always did.
+/// accessor name and value, so existing `.toString()` call sites keep compiling and keep asserting
+/// the same thing they always did.
 ///
 /// Reuses [`crate::codegen::naming::wire_variant_value`] -- the SAME function
 /// [`emit_serde_tagged_codable`]'s own encode/decode cases call for a variant's tag -- so this

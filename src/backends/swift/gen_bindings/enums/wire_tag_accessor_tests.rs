@@ -47,9 +47,8 @@ fn payload_carrying_enum_declares_a_to_string_wire_tag_accessor() {
         out.contains("public func toString() -> String {"),
         "expected a `toString()` wire-tag accessor, got:\n{out}"
     );
-    // Same per-variant wire value `wire_variant_value` computes for the swift-bridge mirror's
-    // OWN `to_string()` (`gen_rust_crate::enums`'s `rust_enum_to_string_variant.rs.jinja`) --
-    // dropping the payload, keyed by the case identifier, not the tag JSON shape.
+    // Same per-variant wire value `wire_variant_value` computes for serde -- dropping the
+    // payload, keyed by the case identifier, not the tag JSON shape.
     assert!(out.contains("case .pdf:\n            return \"pdf\""), "got:\n{out}");
     assert!(
         out.contains("case .excel:\n            return \"excel\""),

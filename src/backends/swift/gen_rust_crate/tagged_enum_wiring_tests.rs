@@ -260,16 +260,28 @@ fn typealiased_dto_keeps_its_public_initializer_when_it_contains_a_data_carrying
     );
     assert!(
         generated_rust.contains("__target.routing = __alef_routing_from_swift_string(&routing.to_string())"),
-        "the compatibility initializer must assign the selected enum variant:\n{generated_rust}"
+        "the compatibility initializer must deserialize the carrier's complete enum JSON:\n{generated_rust}"
     );
     assert!(
         generated_rust.contains(
             "__target.routes = routes.into_iter().map(|value| __alef_routing_from_swift_string(&value.to_string())"
         ),
-        "the compatibility initializer must preserve every selected vector element:\n{generated_rust}"
+        "the compatibility initializer must deserialize every carrier's complete enum JSON:\n{generated_rust}"
     );
     assert!(
-        generated_rust.contains("Routing::Proxy(::std::default::Default::default())"),
-        "a data-variant discriminant must reconstruct its source variant:\n{generated_rust}"
+        generated_rust.contains("pub struct Routing(pub test_lib::Routing);"),
+        "the bridge carrier must retain the complete source enum value:\n{generated_rust}"
+    );
+    assert!(
+        generated_rust.contains("serde_json::to_string(&self.0)"),
+        "the bridge carrier must serialize the complete source enum value:\n{generated_rust}"
+    );
+    assert!(
+        generated_rust.contains("serde_json::from_str::<test_lib::Routing>(value)"),
+        "the compatibility helper must parse the complete source enum JSON:\n{generated_rust}"
+    );
+    assert!(
+        !generated_rust.contains("Routing::Proxy(::std::default::Default::default())"),
+        "the compatibility path must not invent a default payload:\n{generated_rust}"
     );
 }

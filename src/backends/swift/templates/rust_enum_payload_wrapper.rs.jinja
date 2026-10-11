@@ -1,0 +1,18 @@
+pub struct {{ enum_name }}(pub {{ source_path }});
+
+impl From<{{ source_path }}> for {{ enum_name }} {
+    fn from(val: {{ source_path }}) -> Self {
+        Self(val)
+    }
+}
+
+impl {{ enum_name }} {
+    pub fn to_string(&self) -> String {
+        serde_json::to_string(&self.0).expect("serializable {{ enum_name }}")
+    }
+}
+
+#[allow(dead_code)]
+fn {{ fn_name }}(value: &str) -> Result<{{ source_path }}, String> {
+    serde_json::from_str::<{{ source_path }}>(value).map_err(|error| error.to_string())
+}

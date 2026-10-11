@@ -218,9 +218,8 @@ pub(crate) fn bridge_type_enum_aware_ref(ty: &TypeRef, enum_names: &HashSet<&str
     }
 }
 
-/// Name of the private Rust helper that reconstructs a fieldless enum from the wire string
-/// swift-bridge hands it (see `enums::emit_enum_wrapper`, which defines the function this
-/// name points at).
+/// Name of the private Rust helper that reconstructs an enum from the string swift-bridge hands
+/// it (see `enums::emit_enum_wrapper`, which defines the function this name points at).
 ///
 /// Fieldless enums cross the swift-bridge boundary as `String` (their bridge type is declared
 /// `type {Enum};` — opaque, not a swift-bridge "shared enum" — so `bridge_type_enum_aware_ref`
@@ -228,7 +227,8 @@ pub(crate) fn bridge_type_enum_aware_ref(ty: &TypeRef, enum_names: &HashSet<&str
 /// toolkit::Mode`, cannot be emitted: both `From` and the consumer's enum type are foreign to
 /// this crate, so it is an orphan impl (E0117). A local free function that matches on the wire
 /// string and constructs the foreign enum's variants directly has no such restriction — the
-/// same reasoning the `ffi` backend already applies to its `i32`-discriminant helpers. ~keep
+/// same reasoning the `ffi` backend already applies to its `i32`-discriminant helpers.
+/// Data-carrying serde enums use the same helper name for their complete JSON representation. ~keep
 pub(crate) fn enum_from_string_fn_name(enum_name: &str) -> String {
     format!("__alef_{}_from_swift_string", enum_name.to_snake_case())
 }

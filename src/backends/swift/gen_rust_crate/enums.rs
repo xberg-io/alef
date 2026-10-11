@@ -1,14 +1,8 @@
 //! Emits the swift-bridge mirror enum wrapper and its `From` conversion.
 //!
-//! Every declared variant is mirrored as a FIELDLESS variant, data-carrying or not: the
-//! `From<core>` conversion matches a data variant as `Variant(..)` / `Variant { .. }` and yields
-//! the bare mirror variant, dropping its payload. There is no catch-all `Unknown` variant; a
-//! variant the mirror does not declare is instead unreachable by construction (see
-//! [`declared_variants`]), and the conversion gains a `_ => unreachable!()` arm only when some
-//! core variant has no arm of its own.
-//!
-//! The reverse direction, `__alef_{enum}_from_swift_string`, reconstructs the selected variant.
-//! Legacy swift-bridge enums carry only a discriminant, so associated values use `Default`.
+//! All-unit enums use a fieldless mirror. Data-carrying serde enums use an opaque newtype around
+//! the source enum so associated payloads survive the Swift bridge, and their string boundary is
+//! the complete serde JSON representation rather than a discriminant.
 
 use crate::backends::swift::gen_rust_crate::type_bridge::enum_from_string_fn_name;
 use crate::codegen::cfg::is_host_owned_rust_path;
@@ -78,6 +72,17 @@ pub(crate) fn emit_enum_wrapper_with_defaults(
     let mut out = String::new();
     let source_path = resolve_type_path(&en.name, source_crate, type_paths);
     let is_host_enum = is_host_owned_rust_path(source_crate, &en.rust_path);
+
+    if uses_lossless_payload_carrier(en) {
+        return crate::backends::swift::template_env::render(
+            "rust_enum_payload_wrapper.rs.jinja",
+            crate::alef_context! {
+                enum_name => &en.name,
+                source_path => &source_path,
+                fn_name => enum_from_string_fn_name(&en.name),
+            },
+        );
+    }
 
     let declared_variants = declared_variants(en, source_crate, configured_features);
 
@@ -286,12 +291,19 @@ fn default_variant_expression(source_path: &str, variant: &EnumVariant) -> Strin
 }
 
 pub(crate) fn can_reconstruct_legacy_variant(en: &EnumDef, defaultable_names: &HashSet<&str>) -> bool {
+    if uses_lossless_payload_carrier(en) {
+        return true;
+    }
     en.variants.iter().all(|variant| {
         variant
             .fields
             .iter()
             .all(|field| type_is_defaultable(&field.ty, defaultable_names))
     })
+}
+
+fn uses_lossless_payload_carrier(en: &EnumDef) -> bool {
+    en.has_serde && en.variants.iter().any(|variant| !variant.fields.is_empty())
 }
 
 fn type_is_defaultable(ty: &crate::core::ir::TypeRef, defaultable_names: &HashSet<&str>) -> bool {
@@ -386,12 +398,17 @@ mod tests {
             !out.contains("panic!"),
             "an unrecognised enum wire string must no longer panic across the FFI boundary, got:\n{out}"
         );
+        assert!(
+            out.contains("pub enum Mode"),
+            "an all-unit enum must retain its fieldless swift-bridge mirror:\n{out}"
+        );
     }
 
     #[test]
-    fn fielded_enum_reconstructs_the_selected_variant_with_default_payload() {
+    fn fielded_serde_enum_preserves_and_round_trips_the_complete_payload() {
         let en = EnumDef {
             name: "AuthHeaderFormat".to_string(),
+            has_serde: true,
             variants: vec![make_unit_variant("None", None), make_tuple_variant("ApiKey")],
             methods: vec![],
             excluded_variants: vec![],
@@ -400,8 +417,24 @@ mod tests {
         let type_paths = std::collections::HashMap::new();
         let out = emit_enum_wrapper(&en, "mylib", &type_paths, None);
         assert!(
-            out.contains("\"ApiKey\" => Ok(mylib::AuthHeaderFormat::ApiKey(::std::default::Default::default()))"),
-            "the compatibility helper must preserve the tuple variant discriminant:\n{out}"
+            out.contains("pub struct AuthHeaderFormat(pub mylib::AuthHeaderFormat);"),
+            "a data-carrying enum mirror must retain the complete source value:\n{out}"
+        );
+        assert!(
+            out.contains("Self(val)"),
+            "the From conversion must store the complete source value:\n{out}"
+        );
+        assert!(
+            out.contains("serde_json::to_string(&self.0)"),
+            "the opaque carrier must serialize the complete source enum:\n{out}"
+        );
+        assert!(
+            out.contains("serde_json::from_str::<mylib::AuthHeaderFormat>(value)"),
+            "the compatibility helper must deserialize the complete source enum:\n{out}"
+        );
+        assert!(
+            !out.contains("::std::default::Default::default()"),
+            "a data-carrying serde enum must never reconstruct a synthetic default payload:\n{out}"
         );
     }
 
@@ -425,7 +458,7 @@ mod tests {
     }
 
     #[test]
-    fn non_default_payload_type_disables_the_compatibility_helper() {
+    fn non_serde_non_default_payload_type_disables_the_compatibility_helper() {
         let mut variant = make_struct_variant("External");
         variant.fields[0].ty = crate::core::ir::TypeRef::Named("NoDefault".to_string());
         let en = EnumDef {
@@ -435,6 +468,21 @@ mod tests {
         };
         let out = emit_enum_wrapper(&en, "mylib", &HashMap::new(), None);
         assert!(!out.contains("__alef_backend_from_swift_string"), "{out}");
+    }
+
+    #[test]
+    fn serde_payload_type_does_not_require_default_to_be_lossless() {
+        let mut variant = make_struct_variant("External");
+        variant.fields[0].ty = crate::core::ir::TypeRef::Named("NoDefault".to_string());
+        let en = EnumDef {
+            name: "Backend".to_string(),
+            has_serde: true,
+            variants: vec![variant],
+            ..Default::default()
+        };
+        let out = emit_enum_wrapper(&en, "mylib", &HashMap::new(), None);
+        assert!(out.contains("serde_json::from_str::<mylib::Backend>(value)"), "{out}");
+        assert!(!out.contains("Default::default"), "{out}");
     }
 
     /// When a FOREIGN variant in the primary list carries a `#[cfg(...)]` gate not proven
