@@ -19,7 +19,6 @@ path = 'modules/cicd'
 merge_strategy = 'local-override'
 
 
-
 [[marketplaces]]
 name = "basemind"
 source = "Goldziher/basemind"
