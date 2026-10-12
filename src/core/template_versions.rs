@@ -130,7 +130,7 @@ pub mod cargo {
     pub const TEMPFILE: &str = "3";
 
     // renovate: datasource=crate depName=rustler
-    pub const RUSTLER: &str = "0.38";
+    pub const RUSTLER: &str = "0.39";
 
     // renovate: datasource=crate depName=async-trait
     pub const ASYNC_TRAIT: &str = "0.1";
