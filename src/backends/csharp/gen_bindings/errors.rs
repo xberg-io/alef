@@ -44,7 +44,7 @@ pub(super) fn compute_variant_dispatch(errors: &[ErrorDef]) -> (bool, String, Ve
     }
     let base_exception_class = format!("{}Exception", errors[0].name);
 
-    let mut seen: HashSet<String> = HashSet::new();
+    let mut seen: HashSet<(String, String)> = HashSet::new();
     let mut variants_with_prefix: Vec<(String, String)> = Vec::new();
     for error in errors {
         for variant in &error.variants {
@@ -52,7 +52,7 @@ pub(super) fn compute_variant_dispatch(errors: &[ErrorDef]) -> (bool, String, Ve
                 continue;
             };
             let class_name = format!("{}Exception", variant.name);
-            if seen.insert(class_name.clone()) {
+            if seen.insert((class_name.clone(), prefix.clone())) {
                 variants_with_prefix.push((class_name, prefix));
             }
         }
@@ -387,6 +387,47 @@ mod tests {
                     .to_string(),
                 "        if (message.StartsWith(\"Corrupt archive:\")) return WithNativeCode(new CorruptException(message), code);".to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn should_dispatch_each_prefix_for_shared_exception_class() {
+        let errors = vec![
+            error(
+                "CrawlError",
+                vec![variant("TooManyRedirects", Some("too_many_redirects: {message}"))],
+            ),
+            error(
+                "SsrfError",
+                vec![variant("TooManyRedirects", Some("too many redirects"))],
+            ),
+        ];
+        let (_, _, dispatch_lines) = compute_variant_dispatch(&errors);
+        assert_eq!(
+            dispatch_lines,
+            vec![
+                "        if (message.StartsWith(\"too_many_redirects:\")) return WithNativeCode(new TooManyRedirectsException(message), code);".to_owned(),
+                "        if (message.StartsWith(\"too many redirects\")) return WithNativeCode(new TooManyRedirectsException(message), code);".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn should_deduplicate_same_class_and_prefix_across_error_families() {
+        let errors = vec![
+            error(
+                "CrawlError",
+                vec![variant("TooManyRedirects", Some("too_many_redirects: {message}"))],
+            ),
+            error(
+                "SsrfError",
+                vec![variant("TooManyRedirects", Some("too_many_redirects: {reason}"))],
+            ),
+        ];
+        let (_, _, dispatch_lines) = compute_variant_dispatch(&errors);
+        assert_eq!(
+            dispatch_lines,
+            vec!["        if (message.StartsWith(\"too_many_redirects:\")) return WithNativeCode(new TooManyRedirectsException(message), code);".to_owned()]
         );
     }
 
