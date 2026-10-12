@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Generated Elixir NIF crates now use Rustler 0.39. Consumers must retain Cargo's `panic = "unwind"` strategy, which Rustler requires for callback safety.
+
 ## [0.110.0] - 2026-10-11
 
 ### Changed (BREAKING)
