@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Generated Kotlin projects use Gradle Versions Plugin 0.66.0, with matching generated-output snapshots.
+
 ## [0.110.1] - 2026-10-12
 
 ### Changed
