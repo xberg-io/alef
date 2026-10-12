@@ -600,6 +600,12 @@ fn test_scaffold_ruby_production_features() {
         "extconf.rb must set ext_dir = \".\" so rb_sys finds the sibling Cargo.toml"
     );
     assert_eq!(files[4].path, PathBuf::from("packages/ruby/Gemfile"));
+    assert!(
+        files[4]
+            .content
+            .contains(r#"gem "steep", "~> 2.1" if RUBY_VERSION >= "3.3""#),
+        "steep 2.x needs Ruby >= 3.3; an unconditional pin breaks bundle install on older staged ABIs"
+    );
     assert_eq!(files[5].path, PathBuf::from("packages/ruby/Steepfile"));
     assert_eq!(files[6].path, PathBuf::from("packages/ruby/spec/my_lib_spec.rb"));
     assert!(

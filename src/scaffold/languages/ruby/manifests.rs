@@ -147,7 +147,8 @@ group :development do
   gem "rubocop", "{rubocop}"
   gem "rubocop-performance", "{rubocop_performance}"
   gem "rubocop-rspec", "{rubocop_rspec}"
-  gem "steep", "{steep}"
+  # steep 2.x requires Ruby >= 3.3; consumers still stage older Ruby ABIs where `bundle install` cannot resolve it.
+  gem "steep", "{steep}" if RUBY_VERSION >= "3.3"
 end
 "#,
         version_notice = override_notice_hash(Language::Ruby),
