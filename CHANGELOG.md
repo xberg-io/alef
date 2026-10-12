@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Update SHA-256 hashing to sha2 0.11.1, which corrects round-constant loads on AArch64.
 - Generated Kotlin projects use Gradle Versions Plugin 0.66.0, with matching generated-output snapshots.
 - Update the Rust syntax parser dependency to syn 3.0.9 ([#540](https://github.com/xberg-io/alef/pull/540)).
 
