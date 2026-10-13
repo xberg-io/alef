@@ -13,10 +13,10 @@
             // The introspection values are best-effort; the error itself is already known.
         }
 {% endif %}
-        return switch (errCode) {
+        return {{ exception_class }}.withNativeCode(switch (errCode) {
 {% for c in cases %}
             case {{ c.code }} -> new {{ c.class_name }}(msg{{ c.args }});
 {% endfor %}
             default -> new {{ exception_class }}(errCode, msg);
-        };
+        }, errCode);
     }

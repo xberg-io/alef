@@ -782,7 +782,7 @@ package = "com.example"
             .content
             .contains("public class TestLibRsException extends Exception")
     );
-    assert!(exception.content.contains("private final int code"));
+    assert!(exception.content.contains("private int code"));
 
     let enum_file = files
         .iter()

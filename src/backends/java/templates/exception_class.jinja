@@ -4,7 +4,7 @@
 public class {{ class_name }}Exception extends Exception {
   private static final long serialVersionUID = 1L;
   /** The error code. */
-  private final int code;
+  private int code;
 
   /** Creates a new {{ class_name }}Exception. */
   public {{ class_name }}Exception(final int code, final String message) {
@@ -22,6 +22,12 @@ public class {{ class_name }}Exception extends Exception {
   public {{ class_name }}Exception(final String message, final Throwable cause) {
     super(message, cause);
     this.code = -1;
+  }
+
+  /** Shared variant classes can represent more than one native code. ~keep */
+  static <T extends {{ class_name }}Exception> T withNativeCode(final T error, final int code) {
+    (({{ class_name }}Exception) error).code = code;
+    return error;
   }
 
   /** Returns the error code. */
