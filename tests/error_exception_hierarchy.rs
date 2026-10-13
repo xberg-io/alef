@@ -1,7 +1,7 @@
 use alef::backends::{java::JavaBackend, pyo3::Pyo3Backend};
 use alef::core::backend::Backend;
 use alef::core::config::{NewAlefConfig, ResolvedCrateConfig};
-use alef::core::ir::{ApiSurface, FunctionDef, TypeRef};
+use alef::core::ir::{ApiSurface, TypeRef};
 
 fn config() -> ResolvedCrateConfig {
     let config: NewAlefConfig = toml::from_str(
@@ -271,7 +271,7 @@ fn write_python_binding(binding: &std::path::Path) {
     let mut api = surface();
     api.functions = [("throw_new", "RequestError"), ("throw_legacy", "PolicyError")]
         .into_iter()
-        .map(|(name, error)| FunctionDef {
+        .map(|(name, error)| alef::core::ir::FunctionDef {
             name: name.to_string(),
             rust_path: format!("fixture::{name}"),
             error_type: Some(error.to_string()),
