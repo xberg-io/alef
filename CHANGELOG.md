@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Synchronize local Python lock versions on Windows by comparing canonical workspace and package paths.
+- Restore consumer CI coverage for Dart constructor defaults and Java native error codes using the required Dart SDK and the generated Java base exception.
+
 ## [0.110.6] - 2026-10-13
 
 ### Fixed

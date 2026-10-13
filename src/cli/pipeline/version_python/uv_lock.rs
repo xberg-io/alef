@@ -50,7 +50,10 @@ fn local_package_version(package: &toml_edit::Table, directory: &Path, root: &Pa
 }
 
 pub(super) fn sync(writable: &IgnoreFilter, updated: &mut Vec<String>) -> anyhow::Result<()> {
-    let root = std::env::current_dir().context("resolving workspace for uv.lock version sync")?;
+    let root = std::env::current_dir()
+        .context("resolving workspace for uv.lock version sync")?
+        .canonicalize()
+        .context("canonicalizing workspace for uv.lock version sync")?;
     for path in writable.glob("**/uv.lock") {
         let text = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         let mut lock: toml_edit::DocumentMut = text.parse().with_context(|| format!("parsing {}", path.display()))?;

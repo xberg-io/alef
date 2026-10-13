@@ -378,7 +378,10 @@ void main() {{ final old = Options(enabled: true, depth: 31); if (!old.enabled |
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("probe.dart");
         std::fs::write(&path, source).unwrap();
-        let output = std::process::Command::new("dart").arg(&path).output().unwrap();
+        let output = std::process::Command::new("dart")
+            .arg(&path)
+            .output()
+            .expect("Dart SDK is required for constructor default runtime checks");
         assert!(
             output.status.success(),
             "{ty}: {}",

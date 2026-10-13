@@ -11,7 +11,7 @@ const LAST_ERROR_EXCEPTION: &str = "static TestLibRsException lastErrorException
 
 #[test]
 fn generated_error_dispatch_matches_infrastructure_taxonomy_and_guards_null_context() {
-    let (source, native_lib, typed_code) = error_sources();
+    let (source, native_lib, _, typed_code) = error_sources();
     let helper = extract_java_method(&source, "private static void checkLastError()");
     assert!(
         helper.contains("throw NativeLib.lastErrorException(errCode, msg);"),
@@ -43,19 +43,20 @@ fn generated_error_dispatch_runtime_uses_canonical_codes_and_typed_taxonomy() {
     if !java_available() {
         return;
     }
-    let (source, native_lib, typed_code) = error_sources();
+    let (source, native_lib, base_exception, typed_code) = error_sources();
     let helper = extract_java_method(&source, "private static void checkLastError()");
     let dispatch = extract_java_method(&native_lib, LAST_ERROR_EXCEPTION);
     let probe = format!(
         "package com.test;\nimport java.lang.foreign.MemorySegment;\nfinal class ErrorDispatchProbe {{\n{helper}\nstatic void runCheck() throws Throwable {{ checkLastError(); }}\n}}\n"
     );
     let directory = tempfile::tempdir().expect("temporary error dispatch directory");
-    write_error_sources(directory.path(), &probe, &dispatch, typed_code);
+    write_error_sources(directory.path(), &probe, &dispatch, &base_exception, typed_code);
     compile_java(
         directory.path(),
         &[
             "com/test/NativeLib.java",
             "com/test/Errors.java",
+            "com/test/TestLibRsException.java",
             "com/test/ErrorDispatchProbe.java",
             "com/test/ErrorDispatchMain.java",
         ],
@@ -63,7 +64,14 @@ fn generated_error_dispatch_runtime_uses_canonical_codes_and_typed_taxonomy() {
     run_java(directory.path(), "com.test.ErrorDispatchMain");
 }
 
-fn write_error_sources(directory: &std::path::Path, probe: &str, dispatch: &str, typed_code: u32) {
+fn write_error_sources(
+    directory: &std::path::Path,
+    probe: &str,
+    dispatch: &str,
+    base_exception: &str,
+    typed_code: u32,
+) {
+    write_file(directory, "com/test/TestLibRsException.java", base_exception);
     write_file(directory, "com/test/ErrorDispatchProbe.java", probe);
     let native_lib =
         include_str!("fixtures/java_error_dispatch_native_lib.java").replace("LAST_ERROR_EXCEPTION", dispatch);
@@ -77,7 +85,7 @@ fn write_error_sources(directory: &std::path::Path, probe: &str, dispatch: &str,
     write_file(directory, "com/test/ErrorDispatchMain.java", &main);
 }
 
-fn error_sources() -> (String, String, u32) {
+fn error_sources() -> (String, String, String, u32) {
     let api = ApiSurface {
         crate_name: "test_lib".into(),
         version: "0.1.0".into(),
@@ -121,5 +129,11 @@ fn error_sources() -> (String, String, u32) {
         .expect("generated NativeLib")
         .content
         .clone();
-    (facade, native_lib, TYPED_ERROR_CODE)
+    let base_exception = files
+        .iter()
+        .find(|file| file.path.to_string_lossy().ends_with("TestLibRsException.java"))
+        .expect("generated base exception")
+        .content
+        .clone();
+    (facade, native_lib, base_exception, TYPED_ERROR_CODE)
 }

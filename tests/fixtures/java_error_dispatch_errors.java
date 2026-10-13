@@ -1,9 +1,5 @@
 package com.test;
 
-class TestLibRsException extends Exception {
-    TestLibRsException(int code, String message) { super(message); }
-}
-
 class InvalidInputException extends TestLibRsException {
     InvalidInputException(String message) { super(0, message); }
 }

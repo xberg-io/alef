@@ -13,6 +13,7 @@ public final class ErrorDispatchMain {
             expect(3, PanicException.class);
             expect(5, OperationCancelledException.class);
             expect(TYPED_CODE, RejectedException.class);
+            expect(91, TestLibRsException.class);
         }
     }
 
@@ -22,6 +23,9 @@ public final class ErrorDispatchMain {
             ErrorDispatchProbe.runCheck();
             throw new AssertionError("error code did not throw: " + code);
         } catch (Throwable failure) {
+            if (failure instanceof TestLibRsException nativeError && nativeError.getCode() != code) {
+                throw new AssertionError("native code lost: " + nativeError.getCode() + " expected " + code, failure);
+            }
             if (!expected.isInstance(failure)) {
                 throw new AssertionError("wrong exception for code " + code + ": " + failure, failure);
             }

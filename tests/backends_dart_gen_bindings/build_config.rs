@@ -23,12 +23,13 @@ fn build_config_for_frb_emits_post_process_file_step() {
 
     assert_eq!(
         post_process_steps.len(),
-        8,
-        "FRB config must have eight PostProcessFile steps: (1) exclude_functions on lib.dart, \
-         (2) sealed_variants on lib.dart, (3) exclude_functions on frb_generated.dart, \
-         (4) sealed_variants on frb_generated.dart for the published-package native-lib loader, \
-         (5) fix handler executor calls on frb_generated.dart, \
-         (6-8) strip trailing whitespace from generated Dart files"
+        9,
+        "FRB config must have nine PostProcessFile steps: (1) exclude_functions on lib.dart, \
+         (2) sealed_variants on lib.dart, (3) resolved constructor defaults on lib.dart, \
+         (4) exclude_functions on frb_generated.dart, \
+         (5) sealed_variants on frb_generated.dart for the published-package native-lib loader, \
+         (6) fix handler executor calls on frb_generated.dart, \
+         (7-9) strip trailing whitespace from generated Dart files"
     );
 
     let lib_dart_path = PathBuf::from("packages")
@@ -67,51 +68,46 @@ fn build_config_for_frb_emits_post_process_file_step() {
         assert_eq!(path, &lib_dart_path, "Second PostProcessFile must target lib.dart");
     }
 
-    assert!(
-        !post_process_steps.iter().any(|step| {
-            matches!(
-                step,
-                PostBuildStep::PostProcessFile {
-                    processor: PostProcessor::FrbDartOptionalFieldsWithDefaults,
-                    ..
-                }
-            )
-        }),
-        "Dart must not schedule the product-name-based optional field rewriter"
-    );
-
-    if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[2] {
-        assert!(
-            matches!(processor, PostProcessor::FrbDartExcludeFunctions(..)),
-            "Third PostProcessFile must use FrbDartExcludeFunctions processor"
-        );
-        assert_eq!(
-            path, &frb_generated_path,
-            "Third PostProcessFile must target frb_generated.dart"
-        );
-    }
+    assert!(matches!(
+        post_process_steps[2],
+        PostBuildStep::PostProcessFile {
+            path,
+            processor: PostProcessor::FrbDartOptionalFieldsWithDefaults,
+        } if path == &lib_dart_path
+    ));
 
     if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[3] {
-        assert_eq!(
-            *processor,
-            PostProcessor::FrbDartSealedVariants,
-            "Fourth PostProcessFile must use FrbDartSealedVariants processor (for native-lib loader)"
+        assert!(
+            matches!(processor, PostProcessor::FrbDartExcludeFunctions(..)),
+            "Fourth PostProcessFile must use FrbDartExcludeFunctions processor"
         );
         assert_eq!(
             path, &frb_generated_path,
-            "Fourth PostProcessFile must target frb_generated.dart for the loader injection"
+            "Fourth PostProcessFile must target frb_generated.dart"
         );
     }
 
     if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[4] {
         assert_eq!(
             *processor,
-            PostProcessor::FrbDartFixHandlerExecutorCalls,
-            "Fifth PostProcessFile must use FrbDartFixHandlerExecutorCalls processor"
+            PostProcessor::FrbDartSealedVariants,
+            "Fifth PostProcessFile must use FrbDartSealedVariants processor (for native-lib loader)"
         );
         assert_eq!(
             path, &frb_generated_path,
-            "Fifth PostProcessFile must target frb_generated.dart for handler executor fixes"
+            "Fifth PostProcessFile must target frb_generated.dart for the loader injection"
+        );
+    }
+
+    if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[5] {
+        assert_eq!(
+            *processor,
+            PostProcessor::FrbDartFixHandlerExecutorCalls,
+            "Sixth PostProcessFile must use FrbDartFixHandlerExecutorCalls processor"
+        );
+        assert_eq!(
+            path, &frb_generated_path,
+            "Sixth PostProcessFile must target frb_generated.dart for handler executor fixes"
         );
     }
 
@@ -119,18 +115,18 @@ fn build_config_for_frb_emits_post_process_file_step() {
         .into_iter()
         .enumerate()
     {
-        if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[idx + 5] {
+        if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[idx + 6] {
             assert_eq!(
                 *processor,
                 PostProcessor::DartStripTrailingWhitespace,
                 "PostProcessFile {} must strip trailing whitespace",
-                idx + 6
+                idx + 7
             );
             assert_eq!(
                 path,
                 expected_path,
                 "PostProcessFile {} must target the expected generated Dart file",
-                idx + 6
+                idx + 7
             );
         }
     }
@@ -168,6 +164,7 @@ fn build_config_for_frb_run_command_precedes_post_process_file() {
             "VerifyFrbCodegenVersion",
             "RunCommand",
             "VerifyFrbBridgeCoverage",
+            "PostProcessFile",
             "PostProcessFile",
             "PostProcessFile",
             "PostProcessFile",
@@ -307,8 +304,8 @@ fn build_config_with_config_includes_post_build_steps() {
     });
 
     assert!(
-        !has_optional_fields_processor,
-        "build_config_with_config must not include FrbDartOptionalFieldsWithDefaults processor"
+        has_optional_fields_processor,
+        "build_config_with_config must apply resolved constructor defaults"
     );
 }
 

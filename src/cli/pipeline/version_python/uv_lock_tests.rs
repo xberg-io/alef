@@ -88,3 +88,32 @@ fn version_sync_updates_root_python_manifest_and_its_real_uv_lock() {
     assert_eq!(lock["package"][0]["version"].as_str(), Some("1.2.3"));
     assert!(super::super::super::lock_freshness::uv::stale_uv_lock_findings(root.path()).is_empty());
 }
+
+#[test]
+fn local_package_version_preserves_workspace_containment_and_package_identity() {
+    let workspace = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    write(
+        workspace.path(),
+        "pyproject.toml",
+        "[project]\nname = 'sample-lib'\nversion = '1.2.3'\n",
+    );
+    write(
+        outside.path(),
+        "pyproject.toml",
+        "[project]\nname = 'sample-lib'\nversion = '8.9.0'\n",
+    );
+    let root = workspace.path().canonicalize().unwrap();
+    for (directory, name, expected) in [
+        (workspace.path(), "sample_lib", Some("1.2.3")),
+        (workspace.path(), "other-lib", None),
+        (outside.path(), "sample-lib", None),
+    ] {
+        let document: toml_edit::DocumentMut =
+            format!("[[package]]\nname = '{name}'\nversion = '1.0.0'\nsource = {{ editable = '.' }}\n")
+                .parse()
+                .unwrap();
+        let package = document["package"].as_array_of_tables().unwrap().get(0).unwrap();
+        assert_eq!(local_package_version(package, directory, &root).as_deref(), expected);
+    }
+}
