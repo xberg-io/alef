@@ -85,7 +85,7 @@ pub mod cargo {
     pub const NAPI_BUILD: &str = "2";
 
     // renovate: datasource=crate depName=pyo3
-    pub const PYO3: &str = "0.29";
+    pub const PYO3: &str = "0.30";
 
     // renovate: datasource=crate depName=pyo3-async-runtimes
     pub const PYO3_ASYNC_RUNTIMES: &str = "0.29";
