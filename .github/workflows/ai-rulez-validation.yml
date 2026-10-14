@@ -40,5 +40,5 @@ jobs:
       - uses: actions/checkout@v7
       - uses: xberg-io/actions/setup-ai-rulez@6b88aedd553b798d084927cc8a0feeb88b3f6f1b
         with:
-          source-revision: "ace2a7d0e98a69663ddfa62e2ffa92db03e075d2"
+          source-revision: "2b71103d759ce17f294c468f17d981cf4d8a8211"
       - uses: xberg-io/actions/validate-ai-rulez@6b88aedd553b798d084927cc8a0feeb88b3f6f1b
