@@ -70,7 +70,6 @@ erl_crash.dump
 
 # BEGIN ai-rulez (DO NOT EDIT - managed by ai-rulez)
 .ai-rulez/.generated-manifest.local.json
-.ai-rulez/config.local.*
 .ai-rulez/local/
 .claude/agents/
 .claude/skills/
