@@ -1,0 +1,5 @@
+project_doc_max_bytes = 65536
+
+[mcp_servers.playwright]
+args = ["-y", "@playwright/mcp@0.0.83"]
+command = "npx"

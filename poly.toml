@@ -15,6 +15,8 @@ exclude = [
   "tests/snapshots/**",
   "crates/*-ffi/include/*.h",
   "packages/go/include/*.h",
+  "/.ai-rulez/.generated-manifest.json",
+  "/.mcp.json",
 ]
 
 [lint.typos]
@@ -1240,6 +1242,8 @@ lint = { exclude = [
   "tests/snapshots/**",
   "crates/*-ffi/include/*.h",
   "packages/go/include/*.h",
+  "/.ai-rulez/.generated-manifest.json",
+  "/.mcp.json",
 ] }
 fmt = { exclude = [
   "**/*.jinja",
@@ -1257,6 +1261,8 @@ fmt = { exclude = [
   "tests/snapshots/**",
   "crates/*-ffi/include/*.h",
   "packages/go/include/*.h",
+  "/.ai-rulez/.generated-manifest.json",
+  "/.mcp.json",
 ] }
 file_safety = { added_large_files = false, exclude = [
   "**/*.jinja",
@@ -1274,6 +1280,8 @@ file_safety = { added_large_files = false, exclude = [
   "tests/snapshots/**",
   "crates/*-ffi/include/*.h",
   "packages/go/include/*.h",
+  "/.ai-rulez/.generated-manifest.json",
+  "/.mcp.json",
 ] }
 cargo = true
 commit = { stages = ["commit-msg"] }
@@ -1304,10 +1312,8 @@ exclude = [
 [[hooks.sources]]
 id = "ai-rulez"
 git = "https://github.com/Goldziher/ai-rulez.git"
-revision = "048e4339b889fc7ffdd5ea9ec10406886976ad68"
+revision = "ee42eef34f2922e4e75b75f25b1215b9492bb1aa"
 hooks = ["ai-rulez-validate"]
-
-
 # Shell is two-space in this tree. Both keys are load-bearing: without `enabled` poly runs no
 # shell formatter at all, and without `indent_width` it falls through to the language default of
 # four and reindents every script. poly resolves this from here, not .editorconfig -- it pipes

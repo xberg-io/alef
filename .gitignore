@@ -78,6 +78,7 @@ erl_crash.dump
 .opencode/agents/
 .opencode/commands/
 .pi/agents/
+.pi/mcp.json
 .pi/prompts/
 AGENTS.md
 CLAUDE.md

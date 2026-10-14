@@ -37,20 +37,24 @@ Alef.
 
 ## Standard Consumer Workflow
 
-From a repo that uses Alef:
+From a repo that uses Alef, read its Taskfile first and use its `alef:*`, README and docs
+commands when available. For direct CLI use, this sequence refreshes the configured surfaces:
 
 ```bash
-alef generate --format
+alef generate
+alef stubs
 alef scaffold
 alef readme
 alef docs
 alef verify --exit-code
 ```
 
-Use the combined command when a full refresh is expected:
+Use the combined command when a full refresh is expected. `--clean` bypasses the cache;
+it does not delete files or authorize overwriting unmanaged seeds. Generation applies
+configured formatters automatically; `--strict` fails if a configured formatter is missing:
 
 ```bash
-alef all --format
+alef all --clean
 ```
 
 Use filters to keep iteration small:
@@ -62,12 +66,18 @@ alef test --lang python
 alef verify --exit-code
 ```
 
-When testing an unreleased local Alef from a sibling repo, run the binary through
-Cargo instead of using the installed version:
+Use `--skip-compile` for source-only generation when the repository builds Swift bridge
+artifacts and C headers separately. Use `--skip-snippet-validation` for docs generation before
+language artifacts exist; run snippet validation after building them. Both flags report the
+work they defer. `alef generate` does not refresh `test_apps/`; use `alef test-apps generate`
+or the corresponding repository task.
+
+When testing an unreleased local Alef from a sibling repo, use its configured local-build task
+or run the binary through Cargo instead of using the installed version:
 
 ```bash
 cargo run -q --manifest-path ../alef/Cargo.toml -- docs
-cargo run -q --manifest-path ../alef/Cargo.toml -- all --format
+cargo run -q --manifest-path ../alef/Cargo.toml -- all --clean
 ```
 
 ## Config Model
@@ -166,7 +176,7 @@ Missing type or function:
 
 ```bash
 alef extract -o /tmp/api.json
-jq '.types | keys' /tmp/api.json
+jq 'keys' /tmp/api.json
 ```
 
 Then check:
@@ -182,14 +192,14 @@ Stale output:
 ```bash
 alef verify --exit-code
 alef diff
-alef generate --clean --format
+alef generate --clean
 ```
 
 Cache issues:
 
 ```bash
-rm -rf .alef
-alef generate --clean --format
+alef cache status
+alef generate --clean
 ```
 
 Docs generation issues:
@@ -204,13 +214,12 @@ Docs generation issues:
 In the Alef repo, prefer focused checks while iterating:
 
 ```bash
-cargo fmt
-cargo check -q
-cargo test -q docs:: -- --nocapture
-cargo test -q <module_or_test_name>
+task format:check
+task lint
+task test:run -- docs:: --nocapture
 ```
 
-Before committing behavior changes, run the highest-signal relevant tests. For
+Use `task test:run -- <test-filter>` for a specific regression. Before committing behavior changes, run the highest-signal relevant tests. For
 docs/template work, also smoke test downstream repos with the local binary:
 
 ```bash
@@ -225,7 +234,7 @@ Use the sibling repos that exercise Alef broadly:
 - `../liter-llm`
 - `../tree-sitter-language-pack`
 
-Do not include `../xberg` unless explicitly asked.
+Choose downstream consumers relevant to the changed surface; Xberg is also a consumer when its configuration exercises the change.
 
 ## Release Notes and Commits
 

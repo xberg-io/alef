@@ -13,7 +13,7 @@ tasks:
       - cargo install cargo-sort || true
       - cargo install cargo-edit || true
       - command -v poly >/dev/null 2>&1 || brew install goldziher/tap/poly
-      - poly hooks install
+      - task: governance:hooks:install
 
   update:
     desc: "Update dependencies"
@@ -168,3 +168,30 @@ tasks:
     cmds:
       - cargo clean
       - rm -rf .alef/
+
+  governance:hooks:install:
+    desc: Provision machine preferences and install reviewed AI governance hooks
+    cmds:
+      - |
+        python3 - <<'PYTHON'
+        import pathlib
+        import shutil
+        import subprocess
+        import tomllib
+
+        if shutil.which("ai-rulez") is None:
+            raise SystemExit("Install the reviewed ai-rulez CLI before installing hooks")
+        preferences = pathlib.Path("poly.local.toml")
+        text = preferences.read_text() if preferences.exists() else ""
+        data = tomllib.loads(text)
+        if "hook_preferences" not in data:
+            preferences.write_text(text.rstrip() + '\n\n[hook_preferences]\nchannels = ["system"]\n')
+        elif "system" not in data["hook_preferences"].get("channels", []):
+            raise SystemExit("Add system to hook_preferences.channels in poly.local.toml")
+        subprocess.run(["poly", "hooks", "install"], check=True)
+        PYTHON
+
+  governance:check:
+    desc: Check materialized local governance outputs against shared sources
+    cmds:
+      - ai-rulez generate --check --no-local --strict-config
