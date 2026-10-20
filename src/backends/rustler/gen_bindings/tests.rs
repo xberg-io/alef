@@ -367,6 +367,56 @@ fn test_default_typed_named_param_is_json_encoded_in_public_wrapper() {
 }
 
 #[test]
+fn list_of_default_typed_struct_return_is_not_specced_as_a_list_of_strings() {
+    use crate::core::ir::{FunctionDef, ParamDef, TypeDef, TypeRef};
+
+    let config = test_config();
+    let mut api = test_api();
+    api.types.push(TypeDef {
+        name: "Book".to_string(),
+        rust_path: "my_lib::Book".to_string(),
+        original_rust_path: "my_lib::Book".to_string(),
+        has_default: true,
+        has_serde: true,
+        ..Default::default()
+    });
+    let book_list = TypeRef::Vec(Box::new(TypeRef::Named("Book".to_string())));
+    for (name, error_type) in [("list_books", None), ("all_books", Some("MyError".to_string()))] {
+        api.functions.push(FunctionDef {
+            name: name.to_string(),
+            rust_path: format!("my_lib::{name}"),
+            original_rust_path: format!("my_lib::{name}"),
+            params: vec![ParamDef {
+                name: "author".to_string(),
+                ty: TypeRef::Optional(Box::new(TypeRef::String)),
+                optional: true,
+                ..Default::default()
+            }],
+            return_type: book_list.clone(),
+            error_type,
+            doc: "List books.".to_string(),
+            ..Default::default()
+        });
+    }
+
+    let files = RustlerBackend.generate_public_api(&api, &config).unwrap();
+    let body = &files
+        .iter()
+        .find(|f| f.path.ends_with("my_lib.ex"))
+        .expect("expected my_lib.ex wrapper")
+        .content;
+
+    assert!(
+        body.contains("@spec list_books(String.t() | nil) :: [map()]"),
+        "a list of structs must not be specced as a list of strings; body:\n{body}"
+    );
+    assert!(
+        body.contains("@spec all_books(String.t() | nil) :: {:ok, [map()]} | {:error, atom, String.t()}"),
+        "a fallible list of structs must not be specced as a list of strings; body:\n{body}"
+    );
+}
+
+#[test]
 fn opaque_methods_should_json_encode_default_typed_named_params() {
     config_marshalling_tests::assert_opaque_methods_json_encode_named_params();
 }
