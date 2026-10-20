@@ -59,17 +59,28 @@ pub(in crate::backends::rustler::gen_bindings) fn elixir_return_typespec(
     opaque_types: &AHashSet<String>,
     default_types: &AHashSet<String>,
 ) -> String {
-    let base = match ty {
-        TypeRef::Named(name) if default_types.contains(name) => "map()".to_string(),
-        TypeRef::Optional(inner) => match inner.as_ref() {
-            TypeRef::Named(name) if default_types.contains(name) => "map() | nil".to_string(),
-            _ => elixir_typespec(ty, opaque_types, default_types),
-        },
-        _ => elixir_typespec(ty, opaque_types, default_types),
-    };
+    let base = elixir_return_base(ty, opaque_types, default_types);
     if has_error {
         format!("{{:ok, {}}} | {{:error, atom, String.t()}}", base)
     } else {
         base
+    }
+}
+
+/// The return type without the `{:ok, _}` wrapper. A list maps its element with the same rule as a
+/// single return, so a list of structs is a list of maps and not a list of input strings.
+fn elixir_return_base(ty: &TypeRef, opaque_types: &AHashSet<String>, default_types: &AHashSet<String>) -> String {
+    match ty {
+        TypeRef::Named(name) if default_types.contains(name) => "map()".to_string(),
+        TypeRef::Optional(inner) => {
+            let inner_spec = elixir_return_base(inner, opaque_types, default_types);
+            if inner_spec.ends_with("| nil") {
+                inner_spec
+            } else {
+                format!("{inner_spec} | nil")
+            }
+        }
+        TypeRef::Vec(inner) => format!("[{}]", elixir_return_base(inner, opaque_types, default_types)),
+        _ => elixir_typespec(ty, opaque_types, default_types),
     }
 }
