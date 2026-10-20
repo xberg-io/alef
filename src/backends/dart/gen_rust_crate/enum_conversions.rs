@@ -178,6 +178,25 @@ pub(super) fn emit_from_mirror_to_core_enum(
     ));
 }
 
+/// The same field without its option, when the mirror keeps the `Option` wrapper
+/// (`frb_rust_type` with `optional`). A field that is already `Optional(_)` keeps its own path.
+fn non_optional_inner(field: &FieldDef) -> Option<FieldDef> {
+    (field.optional && !matches!(field.ty, TypeRef::Optional(_))).then(|| FieldDef {
+        optional: false,
+        ..field.clone()
+    })
+}
+
+/// Map `binding` through its option with `conv` (written against `v`). An identity conversion
+/// returns the binding unchanged. `None` stays `None`; `Some("")` stays `Some("")`.
+fn map_through_option(binding: &str, conv: &str) -> String {
+    if conv == "v" {
+        binding.to_string()
+    } else {
+        format!("{binding}.map(|v| {conv})")
+    }
+}
+
 /// Build conversion expression for one enum variant field in the mirror-to-core direction.
 fn enum_variant_field_conv_to_core(binding: &str, field: &FieldDef) -> String {
     if field.sanitized {
@@ -185,6 +204,9 @@ fn enum_variant_field_conv_to_core(binding: &str, field: &FieldDef) -> String {
     }
     if let Some(converted) = super::newtype_conversions::enum_to_core(binding, field) {
         return converted;
+    }
+    if let Some(inner) = non_optional_inner(field) {
+        return map_through_option(binding, &enum_variant_field_conv_to_core("v", &inner));
     }
     match &field.ty {
         TypeRef::Named(_) => match field.core_wrapper {
@@ -507,6 +529,9 @@ fn enum_variant_field_conv(binding: &str, field: &FieldDef, source_crate_name: &
     let _ = source_crate_name;
     if let Some(converted) = super::newtype_conversions::enum_from_core(binding, field) {
         return converted;
+    }
+    if let Some(inner) = non_optional_inner(field) {
+        return map_through_option(binding, &enum_variant_field_conv("v", &inner, source_crate_name));
     }
     if field.sanitized {
         match &field.ty {

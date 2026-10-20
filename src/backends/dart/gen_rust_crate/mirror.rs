@@ -182,7 +182,7 @@ pub(crate) fn emit_mirror_enum(
                     } else {
                         f.name.clone()
                     };
-                    let rust_ty = frb_rust_type_inner(&f.ty);
+                    let rust_ty = frb_rust_type(&f.ty, f.optional);
                     emit_rust_doc(&f.doc, "        ", out);
                     out.push_str(&template_env::render(
                         "rust_mirror_enum_data_variant_field.jinja",

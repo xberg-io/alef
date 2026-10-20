@@ -96,13 +96,12 @@ fn convert_enum_field(expr: &str, field: &FieldDef, direction: Direction) -> Opt
     Some(match direction {
         Direction::FromCore => {
             let converted = convert("value", &field.ty, &after_outer, direction);
-            format!("({expr}).map(|value| {converted}).unwrap_or_default()")
+            format!("({expr}).map(|value| {converted})")
         }
-        Direction::ToCore if matches!(field.ty, TypeRef::String) => {
-            let converted = convert(expr, &field.ty, &after_outer, direction);
-            format!("if ({expr}).is_empty() {{ None }} else {{ Some({converted}) }}")
+        Direction::ToCore => {
+            let converted = convert("value", &field.ty, &after_outer, direction);
+            format!("({expr}).map(|value| {converted})")
         }
-        Direction::ToCore => format!("Some({})", convert(expr, &field.ty, &after_outer, direction)),
     })
 }
 
