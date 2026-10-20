@@ -367,34 +367,70 @@ fn test_default_typed_named_param_is_json_encoded_in_public_wrapper() {
 }
 
 #[test]
-fn list_of_default_typed_struct_return_is_not_specced_as_a_list_of_strings() {
-    use crate::core::ir::{FunctionDef, ParamDef, TypeDef, TypeRef};
+fn struct_returns_are_specced_with_the_struct_module_type() {
+    use crate::core::ir::{FieldDef, FunctionDef, ParamDef, TypeDef, TypeRef};
 
     let config = test_config();
     let mut api = test_api();
-    api.types.push(TypeDef {
-        name: "Book".to_string(),
-        rust_path: "my_lib::Book".to_string(),
-        original_rust_path: "my_lib::Book".to_string(),
-        has_default: true,
-        has_serde: true,
+    let field = || FieldDef {
+        name: "title".to_string(),
+        ty: TypeRef::String,
         ..Default::default()
-    });
-    let book_list = TypeRef::Vec(Box::new(TypeRef::Named("Book".to_string())));
-    for (name, error_type) in [("list_books", None), ("all_books", Some("MyError".to_string()))] {
+    };
+    // (name, has_default, fields, binding_excluded)
+    for (name, has_default, with_field, binding_excluded) in [
+        ("Book", true, true, false),
+        ("Shelf", false, true, false),
+        ("Empty", true, false, false),
+        ("Hidden", true, true, true),
+    ] {
+        api.types.push(TypeDef {
+            name: name.to_string(),
+            rust_path: format!("my_lib::{name}"),
+            original_rust_path: format!("my_lib::{name}"),
+            has_default,
+            has_serde: true,
+            fields: if with_field { vec![field()] } else { vec![] },
+            binding_excluded,
+            ..Default::default()
+        });
+    }
+    let named = |n: &str| TypeRef::Named(n.to_string());
+    let optional_author = || ParamDef {
+        name: "author".to_string(),
+        ty: TypeRef::Optional(Box::new(TypeRef::String)),
+        optional: true,
+        ..Default::default()
+    };
+    let returns = [
+        ("get_book", named("Book"), None, vec![]),
+        ("get_shelf", named("Shelf"), None, vec![]),
+        ("find_book", TypeRef::Optional(Box::new(named("Book"))), None, vec![]),
+        (
+            "list_books",
+            TypeRef::Vec(Box::new(named("Book"))),
+            None,
+            vec![optional_author()],
+        ),
+        (
+            "all_books",
+            TypeRef::Vec(Box::new(named("Book"))),
+            Some("MyError".to_string()),
+            vec![optional_author()],
+        ),
+        ("get_empty", named("Empty"), None, vec![]),
+        ("get_hidden", named("Hidden"), None, vec![]),
+        ("list_hidden", TypeRef::Vec(Box::new(named("Hidden"))), None, vec![]),
+    ];
+    for (name, return_type, error_type, params) in returns {
         api.functions.push(FunctionDef {
             name: name.to_string(),
             rust_path: format!("my_lib::{name}"),
             original_rust_path: format!("my_lib::{name}"),
-            params: vec![ParamDef {
-                name: "author".to_string(),
-                ty: TypeRef::Optional(Box::new(TypeRef::String)),
-                optional: true,
-                ..Default::default()
-            }],
-            return_type: book_list.clone(),
+            params,
+            return_type,
             error_type,
-            doc: "List books.".to_string(),
+            doc: "Return books.".to_string(),
             ..Default::default()
         });
     }
@@ -406,14 +442,19 @@ fn list_of_default_typed_struct_return_is_not_specced_as_a_list_of_strings() {
         .expect("expected my_lib.ex wrapper")
         .content;
 
-    assert!(
-        body.contains("@spec list_books(String.t() | nil) :: [map()]"),
-        "a list of structs must not be specced as a list of strings; body:\n{body}"
-    );
-    assert!(
-        body.contains("@spec all_books(String.t() | nil) :: {:ok, [map()]} | {:error, atom, String.t()}"),
-        "a fallible list of structs must not be specced as a list of strings; body:\n{body}"
-    );
+    for expected in [
+        "@spec get_book() :: MyLib.Book.t()",
+        "@spec get_shelf() :: MyLib.Shelf.t()",
+        "@spec find_book() :: MyLib.Book.t() | nil",
+        "@spec list_books(String.t() | nil) :: [MyLib.Book.t()]",
+        "@spec all_books(String.t() | nil) :: {:ok, [MyLib.Book.t()]} | {:error, atom, String.t()}",
+        // A struct with no generated module has no `t()` to name.
+        "@spec get_empty() :: map()",
+        "@spec get_hidden() :: map()",
+        "@spec list_hidden() :: [map()]",
+    ] {
+        assert!(body.contains(expected), "missing `{expected}`; body:\n{body}");
+    }
 }
 
 #[test]
