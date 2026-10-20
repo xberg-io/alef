@@ -1,7 +1,7 @@
 use super::result_presence::free_function_presence_gate;
 use crate::core::ir::{FunctionDef, ParamDef, PrimitiveType, TypeRef};
 
-use super::errors::resolve_zig_error_type;
+use super::errors::{UNMATCHED_ERROR_SET, resolve_zig_error_type};
 use super::helpers::emit_cleaned_zig_doc;
 use super::types::{c_symbol_component, zig_field_type};
 
@@ -344,6 +344,18 @@ pub(crate) fn emit_function(
                     c_call => &c_call,
                 },
             ));
+            // The null check runs before the length call: every FFI entry point clears the
+            // native error on entry, so a second call would erase the message. ~keep
+            if infallible_result_needs_null_check(&f.return_type) {
+                out.push_str("    if (_result == null) {\n");
+                out.push_str(&crate::backends::zig::template_env::render(
+                    "function_error_return.jinja",
+                    crate::alef_context! {
+                        error_type => UNMATCHED_ERROR_SET,
+                    },
+                ));
+                out.push_str("    }\n");
+            }
             if let Some(len_call) = &c_len_call {
                 out.push_str(&crate::backends::zig::template_env::render(
                     "function_result_len.jinja",
@@ -512,6 +524,13 @@ pub(crate) fn wrapper_return_type(
 
     if let Some(error_type) = &zig_error_type {
         format!("{}!{}", error_type, zig_return_type(&f.return_type, struct_names))
+    } else if infallible_result_needs_null_check(&f.return_type) {
+        let err_set = if body_needs_invalid_json {
+            "error{OutOfMemory,InvalidJson,UnknownFfiError,Cancelled}"
+        } else {
+            UNMATCHED_ERROR_SET
+        };
+        format!("{err_set}!{}", zig_return_type(&f.return_type, struct_names))
     } else if body_needs_try || body_needs_invalid_json {
         let err_set = if body_needs_invalid_json {
             "error{OutOfMemory,InvalidJson}"
@@ -522,6 +541,18 @@ pub(crate) fn wrapper_return_type(
     } else {
         zig_return_type(&f.return_type, struct_names)
     }
+}
+
+/// True for a function with no Rust error type whose C result is an owned string pointer.
+/// The C function returns null for an argument that is not valid UTF-8 and when the value
+/// cannot be serialized, even though the Rust function cannot fail, so the wrapper must read
+/// the native error instead of slicing the null pointer. ~keep
+fn infallible_result_needs_null_check(ty: &TypeRef) -> bool {
+    !return_uses_bytes_out_params(ty)
+        && matches!(
+            ty,
+            TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _)
+        )
 }
 
 /// The Zig-wrapper parameter *types* only, in call order, without the parameter labels

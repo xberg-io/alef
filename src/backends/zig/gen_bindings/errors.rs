@@ -93,7 +93,7 @@ pub(crate) fn emit_error_set(error: &ErrorDef, out: &mut String) {
 /// untyped-but-fallible function already gets from `wrapper_return_type`, and
 /// `_error_with_message` on it falls through every `if (E == ...)` arm to the same
 /// `UnknownFfiError` a real mismatch deserves. ~keep
-const UNMATCHED_ERROR_SET: &str = "error{OutOfMemory,UnknownFfiError,Cancelled}";
+pub(super) const UNMATCHED_ERROR_SET: &str = "error{OutOfMemory,UnknownFfiError,Cancelled}";
 
 /// Map a Rust error_type (e.g. `"anyhow::Error"`, `"SampleCrateError"`) to a
 /// Zig error-set expression. If the path's last segment matches a declared
