@@ -244,7 +244,8 @@ fn failed_constructor_and_static_function_read_the_native_error() {
         "the constructor and the fallible static function each read the native error:\n{source}"
     );
     assert!(
-        source.contains("pub fn with_greeting_greeter(greeting: []const u8) (GreetError||error{OutOfMemory})!Greeter {"),
+        source
+            .contains("pub fn with_greeting_greeter(greeting: []const u8) (GreetError||error{OutOfMemory})!Greeter {"),
         "the declared error set must admit the typed error:\n{source}"
     );
 }

@@ -91,10 +91,10 @@ pub(crate) fn emit_opaque_constructor(
 
     // A constructor always can fail, so a null handle always reads the native error. With no
     // declared error type the helper falls back to `anyerror`, as a stream start does. ~keep
-    let zig_error_type = ctor
-        .error_type
-        .as_ref()
-        .map_or_else(|| "anyerror".to_string(), |e| resolve_zig_error_type(e, declared_errors));
+    let zig_error_type = ctor.error_type.as_ref().map_or_else(
+        || "anyerror".to_string(),
+        |e| resolve_zig_error_type(e, declared_errors),
+    );
     let null_return = null_handle_return(Some(&zig_error_type));
 
     out.push_str(&render(

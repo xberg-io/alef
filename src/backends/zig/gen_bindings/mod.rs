@@ -8,9 +8,9 @@ use crate::backends::zig::trait_bridge::emit_trait_bridge;
 mod components;
 mod constructor_defaults;
 mod errors;
-mod functions;
 #[cfg(test)]
 mod function_null_tests;
+mod functions;
 mod helpers;
 mod opaque_handles;
 mod result_presence;
