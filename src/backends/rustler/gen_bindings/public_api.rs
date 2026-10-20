@@ -1,5 +1,5 @@
 use crate::backends::rustler::gen_bindings::helpers::{
-    elixir_return_typespec, elixir_safe_param_name, elixir_typespec,
+    StructModules, elixir_return_typespec, elixir_safe_param_name, elixir_typespec,
 };
 use crate::backends::rustler::gen_bindings::public_api_args::{
     emit_tagged_enum_encoder, function_deserialization_introduces_result, json_encode_param_indices, keyword_nif_arg,
@@ -62,6 +62,13 @@ pub(super) fn generate_public_api(
         .filter(|t| t.has_default && !t.is_opaque)
         .map(|t| t.name.clone())
         .collect();
+
+    // The structs that get a generated module are the ones a return spec can name.
+    let known_struct_types = public_files::known_public_struct_types(api, &exclude_types);
+    let struct_modules = StructModules {
+        app_module: &app_module,
+        known_struct_types: &known_struct_types,
+    };
 
     // Index serde-tagged enums (`#[serde(tag = "...")]`) by name. The wrapper layer
     let enum_lookup: AHashMap<String, &crate::core::ir::EnumDef> =
@@ -129,6 +136,7 @@ pub(super) fn generate_public_api(
             func.error_type.is_some(),
             &opaque_types,
             &default_types,
+            Some(struct_modules),
         );
         let all_params: Vec<String> = func.params.iter().map(|p| elixir_safe_param_name(&p.name)).collect();
 
@@ -641,7 +649,13 @@ pub(super) fn generate_public_api(
     for error in &api.errors {
         for method in error.methods.iter().filter(|m| !m.sanitized) {
             let nif_fn_name = format!("{}_{}", error.name.to_lowercase(), method.name);
-            let return_spec = elixir_return_typespec(&method.return_type, false, &opaque_types, &default_types);
+            let return_spec = elixir_return_typespec(
+                &method.return_type,
+                false,
+                &opaque_types,
+                &default_types,
+                Some(struct_modules),
+            );
             let doc_line = if method.doc.is_empty() {
                 format!("Returns the `{}` value for the given error message.", method.name)
             } else {

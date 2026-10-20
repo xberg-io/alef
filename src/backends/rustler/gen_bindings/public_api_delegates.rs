@@ -57,6 +57,7 @@ fn callback_rows(
                 method.error_type.is_some(),
                 opaque_types,
                 default_types,
+                None,
             );
             crate::alef_context! {
                 method => method.name.clone(),

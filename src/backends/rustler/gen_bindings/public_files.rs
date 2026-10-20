@@ -111,7 +111,7 @@ fn enum_defaults(api: &ApiSurface) -> HashMap<String, String> {
         .collect()
 }
 
-fn known_public_struct_types(api: &ApiSurface, exclude_types: &AHashSet<&str>) -> AHashSet<String> {
+pub(super) fn known_public_struct_types(api: &ApiSurface, exclude_types: &AHashSet<&str>) -> AHashSet<String> {
     api.types
         .iter()
         .filter(|typ| !typ.is_trait && !typ.is_opaque && !typ.fields.is_empty())
