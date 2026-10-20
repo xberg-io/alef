@@ -132,12 +132,21 @@ test "a failed constructor that declares no error type keeps the native message"
 test "a failed static function that declares no error type returns UnknownFfiError" {
     reset();
     c.code = 100;
-    c.ctx = "ignored";
+    c.ctx = "untyped static failure";
     try std.testing.expectError(error.UnknownFfiError, plain_greeter());
+    try std.testing.expectEqualStrings("untyped static failure", _last_error().?);
+}
+
+test "a cancelled static function without a declared error type retains its cancellation and message" {
+    reset();
+    c.code = 5;
+    c.ctx = "untyped static cancelled";
+    try std.testing.expectError(error.Cancelled, plain_greeter());
+    try std.testing.expectEqualStrings("untyped static cancelled", _last_error().?);
 }
 "#;
 
-const ZIG_TEST_COUNT: usize = 8;
+const ZIG_TEST_COUNT: usize = 9;
 
 fn greet_error() -> ErrorDef {
     ErrorDef {

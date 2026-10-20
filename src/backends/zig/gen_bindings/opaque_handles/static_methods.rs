@@ -1,4 +1,4 @@
-use crate::backends::zig::gen_bindings::errors::resolve_zig_error_type;
+use crate::backends::zig::gen_bindings::errors::{UNMATCHED_ERROR_SET, resolve_zig_error_type};
 use crate::backends::zig::gen_bindings::helpers::emit_cleaned_zig_doc;
 use crate::codegen::c_consumer;
 use crate::core::ir::{MethodDef, TypeDef, TypeRef};
@@ -52,11 +52,8 @@ pub(super) fn emit_opaque_static_method(
         .iter()
         .any(|p| method_param_needs_from_json(p, struct_names));
 
-    // A static function that declares an error type reads the native error on a null handle, so
-    // its set is the declared error set plus the members the body adds itself. One that declares
-    // none keeps the fixed `UnknownFfiError`, so the set must carry that member even when nothing
-    // else can fail -- otherwise the signature and the body disagree and the emitted Zig does not
-    // compile. ~keep
+    // Every null handle reads the native error, including cancellation; a declared Rust
+    // error type additionally determines the available typed variants. ~keep
     let zig_error_type = method
         .error_type
         .as_ref()
@@ -78,11 +75,9 @@ pub(super) fn emit_opaque_static_method(
         }
         None => {
             let err_set = if body_needs_invalid_json {
-                "error{OutOfMemory,InvalidJson,UnknownFfiError}"
-            } else if body_needs_try {
-                "error{OutOfMemory,UnknownFfiError}"
+                "error{OutOfMemory,InvalidJson,UnknownFfiError,Cancelled}"
             } else {
-                "error{UnknownFfiError}"
+                UNMATCHED_ERROR_SET
             };
             format!("{err_set}!{}", ty.name)
         }

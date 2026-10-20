@@ -9,8 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve cancellation and native error messages when generated Zig static factories fail without a declared Rust error type.
 - Return the typed native error from a generated Zig constructor or static function that fails, and keep its message for `_last_error()`, instead of `error.UnknownFfiError`. The declared error set of a static function that has an error type now admits the typed errors (GH#594).
 - Check the C result of a generated Zig function that returns a string, list or map and cannot fail. A null result, such as the one for an argument that is not valid UTF-8, now returns an error with the native message instead of slicing a null pointer. The declared error set of such a function now lists `UnknownFfiError` and `Cancelled` (GH#595).
+
+### Changed (BREAKING)
+
+- Generated Zig wrappers for infallible Rust string, list and map returns now report native failures as `UnknownFfiError` or `Cancelled`. Update exhaustive error handling for these variants and use `try` or `catch` when calling the wrappers.
 
 ## [0.111.1] - 2026-10-19
 

@@ -22,14 +22,11 @@ fn render(template_name: &str, ctx: minijinja::Value) -> String {
     crate::backends::zig::template_env::render(template_name, ctx)
 }
 
-/// The Zig expression a constructor or static function returns for a null handle. With a
-/// declared error set it reads the native error, as instance methods, free functions and
-/// streams do. Without one it keeps the fixed `UnknownFfiError`. ~keep
+/// Preserve the native context and cancellation even when the factory declares no Rust
+/// error type. ~keep
 fn null_handle_return(zig_error_type: Option<&str>) -> String {
-    match zig_error_type {
-        Some(err_ty) => format!("_error_with_message({err_ty})"),
-        None => "error.UnknownFfiError".to_string(),
-    }
+    let error_type = zig_error_type.unwrap_or(super::errors::UNMATCHED_ERROR_SET);
+    format!("_error_with_message({error_type})")
 }
 
 /// The lookup context `emit_opaque_handle` needs beyond the type/prefix pair, grouped to keep its
