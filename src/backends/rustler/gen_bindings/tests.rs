@@ -435,6 +435,23 @@ fn struct_returns_are_specced_with_the_struct_module_type() {
         });
     }
 
+    api.errors.push(crate::core::ir::ErrorDef {
+        exception_base: None,
+        name: "MyError".to_string(),
+        rust_path: "my_lib::MyError".to_string(),
+        original_rust_path: "my_lib::MyError".to_string(),
+        variants: vec![],
+        doc: String::new(),
+        methods: vec![crate::core::ir::MethodDef {
+            name: "detail".to_string(),
+            return_type: named("Book"),
+            ..Default::default()
+        }],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        version: Default::default(),
+    });
+
     let files = RustlerBackend.generate_public_api(&api, &config).unwrap();
     let body = &files
         .iter()
@@ -444,6 +461,7 @@ fn struct_returns_are_specced_with_the_struct_module_type() {
 
     for expected in [
         "@spec get_book() :: MyLib.Book.t()",
+        "@spec myerror_detail(String.t()) :: MyLib.Book.t()",
         "@spec get_shelf() :: MyLib.Shelf.t()",
         "@spec find_book() :: MyLib.Book.t() | nil",
         "@spec list_books(String.t() | nil) :: [MyLib.Book.t()]",
