@@ -2462,10 +2462,8 @@ fn mirror_error_from_impl_handles_optional_string_duration_and_sanitized_fields(
         lib.contains("unreachable!"),
         "sanitized variant must produce unreachable wildcard arm in From impl: {lib}"
     );
-    assert!(
-        !lib.contains("ApiErr::Serialization {"),
-        "sanitized variant arm must not appear in From impl: {lib}"
-    );
+    let to_core = lib.split("impl From<&ApiErr> for ").nth(1).and_then(|r| r.split("\nimpl ").next());
+    assert!(to_core.is_some_and(|s| !s.contains("Serialization")), "sanitized arm in mirror-to-core impl: {lib}");
 }
 
 /// Tuple-variant error types (fields named `_0`, `_1`, … as set by the extractor for

@@ -132,7 +132,7 @@ fn vec_named_return_transform_is_suffix_not_closure_call() {
         }
         other => panic!("expected Suffix, got {other:?}"),
     }
-    let body = build_body("sample_crate::detect(&x)", "", &transform, false, false, false);
+    let body = build_body("sample_crate::detect(&x)", "", &transform, false, false, false, "|e| e.to_string()");
     assert!(
         !body.contains("|v: Vec<_>|"),
         "body must not emit closure-literal wrap: {body}"
@@ -171,7 +171,7 @@ fn option_named_return_transform_is_suffix_not_closure_call() {
         }
         other => panic!("expected Suffix, got {other:?}"),
     }
-    let body = build_body("sample_crate::get(&n)", "", &transform, false, false, false);
+    let body = build_body("sample_crate::get(&n)", "", &transform, false, false, false, "|e| e.to_string()");
     assert!(
         !body.contains("|v: Option<_>|"),
         "body must not emit closure-literal wrap: {body}"
@@ -188,7 +188,7 @@ fn scalar_named_return_transform_does_not_emit_closure_call() {
     let ty_named = TypeRef::Named("Foo".to_string());
 
     let t = return_transform(&ty_named, "mylib", &std::collections::HashMap::new(), &opaque, false);
-    let body = build_body("sample_crate::foo()", "", &t, false, false, false);
+    let body = build_body("sample_crate::foo()", "", &t, false, false, false, "|e| e.to_string()");
     assert!(
         body.contains("Foo::from(sample_crate::foo())"),
         "sync scalar Named must emit direct call, got: {body}"
@@ -197,7 +197,7 @@ fn scalar_named_return_transform_does_not_emit_closure_call() {
 
     opaque.insert("Foo".to_string());
     let t = return_transform(&ty_named, "mylib", &std::collections::HashMap::new(), &opaque, false);
-    let body = build_body("sample_crate::foo()", "", &t, false, false, false);
+    let body = build_body("sample_crate::foo()", "", &t, false, false, false, "|e| e.to_string()");
     assert!(
         body.contains("Foo { inner: sample_crate::foo() }"),
         "sync scalar opaque Named must emit struct literal, got: {body}"
@@ -246,8 +246,8 @@ fn scalar_path_result_cast_uses_display_not_to_string() {
 #[test]
 fn unit_return_no_error_emits_statement_not_expression() {
     let transform = RetTransform::None;
-    let body_sync = build_body("sample_crate::clear()", "", &transform, false, false, true);
-    let body_async = build_body("sample_crate::clear()", "", &transform, false, true, true);
+    let body_sync = build_body("sample_crate::clear()", "", &transform, false, false, true, "|e| e.to_string()");
+    let body_async = build_body("sample_crate::clear()", "", &transform, false, true, true, "|e| e.to_string()");
 
     assert!(
         body_sync.contains("sample_crate::clear();"),

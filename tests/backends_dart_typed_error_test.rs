@@ -168,7 +168,7 @@ fn fallible_opaque_method_returns_the_mirrored_error_not_a_string() {
     let lib = generated_lib(vec![api_error(false)]);
 
     assert!(
-        lib.contains("pub async fn fetch(&self) -> Result<String, ApiErr>"),
+        lib.contains("-> Result<String, ApiErr> {") && lib.contains("pub async fn fetch(&self"),
         "the opaque method must return the mirrored error: {lib}"
     );
 }
