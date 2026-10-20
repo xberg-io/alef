@@ -16,9 +16,7 @@ pub(super) use conversions::{
 pub(crate) use json_values::elixir_safe_param_name;
 pub(super) use json_values::elixir_typespec;
 pub(super) use nif_service::{collect_types_for_nif_derives, gen_native_ex};
-pub(super) use params_returns::{
-    StructModules, elixir_return_typespec, gen_rustler_unimplemented_body, map_return_type,
-};
+pub(super) use params_returns::{elixir_return_typespec, gen_rustler_unimplemented_body, map_return_type};
 
 #[cfg(test)]
 use json_values::elixir_field_name_with_type;

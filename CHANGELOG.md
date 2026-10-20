@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Describe a returned struct in the generated Elixir `@spec` with the struct's own type. A function that returned `Book` was specced as `map()`, and one that returned `Vec<Book>` as `[String.t() | nil]`, the type of an input argument. The spec now names the generated module: `MyApp.Book.t()`, `MyApp.Book.t() | nil` and `[MyApp.Book.t()]`. A struct without a generated module stays `map()`. (GH#596, GH#608)
+- Describe Elixir return values with their generated public DTO types recursively, including lists and optional values; retain maps for types without a public DTO and preserve input argument types. (GH#596)
 - Raise `TypeError` in the generated Ruby binding when an optional string argument is neither nil nor a string. The binding replaced the failed conversion with an empty string and ran the call with it. (GH#597)
 
 ## [0.111.1] - 2026-10-19
