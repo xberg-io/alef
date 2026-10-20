@@ -1,4 +1,6 @@
 mod constructors;
+#[cfg(test)]
+mod creation_tests;
 mod instance_methods;
 mod params;
 mod returns;
