@@ -48,6 +48,14 @@ const c = struct {
         _ = h;
         clear();
     }
+    pub var welcomer_result: u64 = 0;
+    pub fn sample_welcomer_new() u64 {
+        return welcomer_result;
+    }
+    pub fn sample_welcomer_free(h: u64) void {
+        _ = h;
+        clear();
+    }
 };
 
 "#;
@@ -58,6 +66,7 @@ fn reset() void {
     c.ctx = null;
     c.new_result = 0;
     c.with_result = 0;
+    c.welcomer_result = 0;
     c.infallible_result = 0;
     if (_captured_error) |_old| std.heap.c_allocator.free(_old);
     _captured_error = null;
@@ -112,6 +121,14 @@ test "a constructor and a static function that succeed return a handle" {
     try std.testing.expectEqual(@as(u64, 12), other._handle);
 }
 
+test "a failed constructor that declares no error type keeps the native message" {
+    reset();
+    c.code = 1;
+    c.ctx = "no welcome";
+    try std.testing.expectError(error.UnknownFfiError, create_welcomer());
+    try std.testing.expectEqualStrings("no welcome", _last_error().?);
+}
+
 test "a failed static function that declares no error type returns UnknownFfiError" {
     reset();
     c.code = 100;
@@ -120,7 +137,7 @@ test "a failed static function that declares no error type returns UnknownFfiErr
 }
 "#;
 
-const ZIG_TEST_COUNT: usize = 7;
+const ZIG_TEST_COUNT: usize = 8;
 
 fn greet_error() -> ErrorDef {
     ErrorDef {
@@ -196,6 +213,35 @@ fn generated_source() -> String {
         &mut out,
     );
     emit_opaque_constructor(&ty, "sample", &ctor, &HashSet::new(), &declared_errors, &mut out);
+    let welcomer = TypeDef {
+        name: "Welcomer".to_string(),
+        is_opaque: true,
+        ..TypeDef::default()
+    };
+    let plain_ctor = ClientConstructorConfig {
+        params: Vec::new(),
+        body: String::new(),
+        error_type: None,
+    };
+    emit_opaque_handle(
+        &welcomer,
+        "sample",
+        &OpaqueHandleContext {
+            declared_errors: &declared_errors,
+            struct_names: &HashSet::new(),
+            streaming_item_types: &HashMap::new(),
+            enum_names: &HashSet::new(),
+        },
+        &mut out,
+    );
+    emit_opaque_constructor(
+        &welcomer,
+        "sample",
+        &plain_ctor,
+        &HashSet::new(),
+        &declared_errors,
+        &mut out,
+    );
     out.push_str(ZIG_TESTS);
     out
 }
@@ -242,6 +288,10 @@ fn failed_constructor_and_static_function_read_the_native_error() {
         source.matches("return _error_with_message(GreetError);").count(),
         2,
         "the constructor and the fallible static function each read the native error:\n{source}"
+    );
+    assert!(
+        source.contains("if (_handle == 0) return _error_with_message(anyerror);"),
+        "a constructor with no error type must still read the native error:\n{source}"
     );
     assert!(
         source

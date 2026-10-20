@@ -1553,7 +1553,9 @@ fn from_json_params_check_null_and_defer_handle_cleanup() {
     let content = &files[0].content;
 
     assert!(
-        content.contains("pub fn configure(config: []const u8) error{OutOfMemory,InvalidJson}![]u8"),
+        content.contains(
+            "pub fn configure(config: []const u8) error{OutOfMemory,InvalidJson,UnknownFfiError,Cancelled}![]u8"
+        ),
         "from_json failure must be part of the generated error union: {content}"
     );
     assert!(
@@ -1651,8 +1653,8 @@ type = "*const std::ffi::c_char"
         "should call FFI constructor: {content}"
     );
     assert!(
-        content.contains("if (_handle == 0) return error.UnknownFfiError;"),
-        "should return the opaque unknown error on null handle: {content}"
+        content.contains("if (_handle == 0) return _error_with_message(anyerror);"),
+        "should read the native error on null handle: {content}"
     );
     assert!(
         !content.contains("_first_error"),

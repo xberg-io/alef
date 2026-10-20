@@ -1228,8 +1228,8 @@ mod tests {
         );
 
         assert!(
-            out.contains("error{OutOfMemory}![]u8"),
-            "Char return must declare an owned []u8 in an OutOfMemory-capable error set. Got:\n{out}"
+            out.contains("error{OutOfMemory,UnknownFfiError,Cancelled}![]u8"),
+            "Char return must declare an owned []u8 in an error set that holds OutOfMemory and the native error. Got:\n{out}"
         );
         assert!(
             out.contains("c.sample_first_char_len("),
