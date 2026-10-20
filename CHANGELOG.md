@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Return the typed native error from a generated Zig constructor or static function that fails, and keep its message for `_last_error()`, instead of `error.UnknownFfiError`. The declared error set of a static function that has an error type now admits the typed errors (GH#594).
+
 ## [0.111.1] - 2026-10-19
 
 ### Fixed

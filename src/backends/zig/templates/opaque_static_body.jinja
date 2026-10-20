@@ -1,4 +1,4 @@
     const _handle = {{ c_call }};
-    if (_handle == 0) return error.UnknownFfiError;
+    if (_handle == 0) return {{ null_return }};
     return .{ ._handle = _handle };
 }

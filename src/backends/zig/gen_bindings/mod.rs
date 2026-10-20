@@ -381,7 +381,7 @@ impl Backend for ZigBackend {
             );
             content.push('\n');
             if let Some(ctor) = config.client_constructors.get(&ty.name) {
-                emit_opaque_constructor(ty, &prefix, ctor, &top_level_names, &mut content);
+                emit_opaque_constructor(ty, &prefix, ctor, &top_level_names, &declared_errors, &mut content);
                 content.push('\n');
             }
         }

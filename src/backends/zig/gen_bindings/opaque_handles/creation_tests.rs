@@ -195,7 +195,7 @@ fn generated_source() -> String {
         },
         &mut out,
     );
-    emit_opaque_constructor(&ty, "sample", &ctor, &HashSet::new(), &mut out);
+    emit_opaque_constructor(&ty, "sample", &ctor, &HashSet::new(), &declared_errors, &mut out);
     out.push_str(ZIG_TESTS);
     out
 }
