@@ -996,6 +996,9 @@ mod generated_defaults;
 mod kwarg_default_fallback_tests;
 
 #[cfg(test)]
+mod optional_string_arg_tests;
+
+#[cfg(test)]
 mod untagged_native_coercion_tests;
 
 #[cfg(test)]
