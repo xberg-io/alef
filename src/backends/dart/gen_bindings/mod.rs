@@ -461,6 +461,11 @@ impl DartBackend {
                     processor: PostProcessor::FrbDartFixHandlerExecutorCalls,
                 });
 
+                post_build_steps.push(PostBuildStep::PostProcessFile {
+                    path: lib_freezed_path.clone(),
+                    processor: PostProcessor::FrbDartSingleVariantCopyWith,
+                });
+
                 for path in [lib_dart_path, frb_generated_path.clone(), lib_freezed_path] {
                     post_build_steps.push(PostBuildStep::PostProcessFile {
                         path,

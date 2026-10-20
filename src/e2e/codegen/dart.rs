@@ -213,6 +213,8 @@ mod assertion_mock_capture;
 mod assertions;
 mod call_field_resolver;
 mod error_assertions;
+#[cfg(test)]
+mod error_render_tests;
 mod http;
 mod project;
 mod snippet;
@@ -229,8 +231,6 @@ pub(super) use values::escape_dart;
 mod collection_field_classification_tests;
 #[cfg(test)]
 mod enum_field_classification_tests;
-#[cfg(test)]
-mod error_render_tests;
 #[cfg(test)]
 mod local_naming_tests;
 #[cfg(test)]

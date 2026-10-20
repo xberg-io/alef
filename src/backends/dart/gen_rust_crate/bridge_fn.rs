@@ -2,7 +2,7 @@ use crate::codegen::mut_writeback;
 use crate::core::ir::{FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 
 use super::conversions::{dart_call_arg, dart_call_arg_checked, frb_rust_type_inner, primitive_name};
-use super::helpers::{emit_cleaned_dartdoc, error_return, typed_error_name};
+use super::helpers::emit_cleaned_dartdoc;
 
 /// Plan for the single `&mut T` DTO parameter a writeback binding must hand back to its caller.
 ///
@@ -25,7 +25,7 @@ pub(crate) fn emit_bridge_fn(
     opaque_type_names: &std::collections::HashSet<String>,
     stub_methods: &[String],
     types: &[TypeDef],
-    typed_errors: &std::collections::HashSet<String>,
+    errors: &[crate::core::ir::ErrorDef],
 ) -> anyhow::Result<()> {
     let opaque_ahash: ahash::AHashSet<String> = opaque_type_names.iter().cloned().collect();
     mut_writeback::reject_unsupported_writeback(&f.name, &f.params, &f.return_type, &opaque_ahash)?;
@@ -75,25 +75,18 @@ pub(crate) fn emit_bridge_fn(
         .collect();
 
     let has_error = f.error_type.is_some();
+    let error_type = super::error_bridge::result_error_type(f.error_type.as_deref(), errors);
+    let error_mapper = super::error_bridge::error_mapper(f.error_type.as_deref(), errors);
     let conversion_is_fallible = has_error
         && f.params
             .iter()
             .any(|param| parameter_needs_checked_conversion(param, types));
-    // A range check on a parameter fails with text the declared error cannot carry, and a
-    // sanitized return fails with text too, so those functions keep a `String` error. ~keep
-    let typed_error = if conversion_is_fallible || f.return_sanitized {
-        None
-    } else {
-        f.error_type
-            .as_deref()
-            .and_then(|error_type| typed_error_name(error_type, typed_errors))
-    };
-    let (error_ty, err_map) = error_return(typed_error.as_deref());
     let (return_ty, has_explicit_return) = if has_error {
         (
             format!(
-                "Result<{}, {error_ty}>",
-                frb_rust_type_mirror(&effective_return_type, false)
+                "Result<{}, {}>",
+                frb_rust_type_mirror(&effective_return_type, false),
+                error_type
             ),
             true,
         )
@@ -213,7 +206,7 @@ pub(crate) fn emit_bridge_fn(
                 call => &call,
                 is_async => f.is_async,
                 has_error => has_error,
-                err_map => err_map.as_str(),
+                error_mapper => error_mapper,
                 return_expr => format!("{}::from({})", plan.mirror_name, plan.core_var),
             },
         )
@@ -239,7 +232,7 @@ pub(crate) fn emit_bridge_fn(
             has_error,
             f.is_async,
             matches!(f.return_type, TypeRef::Unit),
-            &err_map,
+            error_mapper,
         )
     };
 
@@ -844,64 +837,25 @@ fn build_body(
     has_error: bool,
     is_async: bool,
     is_unit_return: bool,
-    err_map: &str,
+    error_mapper: &str,
 ) -> String {
-    match ret_transform {
-        RetTransform::Map(callable) => {
-            let map_fn = callable.as_str();
-            if has_error {
-                if is_async {
-                    return format!("    {call}.await.map({map_fn}).map_err({err_map})\n");
-                }
-                return format!("    {call}.map({map_fn}).map_err({err_map})\n");
-            }
-            // shape (`MirrorName { inner: call }`) avoid clippy::redundant_closure_call.
-            let raw = if is_async {
-                format!("{call}.await")
-            } else {
-                call.to_string()
-            };
-            format!("    {expr}\n", expr = call_callable(map_fn, &raw))
-        }
-        RetTransform::Suffix(suffix) => {
-            let s = suffix.as_str();
-            if has_error {
-                if is_async {
-                    return format!("    {call}.await.map(|v| v{s}).map_err({err_map})\n");
-                }
-                return format!("    {call}.map(|v| v{s}).map_err({err_map})\n");
-            }
-            if is_async {
-                return format!("    {call}.await{s}\n");
-            }
-            format!("    {call}{s}\n")
-        }
-        RetTransform::None => {
-            if has_error {
-                if is_async {
-                    return format!("    {call}.await.map(|v| v{result_cast}).map_err({err_map})\n");
-                }
-                return format!("    {call}.map(|v| v{result_cast}).map_err({err_map})\n");
-            }
-            if is_unit_return {
-                if is_async {
-                    return format!("    {call}.await;\n");
-                }
-                return format!("    {call};\n");
-            }
-            if is_async {
-                if result_cast.is_empty() {
-                    return format!("    {call}.await\n");
-                }
-                return format!("    {call}.await{result_cast}\n");
-            }
-            if result_cast.is_empty() {
-                format!("    {call}\n")
-            } else {
-                format!("    {call}{result_cast}\n")
-            }
-        }
-    }
+    let call = if is_async {
+        format!("{call}.await")
+    } else {
+        call.to_string()
+    };
+    let (success_map, result_expr) = match ret_transform {
+        RetTransform::Map(callable) => (callable.clone(), call_callable(callable, &call)),
+        RetTransform::Suffix(suffix) => (format!("|v| v{suffix}"), format!("{call}{suffix}")),
+        RetTransform::None => (format!("|v| v{result_cast}"), format!("{call}{result_cast}")),
+    };
+    crate::backends::dart::template_env::render(
+        "rust_bridge_result_body.jinja",
+        crate::alef_context! {
+            call => call, success_map => success_map, error_mapper => error_mapper,
+            result_expr => result_expr, has_error => has_error, is_unit_return => is_unit_return,
+        },
+    )
 }
 
 /// Apply a callable string to a bound identifier without producing a

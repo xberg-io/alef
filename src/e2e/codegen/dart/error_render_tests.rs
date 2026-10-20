@@ -76,7 +76,7 @@ fn typed_error_fixture_asserts_the_class_and_the_field() {
     let _ = crate::e2e::codegen::take_skip_records();
     let output = render(&unauthorized_fixture(), &[api_error()]);
 
-    assert!(output.contains("throwsA(isA<ApiError_Authentication>())"), "{output}");
+    assert!(output.contains("throwsA(equals(ApiError.authentication))"), "{output}");
     assert!(output.contains("Object? caughtError;"), "{output}");
     assert!(
         output.contains("expect(await (caughtError as ApiError).statusCode(), equals(401));"),
@@ -100,4 +100,58 @@ fn fixture_without_an_error_registry_keeps_the_message_check() {
         "{output}"
     );
     let _ = crate::e2e::codegen::take_skip_records();
+}
+
+#[test]
+fn nullable_payload_and_introspection_assertions_are_both_rendered_once() {
+    let mut error = api_error();
+    error.variants[0].is_unit = false;
+    error.variants[0].fields.push(crate::core::ir::FieldDef {
+        name: "retry_after".into(),
+        ty: TypeRef::Primitive(PrimitiveType::U16),
+        optional: true,
+        ..Default::default()
+    });
+    let mut fixture = unauthorized_fixture();
+    fixture.assertions.push(Assertion {
+        assertion_type: "equals".into(),
+        field: Some("error.retry_after".into()),
+        value: Some(serde_json::Value::Null),
+        ..Default::default()
+    });
+    let _ = crate::e2e::codegen::take_skip_records();
+    let output = render(&fixture, &[error]);
+    assert_eq!(
+        output
+            .matches(".having((e) => e.retryAfter, 'retry_after', null)")
+            .count(),
+        1,
+        "{output}"
+    );
+    assert_eq!(
+        output
+            .matches("expect(await (caughtError as ApiError).statusCode(), equals(401));")
+            .count(),
+        1,
+        "{output}"
+    );
+    assert!(!output.contains("has no accessor for error field"), "{output}");
+    assert!(crate::e2e::codegen::take_skip_records().is_empty());
+}
+
+#[test]
+fn excluded_errors_report_unrendered_assertions_instead_of_assuming_a_typed_class() {
+    let mut error = api_error();
+    error.binding_excluded = true;
+    let _ = crate::e2e::codegen::take_skip_records();
+    let output = render(&unauthorized_fixture(), &[error]);
+    assert_eq!(
+        output.matches("declared error variant 'Authentication'").count(),
+        1,
+        "{output}"
+    );
+    assert!(output.contains("throwsA(anything)"), "{output}");
+    assert!(!output.contains("ApiError.authentication"), "{output}");
+    assert!(!output.contains("caughtError as ApiError"), "{output}");
+    assert_eq!(crate::e2e::codegen::take_skip_records().len(), 2);
 }

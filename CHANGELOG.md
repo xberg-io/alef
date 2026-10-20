@@ -9,9 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Throw the typed error from a fallible Dart call instead of a string. The bridge returned the error text, so a Dart caller could not tell a rate limit from an authentication failure or read a field such as `retryAfter`. A free function, a method and a static method now return the mirrored error with its variant and fields (GH#591). A function whose parameters need a range check keeps the string error.
-- Assert the error class in generated Dart e2e tests. A fixture that names an error variant now checks the generated `{Error}_{Variant}` class, and a fixture that names an error field, such as `error.status_code`, reads the field from the caught error. The test no longer passes for any thrown value (GH#602).
-- Keep an optional data field of a Dart enum optional. The mirror declared `Option<T>` fields without the option, so a caller could not pass no value and `Some("")` came back as `None` (GH#601).
+- Preserve typed Dart error variants and payloads for free functions, methods, and static calls, including calls with checked numeric arguments. Input validation failures remain `ArgumentError`. (GH#591)
+- Assert declared Dart error classes or all-unit enum values, nullable scalar payloads, and available introspection methods in generated e2e tests. Binding-excluded errors retain explicit unsupported-assertion markers. (GH#602)
+- Keep optional data-enum fields optional and preserve `Some("")`, `Some(false)`, and `Some(0)` through Dart conversions. (GH#601)
+- Repair Freezed 4 single-variant `copyWith` output and exclude custom-codec implementation functions from FRB coverage checks.
 
 ## [0.111.1] - 2026-10-19
 

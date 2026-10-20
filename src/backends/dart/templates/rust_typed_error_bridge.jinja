@@ -1,0 +1,55 @@
+{# ~keep FRB selects custom serializers for opaque types. Excluding this implementation #}
+{# module keeps it from generating an ordinary wrapper class instead of using the codec. #}
+#[frb(ignore)]
+mod alef_bridge_error {
+    pub struct AlefBridgeError(pub super::AlefBridgeErrorWire);
+
+    impl From<String> for AlefBridgeError {
+        fn from(message: String) -> Self {
+            Self(super::AlefBridgeErrorWire::InvalidInput { message })
+        }
+    }
+}
+use alef_bridge_error::AlefBridgeError;
+
+pub enum AlefBridgeErrorWire {
+{% for error in errors %}
+    {{ error.name }} { error: {{ error.name }} },
+{% endfor %}
+    InvalidInput { message: String },
+}
+
+#[frb(rust2dart(dart_type = "Object", dart_code = {{ decode_code }}))]
+pub fn alef_encode_bridge_error(value: AlefBridgeError) -> AlefBridgeErrorWire {
+    value.0
+}
+
+#[frb(dart2rust(dart_type = "Object", dart_code = {{ encode_code }}))]
+pub fn alef_decode_bridge_error(value: AlefBridgeErrorWire) -> AlefBridgeError {
+    AlefBridgeError(value)
+}
+
+{% for error in errors %}
+impl From<{{ error.core_path }}> for {{ error.name }} {
+    fn from(value: {{ error.core_path }}) -> Self {
+{% if error.needs_message %}
+        let message = value.to_string();
+{% endif %}
+        match value {
+{% for arm in error.arms %}
+            {{ arm.pattern }} => Self::{{ arm.variant }}{% if arm.fields %} {
+{% for field in arm.fields %}
+                {{ field.name }}: {{ field.value }},
+{% endfor %}
+            }{% endif %},
+{% endfor %}
+        }
+    }
+}
+
+impl From<{{ error.core_path }}> for AlefBridgeError {
+    fn from(value: {{ error.core_path }}) -> Self {
+        Self(AlefBridgeErrorWire::{{ error.name }} { error: {{ error.name }}::from(value) })
+    }
+}
+{% endfor %}

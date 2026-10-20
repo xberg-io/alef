@@ -1,17 +1,78 @@
-//! Dart error assertions for fixtures that expect the call to fail.
-//!
-//! The Dart bridge throws the generated error class of the declared error, one subclass per
-//! variant, named `{Error}_{Variant}` by flutter_rust_bridge. A fixture that names a variant
-//! asserts that class, and a fixture that asserts a field of the error reads it from the
-//! caught error through the error's generated introspection method.
-
-use crate::core::ir::ErrorDef;
-use crate::e2e::codegen::declared_error_variant::{DeclaredErrorAssertion, classify, declared_variant, skip_line};
+use super::values::escape_dart;
+use crate::codegen::naming::public_field_name;
+use crate::core::config::Language;
+use crate::core::ir::{ErrorDef, ErrorVariant, FieldDef};
 use crate::e2e::codegen::error_field_reachability::resolvable_equals_error_field;
-use crate::e2e::fixture::Fixture;
+use crate::e2e::fixture::{Assertion, Fixture};
 use std::fmt::Write as FmtWrite;
 
-use super::values::escape_dart;
+pub(super) fn typed_matcher(fixture: &Fixture, errors: &[ErrorDef]) -> Option<String> {
+    let (error, variant) = super::super::declared_error_variant::declared_variant(fixture, errors)?;
+    if error.binding_excluded {
+        return None;
+    }
+    let type_name = crate::backends::dart::naming::dart_error_variant_class(&error.name, &variant.name);
+    let enum_value = crate::backends::dart::naming::dart_error_is_simple(error)
+        .then(|| crate::backends::dart::naming::dart_simple_error_value(&error.name, &variant.name));
+    let fields = fixture
+        .assertions
+        .iter()
+        .filter_map(|assertion| {
+            let (index, field) = resolved_field(assertion, variant)?;
+            let property = if field.name.is_empty() || field.name.starts_with('_') {
+                format!("field{index}")
+            } else {
+                public_field_name(Language::Dart, &field.name, None)
+            };
+            Some(crate::alef_context! {
+                property => property,
+                name => super::values::escape_dart(&field.name),
+                value => super::assertions::dart_format_value(assertion.value.as_ref()?),
+            })
+        })
+        .collect::<Vec<_>>();
+    Some(
+        crate::e2e::template_env::render(
+            "dart/error_matcher.dart.jinja",
+            crate::alef_context! {
+                type_name => type_name, fields => fields, enum_value => enum_value,
+            },
+        )
+        .trim_end()
+        .to_string(),
+    )
+}
+
+fn resolved_field<'a>(assertion: &Assertion, variant: &'a ErrorVariant) -> Option<(usize, &'a FieldDef)> {
+    if assertion.assertion_type != "equals"
+        || assertion.value.as_ref()?.is_array()
+        || assertion.value.as_ref()?.is_object()
+    {
+        return None;
+    }
+    let name = assertion.field.as_deref()?.strip_prefix("error.")?;
+    variant
+        .fields
+        .iter()
+        .filter(|field| !field.binding_excluded)
+        .enumerate()
+        .find(|(index, field)| {
+            field.name == name
+                || ((field.name.is_empty() || field.name.starts_with('_')) && name == format!("field{index}"))
+        })
+}
+
+pub(super) fn pending_assertions(fixture: &Fixture, errors: &[ErrorDef]) -> Fixture {
+    let mut pending = fixture.clone();
+    if let Some((error, variant)) = super::super::declared_error_variant::declared_variant(fixture, errors)
+        && !error.binding_excluded
+    {
+        pending
+            .assertions
+            .retain(|assertion| resolved_field(assertion, variant).is_none());
+    }
+    pending
+}
 
 /// The variable that holds the thrown error when a fixture asserts a field of it.
 pub(super) const CAUGHT_ERROR: &str = "caughtError";
@@ -33,41 +94,11 @@ pub(super) fn live_errors(errors: &[ErrorDef]) -> Vec<ErrorDef> {
         .collect()
 }
 
-/// Build the `throwsA(...)` matcher expression for an `error`-asserting test.
-///
-/// A declared value that names a variant of a mirrored error asserts that variant's class. Any
-/// other declared value is message text: the thrown value must contain it in its text or its
-/// type name. With no declared value the matcher is `throwsA(anything)`, the plain "the call
-/// must fail" check. A variant of an error the binding does not mirror cannot be asserted, so
-/// the skip line lands in `out` above the statement that uses the matcher.
-pub(super) fn error_matcher(out: &mut String, indent: &str, fixture: &Fixture, errors: &[ErrorDef]) -> String {
-    let live = live_errors(errors);
-    match classify("dart", fixture, errors) {
-        DeclaredErrorAssertion::Undeclared => "throwsA(anything)".to_string(),
-        DeclaredErrorAssertion::Assert(declared) => match declared_variant(fixture, &live) {
-            Some((error, variant)) => format!("throwsA(isA<{}_{}>())", error.name, variant.name),
-            None if declared_variant(fixture, errors).is_some() => {
-                let _ = writeln!(out, "{}", skip_line(indent, "//", declared, &fixture.id, "dart"));
-                "throwsA(anything)".to_string()
-            }
-            None => {
-                let escaped = escape_dart(declared);
-                format!(
-                    "throwsA(predicate((e) => e.toString().contains('{escaped}') || e.runtimeType.toString().contains('{escaped}')))"
-                )
-            }
-        },
-        DeclaredErrorAssertion::Unsubstantiable(variant) => {
-            let _ = writeln!(out, "{}", skip_line(indent, "//", variant, &fixture.id, "dart"));
-            "throwsA(anything)".to_string()
-        }
-    }
-}
-
 /// A Dart literal for a scalar fixture value, or `None` for a value Dart cannot compare with
 /// `equals` without a conversion.
 fn scalar_literal(value: &serde_json::Value) -> Option<String> {
     match value {
+        serde_json::Value::Null => Some("null".into()),
         serde_json::Value::Bool(b) => Some(b.to_string()),
         serde_json::Value::Number(n) => Some(n.to_string()),
         serde_json::Value::String(s) => Some(format!("'{}'", escape_dart(s))),
@@ -83,7 +114,8 @@ fn scalar_literal(value: &serde_json::Value) -> Option<String> {
 pub(super) fn field_checks(out: &mut String, indent: &str, fixture: &Fixture, errors: &[ErrorDef]) -> Vec<String> {
     let live = live_errors(errors);
     let mut checks = Vec::new();
-    for assertion in &fixture.assertions {
+    let pending = pending_assertions(fixture, errors);
+    for assertion in &pending.assertions {
         let Some((error, method)) = resolvable_equals_error_field(assertion, &live) else {
             continue;
         };

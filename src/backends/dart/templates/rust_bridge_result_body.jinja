@@ -1,0 +1,5 @@
+{% if has_error %}
+    {{ call }}.map({{ success_map }}).map_err({{ error_mapper }})
+{% else %}
+    {{ result_expr }}{{ ";" if is_unit_return else "" }}
+{% endif %}

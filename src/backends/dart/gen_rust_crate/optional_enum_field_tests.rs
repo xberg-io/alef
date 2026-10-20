@@ -40,11 +40,11 @@ fn optional_data_variant_field_stays_optional_through_the_mirror() {
 
     let mut from_core = String::new();
     emit_from_impl_for_enum(&mut from_core, &en, "mylib", None);
-    assert!(from_core.contains("count.map(|v| v as _)"), "got:\n{from_core}");
+    assert!(from_core.contains("count.map(|value| value as _)"), "got:\n{from_core}");
     assert!(!from_core.contains("unwrap_or_default"), "got:\n{from_core}");
 
     let mut to_core = String::new();
     emit_from_mirror_to_core_enum(&mut to_core, &en, "mylib", None);
     assert!(!to_core.contains("is_empty()"), "got:\n{to_core}");
-    assert!(to_core.contains("count.map(|v| v as _)"), "got:\n{to_core}");
+    assert!(to_core.contains("count.map(|value| value as _)"), "got:\n{to_core}");
 }

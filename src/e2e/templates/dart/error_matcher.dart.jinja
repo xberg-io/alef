@@ -1,0 +1,1 @@
+{% if enum_value %}throwsA(equals({{ enum_value }})){% else %}throwsA(isA<{{ type_name }}>(){% for field in fields %}.having((e) => e.{{ field.property }}, '{{ field.name }}', {{ field.value }}){% endfor %}){% endif %}

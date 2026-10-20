@@ -4,7 +4,6 @@ use crate::codegen::naming::{PublicIdentifierKind, public_host_identifier};
 use crate::core::config::{AdapterConfig, Language, ResolvedCrateConfig};
 use crate::core::ir::{EnumDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
 
-use super::helpers::{error_return, typed_error_name};
 use super::{bridge_fn, conversions};
 
 pub(super) fn has_duration_or_path_field(ty: &TypeRef) -> bool {
@@ -62,7 +61,7 @@ pub(super) fn emit_opaque_impl_block(
     config: &ResolvedCrateConfig,
     type_paths: &std::collections::HashMap<String, String>,
     mirror_type_names: &HashSet<String>,
-    typed_errors: &HashSet<String>,
+    errors: &[crate::core::ir::ErrorDef],
 ) {
     let type_name = &ty.name;
 
@@ -162,7 +161,7 @@ pub(super) fn emit_opaque_impl_block(
                 source_crate_name,
                 types_needing_from_conversion,
                 opaque_type_names,
-                typed_errors,
+                errors,
             );
             continue;
         }
@@ -173,7 +172,7 @@ pub(super) fn emit_opaque_impl_block(
             source_crate_name,
             types_needing_from_conversion,
             opaque_type_names,
-            typed_errors,
+            errors,
         );
     }
 
@@ -238,7 +237,7 @@ fn emit_opaque_method(
     source_crate_name: &str,
     types_needing_from_conversion: &HashSet<String>,
     opaque_type_names: &HashSet<String>,
-    typed_errors: &HashSet<String>,
+    errors: &[crate::core::ir::ErrorDef],
 ) {
     use bridge_fn::frb_rust_type_mirror;
 
@@ -262,14 +261,12 @@ fn emit_opaque_method(
     let async_kw = if method.is_async { "async " } else { "" };
 
     let has_error = method.error_type.is_some();
-    let typed_error = method
-        .error_type
-        .as_deref()
-        .and_then(|error_type| typed_error_name(error_type, typed_errors));
-    let (error_ty, err_map) = error_return(typed_error.as_deref());
     let ret_ty = if has_error {
         let ok_ty = frb_rust_type_mirror(&method.return_type, false);
-        format!("Result<{ok_ty}, {error_ty}>")
+        format!(
+            "Result<{ok_ty}, {}>",
+            super::error_bridge::result_error_type(method.error_type.as_deref(), errors)
+        )
     } else {
         frb_rust_type_mirror(&method.return_type, false)
     };
@@ -292,7 +289,7 @@ fn emit_opaque_method(
         source_crate_name,
         types_needing_from_conversion,
         opaque_type_names,
-        &err_map,
+        errors,
     );
 
     out.push_str("    }\n");
@@ -309,7 +306,7 @@ fn emit_static_opaque_method(
     source_crate_name: &str,
     types_needing_from_conversion: &HashSet<String>,
     opaque_type_names: &HashSet<String>,
-    typed_errors: &HashSet<String>,
+    errors: &[crate::core::ir::ErrorDef],
 ) {
     use bridge_fn::frb_rust_type_mirror;
 
@@ -327,14 +324,12 @@ fn emit_static_opaque_method(
     let async_kw = if method.is_async { "async " } else { "" };
 
     let has_error = method.error_type.is_some();
-    let typed_error = method
-        .error_type
-        .as_deref()
-        .and_then(|error_type| typed_error_name(error_type, typed_errors));
-    let (error_ty, err_map) = error_return(typed_error.as_deref());
     let ret_ty = if has_error {
         let ok_ty = frb_rust_type_mirror(&method.return_type, false);
-        format!("Result<{ok_ty}, {error_ty}>")
+        format!(
+            "Result<{ok_ty}, {}>",
+            super::error_bridge::result_error_type(method.error_type.as_deref(), errors)
+        )
     } else {
         frb_rust_type_mirror(&method.return_type, false)
     };
@@ -357,7 +352,7 @@ fn emit_static_opaque_method(
         source_crate_name,
         types_needing_from_conversion,
         opaque_type_names,
-        &err_map,
+        errors,
     );
 
     out.push_str("    }\n");
@@ -374,7 +369,7 @@ fn emit_static_opaque_method_body(
     source_crate_name: &str,
     types_needing_from_conversion: &HashSet<String>,
     opaque_type_names: &HashSet<String>,
-    err_map: &str,
+    errors: &[crate::core::ir::ErrorDef],
 ) {
     use conversions::frb_rust_type_inner;
 
@@ -480,7 +475,14 @@ fn emit_static_opaque_method_body(
     let wrap_return = build_opaque_return_wrap(&method.return_type, method.returns_ref);
     let has_error = method.error_type.is_some();
 
-    emit_opaque_call_return(out, &call, &wrap_return, method.is_async, has_error, err_map);
+    emit_opaque_call_return(
+        out,
+        &call,
+        &wrap_return,
+        method.is_async,
+        has_error,
+        super::error_bridge::error_mapper(method.error_type.as_deref(), errors),
+    );
 }
 
 fn emit_opaque_call_return(
@@ -489,7 +491,7 @@ fn emit_opaque_call_return(
     wrap_return: &str,
     is_async: bool,
     has_error: bool,
-    err_map: &str,
+    error_mapper: &str,
 ) {
     let template = match (is_async, has_error, wrap_return.is_empty()) {
         (true, true, true) => "rust_opaque_call_await_error.rs.jinja",
@@ -523,7 +525,7 @@ fn emit_opaque_call_return(
             call => call,
             wrap_return => wrap_return,
             wrap_return_impl => wrap_return_impl.as_str(),
-            err_map => err_map,
+            error_mapper => error_mapper,
         },
     ));
 }
@@ -538,7 +540,7 @@ fn emit_opaque_method_body(
     source_crate_name: &str,
     types_needing_from_conversion: &HashSet<String>,
     opaque_type_names: &HashSet<String>,
-    err_map: &str,
+    errors: &[crate::core::ir::ErrorDef],
 ) {
     use conversions::frb_rust_type_inner;
 
@@ -681,7 +683,14 @@ fn emit_opaque_method_body(
 
     let wrap_return = build_opaque_return_wrap(&method.return_type, method.returns_ref);
 
-    emit_opaque_call_return(out, &call, &wrap_return, method.is_async, has_error, err_map);
+    emit_opaque_call_return(
+        out,
+        &call,
+        &wrap_return,
+        method.is_async,
+        has_error,
+        super::error_bridge::error_mapper(method.error_type.as_deref(), errors),
+    );
 }
 
 /// Build the return-value wrapping closure for an opaque method return type.

@@ -2,6 +2,10 @@ use minijinja::Environment;
 
 static TEMPLATES: &[(&str, &str)] = &[
     (
+        "dart/error_matcher.dart.jinja",
+        include_str!("templates/dart/error_matcher.dart.jinja"),
+    ),
+    (
         "kotlin/not_empty_assertion.kt.jinja",
         include_str!("templates/kotlin/not_empty_assertion.kt.jinja"),
     ),

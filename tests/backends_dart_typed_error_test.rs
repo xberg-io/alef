@@ -150,11 +150,11 @@ fn fallible_bridge_fn_returns_the_mirrored_error_not_a_string() {
     let lib = generated_lib(vec![api_error(false)]);
 
     assert!(
-        lib.contains("pub fn send(raw: String) -> Result<String, ApiErr>"),
+        lib.contains("pub fn send(raw: String) -> Result<String, AlefBridgeError>"),
         "the bridge must return the mirrored error: {lib}"
     );
     assert!(
-        lib.contains(".map_err(ApiErr::from)"),
+        lib.contains(".map_err(AlefBridgeError::from)"),
         "the bridge must convert the core error into the mirror: {lib}"
     );
     assert!(
@@ -167,8 +167,11 @@ fn fallible_bridge_fn_returns_the_mirrored_error_not_a_string() {
 fn fallible_opaque_method_returns_the_mirrored_error_not_a_string() {
     let lib = generated_lib(vec![api_error(false)]);
 
+    let declaration = lib
+        .lines()
+        .find(|line| line.trim_start().starts_with("pub async fn fetch("));
     assert!(
-        lib.contains("-> Result<String, ApiErr> {") && lib.contains("pub async fn fetch(&self"),
+        declaration.is_some_and(|line| line.contains("&self") && line.contains("-> Result<String, AlefBridgeError> {")),
         "the opaque method must return the mirrored error: {lib}"
     );
 }
@@ -182,19 +185,21 @@ fn core_error_converts_into_every_mirror_variant_shape() {
         "the core error must convert into the mirror: {lib}"
     );
     assert!(
-        lib.contains("retry_after: f_retry_after.map(|v| v.as_millis() as i64)"),
+        lib.contains("retry_after: retry_after.map(|value| value.as_millis() as i64)"),
         "an optional duration must stay optional in the conversion: {lib}"
     );
     assert!(
-        lib.contains("demo_crate::ApiErr::Status { status: f_status, .. } => ApiErr::Status { status: f_status as _ }"),
+        lib.contains(
+            "demo_crate::ApiErr::Status { status, .. } => Self::Status {\n                status: status as _,"
+        ),
         "an integer field must widen in the conversion: {lib}"
     );
     assert!(
-        lib.contains("demo_crate::ApiErr::Timeout => ApiErr::Timeout,"),
+        lib.contains("demo_crate::ApiErr::Timeout => Self::Timeout,"),
         "a unit variant must convert to the unit variant: {lib}"
     );
     assert!(
-        lib.contains("demo_crate::ApiErr::Serialization { .. } => ApiErr::Serialization { field0: e.to_string() }"),
+        lib.contains("demo_crate::ApiErr::Serialization(_) => Self::Serialization {\n                field0: message,"),
         "a variant with only excluded fields must carry the message: {lib}"
     );
 }

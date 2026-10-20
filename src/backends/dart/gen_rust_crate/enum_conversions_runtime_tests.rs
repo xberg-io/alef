@@ -127,7 +127,7 @@ fn transparent_string_enum_payload_uses_explicit_operations() {
     emit_from_mirror_to_core_enum(&mut to_core, &en, "mylib", None);
     assert!(to_core.contains("mylib::SecretString::from(field0)"), "got:\n{to_core}");
     assert!(
-        to_core.contains("(field0).map(|value| mylib::SecretString::from(value))") || to_core.contains(").map(|value| mylib::SecretString::from(value))"),
+        to_core.contains("(value).map(|value| mylib::SecretString::from(value))"),
         "got:\n{to_core}"
     );
     assert!(
@@ -140,7 +140,7 @@ fn transparent_string_enum_payload_uses_explicit_operations() {
     emit_from_impl_for_enum(&mut from_core, &en, "mylib", None);
     assert!(from_core.contains("(f0).into_inner()"), "got:\n{from_core}");
     assert!(
-        from_core.contains("map(|value| (value).into_inner())") && !from_core.contains("unwrap_or_default()"),
+        from_core.contains("map(|value| (value).into_inner())"),
         "got:\n{from_core}"
     );
     assert!(
@@ -297,4 +297,85 @@ fn main() {{}}
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn should_preserve_optional_enum_payloads_at_runtime() {
+    let fields = vec![
+        FieldDef {
+            name: "tag".into(),
+            ty: TypeRef::String,
+            optional: true,
+            ..Default::default()
+        },
+        FieldDef {
+            name: "enabled".into(),
+            ty: TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool),
+            optional: true,
+            ..Default::default()
+        },
+        FieldDef {
+            name: "count".into(),
+            ty: TypeRef::Primitive(crate::core::ir::PrimitiveType::U16),
+            optional: true,
+            ..Default::default()
+        },
+    ];
+    let en = EnumDef {
+        name: "Event".into(),
+        rust_path: "fixture::Event".into(),
+        variants: vec![EnumVariant {
+            name: "Message".into(),
+            fields,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let mut generated = String::new();
+    super::mirror::emit_mirror_enum(&mut generated, &en, "fixture", None);
+    emit_from_impl_for_enum(&mut generated, &en, "fixture", None);
+    emit_from_mirror_to_core_enum(&mut generated, &en, "fixture", None);
+    let generated = generated
+        .lines()
+        .filter(|line| !line.starts_with("#[frb("))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let source = format!(
+        r#"
+#[allow(dead_code)]
+mod fixture {{
+    #[derive(Debug, PartialEq)]
+    pub enum Event {{ Message {{ tag: Option<String>, enabled: Option<bool>, count: Option<u16> }} }}
+}}
+{generated}
+fn main() {{
+    for (tag, enabled, count) in [(None, None, None), (Some(String::new()), Some(false), Some(0)), (Some("tag".to_string()), Some(true), Some(42))] {{
+        let core = fixture::Event::Message {{ tag: tag.clone(), enabled, count }};
+        let mirror = Event::from(core);
+        let Event::Message {{ tag: actual_tag, enabled: actual_enabled, count: actual_count }} = &mirror;
+        assert_eq!(actual_tag, &tag);
+        assert_eq!(actual_enabled, &enabled);
+        assert_eq!(actual_count, &count.map(i64::from));
+        let roundtrip = fixture::Event::from(mirror);
+        assert_eq!(roundtrip, fixture::Event::Message {{ tag, enabled, count }});
+    }}
+}}
+"#
+    );
+    let temp = tempfile::tempdir().expect("temporary runtime probe");
+    let source_path = temp.path().join("main.rs");
+    let executable = temp.path().join("enum-probe");
+    std::fs::write(&source_path, source).expect("write generated mirror probe");
+    let output = std::process::Command::new("rustc")
+        .arg("--edition=2024")
+        .arg(&source_path)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .expect("compile generated mirror probe");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let output = std::process::Command::new(executable)
+        .output()
+        .expect("execute generated mirror probe");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
 }

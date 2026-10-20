@@ -51,7 +51,40 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 /// [`super::cfg_gates::cfg_gated_free_functions`], which only returns the `#[cfg(...)]`-gated
 /// subset.
 pub fn free_function_names(lib_rs_source: &str) -> Vec<String> {
-    lib_rs_source.lines().filter_map(free_pub_fn_name).collect()
+    let codecs = codec_function_names(lib_rs_source);
+    lib_rs_source
+        .lines()
+        .filter_map(free_pub_fn_name)
+        .filter(|name| !codecs.contains(name))
+        .collect()
+}
+
+// ~keep FRB consumes codec functions internally and emits no matching Dart API function.
+// Parse attributes rather than names so ordinary functions remain covered, including on parse failure.
+fn codec_function_names(source: &str) -> HashSet<String> {
+    let Ok(file) = syn::parse_file(source) else {
+        return HashSet::new();
+    };
+    file.items
+        .into_iter()
+        .filter_map(|item| {
+            let syn::Item::Fn(function) = item else {
+                return None;
+            };
+            function
+                .attrs
+                .iter()
+                .any(|attribute| {
+                    let syn::Meta::List(list) = &attribute.meta else {
+                        return false;
+                    };
+                    list.path.is_ident("frb") && list.tokens.clone().into_iter().any(|token| {
+                matches!(token, proc_macro2::TokenTree::Ident(ident) if ident == "rust2dart" || ident == "dart2rust")
+            })
+                })
+                .then(|| function.sig.ident.to_string())
+        })
+        .collect()
 }
 
 /// Strip a `#[cfg(...)]` attribute's `#[cfg(` / `)]` delimiters, returning the bare predicate
@@ -382,6 +415,27 @@ fn private_helper() {}
         assert_eq!(
             free_function_names(lib_rs),
             vec!["count_widgets".to_string(), "record_price".to_string()],
+        );
+    }
+
+    #[test]
+    fn codec_functions_do_not_require_public_dart_entrypoints() {
+        let facade = r#"
+#[frb(rust2dart(dart_type = "Object", dart_code = "{}"))]
+pub fn encode_error(value: CoreError) -> WireError { todo!() }
+#[frb(dart2rust(dart_type = "Object", dart_code = "{}"))]
+pub fn decode_error(value: WireError) -> CoreError { todo!() }
+#[frb]
+pub fn request() {}
+pub fn alef_encode_bridge_error() {}
+"#;
+        assert_eq!(
+            missing_bridge_functions(facade, "void request() {}", &[], None, None),
+            vec!["alef_encode_bridge_error".to_string()]
+        );
+        assert_eq!(
+            missing_bridge_functions("pub fn request() {}\nnot valid Rust", "", &[], None, None),
+            vec!["request".to_string()]
         );
     }
 

@@ -71,6 +71,14 @@ fn host_error_type(lang: &str, error_name: &str, variant: &ErrorVariant, errors:
             &variant.name,
             error_name,
         )),
+        "dart" => {
+            let error = errors.iter().find(|error| error.name == error_name)?;
+            Some(if crate::backends::dart::naming::dart_error_is_simple(error) {
+                crate::backends::dart::naming::dart_simple_error_value(error_name, &variant.name)
+            } else {
+                crate::backends::dart::naming::dart_error_variant_class(error_name, &variant.name)
+            })
+        }
         // ~keep `backends/go/gen_bindings/types/helpers.rs::gen_last_error_helper` maps the FFI
         // taxonomy code to this sentinel.
         "go" => Some(crate::codegen::error_gen::go_error_sentinel_name(
@@ -85,9 +93,6 @@ fn host_error_type(lang: &str, error_name: &str, variant: &ErrorVariant, errors:
             "error.{}",
             crate::codegen::naming::cased_public_type_name(crate::core::config::Language::Zig, &variant.name,)
         )),
-        // ~keep flutter_rust_bridge names each variant class `{Error}_{Variant}`; see
-        // `dart/error_assertions.rs`.
-        "dart" => Some(format!("{error_name}_{}", variant.name)),
         _ => None,
     }
 }
@@ -179,7 +184,7 @@ mod tests {
             let branch = for_fixture(lang, &fixture, &errors);
             assert_eq!(
                 branch.is_some(),
-                *lang == "python" || *lang == "dart",
+                matches!(*lang, "python" | "dart"),
                 "lang={lang}: an uncoded variant yielded {branch:?}"
             );
         }

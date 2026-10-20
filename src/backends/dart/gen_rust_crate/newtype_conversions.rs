@@ -9,11 +9,11 @@ pub(super) fn struct_to_core(expr: &str, field: &FieldDef) -> Option<String> {
 }
 
 pub(super) fn enum_from_core(expr: &str, field: &FieldDef) -> Option<String> {
-    convert_enum_field(expr, field, Direction::FromCore)
+    convert_struct_field(expr, field, Direction::FromCore)
 }
 
 pub(super) fn enum_to_core(expr: &str, field: &FieldDef) -> Option<String> {
-    convert_enum_field(expr, field, Direction::ToCore)
+    convert_struct_field(expr, field, Direction::ToCore)
 }
 
 fn explicit_paths(wrapper: &str) -> Option<Vec<NewtypeWrapperMetadata>> {
@@ -55,54 +55,6 @@ fn convert_struct_field(expr: &str, field: &FieldDef, direction: Direction) -> O
     } else {
         Some(convert(expr, &field.ty, &paths, direction))
     }
-}
-
-fn convert_enum_field(expr: &str, field: &FieldDef, direction: Direction) -> Option<String> {
-    let wrapper = field.newtype_wrapper.as_deref()?;
-    let paths = explicit_paths(wrapper)?;
-    if !field.optional
-        && crate::codegen::conversions::helpers::explicit_newtype_covers_non_identity_leaves(&field.ty, false, wrapper)
-    {
-        return match direction {
-            Direction::FromCore => {
-                crate::codegen::conversions::helpers::apply_explicit_field_newtype_from_core(expr, field)
-            }
-            Direction::ToCore => {
-                crate::codegen::conversions::helpers::apply_explicit_field_newtype_to_core(expr, field)
-            }
-        };
-    }
-    if !field.optional {
-        return Some(convert(expr, &field.ty, &paths, direction));
-    }
-    let after_outer = advance_matching(&paths, NewtypeContainer::Optional);
-    if let TypeRef::Optional(inner) = &field.ty {
-        return Some(match direction {
-            Direction::FromCore => {
-                let converted = convert(
-                    "value",
-                    inner,
-                    &advance_matching(&after_outer, NewtypeContainer::Optional),
-                    direction,
-                );
-                format!("({expr}).flatten().map(|value| {converted})")
-            }
-            Direction::ToCore => {
-                let converted = convert(expr, &field.ty, &after_outer, direction);
-                format!("({converted}).map(Some)")
-            }
-        });
-    }
-    Some(match direction {
-        Direction::FromCore => {
-            let converted = convert("value", &field.ty, &after_outer, direction);
-            format!("({expr}).map(|value| {converted})")
-        }
-        Direction::ToCore => {
-            let converted = convert("value", &field.ty, &after_outer, direction);
-            format!("({expr}).map(|value| {converted})")
-        }
-    })
 }
 
 #[derive(Clone, Copy)]

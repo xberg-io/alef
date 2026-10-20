@@ -27,7 +27,7 @@ pub use frb_rewrite::{
     carry_lib_rs_cfg_gates_into_frb_generated, cfg_gated_free_functions, filter_excluded_functions,
     fix_handler_executor_calls, inject_display_as_text_methods, inject_frb_cfg_gates,
     make_struct_fields_with_defaults_optional, missing_bridge_functions, missing_bridge_struct_fields,
-    rewrite_frb_sealed_variants, strip_trailing_whitespace, undeclared_gate_features,
+    repair_single_variant_copy_with, rewrite_frb_sealed_variants, strip_trailing_whitespace, undeclared_gate_features,
 };
 pub use gen_bindings::DartBackend;
 pub(crate) use gen_bindings::{config_param_is_named_optional, frb_dart_bridge_path, frb_rust_facade_paths};

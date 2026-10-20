@@ -45,6 +45,47 @@ pub enum DemoError {
     /// Processing encountered an error.
     ProcessingFailed,
 }
+#[frb(ignore)]
+mod alef_bridge_error {
+    pub struct AlefBridgeError(pub super::AlefBridgeErrorWire);
+
+    impl From<String> for AlefBridgeError {
+        fn from(message: String) -> Self {
+            Self(super::AlefBridgeErrorWire::InvalidInput { message })
+        }
+    }
+}
+use alef_bridge_error::AlefBridgeError;
+
+pub enum AlefBridgeErrorWire {
+    DemoError { error: DemoError },
+    InvalidInput { message: String },
+}
+
+#[frb(rust2dart(dart_type = "Object", dart_code = "switch ({}) { AlefBridgeErrorWire_DemoError(:final error) => error, AlefBridgeErrorWire_InvalidInput(:final message) => ArgumentError(message) }"))]
+pub fn alef_encode_bridge_error(value: AlefBridgeError) -> AlefBridgeErrorWire {
+    value.0
+}
+
+#[frb(dart2rust(dart_type = "Object", dart_code = "switch ({}) { DemoError error => AlefBridgeErrorWire.demoError(error: error), ArgumentError error => AlefBridgeErrorWire.invalidInput(message: error.message.toString()), _ => throw ArgumentError.value({}, 'error', 'Unsupported bridge error') }"))]
+pub fn alef_decode_bridge_error(value: AlefBridgeErrorWire) -> AlefBridgeError {
+    AlefBridgeError(value)
+}
+
+impl From<demo::DemoError> for DemoError {
+    fn from(value: demo::DemoError) -> Self {
+        match value {
+            demo::DemoError::InvalidInput => Self::InvalidInput,
+            demo::DemoError::ProcessingFailed => Self::ProcessingFailed,
+        }
+    }
+}
+
+impl From<demo::DemoError> for AlefBridgeError {
+    fn from(value: demo::DemoError) -> Self {
+        Self(AlefBridgeErrorWire::DemoError { error: DemoError::from(value) })
+    }
+}
 
 // From<SourceT> conversions for bridge return types.
 
@@ -72,8 +113,8 @@ impl From<demo::Status> for Status {
 // nested conversions within those types.
 
 /// Process input and return a result.
-pub fn process(input: String, count: i64) -> Result<String, String> {
-    demo::process(input, u32::try_from(count).map_err(|_| "parameter 'count' must be between 0 and u32::MAX".to_string())?).map(|v| v.to_string()).map_err(|e| e.to_string())
+pub fn process(input: String, count: i64) -> Result<String, AlefBridgeError> {
+    demo::process(input, u32::try_from(count).map_err(|_| "parameter 'count' must be between 0 and u32::MAX".to_string())?).map(|v| v.to_string()).map_err(AlefBridgeError::from)
 }
 
 // `create_<Type>_from_json` helpers — deserialize a JSON string into a mirror type.

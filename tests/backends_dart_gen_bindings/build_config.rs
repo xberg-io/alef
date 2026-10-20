@@ -23,13 +23,13 @@ fn build_config_for_frb_emits_post_process_file_step() {
 
     assert_eq!(
         post_process_steps.len(),
-        9,
-        "FRB config must have nine PostProcessFile steps: (1) exclude_functions on lib.dart, \
+        10,
+        "FRB config must have ten PostProcessFile steps: (1) exclude_functions on lib.dart, \
          (2) sealed_variants on lib.dart, (3) resolved constructor defaults on lib.dart, \
          (4) exclude_functions on frb_generated.dart, \
          (5) sealed_variants on frb_generated.dart for the published-package native-lib loader, \
          (6) fix handler executor calls on frb_generated.dart, \
-         (7-9) strip trailing whitespace from generated Dart files"
+         (7) repair single-variant copyWith, (8-10) strip trailing whitespace from generated Dart files"
     );
 
     let lib_dart_path = PathBuf::from("packages")
@@ -111,22 +111,28 @@ fn build_config_for_frb_emits_post_process_file_step() {
         );
     }
 
+    assert!(matches!(
+        post_process_steps[6],
+        PostBuildStep::PostProcessFile { path, processor: PostProcessor::FrbDartSingleVariantCopyWith }
+            if path == &lib_freezed_path
+    ));
+
     for (idx, expected_path) in [&lib_dart_path, &frb_generated_path, &lib_freezed_path]
         .into_iter()
         .enumerate()
     {
-        if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[idx + 6] {
+        if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[idx + 7] {
             assert_eq!(
                 *processor,
                 PostProcessor::DartStripTrailingWhitespace,
                 "PostProcessFile {} must strip trailing whitespace",
-                idx + 7
+                idx + 8
             );
             assert_eq!(
                 path,
                 expected_path,
                 "PostProcessFile {} must target the expected generated Dart file",
-                idx + 7
+                idx + 8
             );
         }
     }
@@ -164,6 +170,7 @@ fn build_config_for_frb_run_command_precedes_post_process_file() {
             "VerifyFrbCodegenVersion",
             "RunCommand",
             "VerifyFrbBridgeCoverage",
+            "PostProcessFile",
             "PostProcessFile",
             "PostProcessFile",
             "PostProcessFile",

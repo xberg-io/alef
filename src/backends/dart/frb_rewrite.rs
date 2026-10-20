@@ -37,6 +37,8 @@ mod external_library_loader;
 mod imports_helpers;
 #[path = "frb_rewrite/sealed_variants.rs"]
 mod sealed_variants;
+#[path = "frb_rewrite/single_variant_copy_with.rs"]
+mod single_variant_copy_with;
 #[cfg(test)]
 #[path = "frb_rewrite/tests.rs"]
 mod tests;
@@ -46,6 +48,7 @@ mod text_transformations;
 pub use bridge_coverage::{missing_bridge_functions, missing_bridge_struct_fields, undeclared_gate_features};
 pub use cfg_gates::{carry_lib_rs_cfg_gates_into_frb_generated, cfg_gated_free_functions, inject_frb_cfg_gates};
 pub use sealed_variants::rewrite_frb_sealed_variants;
+pub use single_variant_copy_with::repair_single_variant_copy_with;
 pub use text_transformations::{
     filter_excluded_functions, fix_handler_executor_calls, inject_display_as_text_methods,
     make_struct_fields_with_defaults_optional, strip_trailing_whitespace,

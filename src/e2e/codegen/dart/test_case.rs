@@ -14,15 +14,35 @@ const COMPATIBLE_OPTIONS_TYPE_LANGS: &[&str] = &["csharp", "c", "go", "java", "p
 
 mod args;
 
-/// Build the `throwsA(...)` matcher expression for an `error`-asserting test. See
-/// `error_assertions::error_matcher`.
 fn dart_error_matcher(
     out: &mut String,
     indent: &str,
     fixture: &Fixture,
     errors: &[crate::core::ir::ErrorDef],
 ) -> String {
-    super::error_assertions::error_matcher(out, indent, fixture, errors)
+    use crate::e2e::codegen::declared_error_variant::{DeclaredErrorAssertion, classify, skip_line};
+    if let Some((error, variant)) = super::super::declared_error_variant::declared_variant(fixture, errors)
+        && error.binding_excluded
+    {
+        let _ = writeln!(out, "{}", skip_line(indent, "//", &variant.name, &fixture.id, "dart"));
+        return "throwsA(anything)".into();
+    }
+    if let Some(matcher) = super::error_assertions::typed_matcher(fixture, errors) {
+        return matcher;
+    }
+    match classify("dart", fixture, errors) {
+        DeclaredErrorAssertion::Undeclared => "throwsA(anything)".to_string(),
+        DeclaredErrorAssertion::Assert(declared) => {
+            let escaped = escape_dart(declared);
+            format!(
+                "throwsA(predicate((e) => e.toString().contains('{escaped}') || e.runtimeType.toString().contains('{escaped}')))"
+            )
+        }
+        DeclaredErrorAssertion::Unsubstantiable(variant) => {
+            let _ = writeln!(out, "{}", skip_line(indent, "//", variant, &fixture.id, "dart"));
+            "throwsA(anything)".to_string()
+        }
+    }
 }
 
 /// True when `body` contains at least one line that is not blank and not a

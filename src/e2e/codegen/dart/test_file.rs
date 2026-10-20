@@ -378,15 +378,10 @@ pub(super) fn render_test_file(
                 is_snippet: false,
             },
         );
-        // ~keep Dart's error path (`render_test_case`'s `expects_error` branches) emits
-        // `expectLater(..., throwsA(..))` and nothing else, so every other assertion on an
-        // error fixture — an `equals` against `error.status_code`, most often — leaves no trace
-        // in the generated test at all. The marker lands here, immediately after the emitted
-        // `test(...)` call inside `main()`, rather than inside the test body: the body is built
-        // in `test_case.rs`, which another change owns.
+        let pending = super::error_assertions::pending_assertions(fixture, errors);
         crate::e2e::codegen::error_path_assertions::emit_with_errors(
             &mut fixture_bodies,
-            fixture,
+            &pending,
             "  // ",
             "dart",
             &super::error_assertions::live_errors(errors),

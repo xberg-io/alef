@@ -70,7 +70,6 @@ mod plugin_trait_stub_generation {
 
         Fixture {
             id: id.to_string(),
-            category: None,
             description: "test".to_string(),
             docs: None,
             requirements: Vec::new(),
@@ -90,6 +89,7 @@ mod plugin_trait_stub_generation {
             visitor: None,
             args: vec![],
             assertion_recipes: vec![],
+            ..Default::default()
         }
     }
 

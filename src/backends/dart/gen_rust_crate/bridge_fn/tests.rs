@@ -132,7 +132,15 @@ fn vec_named_return_transform_is_suffix_not_closure_call() {
         }
         other => panic!("expected Suffix, got {other:?}"),
     }
-    let body = build_body("sample_crate::detect(&x)", "", &transform, false, false, false, "|e| e.to_string()");
+    let body = build_body(
+        "sample_crate::detect(&x)",
+        "",
+        &transform,
+        false,
+        false,
+        false,
+        "|e| e.to_string()",
+    );
     assert!(
         !body.contains("|v: Vec<_>|"),
         "body must not emit closure-literal wrap: {body}"
@@ -171,7 +179,15 @@ fn option_named_return_transform_is_suffix_not_closure_call() {
         }
         other => panic!("expected Suffix, got {other:?}"),
     }
-    let body = build_body("sample_crate::get(&n)", "", &transform, false, false, false, "|e| e.to_string()");
+    let body = build_body(
+        "sample_crate::get(&n)",
+        "",
+        &transform,
+        false,
+        false,
+        false,
+        "|e| e.to_string()",
+    );
     assert!(
         !body.contains("|v: Option<_>|"),
         "body must not emit closure-literal wrap: {body}"
@@ -246,8 +262,24 @@ fn scalar_path_result_cast_uses_display_not_to_string() {
 #[test]
 fn unit_return_no_error_emits_statement_not_expression() {
     let transform = RetTransform::None;
-    let body_sync = build_body("sample_crate::clear()", "", &transform, false, false, true, "|e| e.to_string()");
-    let body_async = build_body("sample_crate::clear()", "", &transform, false, true, true, "|e| e.to_string()");
+    let body_sync = build_body(
+        "sample_crate::clear()",
+        "",
+        &transform,
+        false,
+        false,
+        true,
+        "|e| e.to_string()",
+    );
+    let body_async = build_body(
+        "sample_crate::clear()",
+        "",
+        &transform,
+        false,
+        true,
+        true,
+        "|e| e.to_string()",
+    );
 
     assert!(
         body_sync.contains("sample_crate::clear();"),
@@ -299,7 +331,7 @@ fn emit(f: &FunctionDef) -> String {
         &std::collections::HashSet::new(),
         &[],
         &[],
-        &std::collections::HashSet::new(),
+        &[],
     )
     .expect("emit_bridge_fn");
     out
@@ -371,7 +403,7 @@ fn dto_unsigned_offsets_are_checked_before_fallible_core_call() {
         &std::collections::HashSet::new(),
         &[],
         &[finding],
-        &std::collections::HashSet::new(),
+        &[],
     )
     .expect("emit bridge");
 
@@ -424,7 +456,7 @@ fn direct_and_optional_dto_unsigned_fields_are_checked_before_conversion() {
             &std::collections::HashSet::new(),
             &[],
             std::slice::from_ref(&finding),
-            &std::collections::HashSet::new(),
+            &[],
         )
         .expect("emit bridge");
 
@@ -471,7 +503,7 @@ fn unsigned_dto_does_not_change_an_infallible_public_signature() {
         &std::collections::HashSet::new(),
         &[],
         &[match_type],
-        &std::collections::HashSet::new(),
+        &[],
     )
     .expect("emit bridge");
 
@@ -664,7 +696,7 @@ fn emit_bridge_fn_configured_stub_method_still_emits_unimplemented() {
         &std::collections::HashSet::new(),
         &["analyze_document".to_string()],
         &[],
-        &std::collections::HashSet::new(),
+        &[],
     )
     .expect("emit_bridge_fn");
 
@@ -768,7 +800,7 @@ fn mut_dto_param_via_from_conversion_round_trips_through_the_core_type() {
         &std::collections::HashSet::new(),
         &[],
         &[],
-        &std::collections::HashSet::new(),
+        &[],
     )
     .expect("emit_bridge_fn");
 
@@ -843,7 +875,7 @@ fn two_mut_dto_params_are_rejected_at_generation_time_naming_the_function() {
         &std::collections::HashSet::new(),
         &[],
         &[],
-        &std::collections::HashSet::new(),
+        &[],
     )
     .expect_err("two `&mut` DTO params must be rejected at generation time");
 
@@ -875,7 +907,7 @@ fn mut_dto_param_plus_a_return_value_is_rejected_naming_the_function() {
         &std::collections::HashSet::new(),
         &[],
         &[],
-        &std::collections::HashSet::new(),
+        &[],
     )
     .expect_err("a `&mut` DTO param on a function that also returns a value must be rejected");
 
@@ -905,7 +937,7 @@ fn mut_opaque_param_is_not_treated_as_writeback() {
         &opaque,
         &[],
         &[],
-        &std::collections::HashSet::new(),
+        &[],
     )
     .expect("emit_bridge_fn");
 
@@ -917,4 +949,31 @@ fn mut_opaque_param_is_not_treated_as_writeback() {
         out.contains("&mut engine.inner"),
         "an opaque &mut param must keep mutating through its live handle, got:\n{out}"
     );
+}
+
+#[test]
+fn result_body_preserves_one_trailing_newline_for_each_branch() {
+    for (has_error, is_unit_return, expected) in [
+        (false, false, "    sample_crate::consume() as i64\n"),
+        (false, true, "    sample_crate::consume() as i64;\n"),
+        (
+            true,
+            false,
+            "    sample_crate::consume().map(|v| v as i64).map_err(|e| e.to_string())\n",
+        ),
+    ] {
+        assert_eq!(
+            build_body(
+                "sample_crate::consume()",
+                " as i64",
+                &RetTransform::None,
+                has_error,
+                false,
+                is_unit_return,
+                "|e| e.to_string()",
+            ),
+            expected,
+            "error={has_error}, unit={is_unit_return}"
+        );
+    }
 }

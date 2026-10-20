@@ -21,6 +21,32 @@ pub fn dart_frb_version(config: &ResolvedCrateConfig) -> String {
         .unwrap_or_else(|| template_versions::cargo::FLUTTER_RUST_BRIDGE.to_string())
 }
 
+pub(crate) fn dart_error_variant_class(error_name: &str, variant_name: &str) -> String {
+    use crate::codegen::naming::{PublicIdentifierKind, public_host_identifier};
+    use crate::core::config::Language;
+    format!(
+        "{}_{}",
+        public_host_identifier(Language::Dart, PublicIdentifierKind::Type, error_name),
+        public_host_identifier(Language::Dart, PublicIdentifierKind::Type, variant_name)
+    )
+}
+
+pub(crate) fn dart_error_is_simple(error: &crate::core::ir::ErrorDef) -> bool {
+    error.variants.iter().all(|variant| {
+        variant.is_unit || (!variant.is_tuple && variant.fields.iter().all(|field| field.binding_excluded))
+    })
+}
+
+pub(crate) fn dart_simple_error_value(error_name: &str, variant_name: &str) -> String {
+    use crate::codegen::naming::{PublicIdentifierKind, public_host_identifier};
+    use crate::core::config::Language;
+    format!(
+        "{}.{}",
+        public_host_identifier(Language::Dart, PublicIdentifierKind::Type, error_name),
+        public_host_identifier(Language::Dart, PublicIdentifierKind::Method, variant_name)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

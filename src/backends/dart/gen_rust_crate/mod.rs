@@ -22,10 +22,9 @@ mod components;
 mod conversions;
 mod enum_conversions;
 #[cfg(test)]
-mod optional_enum_field_tests;
-#[cfg(test)]
 mod enum_conversions_runtime_tests;
-mod error_from_core;
+mod enum_fields;
+mod error_bridge;
 mod helpers;
 mod mirror;
 mod mirror_conversions;
@@ -35,6 +34,8 @@ mod mirror_conversions_tests;
 mod mirror_enum_cfg_parity_tests;
 mod newtype_conversions;
 mod opaque;
+#[cfg(test)]
+mod optional_enum_field_tests;
 mod trait_bridge;
 mod trait_types;
 
@@ -329,14 +330,6 @@ fn emit_lib_rs(
         )
         .collect();
 
-    // Every error the crate mirrors for Dart is returned as that typed error. ~keep
-    let typed_errors: HashSet<String> = api
-        .errors
-        .iter()
-        .filter(|e| !e.binding_excluded)
-        .map(|e| e.name.clone())
-        .collect();
-
     let opaque_type_names: HashSet<String> = api
         .types
         .iter()
@@ -360,7 +353,7 @@ fn emit_lib_rs(
             config,
             &type_paths_for_impls,
             &mirror_type_names,
-            &typed_errors,
+            &api.errors,
         );
     }
 
@@ -404,6 +397,8 @@ fn emit_lib_rs(
         content.push('\n');
         emit_mirror_error(&mut content, error, source_crate_name);
     }
+
+    error_bridge::emit(&mut content, &api.errors, source_crate_name);
 
     content.push_str("\n// From<SourceT> conversions for bridge return types.\n");
     for ty in api
@@ -579,7 +574,7 @@ fn emit_lib_rs(
             &opaque_type_names,
             stub_methods,
             &api.types,
-            &typed_errors,
+            &api.errors,
         )?;
     }
 

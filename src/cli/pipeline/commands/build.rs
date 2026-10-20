@@ -20,6 +20,7 @@ mod frb_cfg_gates;
 mod frb_constructor_defaults;
 mod frb_version_check;
 mod observability;
+mod post_process;
 mod staging_profile;
 
 use build_command::{build_command_for, output_path_for, resolve_crate_dir};
@@ -659,46 +660,8 @@ fn run_post_build_with_spawn(
                     .context("post-build VerifyFrbCodegenVersion failed")?;
             }
             PostBuildStep::PostProcessFile { path, processor } => {
-                use crate::core::backend::PostProcessor;
-                let file_path = base_dir.join(crate_dir).join(path);
-                if file_path.exists() {
-                    let content = std::fs::read_to_string(&file_path)
-                        .with_context(|| format!("failed to read post-process target {}", file_path.display()))?;
-                    let processed = match processor {
-                        PostProcessor::FrbDartSealedVariants => {
-                            crate::backends::dart::rewrite_frb_sealed_variants(&content, &config.dart_pubspec_name())
-                        }
-                        PostProcessor::FrbDartExcludeFunctions(excluded) => {
-                            let exclude_set: std::collections::HashSet<&str> =
-                                excluded.iter().map(|s| s.as_str()).collect();
-                            crate::backends::dart::filter_excluded_functions(&content, &exclude_set)
-                        }
-                        PostProcessor::FrbDartOptionalFieldsWithDefaults => {
-                            frb_constructor_defaults::apply(&content, &base_dir.join(crate_dir), config)?
-                        }
-                        PostProcessor::FrbDartFixHandlerExecutorCalls => {
-                            crate::backends::dart::fix_handler_executor_calls(&content)
-                        }
-                        PostProcessor::FrbDartInjectTextMethods(type_names) => {
-                            crate::backends::dart::inject_display_as_text_methods(&content, type_names)
-                        }
-                        PostProcessor::DartStripTrailingWhitespace => {
-                            crate::backends::dart::strip_trailing_whitespace(&content)
-                        }
-                    };
-                    if processed != content {
-                        std::fs::write(&file_path, &processed)
-                            .with_context(|| format!("failed to write post-processed file {}", file_path.display()))?;
-                        info!("PostProcessed {}: {:?}", file_path.display(), processor);
-                    } else {
-                        debug!(
-                            "PostProcessFile {}: no changes (already rewritten or absent variants)",
-                            file_path.display()
-                        );
-                    }
-                } else {
-                    debug!("PostProcessFile target not found: {}", file_path.display());
-                }
+                let crate_root = base_dir.join(crate_dir);
+                post_process::run(&crate_root.join(path), &crate_root, processor, config)?;
             }
             PostBuildStep::CarryFrbCfgGates {
                 source_path,
