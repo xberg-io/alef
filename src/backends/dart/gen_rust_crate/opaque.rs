@@ -160,7 +160,6 @@ pub(super) fn emit_opaque_impl_block(
                 ty,
                 method,
                 source_crate_name,
-                stub_methods,
                 types_needing_from_conversion,
                 opaque_type_names,
                 typed_errors,
@@ -170,10 +169,8 @@ pub(super) fn emit_opaque_impl_block(
 
         emit_opaque_method(
             out,
-            ty,
             method,
             source_crate_name,
-            stub_methods,
             types_needing_from_conversion,
             opaque_type_names,
             typed_errors,
@@ -237,10 +234,8 @@ fn emit_streaming_sink_method(
 /// Emit one method inside an `impl TypeName { }` block for an FRB opaque type.
 fn emit_opaque_method(
     out: &mut String,
-    _ty: &TypeDef,
     method: &MethodDef,
     source_crate_name: &str,
-    _stub_methods: &[String],
     types_needing_from_conversion: &HashSet<String>,
     opaque_type_names: &HashSet<String>,
     typed_errors: &HashSet<String>,
@@ -312,7 +307,6 @@ fn emit_static_opaque_method(
     ty: &TypeDef,
     method: &MethodDef,
     source_crate_name: &str,
-    _stub_methods: &[String],
     types_needing_from_conversion: &HashSet<String>,
     opaque_type_names: &HashSet<String>,
     typed_errors: &HashSet<String>,
