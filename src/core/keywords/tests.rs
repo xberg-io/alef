@@ -58,6 +58,14 @@ fn swift_case_safe_name_returns_some_for_reserved() {
 }
 
 #[test]
+fn swift_enum_case_ident_renames_none_and_keeps_other_names() {
+    assert_eq!(swift_enum_case_ident("none"), "none_");
+    assert_eq!(swift_enum_case_ident("some"), "some");
+    assert_eq!(swift_enum_case_ident("default"), "`default`");
+    assert_eq!(swift_enum_case_ident("noneOf"), "noneOf");
+}
+
+#[test]
 fn dart_async_is_reserved() {
     assert_eq!(dart_safe_name("async"), Some("async_".to_string()));
     assert_eq!(dart_safe_name("late"), Some("late_".to_string()));

@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed (BREAKING)
 
 - Generated Zig wrappers for infallible Rust string, list and map returns now report native failures as `UnknownFfiError` or `Cancelled`. Update exhaustive error handling for these variants and use `try` or `catch` when calling the wrappers.
+- Rename Swift enum case `None` to `none_` so optional fields retain explicitly selected values. Update `Type.none` to `Type.none_`; serialized values are unchanged (GH#593).
 
 ## [0.111.1] - 2026-10-19
 

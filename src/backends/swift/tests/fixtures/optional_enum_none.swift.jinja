@@ -1,0 +1,12 @@
+import Foundation
+
+{{ enum_declaration }}
+
+{{ request_declaration }}
+
+let selected = Request(preference: .{{ selected_case }})
+print(selected.preference?.rawValue ?? "UNSET")
+print(String(data: try JSONEncoder().encode(selected), encoding: .utf8)!)
+let decoded = try JSONDecoder().decode(Request.self, from: Data("{\"preference\":\"none\"}".utf8))
+print(decoded.preference?.rawValue ?? "UNSET")
+print(Request().preference == nil)

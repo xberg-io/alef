@@ -196,6 +196,7 @@ fn public_enum_variant_name(lang: Language, name: &str) -> String {
         Language::Ruby | Language::Elixir | Language::R | Language::Zig => pascal_to_snake(name),
         Language::Go => go_variant_name(name),
         Language::Csharp => csharp_variant_name(name),
+        Language::Swift => crate::core::keywords::swift_enum_case_ident(&super::case::pascal_to_camel(name)),
         // ~keep Gleam custom-type constructors are PascalCase (`Circle`, `Square`), unlike
         // Gleam's snake_case fields/functions in `public_member_name` below -- this used to sit
         // in the snake_case arm above, which would have emitted a lowercase constructor Gleam's
@@ -210,7 +211,6 @@ fn public_enum_variant_name(lang: Language, name: &str) -> String {
         | Language::Wasm
         | Language::Kotlin
         | Language::KotlinAndroid
-        | Language::Swift
         | Language::Dart
         | Language::Gleam
         | Language::Jni => pascal_to_pascal(name),
