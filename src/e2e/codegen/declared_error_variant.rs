@@ -113,9 +113,10 @@ pub(crate) fn declared_variant<'a>(
 ///   (`e2e/codegen/c/test_function.rs`'s own doc comment on `emit_c_error_epilogue`), and the
 ///   generated test only ever compares message text — so even a coded variant cannot be named
 ///   today. Never substantiable.
-/// - `dart`: flutter_rust_bridge 2.x — the third-party generator alef's dart backend drives, not
-///   alef's own code — decodes every Rust error as a raw `String`
-///   (`e2e/codegen/dart/test_case.rs`'s own doc comment). Never substantiable.
+/// - `dart`: the bridge returns the mirrored error enum, which flutter_rust_bridge throws as a
+///   generated class per variant (`{Error}_{Variant}`), so every variant has its own identity.
+///   An error excluded from the binding has no class; the Dart renderer checks that itself
+///   (`e2e/codegen/dart/error_assertions.rs`). Always substantiable.
 /// - `csharp`: every fallible throw site (regular method calls, opaque-handle constructors and
 ///   factories, JSON-handle marshalling, null-result and last-error checks, streaming) now
 ///   funnels through `{ExceptionClassName}.FromLastError`
@@ -157,13 +158,13 @@ pub(crate) fn declared_variant<'a>(
 /// did not audit and rewrite is never silently weakened.
 pub(crate) fn substantiates_variant_identity(lang: &str, variant: &ErrorVariant) -> bool {
     match lang {
-        "python" => true,
+        "python" | "dart" => true,
         "go" | "java" | "zig" => variant.error_code.is_some(),
         "csharp" => crate::backends::csharp::gen_bindings::variant_dispatch_prefix(variant).is_some(),
         // The shared TypeScript renderer passes `node` or `wasm` through its `lang` parameter.
         // `"typescript"` here was dead: it never matched what the backend actually threads
         // through, so the wiring silently fell through to the `true` default below. ~keep
-        "c" | "dart" | "php" | "swift" | "ruby" | "elixir" | "gleam" | "r" | "node" | "wasm" => false,
+        "c" | "php" | "swift" | "ruby" | "elixir" | "gleam" | "r" | "node" | "wasm" => false,
         _ => true,
     }
 }
@@ -174,8 +175,7 @@ pub(crate) fn substantiates_variant_identity(lang: &str, variant: &ErrorVariant)
 /// `LanguageLimitation`/`GeneratorGap` split, applied to this one axis. ~keep
 fn skip_variant_for(lang: &str) -> AssertionTypeSkip {
     match lang {
-        // `c`: the ABI has no string identity at all. `dart`: the third-party
-        // flutter_rust_bridge decode step, not alef's own codegen, throws away the type.
+        // `c`: the ABI has no string identity at all.
         // `go`/`java`/`zig`: whether THIS variant carries a stable ABI taxonomy code is a
         // property of the crate's declared error shape, not alef's generator.
         "c" | "dart" | "go" | "java" | "zig" => AssertionTypeSkip::DeclaredErrorVariantNotSubstantiated,
@@ -411,10 +411,10 @@ mod tests {
     }
 
     #[test]
-    fn dart_swift_ruby_elixir_gleam_r_node_never_substantiate_a_known_variant() {
+    fn swift_ruby_elixir_gleam_r_node_never_substantiate_a_known_variant() {
         let fixture = fixture_with("BadRequest");
         let errors = vec![error_def(vec![coded_variant("BadRequest", Some(200))])];
-        for lang in ["dart", "swift", "ruby", "elixir", "gleam", "r", "node"] {
+        for lang in ["swift", "ruby", "elixir", "gleam", "r", "node"] {
             assert_eq!(
                 classify(lang, &fixture, &errors),
                 DeclaredErrorAssertion::Unsubstantiable("BadRequest"),
@@ -423,13 +423,25 @@ mod tests {
         }
     }
 
+    /// Dart throws one generated class per variant of a mirrored error, so a known variant is
+    /// substantiable whether or not it carries an `error_code`.
+    #[test]
+    fn dart_substantiates_a_known_variant_without_an_error_code() {
+        let fixture = fixture_with("BadRequest");
+        let errors = vec![error_def(vec![coded_variant("BadRequest", None)])];
+        assert_eq!(
+            classify("dart", &fixture, &errors),
+            DeclaredErrorAssertion::Assert("BadRequest")
+        );
+    }
+
     /// C# is conditional, mirroring Go/Java/Zig's `error_code` split but keyed on
     /// `message_template` instead: `FromLastError` can only dispatch a variant to its own
     /// `{Variant}Exception` when the variant's `#[error("...")]` template has a non-empty
     /// literal prefix (`compute_variant_dispatch`, `variant_dispatch_prefix`) — a variant with
     /// no template, or a template that opens directly on a `{placeholder}`, has nothing for
     /// `message.StartsWith(...)` to match and falls through to the generic exception. A coded
-    /// `error_code` alone (as `dart_swift_ruby_elixir_gleam_r_node_never_substantiate_a_known_variant`
+    /// `error_code` alone (as `swift_ruby_elixir_gleam_r_node_never_substantiate_a_known_variant`
     /// exercises above) does NOT make a C# variant substantiable — only the message template does.
     #[test]
     fn csharp_is_conditional_on_message_template_prefix() {

@@ -85,6 +85,9 @@ fn host_error_type(lang: &str, error_name: &str, variant: &ErrorVariant, errors:
             "error.{}",
             crate::codegen::naming::cased_public_type_name(crate::core::config::Language::Zig, &variant.name,)
         )),
+        // ~keep flutter_rust_bridge names each variant class `{Error}_{Variant}`; see
+        // `dart/error_assertions.rs`.
+        "dart" => Some(format!("{error_name}_{}", variant.name)),
         _ => None,
     }
 }
@@ -176,7 +179,7 @@ mod tests {
             let branch = for_fixture(lang, &fixture, &errors);
             assert_eq!(
                 branch.is_some(),
-                *lang == "python",
+                *lang == "python" || *lang == "dart",
                 "lang={lang}: an uncoded variant yielded {branch:?}"
             );
         }

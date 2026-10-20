@@ -384,7 +384,13 @@ pub(super) fn render_test_file(
         // in the generated test at all. The marker lands here, immediately after the emitted
         // `test(...)` call inside `main()`, rather than inside the test body: the body is built
         // in `test_case.rs`, which another change owns.
-        crate::e2e::codegen::error_path_assertions::emit(&mut fixture_bodies, fixture, "  // ", "dart");
+        crate::e2e::codegen::error_path_assertions::emit_with_errors(
+            &mut fixture_bodies,
+            fixture,
+            "  // ",
+            "dart",
+            &super::error_assertions::live_errors(errors),
+        );
     }
 
     // The helper is a top-level function (Dart test files have no enclosing class, unlike Java/

@@ -7,51 +7,22 @@ use crate::e2e::fixture::Fixture;
 use std::fmt::Write as FmtWrite;
 
 use super::assertions::{render_assertion_dart, render_streaming_assertion_dart};
+use super::error_assertions::CAUGHT_ERROR;
 use super::values::{escape_dart, mime_from_extension, type_name_to_create_from_json_dart};
 
 const COMPATIBLE_OPTIONS_TYPE_LANGS: &[&str] = &["csharp", "c", "go", "java", "php", "python", "r"];
 
 mod args;
 
-/// Build the `throwsA(...)` matcher expression for an `error`-asserting test.
-///
-/// ~keep flutter_rust_bridge 2.x decodes Rust errors as raw String values (see the
-/// `throwsA(anything)` rationale above), so a declared expectation can't rely on a typed
-/// exception hierarchy. Checking `toString()` OR `runtimeType.toString()` mirrors the
-/// message-or-type disjunction other backends use (`declared_error_value`'s contract):
-/// config-validation fixtures name text that only appears in the message, API-error
-/// fixtures name a type prefix that only appears in the runtime type. With no declared
-/// value this returns the original `throwsA(anything)` unchanged. Which of those two
-/// conventions applies, and whether Dart can ever satisfy the second, is decided once by
-/// `declared_error_variant::classify` — see its doc for why Dart lands on "never" today.
-///
-/// ~keep When the declared value names a real variant Dart cannot substantiate, this still
-/// returns a matcher expression (a Dart matcher is spliced inline into a statement, with no
-/// place of its own for a comment) — `throwsA(anything)`, same as the undeclared case, since
-/// that is still an honest "the call must fail" check. The registered skip is written into
-/// `out` as its own comment line immediately above the statement that consumes the matcher, so
-/// the skip is visible in the generated file AND counted on the shared ledger, rather than being
-/// silently downgraded to `throwsA(anything)` with no trace.
+/// Build the `throwsA(...)` matcher expression for an `error`-asserting test. See
+/// `error_assertions::error_matcher`.
 fn dart_error_matcher(
     out: &mut String,
     indent: &str,
     fixture: &Fixture,
     errors: &[crate::core::ir::ErrorDef],
 ) -> String {
-    use crate::e2e::codegen::declared_error_variant::{DeclaredErrorAssertion, classify, skip_line};
-    match classify("dart", fixture, errors) {
-        DeclaredErrorAssertion::Undeclared => "throwsA(anything)".to_string(),
-        DeclaredErrorAssertion::Assert(declared) => {
-            let escaped = escape_dart(declared);
-            format!(
-                "throwsA(predicate((e) => e.toString().contains('{escaped}') || e.runtimeType.toString().contains('{escaped}')))"
-            )
-        }
-        DeclaredErrorAssertion::Unsubstantiable(variant) => {
-            let _ = writeln!(out, "{}", skip_line(indent, "//", variant, &fixture.id, "dart"));
-            "throwsA(anything)".to_string()
-        }
-    }
+    super::error_assertions::error_matcher(out, indent, fixture, errors)
 }
 
 /// True when `body` contains at least one line that is not blank and not a
@@ -554,10 +525,18 @@ fn emit_call_and_assertions(out: &mut String, ctx: &CallEmissionContext<'_>) {
     let result_var = ctx.result_binding;
     let field_resolver = ctx.field_resolver;
     let result_is_simple = ctx.result_is_simple;
+    let field_checks = if ctx.expects_error {
+        super::error_assertions::field_checks(out, "    ", fixture, errors)
+    } else {
+        Vec::new()
+    };
     if ctx.expects_error && (!setup_lines.is_empty() || extra_setup.is_some()) {
         // Wrap setup + call in an async lambda so any exception at any step is caught.
-        // flutter_rust_bridge 2.x decodes Rust errors as raw String values (not Exception
-        // subtypes), so throwsException will not match. Use throwsA(anything) instead.
+        // The generated error classes are not `Exception` subtypes, so the matcher is
+        // `throwsA(...)`, never `throwsException`.
+        if !field_checks.is_empty() {
+            let _ = writeln!(out, "    Object? {CAUGHT_ERROR};");
+        }
         let _ = writeln!(out, "    await expectLater(() async {{");
         for line in setup_lines {
             // Handle multi-line setup blocks (e.g., class definitions from emit_test_backend).
@@ -571,31 +550,54 @@ fn emit_call_and_assertions(out: &mut String, ctx: &CallEmissionContext<'_>) {
                 let _ = writeln!(out, "      {line}");
             }
         }
-        if is_streaming {
-            let _ = writeln!(out, "      return {receiver}.{function_name}({args_str}).toList();");
+        let call = if is_streaming {
+            format!("{receiver}.{function_name}({args_str}).toList()")
         } else {
-            let _ = writeln!(out, "      return {receiver}.{function_name}({args_str});");
+            format!("{receiver}.{function_name}({args_str})")
+        };
+        if field_checks.is_empty() {
+            let _ = writeln!(out, "      return {call};");
+        } else {
+            let _ = writeln!(out, "      try {{");
+            let _ = writeln!(out, "        return await {call};");
+            let _ = writeln!(out, "      }} catch (e) {{");
+            let _ = writeln!(out, "        {CAUGHT_ERROR} = e;");
+            let _ = writeln!(out, "        rethrow;");
+            let _ = writeln!(out, "      }}");
         }
         let matcher = dart_error_matcher(out, "      ", fixture, errors);
         let _ = writeln!(out, "    }}(), {matcher});");
+        for check in &field_checks {
+            let _ = writeln!(out, "{check}");
+        }
     } else if ctx.expects_error {
-        // No setup lines, direct call — same throwsA(anything) rationale as above.
+        // No setup lines, direct call — same `throwsA(...)` rationale as above.
         if let Some(extra) = extra_setup {
             for line in extra.lines() {
                 let _ = writeln!(out, "    {line}");
             }
         }
         let matcher = dart_error_matcher(out, "    ", fixture, errors);
-        if is_streaming {
-            let _ = writeln!(
-                out,
-                "    await expectLater({receiver}.{function_name}({args_str}).toList(), {matcher});"
-            );
+        let call = if is_streaming {
+            format!("{receiver}.{function_name}({args_str}).toList()")
         } else {
-            let _ = writeln!(
-                out,
-                "    await expectLater({receiver}.{function_name}({args_str}), {matcher});"
-            );
+            format!("{receiver}.{function_name}({args_str})")
+        };
+        if field_checks.is_empty() {
+            let _ = writeln!(out, "    await expectLater({call}, {matcher});");
+        } else {
+            let _ = writeln!(out, "    Object? {CAUGHT_ERROR};");
+            let _ = writeln!(out, "    await expectLater(() async {{");
+            let _ = writeln!(out, "      try {{");
+            let _ = writeln!(out, "        return await {call};");
+            let _ = writeln!(out, "      }} catch (e) {{");
+            let _ = writeln!(out, "        {CAUGHT_ERROR} = e;");
+            let _ = writeln!(out, "        rethrow;");
+            let _ = writeln!(out, "      }}");
+            let _ = writeln!(out, "    }}(), {matcher});");
+            for check in &field_checks {
+                let _ = writeln!(out, "{check}");
+            }
         }
     } else {
         for line in setup_lines {
