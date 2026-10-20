@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Describe a returned list of structs as a list of maps in the generated Elixir `@spec`. A function that returned `Vec<Book>` was specced as `[String.t() | nil]`, the type of an input argument, although the NIF returns the structs. A list now maps its element the same way a single struct return does. (GH#596)
+- Raise `TypeError` in the generated Ruby binding when an optional string argument is neither nil nor a string. The binding replaced the failed conversion with an empty string and ran the call with it. (GH#597)
+
 ## [0.111.1] - 2026-10-19
 
 ### Fixed
