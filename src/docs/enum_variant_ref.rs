@@ -3,7 +3,7 @@
 //! (file-modularization rule) rather than growing that already-grandfathered file.
 
 use crate::core::config::Language;
-use crate::core::keywords::swift_case_ident;
+use crate::core::keywords::swift_enum_case_ident;
 use crate::docs::naming::{enum_variant_name, type_name};
 use heck::ToLowerCamelCase;
 
@@ -23,8 +23,8 @@ use heck::ToLowerCamelCase;
 ///   shouty-snake-case (`backends/java/gen_bindings/types/enums.rs::gen_enum_class`,
 ///   `simple_enum_class.jinja` pushes `variant.name` verbatim).
 /// - Swift's `case` is lowerCamelCase (`backends/swift/gen_bindings/enums.rs`:
-///   `swift_case_ident(&variant.name.to_lower_camel_case())`, via the same
-///   `core::keywords::swift_case_ident` this function calls).
+///   `swift_enum_case_ident(&variant.name.to_lower_camel_case())`, via the same
+///   `core::keywords::swift_enum_case_ident` this function calls).
 /// - Dart's member is lowerCamelCase (`backends/dart/gen_bindings/types.rs`:
 ///   `dart_safe_ident(&variant.name.to_lower_camel_case())`, a thin pass-through to
 ///   `codegen::naming::dart_value_identifier`, which this function calls directly).
@@ -61,7 +61,7 @@ pub(crate) fn format_enum_variant_ref(
         Language::Swift => format!(
             "{}.{}",
             type_name(enum_type_raw, lang, ffi_prefix),
-            swift_case_ident(&variant_raw.to_lower_camel_case())
+            swift_enum_case_ident(&variant_raw.to_lower_camel_case())
         ),
         Language::Dart => format!(
             "{}.{}",

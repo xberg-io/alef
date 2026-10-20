@@ -838,6 +838,20 @@ pub fn swift_case_ident(name: &str) -> String {
     swift_case_safe_name(name).unwrap_or_else(|| name.to_string())
 }
 
+/// The Swift `case` name for an enum variant, given its lowerCamelCase form.
+///
+/// `none` is not a keyword, so a backtick does not help: on a field of type `Effort?`, the
+/// expression `.none` resolves to `Optional.none` (no value) and not to the enum case, and Swift
+/// reports only a warning. The case gets a trailing underscore, the same escape [`swift_ident`]
+/// uses. The wire value is not affected: callers keep serde's own spelling as the raw value. ~keep
+pub fn swift_enum_case_ident(camel_name: &str) -> String {
+    if camel_name == "none" {
+        "none_".to_string()
+    } else {
+        swift_case_ident(camel_name)
+    }
+}
+
 /// Returns `Some(escaped_name)` if `name` is a Dart reserved keyword, else `None`.
 pub fn dart_safe_name(name: &str) -> Option<String> {
     if DART_KEYWORDS.contains(&name) {

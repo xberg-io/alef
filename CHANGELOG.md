@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Name the Swift case of an enum variant `None` as `none_`, not `none`. On an optional field, `.none` means "no value" in Swift, so `effort: .none` sent nothing and gave only a warning. The wire value stays `"none"`. Callers that write `Effort.none` must write `Effort.none_`. (GH#593)
+
 ## [0.111.1] - 2026-10-19
 
 ### Fixed
