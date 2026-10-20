@@ -22,7 +22,10 @@ mod components;
 mod conversions;
 mod enum_conversions;
 #[cfg(test)]
+mod optional_enum_field_tests;
+#[cfg(test)]
 mod enum_conversions_runtime_tests;
+mod error_from_core;
 mod helpers;
 mod mirror;
 mod mirror_conversions;
@@ -41,6 +44,7 @@ use build_rs::{emit_build_rs, emit_frb_yaml};
 // backend actually writes as the baseline its repair pass must leave untouched, and a hand-built
 // string could not prove that. ~keep
 pub(crate) use cargo::emit_cargo_toml;
+pub(crate) use mirror::error_method_dart_name;
 use mirror::{emit_mirror_enum, emit_mirror_error, emit_mirror_struct};
 use trait_bridge::{emit_excluded_bridge_types, emit_trait_bridge, needs_excluded_bridge_type};
 
@@ -325,6 +329,14 @@ fn emit_lib_rs(
         )
         .collect();
 
+    // Every error the crate mirrors for Dart is returned as that typed error. ~keep
+    let typed_errors: HashSet<String> = api
+        .errors
+        .iter()
+        .filter(|e| !e.binding_excluded)
+        .map(|e| e.name.clone())
+        .collect();
+
     let opaque_type_names: HashSet<String> = api
         .types
         .iter()
@@ -348,6 +360,7 @@ fn emit_lib_rs(
             config,
             &type_paths_for_impls,
             &mirror_type_names,
+            &typed_errors,
         );
     }
 
@@ -566,6 +579,7 @@ fn emit_lib_rs(
             &opaque_type_names,
             stub_methods,
             &api.types,
+            &typed_errors,
         )?;
     }
 

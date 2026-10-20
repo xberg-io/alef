@@ -1,1 +1,1 @@
-        {{ call }}.await.map_err(|e| e.to_string())
+        {{ call }}.await.map_err({{ err_map }})

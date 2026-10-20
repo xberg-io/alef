@@ -299,6 +299,7 @@ fn emit(f: &FunctionDef) -> String {
         &std::collections::HashSet::new(),
         &[],
         &[],
+        &std::collections::HashSet::new(),
     )
     .expect("emit_bridge_fn");
     out
@@ -370,6 +371,7 @@ fn dto_unsigned_offsets_are_checked_before_fallible_core_call() {
         &std::collections::HashSet::new(),
         &[],
         &[finding],
+        &std::collections::HashSet::new(),
     )
     .expect("emit bridge");
 
@@ -422,6 +424,7 @@ fn direct_and_optional_dto_unsigned_fields_are_checked_before_conversion() {
             &std::collections::HashSet::new(),
             &[],
             std::slice::from_ref(&finding),
+            &std::collections::HashSet::new(),
         )
         .expect("emit bridge");
 
@@ -468,6 +471,7 @@ fn unsigned_dto_does_not_change_an_infallible_public_signature() {
         &std::collections::HashSet::new(),
         &[],
         &[match_type],
+        &std::collections::HashSet::new(),
     )
     .expect("emit bridge");
 
@@ -660,6 +664,7 @@ fn emit_bridge_fn_configured_stub_method_still_emits_unimplemented() {
         &std::collections::HashSet::new(),
         &["analyze_document".to_string()],
         &[],
+        &std::collections::HashSet::new(),
     )
     .expect("emit_bridge_fn");
 
@@ -763,6 +768,7 @@ fn mut_dto_param_via_from_conversion_round_trips_through_the_core_type() {
         &std::collections::HashSet::new(),
         &[],
         &[],
+        &std::collections::HashSet::new(),
     )
     .expect("emit_bridge_fn");
 
@@ -837,6 +843,7 @@ fn two_mut_dto_params_are_rejected_at_generation_time_naming_the_function() {
         &std::collections::HashSet::new(),
         &[],
         &[],
+        &std::collections::HashSet::new(),
     )
     .expect_err("two `&mut` DTO params must be rejected at generation time");
 
@@ -868,6 +875,7 @@ fn mut_dto_param_plus_a_return_value_is_rejected_naming_the_function() {
         &std::collections::HashSet::new(),
         &[],
         &[],
+        &std::collections::HashSet::new(),
     )
     .expect_err("a `&mut` DTO param on a function that also returns a value must be rejected");
 
@@ -897,6 +905,7 @@ fn mut_opaque_param_is_not_treated_as_writeback() {
         &opaque,
         &[],
         &[],
+        &std::collections::HashSet::new(),
     )
     .expect("emit_bridge_fn");
 

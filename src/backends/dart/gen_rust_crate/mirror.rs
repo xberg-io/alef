@@ -418,6 +418,18 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str, error_cfg
     ));
 }
 
+/// The Dart method name of the error introspection method `method_name`, as flutter_rust_bridge
+/// surfaces it on the generated error class. `None` when the error has no such bridged method.
+pub(crate) fn error_method_dart_name(error: &ErrorDef, method_name: &str) -> Option<String> {
+    use crate::codegen::naming::{PublicIdentifierKind, public_host_identifier};
+    use crate::core::config::Language;
+
+    let methods: Vec<&crate::core::ir::MethodDef> = error.methods.iter().filter(|m| !m.sanitized).collect();
+    let position = methods.iter().position(|m| m.name == method_name)?;
+    let rust_name = error_bridge_method_names(error, &methods).swap_remove(position);
+    Some(public_host_identifier(Language::Dart, PublicIdentifierKind::Method, &rust_name))
+}
+
 fn error_bridge_method_names(error: &ErrorDef, methods: &[&crate::core::ir::MethodDef]) -> Vec<String> {
     use crate::codegen::naming::{PublicIdentifierKind, internal_rust_identifier, public_host_identifier};
     use crate::core::config::Language;
@@ -558,16 +570,19 @@ pub(crate) fn emit_mirror_error(out: &mut String, error: &ErrorDef, source_crate
     }
     out.push_str("}\n");
 
-    let bridge_methods: Vec<&crate::core::ir::MethodDef> = error.methods.iter().filter(|m| !m.sanitized).collect();
-    if bridge_methods.is_empty() {
-        return;
-    }
-
     let core_path = if error.rust_path.is_empty() {
         format!("{source_crate_name}::{}", error.name)
     } else {
         error.rust_path.replace('-', "_")
     };
+    // The bridge returns this mirror as the error of every fallible call, so the conversion
+    // from the core error is always needed, whether or not the error has methods. ~keep
+    super::error_from_core::emit_from_core_impl(out, error, &core_path);
+
+    let bridge_methods: Vec<&crate::core::ir::MethodDef> = error.methods.iter().filter(|m| !m.sanitized).collect();
+    if bridge_methods.is_empty() {
+        return;
+    }
 
     emit_from_impl(out, error, &core_path, "");
 

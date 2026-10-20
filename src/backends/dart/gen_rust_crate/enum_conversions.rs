@@ -1,5 +1,6 @@
 use crate::codegen::cfg::is_host_owned_rust_path;
 use crate::codegen::field_init::struct_field_init;
+use super::helpers::{map_through_option, non_optional_inner};
 use crate::core::ir::{CoreWrapper, EnumDef, FieldDef, TypeRef};
 
 pub(super) fn emit_from_mirror_to_core_enum(
@@ -176,25 +177,6 @@ pub(super) fn emit_from_mirror_to_core_enum(
         "rust_from_impl_close.jinja",
         crate::alef_context! {},
     ));
-}
-
-/// The same field without its option, when the mirror keeps the `Option` wrapper
-/// (`frb_rust_type` with `optional`). A field that is already `Optional(_)` keeps its own path.
-fn non_optional_inner(field: &FieldDef) -> Option<FieldDef> {
-    (field.optional && !matches!(field.ty, TypeRef::Optional(_))).then(|| FieldDef {
-        optional: false,
-        ..field.clone()
-    })
-}
-
-/// Map `binding` through its option with `conv` (written against `v`). An identity conversion
-/// returns the binding unchanged. `None` stays `None`; `Some("")` stays `Some("")`.
-fn map_through_option(binding: &str, conv: &str) -> String {
-    if conv == "v" {
-        binding.to_string()
-    } else {
-        format!("{binding}.map(|v| {conv})")
-    }
 }
 
 /// Build conversion expression for one enum variant field in the mirror-to-core direction.
@@ -1012,52 +994,5 @@ mod tests {
             1,
             "the host-owned variant's From<Mirror> arm must keep its #[cfg] guard, got:\n{out_mirror}"
         );
-    }
-
-    /// A data variant field that is `Option<T>` in Rust must stay `Option<T>` in the mirror, and
-    /// both conversions must map through the option, so `Some("")` is not read back as `None`.
-    #[test]
-    fn optional_data_variant_field_stays_optional_through_the_mirror() {
-        use crate::core::ir::FieldDef;
-        let field = |name: &str, optional: bool| FieldDef {
-            name: name.to_string(),
-            ty: TypeRef::String,
-            optional,
-            ..Default::default()
-        };
-        let en = EnumDef {
-            name: "Event".to_string(),
-            rust_path: "mylib::Event".to_string(),
-            variants: vec![EnumVariant {
-                name: "Message".to_string(),
-                fields: vec![
-                    field("text", false),
-                    field("tag", true),
-                    FieldDef {
-                        name: "count".to_string(),
-                        ty: TypeRef::Primitive(crate::core::ir::PrimitiveType::U32),
-                        optional: true,
-                        ..Default::default()
-                    },
-                ],
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-
-        let mut mirror = String::new();
-        emit_mirror_enum(&mut mirror, &en, "mylib", None);
-        assert!(mirror.contains("tag: Option<String>,"), "got:\n{mirror}");
-        assert!(mirror.contains("text: String,"), "got:\n{mirror}");
-
-        let mut from_core = String::new();
-        emit_from_impl_for_enum(&mut from_core, &en, "mylib", None);
-        assert!(from_core.contains("count.map(|v| v as _)"), "got:\n{from_core}");
-        assert!(!from_core.contains("unwrap_or_default"), "got:\n{from_core}");
-
-        let mut to_core = String::new();
-        emit_from_mirror_to_core_enum(&mut to_core, &en, "mylib", None);
-        assert!(!to_core.contains("is_empty()"), "got:\n{to_core}");
-        assert!(to_core.contains("count.map(|v| v as _)"), "got:\n{to_core}");
     }
 }

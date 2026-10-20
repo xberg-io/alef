@@ -3,6 +3,7 @@
 //! Provides utilities for documentation emission.
 
 use crate::core::config::Language;
+use crate::core::ir::{FieldDef, TypeRef};
 use crate::docs::clean_doc;
 
 /// Emit cleaned Dartdoc documentation for a Rust-side bridge function.
@@ -54,6 +55,44 @@ pub(crate) fn widen_opaque_wrapper_cfg(cfg: &str) -> String {
         cfg.replace(&with_trailing, "")
     } else {
         cfg.replace(ANDROID_X86_64_EXCLUSION, "")
+    }
+}
+
+/// The mirrored error type a fallible bridge function returns, when its declared error is one
+/// the crate mirrors for Dart. `error_type` is the name the extractor recorded, possibly a path.
+///
+/// flutter_rust_bridge throws a returned error value to Dart as its generated class, so
+/// returning the mirror keeps the variant and its fields. `None` means the error is not
+/// mirrored and the bridge reports its text as a `String`. ~keep
+pub(crate) fn typed_error_name(error_type: &str, typed_errors: &std::collections::HashSet<String>) -> Option<String> {
+    let name = error_type.rsplit("::").next().unwrap_or(error_type).trim();
+    typed_errors.contains(name).then(|| name.to_string())
+}
+
+/// The `Result` error type and the `map_err` argument for a fallible bridge function.
+pub(crate) fn error_return(typed: Option<&str>) -> (String, String) {
+    match typed {
+        Some(name) => (name.to_string(), format!("{name}::from")),
+        None => ("String".to_string(), "|e| e.to_string()".to_string()),
+    }
+}
+
+/// The same field without its option, when the mirror keeps the `Option` wrapper
+/// (`frb_rust_type` with `optional`). A field that is already `Optional(_)` keeps its own path.
+pub(super) fn non_optional_inner(field: &FieldDef) -> Option<FieldDef> {
+    (field.optional && !matches!(field.ty, TypeRef::Optional(_))).then(|| FieldDef {
+        optional: false,
+        ..field.clone()
+    })
+}
+
+/// Map `binding` through its option with `conv` (written against `v`). An identity conversion
+/// returns the binding unchanged. `None` stays `None`; `Some("")` stays `Some("")`.
+pub(super) fn map_through_option(binding: &str, conv: &str) -> String {
+    if conv == "v" {
+        binding.to_string()
+    } else {
+        format!("{binding}.map(|v| {conv})")
     }
 }
 

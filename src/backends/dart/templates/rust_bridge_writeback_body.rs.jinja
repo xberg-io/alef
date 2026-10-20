@@ -1,4 +1,4 @@
     let mut {{ core_var }} = {{ init_expr }};
-    {{ call }}{% if is_async %}.await{% endif %}{% if has_error %}.map_err(|e| e.to_string()).map(|_| {{ return_expr }}){% else %};
+    {{ call }}{% if is_async %}.await{% endif %}{% if has_error %}.map_err({{ err_map }}).map(|_| {{ return_expr }}){% else %};
     {{ return_expr }}{% endif %}
 
