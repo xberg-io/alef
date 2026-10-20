@@ -1,13 +1,12 @@
 use crate::codegen::error_gen::{go_error_sentinel_name, python_exception_name};
+use crate::codegen::naming::{PublicIdentifierKind, public_host_identifier};
 use crate::core::config::Language;
 use crate::core::ir::ErrorDef;
-use crate::core::keywords::swift_case_ident;
 use crate::docs::descriptions::generate_error_variant_description;
 use crate::docs::doc_cleaning::{clean_doc_inline, demote_headings_to_start_at};
 use crate::docs::formatting::escape_table_cell;
 use crate::docs::naming::{enum_variant_name, type_name};
 use crate::docs::{clean_doc, template_env};
-use heck::ToLowerCamelCase;
 
 /// ~keep The identifier a target language's own error-binding codegen actually produces for a
 /// Rust error variant, when that identifier differs from `naming::enum_variant_name`'s generic
@@ -29,7 +28,7 @@ fn error_variant_identifier(
     match lang {
         Language::Csharp | Language::Java => format!("{variant_name}Exception"),
         Language::Go => go_error_sentinel_name(all_errors, error_name, variant_name),
-        Language::Swift => swift_case_ident(&variant_name.to_lower_camel_case()),
+        Language::Swift => public_host_identifier(lang, PublicIdentifierKind::EnumVariant, variant_name),
         _ => enum_variant_name(variant_name, lang, ffi_prefix),
     }
 }
@@ -181,7 +180,7 @@ mod tests {
         assert!(
             rendered.contains("languageNotFound"),
             "Swift emits a lowerCamelCase `case`, not a PascalCase one \
-             (gen_bindings/errors.rs's `swift_case_ident(&variant.name.to_lower_camel_case())`); \
+             (gen_bindings/errors.rs's central enum-variant naming helper); \
              got:\n{rendered}"
         );
         assert!(

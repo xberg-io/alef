@@ -1,0 +1,14 @@
+use magnus::{prelude::*, Error, TryConvert, Value};
+
+fn optional(args: &[Value]) -> Result<Option<String>, Error> {
+    let args = magnus::scan_args::scan_args::<(), (Option<Value>,), (), (), (), ()>(args)?;
+    let (value,) = args.optional;
+    CONVERSION
+    Ok(value)
+}
+
+#[magnus::init]
+fn init(ruby: &magnus::Ruby) -> Result<(), Error> {
+    ruby.define_global_function("optional_string_fixture", magnus::function!(optional, -1))?;
+    Ok(())
+}

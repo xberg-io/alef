@@ -7,15 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (BREAKING)
+
+- Rename Swift enum case `None` to `none_` so optional fields retain explicitly selected values. Update `Type.none` to `Type.none_`; serialized values are unchanged (GH#593).
+- Generated Zig wrappers for infallible Rust string, list and map returns now report native failures as `UnknownFfiError` or `Cancelled`. Update exhaustive error handling for these variants and use `try` or `catch` when calling the wrappers.
+
 ### Fixed
 
 - Preserve cancellation and native error messages when generated Zig static factories fail without a declared Rust error type.
 - Return the typed native error from a generated Zig constructor or static function that fails, and keep its message for `_last_error()`, instead of `error.UnknownFfiError`. The declared error set of a static function that has an error type now admits the typed errors (GH#594).
 - Check the C result of a generated Zig function that returns a string, list or map and cannot fail. A null result, such as the one for an argument that is not valid UTF-8, now returns an error with the native message instead of slicing a null pointer. The declared error set of such a function now lists `UnknownFfiError` and `Cancelled` (GH#595).
-
-### Changed (BREAKING)
-
-- Generated Zig wrappers for infallible Rust string, list and map returns now report native failures as `UnknownFfiError` or `Cancelled`. Update exhaustive error handling for these variants and use `try` or `catch` when calling the wrappers.
+- Describe Elixir return values with their generated public DTO types recursively, including lists and optional values; retain maps for types without a public DTO and preserve input argument types. (GH#596)
+- Raise `TypeError` in the generated Ruby binding when an optional string argument is neither nil nor a string. The binding replaced the failed conversion with an empty string and ran the call with it. (GH#597)
 
 ## [0.111.1] - 2026-10-19
 

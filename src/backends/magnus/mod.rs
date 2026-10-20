@@ -10,6 +10,12 @@ pub(crate) mod template_env;
 pub mod trait_bridge;
 mod type_map;
 
+#[cfg(test)]
+#[path = "gen_bindings/optional_string_arg_tests.rs"]
+mod optional_string_arg_tests;
+#[cfg(test)]
+mod optional_string_tests;
+
 pub use gen_bindings::MagnusBackend;
 
 pub(crate) fn ruby_public_function_name(func: &FunctionDef) -> &str {

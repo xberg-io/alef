@@ -2,7 +2,7 @@ use crate::codegen::type_mapper::TypeMapper;
 use crate::core::ir::TypeRef;
 use ahash::AHashSet;
 
-use super::json_values::elixir_typespec;
+use super::json_values::elixir_struct_field_typespec;
 
 /// Generate a type-appropriate unsupported body for Rustler.
 pub(in crate::backends::rustler::gen_bindings) fn gen_rustler_unimplemented_body(
@@ -47,26 +47,15 @@ pub(in crate::backends::rustler::gen_bindings) fn map_return_type(
 
 /// Map a return TypeRef to an Elixir typespec for `@spec` return annotations.
 ///
-/// For `Named` types that are in `default_types` (i.e. they are passed *into* NIFs as
-/// JSON strings), the **input** typespec is `String.t() | nil`. But when such a type
-/// appears as a **return** type the NIF returns the fully-deserialised struct/map.
-///
-/// Errors are returned as `{:error, atom, String.t()}` where the atom is the error kind
-/// and the string is the human-readable message.
+/// Public return values use decoded DTO types, including inside collections. ~keep
 pub(in crate::backends::rustler::gen_bindings) fn elixir_return_typespec(
     ty: &TypeRef,
     has_error: bool,
     opaque_types: &AHashSet<String>,
-    default_types: &AHashSet<String>,
+    app_module: &str,
+    public_types: &AHashSet<String>,
 ) -> String {
-    let base = match ty {
-        TypeRef::Named(name) if default_types.contains(name) => "map()".to_string(),
-        TypeRef::Optional(inner) => match inner.as_ref() {
-            TypeRef::Named(name) if default_types.contains(name) => "map() | nil".to_string(),
-            _ => elixir_typespec(ty, opaque_types, default_types),
-        },
-        _ => elixir_typespec(ty, opaque_types, default_types),
-    };
+    let base = elixir_struct_field_typespec(ty, app_module, opaque_types, &AHashSet::new(), public_types);
     if has_error {
         format!("{{:ok, {}}} | {{:error, atom, String.t()}}", base)
     } else {
