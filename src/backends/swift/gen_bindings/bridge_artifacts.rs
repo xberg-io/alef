@@ -424,7 +424,7 @@ pub(super) fn emit_inbound_protocols(
 
         let default_case = result_enum
             .and_then(|en| en.variants.iter().find(|v| v.fields.is_empty()))
-            .map(|v| crate::core::keywords::swift_enum_case_ident(&v.name.to_lower_camel_case()));
+            .map(|v| super::enums::swift_variant_case(&v.name));
         let default_case_doc = default_case.as_ref().map(|case| format!(".{case}"));
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_bridge_protocol_default_open.swift.jinja",
@@ -518,7 +518,7 @@ pub(super) fn emit_inbound_protocols(
             let repr = serde_enum_repr(en);
             for variant in &en.variants {
                 let variant_name = &variant.name;
-                let swift_case = crate::core::keywords::swift_enum_case_ident(&variant_name.to_lower_camel_case());
+                let swift_case = super::enums::swift_variant_case(variant_name);
                 let variant_wire = crate::codegen::naming::wire_variant_value(
                     variant_name,
                     variant.serde_rename.as_deref(),

@@ -13,7 +13,11 @@ use heck::{AsSnakeCase, ToLowerCamelCase};
 /// acronym runs incorrectly (`RDFa` -> `rdFa`), while [`crate::codegen::naming::pascal_to_camel`]
 /// segments it the way `pascal_to_snake` does (`RDFa` -> `rdfa`). ~keep
 pub(super) fn swift_variant_case(name: &str) -> String {
-    crate::core::keywords::swift_enum_case_ident(&crate::codegen::naming::pascal_to_camel(name))
+    crate::codegen::naming::public_host_identifier(
+        crate::core::config::Language::Swift,
+        crate::codegen::naming::PublicIdentifierKind::EnumVariant,
+        name,
+    )
 }
 
 /// What [`emit_enum`] needs to ask `gen_rust_crate::enums::declared_variants` which variants the

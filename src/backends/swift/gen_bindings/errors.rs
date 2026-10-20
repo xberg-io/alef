@@ -26,7 +26,7 @@ pub(super) fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, 
     ));
     for variant in &error.variants {
         super::client::emit_doc_comment(&variant.doc, "    ", out);
-        let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
+        let case_name = super::enums::swift_variant_case(&variant.name);
         if variant.is_unit || variant.fields.is_empty() {
             out.push_str(&crate::backends::swift::template_env::render(
                 "error_case.jinja",
@@ -71,7 +71,7 @@ pub(super) fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, 
     let has_validation_variant = error
         .variants
         .iter()
-        .any(|v| swift_case_ident(&v.name.to_lower_camel_case()) == "validation");
+        .any(|v| super::enums::swift_variant_case(&v.name) == "validation");
     if !has_validation_variant {
         out.push_str("    /// Synthetic case raised when a Rust serde unit-enum raw value cannot\n");
         out.push_str("    /// be mapped to a known Swift case during DTO unmarshaling.\n");
@@ -87,7 +87,7 @@ pub(super) fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, 
             let default_val = swift_default_for_type(&method.return_type);
             let mut cases = String::new();
             for variant in &error.variants {
-                let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
+                let case_name = super::enums::swift_variant_case(&variant.name);
                 let field_match = variant.fields.iter().find(|f| {
                     let camel = f.name.to_lower_camel_case();
                     let prop_snake = method.name.as_str();

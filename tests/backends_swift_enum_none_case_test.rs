@@ -113,17 +113,33 @@ fn swift_source(effort: EnumDef) -> String {
         .join("\n")
 }
 
-/// Every line of `src` that declares or selects the Swift case `none` by its bare name.
+fn contains_bare_case(line: &str, pattern: &str) -> bool {
+    line.match_indices(pattern).any(|(start, _)| {
+        line[start + pattern.len()..]
+            .chars()
+            .next()
+            .is_none_or(|character| !character.is_alphanumeric() && character != '_')
+    })
+}
+
+#[test]
+fn bare_none_check_accepts_renamed_cases_and_rejects_ambiguous_cases() {
+    assert_eq!(bare_none_lines("self = .none_\ncase .none_:"), Vec::<&str>::new());
+    assert_eq!(
+        bare_none_lines("self = .none\ncase .none:"),
+        vec!["self = .none", "case .none:"]
+    );
+}
+
 fn bare_none_lines(src: &str) -> Vec<&str> {
     src.lines()
         .filter(|line| {
-            let renamed = line.trim().replace("none_", "RENAMED");
-            let t = renamed.as_str();
+            let t = line.trim();
             t == "case none"
                 || t.starts_with("case none =")
                 || t.starts_with("case none:")
-                || t.contains("= .none")
-                || t.contains("case .none")
+                || contains_bare_case(t, "= .none")
+                || contains_bare_case(t, "case .none")
         })
         .collect()
 }
@@ -189,4 +205,41 @@ fn data_enum_variant_none_keeps_its_wire_tag_under_a_new_case_name() {
         src.contains("case \"none\":") && src.contains("self = .none_"),
         "the Codable body must decode the wire tag \"none\" into the renamed case:\n{src}"
     );
+}
+
+#[test]
+fn swift_docs_use_constructor_and_error_case_names() {
+    use alef::core::config::Language;
+    use alef::core::ir::{DefaultValue, ErrorDef, ErrorVariant};
+    for (variant, expected) in [("None", "none_"), ("RDFa", "rdfa"), ("Default", "`default`")] {
+        let mut api = api_with_enum(effort_unit_enum());
+        if !api.enums[0].variants.iter().any(|item| item.name == variant) {
+            api.enums[0].variants.push(unit_variant(variant));
+        }
+        api.types[0].fields[0].typed_default = Some(DefaultValue::EnumVariant(variant.into()));
+        api.errors.push(ErrorDef {
+            name: "RequestError".into(),
+            rust_path: "demo::RequestError".into(),
+            variants: vec![ErrorVariant {
+                name: variant.into(),
+                is_unit: true,
+                ..Default::default()
+            }],
+            exception_base: None,
+            original_rust_path: String::new(),
+            doc: String::new(),
+            methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        });
+        let files = alef::docs::generate_docs(&api, &make_config(), &[Language::Swift], "docs/reference").unwrap();
+        let page = &files
+            .iter()
+            .find(|file| file.path.ends_with("api-swift.md"))
+            .unwrap()
+            .content;
+        assert!(page.contains(&format!("Effort.{expected}")), "{variant}: {page}");
+        assert!(page.contains(&format!("| `{expected}` |")), "{variant}: {page}");
+    }
 }
