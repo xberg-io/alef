@@ -117,7 +117,8 @@ fn swift_source(effort: EnumDef) -> String {
 fn bare_none_lines(src: &str) -> Vec<&str> {
     src.lines()
         .filter(|line| {
-            let t = line.trim();
+            let renamed = line.trim().replace("none_", "RENAMED");
+            let t = renamed.as_str();
             t == "case none"
                 || t.starts_with("case none =")
                 || t.starts_with("case none:")
