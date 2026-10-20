@@ -9,6 +9,8 @@ mod components;
 mod constructor_defaults;
 mod errors;
 mod functions;
+#[cfg(test)]
+mod function_null_tests;
 mod helpers;
 mod opaque_handles;
 mod result_presence;
