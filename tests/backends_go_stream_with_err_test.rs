@@ -248,6 +248,11 @@ fn stream_with_err_returns_the_stream_error_that_the_plain_call_drops() {
         .expect("binding.go is generated")
         .content;
 
+    // The gate job sets this to compare the generated Go public surface with the base tree.
+    if let Some(path) = std::env::var_os("ALEF_GO_SURFACE_OUT") {
+        std::fs::write(path, binding).expect("write the generated binding for the surface diff");
+    }
+
     if native_library_dir().is_none() || which::which("go").is_err() {
         eprintln!(
             "skipping stream_with_err_returns_the_stream_error_that_the_plain_call_drops: \
