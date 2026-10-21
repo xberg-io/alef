@@ -435,6 +435,53 @@ fn test_streaming_node() {
     );
 }
 
+/// Regression for #622: a stream that fails to open must reject the call. The open is awaited
+/// with `?` before the forwarding task is spawned; a failed open must not go through the channel.
+#[test]
+fn test_streaming_node_open_error_rejects_call() {
+    let mut config = make_config(vec![Language::Node]);
+    config.adapters = vec![AdapterConfig {
+        name: "list_items".to_string(),
+        pattern: AdapterPattern::Streaming,
+        core_path: "list_items".to_string(),
+        params: vec![],
+        returns: None,
+        error_type: None,
+        owner_type: Some("Client".to_string()),
+        item_type: Some("Item".to_string()),
+        gil_release: false,
+        trait_name: None,
+        trait_method: None,
+        detect_async: false,
+        request_type: None,
+
+        skip_languages: vec![],
+    }];
+
+    let bodies = build_adapter_bodies(&config, Language::Node).expect("build failed");
+    let body = &bodies["Client.list_items"];
+
+    let open = body
+        .find("let mut stream = inner.list_items(")
+        .unwrap_or_else(|| panic!("the stream must be opened before the task starts. Got: {body}"));
+    let spawn = body.find("tokio::spawn").expect("forwarding task");
+    assert!(open < spawn, "the open must come before tokio::spawn. Got: {body}");
+    let open_stmt = &body[open..spawn];
+    assert!(
+        open_stmt.contains(".await") && open_stmt.contains("?;"),
+        "the open error must propagate with `?`. Got: {body}"
+    );
+    // Positive twin: errors after the first chunk still go through the channel.
+    assert!(
+        body.contains("tx.send(Err(napi::Error::new"),
+        "mid-stream errors must still reach the reader. Got: {body}"
+    );
+    assert!(
+        !body.contains("match inner.list_items("),
+        "the open result must not be matched inside the task. Got: {body}"
+    );
+}
+
 /// Test Streaming adapter with R.
 ///
 /// Regression for issue #456: unlike Python/Node above, R's adapter (`gen_r_body`) does not

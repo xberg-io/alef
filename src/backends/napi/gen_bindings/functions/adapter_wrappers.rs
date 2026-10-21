@@ -281,19 +281,12 @@ pub(in crate::backends::napi::gen_bindings) fn gen_adapter_wrapper(
                  #[napi(js_name = \"{}\")]\n\
                  pub async fn {}({}) -> Result<{}> {{\n\
                  {}    let inner = engine.inner.clone();\n\
+                     use futures_util::StreamExt;\n\
+                     let mut stream = {}.await\n\
+                         .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n\
                      let (tx, rx) = tokio::sync::mpsc::channel(32);\n\
                      tokio::spawn(async move {{\n\
-                         use futures_util::StreamExt;\n\
-                         match {}.await {{\n\
-                             Err(e) => {{\n\
-                                 let _ = tx\n\
-                                     .send(Err(napi::Error::new(napi::Status::GenericFailure, e.to_string())))\n\
-                                     .await;\n\
-                             }}\n\
-                             Ok(mut stream) => {{\n\
-                                 {}\n\
-                             }}\n\
-                         }}\n\
+                         {}\n\
                      }});\n\
                      let iter = {} {{\n\
                          receiver: Arc::new(tokio::sync::Mutex::new(rx)),\n\
