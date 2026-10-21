@@ -129,8 +129,6 @@ pub(in crate::backends::go::gen_bindings) fn gen_adapter_wrapper(
     let method_call_name = to_go_name(adapter_name);
     let stream_type_name = format!("{owner_type}{method_call_name}Stream");
     let context_return_type = format!("*{stream_type_name}, error");
-    let item_type = go_type_name(_item_type.rsplit("::").next().unwrap_or(_item_type));
-    let compatibility_return_type = format!("<-chan {item_type}, error");
     let method_call = adapter_method_call(adapter, &method_call_name, request_construction.is_some());
 
     let context_params = std::iter::once("ctx context.Context".to_string())
@@ -158,7 +156,6 @@ pub(in crate::backends::go::gen_bindings) fn gen_adapter_wrapper(
             params => param_parts.join(", "),
             context_params => &context_params,
             compatibility_args => &compatibility_args,
-            compatibility_return_type => &compatibility_return_type,
             context_return_type => &context_return_type,
             request_construction => request_construction.as_deref(),
             method_call => &method_call,

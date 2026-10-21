@@ -1,11 +1,9 @@
 // {{ go_func_name }} starts the stream using a background context.
+// Range over Chan on the result, then read Err: a stream that ends in an error closes the
+// channel the same way as a clean end of stream.
 // Use {{ go_func_with_context_name }} to cancel a stream before it ends.
-func {{ go_func_name }}({{ params }}) ({{ compatibility_return_type }}) {
-	stream, err := {{ go_func_with_context_name }}({{ compatibility_args }})
-	if err != nil {
-		return nil, err
-	}
-	return stream.Chan(), nil
+func {{ go_func_name }}({{ params }}) ({{ context_return_type }}) {
+	return {{ go_func_with_context_name }}({{ compatibility_args }})
 }
 
 // {{ go_func_with_context_name }} wraps the {{ owner_type }}.{{ method_call_name }} streaming adapter,

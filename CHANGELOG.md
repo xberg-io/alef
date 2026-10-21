@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (BREAKING)
+
+- Generated Go streaming methods and module functions without `WithContext` return `(*<Recv><Method>Stream, error)` instead of `(<-chan Item, error)`. A stream that ended in an error closed the channel like a clean end, so a truncated reply looked complete. Replace `ch, err := c.ChatStream(req)` with `stream, err := c.ChatStream(req)`, range over `stream.Chan()`, then check `stream.Err()`. The `WithContext` variants are unchanged.
+
 ## [0.112.0] - 2026-10-21
 
 ### Added

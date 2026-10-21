@@ -117,13 +117,21 @@ fn compatibility_and_cancellable_methods_keep_distinct_signatures() {
          `*<Recv><Method>Stream, error`, got:\n{out}"
     );
     assert!(
-        out.contains("func (h *Engine) CrawlStream() (<-chan CrawlEvent, error) {"),
-        "the old bare-channel signature must remain source compatible, got:\n{out}"
+        out.contains("func (h *Engine) CrawlStream() (*EngineCrawlStreamStream, error) {"),
+        "the plain method must return the stream so the caller can read Err (#623), got:\n{out}"
+    );
+    assert!(
+        !out.contains("func (h *Engine) CrawlStream() (<-chan"),
+        "the plain method must not return a bare channel: a stream error would look like a clean end, got:\n{out}"
     );
     assert_eq!(out.matches("func (h *Engine) CrawlStream(").count(), 1);
     assert_eq!(out.matches("func (h *Engine) CrawlStreamWithContext(").count(), 1);
     assert!(out.contains("h.CrawlStreamWithContext(context.Background())"));
-    assert!(out.contains("return stream.Chan(), nil"));
+    assert!(
+        !out.contains("return stream.Chan(), nil"),
+        "no wrapper may discard the stream object, got:\n{out}"
+    );
+    assert!(out.contains("return h.CrawlStreamWithContext(context.Background())"));
     assert!(
         out.contains("stream := &EngineCrawlStreamStream{ch: ch}"),
         "the goroutine must be handed a stream value to report its error through, got:\n{out}"

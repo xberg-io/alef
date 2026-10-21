@@ -384,16 +384,16 @@ fn streaming_adapter_docs_use_language_native_stream_types() {
     assert!(!zig.contains("[:0]const u8"));
 
     let go = doc_content(&files, "api-go");
-    // ~keep The documented Go streaming shape includes both APIs: the original channel-returning
-    // method remains source-compatible, while `WithContext` returns the `<Recv><Method>Stream`
-    // iterator added for cancellation and observable mid-stream errors. This page hand-builds
-    // its signatures independently of the Go backend (#446), so both assertions are needed to
-    // prevent documentation from silently dropping either half of the compatibility contract.
+    // ~keep The documented Go streaming shape: both the plain method and `WithContext` return the
+    // `<Recv><Method>Stream` iterator, so a caller of either can read `Err()` after the range
+    // loop (#623). This page hand-builds its signatures independently of the Go backend (#446).
     assert!(
-        go.contains(
-            "func (o *DefaultClient) ChatStream(req ChatCompletionRequest) (<-chan ChatCompletionChunk, error)"
-        ),
+        go.contains("func (o *DefaultClient) ChatStream(req ChatCompletionRequest) (*DefaultClientChatStreamStream, error)"),
         "{go}"
+    );
+    assert!(
+        !go.contains("(<-chan ChatCompletionChunk, error)"),
+        "no documented Go streaming method may return a bare channel: {go}"
     );
     assert!(
         go.contains(

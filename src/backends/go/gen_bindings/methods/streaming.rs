@@ -91,7 +91,7 @@ fn render_stream_header(out: &mut String, method: &MethodDef, names: &StreamName
             method_with_context_name => &names.method_with_context_name,
             params => method_params.join(", "),
             param_args => &param_args,
-            item_type => &names.item_go_type,
+            stream_type_name => &names.stream_type_name,
         },
     ));
 
@@ -183,7 +183,8 @@ fn render_stream_body(
 /// leaking both the goroutine and the native stream handle (the deferred
 /// `close(ch)`/`C.<fn_free>(handle)` never run).
 /// `streaming_method_body.jinja` races the send against `<-ctx.Done()` to fix that. The original
-/// channel-returning method remains as a compatibility wrapper around `context.Background()`.
+/// stream-returning method remains as a thin wrapper around `context.Background()`, so the plain
+/// call exposes `Err()` too: a channel-only return hid a truncated reply as a clean end (#623).
 /// ~keep
 pub(in crate::backends::go::gen_bindings) fn gen_streaming_method_wrapper(
     typ: &TypeDef,
