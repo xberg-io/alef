@@ -44,7 +44,9 @@ type = "ChatRequest"
         }],
         ..ApiSurface::default()
     };
-    let files = crate::backends::ffi::FfiBackend.generate_bindings(&api, &config).unwrap();
+    let files = crate::backends::ffi::FfiBackend
+        .generate_bindings(&api, &config)
+        .unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
     syn::parse_file(&lib.content).expect("generated FFI crate must parse as Rust");
     lib.content.clone()

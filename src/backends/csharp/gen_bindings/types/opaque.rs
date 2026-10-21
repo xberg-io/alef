@@ -570,9 +570,7 @@ mod stream_open_error_regressions {
     #[test]
     fn a_rejected_stream_start_builds_its_exception_before_freeing_the_request() {
         let generated = generated();
-        let start = generated
-            .find("if (streamHandle == 0)")
-            .expect("stream start check");
+        let start = generated.find("if (streamHandle == 0)").expect("stream start check");
         let after_check = &generated[start..];
         let build = after_check
             .find("SampleException.FromLastError(")
