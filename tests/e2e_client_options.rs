@@ -271,11 +271,16 @@ fn no_language_but_rust_and_python_emits_a_fixture_with_client_options() {
         if language == "rust" || language == "python" {
             continue;
         }
+        // A generator that returns an error or panics (the C generator panics on an argument whose
+        // type the config does not name) cannot render the fixture.
         let emit = |group: FixtureGroup| {
-            generator
-                .generate(&[group], &e2e, &resolved, &[], &[], &[], &[])
-                .ok()
-                .map(|files| files.iter().any(|file| mentions_fixture(&file.content)))
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                generator
+                    .generate(&[group], &e2e, &resolved, &[], &[], &[], &[])
+                    .ok()
+                    .map(|files| files.iter().any(|file| mentions_fixture(&file.content)))
+            }))
+            .unwrap_or(None)
         };
         // A language whose generator cannot render the control fixture at all says nothing here.
         if emit(build_group(None)) != Some(true) {
