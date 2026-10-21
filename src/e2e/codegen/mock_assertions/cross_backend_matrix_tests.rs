@@ -496,5 +496,10 @@ fn every_wired_backend_emits_the_request_body_endpoint() {
         }
     }
     assert!(checked >= 15, "only {checked} backends were checked");
-    assert!(failures.is_empty(), "{} failure(s):\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} failure(s):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
 }

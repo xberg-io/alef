@@ -227,10 +227,7 @@ pub(crate) fn normalize_body_assertion(assertion: &mut crate::e2e::fixture::Asse
         return Err(format!("assertion on '{field}' needs a 'value'"));
     };
     let compact = value.to_string();
-    if value.is_array()
-        || value.is_object()
-        || compact.contains(['\\', '$', '%', '{', '}'])
-    {
+    if value.is_array() || value.is_object() || compact.contains(['\\', '$', '%', '{', '}']) {
         return Err(format!(
             "value {compact} on '{field}' is not supported; a request body field compares to a number, boolean, null or plain string"
         ));
@@ -448,7 +445,10 @@ mod tests {
             serde_json::json!("${x}"),
         ] {
             let mut assertion = body_assertion("equals", r#"mock.requests["POST /a"].body.x"#, value.clone());
-            assert!(normalize_body_assertion(&mut assertion).is_err(), "{value} must be refused");
+            assert!(
+                normalize_body_assertion(&mut assertion).is_err(),
+                "{value} must be refused"
+            );
         }
     }
 }

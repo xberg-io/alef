@@ -194,7 +194,9 @@ const CLIENT_OPTIONS_LANGUAGES: [&str; 2] = ["rust", "python"];
 pub fn client_options_exclusion(fixture: &Fixture, e2e_config: &E2eConfig, language: &str) -> Option<&'static str> {
     let options = fixture.client_options.as_ref()?;
     let is_identifier = |name: &str| {
-        name.chars().next().is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+        name.chars()
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
             && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
     };
     if !options.keys().all(|name| is_identifier(name)) {

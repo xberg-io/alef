@@ -284,7 +284,14 @@ mod request_counter_and_origins_probe {
     // hold a value at a dotted path.
     // -----------------------------------------------------------------------
 
-    async fn control_body(client: &reqwest::Client, base: &str, key: &str, field: &str, op: &str, value: &str) -> String {
+    async fn control_body(
+        client: &reqwest::Client,
+        base: &str,
+        key: &str,
+        field: &str,
+        op: &str,
+        value: &str,
+    ) -> String {
         client
             .get(format!(
                 "{base}/__alef/requests/body?key={key}&field={field}&op={op}&value={value}"
@@ -323,17 +330,35 @@ mod request_counter_and_origins_probe {
             .await
             .expect("post chat");
 
-        assert_eq!(control_body(&client, &base, key, "options.num_ctx", "equals", "8192").await, "1");
+        assert_eq!(
+            control_body(&client, &base, key, "options.num_ctx", "equals", "8192").await,
+            "1"
+        );
         assert_eq!(
             control_body(&client, &base, key, "options.num_ctx", "equals", "8192.0").await,
             "1",
             "8192 and 8192.0 are the same number"
         );
-        assert_eq!(control_body(&client, &base, key, "options.num_ctx", "equals", "4096").await, "0");
-        assert_eq!(control_body(&client, &base, key, "options.num_ctx", "not_equals", "4096").await, "1");
-        assert_eq!(control_body(&client, &base, key, "options.num_ctx", "not_equals", "8192").await, "0");
-        assert_eq!(control_body(&client, &base, key, "model", "equals", "%22m%22").await, "1");
-        assert_eq!(control_body(&client, &base, key, "messages.0.role", "equals", "%22user%22").await, "1");
+        assert_eq!(
+            control_body(&client, &base, key, "options.num_ctx", "equals", "4096").await,
+            "0"
+        );
+        assert_eq!(
+            control_body(&client, &base, key, "options.num_ctx", "not_equals", "4096").await,
+            "1"
+        );
+        assert_eq!(
+            control_body(&client, &base, key, "options.num_ctx", "not_equals", "8192").await,
+            "0"
+        );
+        assert_eq!(
+            control_body(&client, &base, key, "model", "equals", "%22m%22").await,
+            "1"
+        );
+        assert_eq!(
+            control_body(&client, &base, key, "messages.0.role", "equals", "%22user%22").await,
+            "1"
+        );
         assert_eq!(
             control_body(&client, &base, key, "options.missing", "equals", "null").await,
             "0",
@@ -345,12 +370,28 @@ mod request_counter_and_origins_probe {
             "an absent field is not equal to a value"
         );
         assert_eq!(
-            control_body(&client, &base, "%2Ffixtures%2Fb%2Fapi%2Fchat", "options.num_ctx", "equals", "8192").await,
+            control_body(
+                &client,
+                &base,
+                "%2Ffixtures%2Fb%2Fapi%2Fchat",
+                "options.num_ctx",
+                "equals",
+                "8192"
+            )
+            .await,
             "1",
             "a bare path key matches any method"
         );
         assert_eq!(
-            control_body(&client, &base, "GET%20%2Ffixtures%2Fb%2Fapi%2Fchat", "options.num_ctx", "equals", "8192").await,
+            control_body(
+                &client,
+                &base,
+                "GET%20%2Ffixtures%2Fb%2Fapi%2Fchat",
+                "options.num_ctx",
+                "equals",
+                "8192"
+            )
+            .await,
             "0",
             "a different method matches no request"
         );
@@ -434,9 +475,18 @@ mod request_counter_and_origins_probe {
         assert_eq!(text, "data: one\n\ndata: two\n\ndata: three\n\ndata: [DONE]\n\n");
         let first = arrivals.first().expect("a first chunk");
         let last = arrivals.last().expect("a last chunk");
-        assert!(*first >= std::time::Duration::from_millis(190), "first chunk came after {first:?}");
-        assert!(*last >= std::time::Duration::from_millis(590), "stream ended after {last:?}");
-        assert!(arrivals.len() >= 3, "the events must arrive in separate writes, got {arrivals:?}");
+        assert!(
+            *first >= std::time::Duration::from_millis(190),
+            "first chunk came after {first:?}"
+        );
+        assert!(
+            *last >= std::time::Duration::from_millis(590),
+            "stream ended after {last:?}"
+        );
+        assert!(
+            arrivals.len() >= 3,
+            "the events must arrive in separate writes, got {arrivals:?}"
+        );
         assert!(
             arrivals[1] - arrivals[0] >= std::time::Duration::from_millis(150),
             "the second event must wait after the first, got {arrivals:?}"
@@ -483,7 +533,10 @@ mod request_counter_and_origins_probe {
             *arrivals.last().expect("a chunk") >= std::time::Duration::from_millis(390),
             "stream ended after {arrivals:?}"
         );
-        assert!(arrivals.len() >= 2, "the events must arrive in separate writes, got {arrivals:?}");
+        assert!(
+            arrivals.len() >= 2,
+            "the events must arrive in separate writes, got {arrivals:?}"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -508,7 +561,15 @@ mod request_counter_and_origins_probe {
             .await
             .expect("post");
         assert_eq!(
-            control_body(&client, &server.url, "POST%20%2Ffixtures%2Fq", "options.num_ctx", "equals", "8192").await,
+            control_body(
+                &client,
+                &server.url,
+                "POST%20%2Ffixtures%2Fq",
+                "options.num_ctx",
+                "equals",
+                "8192"
+            )
+            .await,
             "1"
         );
     }
@@ -533,6 +594,9 @@ mod request_counter_and_origins_probe {
         let types: Vec<_> = response.headers().get_all("content-type").iter().collect();
         assert_eq!(types.len(), 1, "one content-type header, got {types:?}");
         assert_eq!(types[0], "application/x-ndjson");
-        assert_eq!(response.text().await.expect("ndjson body"), "{\"a\":1}\n{\"done\":true}\n");
+        assert_eq!(
+            response.text().await.expect("ndjson body"),
+            "{\"a\":1}\n{\"done\":true}\n"
+        );
     }
 }

@@ -91,8 +91,7 @@ fn generate(codegen: &dyn E2eCodegen, cfg: &NewAlefConfig, group: FixtureGroup) 
         .join("\n")
 }
 
-const RUST_FACTORIES: &str =
-    "crate_name = \"demo_client\"\nclient_factory = \"create_client\"\nclient_factory_from_json = \"create_client_from_json\"";
+const RUST_FACTORIES: &str = "crate_name = \"demo_client\"\nclient_factory = \"create_client\"\nclient_factory_from_json = \"create_client_from_json\"";
 
 #[test]
 fn rust_writes_client_options_into_the_json_the_factory_reads() {
@@ -118,7 +117,10 @@ fn rust_without_client_options_keeps_the_plain_factory() {
     let cfg = build_config("rust", RUST_FACTORIES);
     let content = generate(&RustE2eCodegen, &cfg, build_group(None));
 
-    assert!(content.contains("smoke_client_options"), "the fixture still runs:\n{content}");
+    assert!(
+        content.contains("smoke_client_options"),
+        "the fixture still runs:\n{content}"
+    );
     assert!(
         !content.contains("timeout_secs") && !content.contains("client_config"),
         "a fixture with no options must not build a JSON config:\n{content}"
@@ -127,7 +129,10 @@ fn rust_without_client_options_keeps_the_plain_factory() {
 
 #[test]
 fn rust_leaves_out_a_fixture_whose_call_has_no_json_factory() {
-    let cfg = build_config("rust", "crate_name = \"demo_client\"\nclient_factory = \"create_client\"");
+    let cfg = build_config(
+        "rust",
+        "crate_name = \"demo_client\"\nclient_factory = \"create_client\"",
+    );
     let content = generate(&RustE2eCodegen, &cfg, build_group(options()));
 
     assert!(
