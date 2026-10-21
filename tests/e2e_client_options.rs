@@ -221,14 +221,23 @@ fn rust_applies_client_options_when_the_fixture_has_no_mock_response() {
     );
 }
 
-/// Whether a generated file spells the fixture id, in any casing or with any separator.
+/// Whether a generated file runs the fixture: a line spells the fixture id, in any casing or with
+/// any separator, and the line is neither a comment nor a skipped placeholder case. Zig records an
+/// excluded fixture as a `// skipped:` comment and WASM as an `it.skip(...)` case; both leave the
+/// fixture out.
 fn mentions_fixture(content: &str) -> bool {
-    let squashed: String = content
-        .chars()
-        .filter(char::is_ascii_alphanumeric)
-        .map(|c| c.to_ascii_lowercase())
-        .collect();
-    squashed.contains("smokeclientoptions")
+    content.lines().any(|line| {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("//") || trimmed.starts_with('#') || line.contains(".skip(") {
+            return false;
+        }
+        let squashed: String = line
+            .chars()
+            .filter(char::is_ascii_alphanumeric)
+            .map(|c| c.to_ascii_lowercase())
+            .collect();
+        squashed.contains("smokeclientoptions")
+    })
 }
 
 #[test]
