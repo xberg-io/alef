@@ -400,7 +400,15 @@ pub(super) fn render_test_method(
             if let Some(setup) = &call_setup {
                 let _ = writeln!(out, "            {setup}");
             }
-            let _ = writeln!(out, "            _ = {call_expr}");
+            if is_streaming {
+                // A stream reports a failure while it is read: the call returns the
+                // stream and the loop throws. Read the stream to its end inside the
+                // `do` block so the throw reaches the `catch`.
+                let _ = writeln!(out, "            let _stream = {call_expr}");
+                let _ = writeln!(out, "            for try await _ in _stream {{}}");
+            } else {
+                let _ = writeln!(out, "            _ = {call_expr}");
+            }
             let _ = writeln!(out, "            XCTFail(\"expected to throw\")");
             render_error_catch_block(out, fixture, errors);
         } else {
