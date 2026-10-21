@@ -826,18 +826,18 @@ fn gen_struct_methods_impl(
         // Use a snake_case Rust ident — ext-php-rs's `#[php_impl]` macro auto-converts
         let getter_ident = format!("get_{}", field.name);
 
+        // A field with `#[php(prop)]` already owns the property name; only the others get a getter
+        // property so that `$obj->choices` reads them.
+        let has_property = !is_php_prop_scalar_with_enums(&field.ty, enum_names);
         let is_json_field = ty_is_or_wraps_json(&field.ty);
         if ty_references_untagged_data_enum(&field.ty, &mapper.untagged_data_enum_names) || is_json_field {
+            // A JSON string value reads as the bare text. Any other value reads as its JSON text.
             let body = if field.optional {
-                format!(
-                    "self.{name}.as_ref().and_then(|v| serde_json::to_string(v).ok())",
-                    name = field.name
-                )
+                format!("self.{name}.as_ref().and_then(|v| {JSON_TEXT_EXPR})", name = field.name)
             } else {
-                format!("serde_json::to_string(&self.{name}).ok()", name = field.name)
+                format!("{{ let v = &self.{name}; {JSON_TEXT_EXPR} }}", name = field.name)
             };
-            let getter_method = format!("pub fn {getter_ident}(&self) -> Option<String> {{\n    {body}\n}}");
-            impl_builder.add_method(&getter_method);
+            add_php_getter(impl_builder, &getter_ident, &field.name, "Option<String>", &body, has_property);
             continue;
         }
         let map_fn = |ty: &crate::core::ir::TypeRef| mapper.map_type(ty);
@@ -869,12 +869,7 @@ fn gen_struct_methods_impl(
             format!("self.{name}.clone()", name = field.name)
         };
 
-        let getter_method = format!(
-            "pub fn {getter_ident}(&self) -> {ret} {{\n    {body}\n}}",
-            body = body,
-            ret = rust_return_type,
-        );
-        impl_builder.add_method(&getter_method);
+        add_php_getter(impl_builder, &getter_ident, &field.name, &rust_return_type, &body, has_property);
 
         // GH#461: `is_optional_named` fields (e.g. `ExtractionConfig.security_limits`) had a
         // getter but no way whatsoever to set them — not via the constructor (excluded, see
@@ -991,3 +986,42 @@ fn gen_struct_methods_impl(
 #[cfg(test)]
 #[path = "structs/tests.rs"]
 mod tests;
+
+/// The expression that turns a serde-serializable `v` into `Option<String>` for a getter: a JSON
+/// string is returned as its bare text, anything else as JSON text.
+const JSON_TEXT_EXPR: &str = "serde_json::to_value(v).ok().and_then(|json| match json { serde_json::Value::String(text) => Some(text), other => serde_json::to_string(&other).ok() })";
+
+/// Emit the read paths of a field. A field that has no `#[php(prop)]` (`as_property`) gets a
+/// `#[php(getter)]` method, which ext-php-rs registers as the readable property (`$obj->toolCalls`),
+/// and a plain `getToolCalls()` method that calls it. The README reads replies through the
+/// property, and existing callers use the method. The method has its own Rust name because two
+/// functions cannot share one. A field with a prop keeps the plain method only.
+fn add_php_getter(
+    impl_builder: &mut ImplBuilder,
+    getter_ident: &str,
+    field_name: &str,
+    ret: &str,
+    body: &str,
+    as_property: bool,
+) {
+    if !as_property {
+        impl_builder.add_method(&format!("pub fn {getter_ident}(&self) -> {ret} {{\n    {body}\n}}"));
+        return;
+    }
+    impl_builder.add_method(&format!(
+        "#[php(getter)]\npub fn {getter_ident}(&self) -> {ret} {{\n    {body}\n}}"
+    ));
+    let php_name = format!("get{}", pascal_case_php(field_name));
+    impl_builder.add_method(&format!(
+        "#[php(name = \"{php_name}\")]\npub fn read_{field_name}(&self) -> {ret} {{\n    self.{getter_ident}()\n}}"
+    ));
+}
+
+fn pascal_case_php(field_name: &str) -> String {
+    let camel = crate::codegen::naming::to_php_name(field_name);
+    let mut chars = camel.chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+        .unwrap_or_default()
+}

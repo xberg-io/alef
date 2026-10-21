@@ -298,6 +298,18 @@ pub(super) fn generate_type_stubs(
                 let return_phpdoc = php_phpdoc_type_fq(&field.ty, &namespace);
                 content.push_str(&format!("    /** @return {return_phpdoc} */\n"));
             }
+            // The runtime registers a readable property for every field that has no `#[php(prop)]`
+            // (`$response->choices`), so the stub declares it too.
+            if !is_php_prop_scalar(&field.ty, &enum_names) {
+                if !is_json_getter && matches!(return_inner, TypeRef::Vec(_) | TypeRef::Map(_, _)) {
+                    let property_phpdoc = php_phpdoc_type_fq(&field.ty, &namespace);
+                    content.push_str(&format!("    /** @var {property_phpdoc} */\n"));
+                }
+                content.push_str(&format!(
+                    "    public readonly {return_type} ${};\n",
+                    to_php_name(&field.name)
+                ));
+            }
             if !is_constructor_param(field) {
                 content.push_str(
                     "    /**\n     * @readonly Not settable via the constructor — this field's \
