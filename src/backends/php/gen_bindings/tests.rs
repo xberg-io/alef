@@ -63,7 +63,9 @@ fn test_php_wrapper_param_optionality_logic() {
 #[test]
 fn should_emit_rust_line_doc_comments_when_doc_text_contains_block_comment_sequences() {
     use super::super::type_map::PhpMapper;
-    use crate::backends::php::gen_bindings::functions::{PhpParamTypeSets, gen_function_as_static_method};
+    use crate::backends::php::gen_bindings::functions::{
+        PhpFunctionTarget, PhpParamTypeSets, gen_function_as_static_method,
+    };
     use crate::core::ir::{FunctionDef, TypeRef};
     use ahash::AHashSet;
 
@@ -90,7 +92,18 @@ fn should_emit_rust_line_doc_comments_when_doc_text_contains_block_comment_seque
         enums: &empty,
     };
 
-    let generated = gen_function_as_static_method(&func, &mapper, type_sets, "sample_crate", &[], false, &empty);
+    let generated = gen_function_as_static_method(
+        &func,
+        &mapper,
+        type_sets,
+        PhpFunctionTarget {
+            core_import: "sample_crate",
+            error_converter: None,
+        },
+        &[],
+        false,
+        &empty,
+    );
 
     assert!(
         generated.contains("/// Decide which call mode best fits this document."),
@@ -661,7 +674,9 @@ fn record_param(is_ref: bool, is_mut: bool) -> crate::core::ir::ParamDef {
 #[test]
 fn php_mut_dto_param_returns_the_updated_value() {
     use super::super::type_map::PhpMapper;
-    use crate::backends::php::gen_bindings::functions::{PhpParamTypeSets, gen_function_as_static_method};
+    use crate::backends::php::gen_bindings::functions::{
+        PhpFunctionTarget, PhpParamTypeSets, gen_function_as_static_method,
+    };
     use crate::core::ir::{FunctionDef, TypeRef};
     use ahash::AHashSet;
 
@@ -686,7 +701,18 @@ fn php_mut_dto_param_returns_the_updated_value() {
         enums: &empty,
     };
 
-    let generated = gen_function_as_static_method(&func, &mapper, type_sets, "sample_crate", &[], false, &empty);
+    let generated = gen_function_as_static_method(
+        &func,
+        &mapper,
+        type_sets,
+        PhpFunctionTarget {
+            core_import: "sample_crate",
+            error_converter: None,
+        },
+        &[],
+        false,
+        &empty,
+    );
 
     // `return_type_sig` (params.rs) renders the Rust facade's return arrow: `" -> {ty}"` for a
     // real type, or nothing at all for `()`. So a write-back must add `-> Record`, and the
@@ -716,7 +742,9 @@ fn php_mut_dto_param_returns_the_updated_value() {
 #[test]
 fn php_immutable_dto_param_keeps_void_return() {
     use super::super::type_map::PhpMapper;
-    use crate::backends::php::gen_bindings::functions::{PhpParamTypeSets, gen_function_as_static_method};
+    use crate::backends::php::gen_bindings::functions::{
+        PhpFunctionTarget, PhpParamTypeSets, gen_function_as_static_method,
+    };
     use crate::core::ir::{FunctionDef, TypeRef};
     use ahash::AHashSet;
 
@@ -741,7 +769,18 @@ fn php_immutable_dto_param_keeps_void_return() {
         enums: &empty,
     };
 
-    let generated = gen_function_as_static_method(&func, &mapper, type_sets, "sample_crate", &[], false, &empty);
+    let generated = gen_function_as_static_method(
+        &func,
+        &mapper,
+        type_sets,
+        PhpFunctionTarget {
+            core_import: "sample_crate",
+            error_converter: None,
+        },
+        &[],
+        false,
+        &empty,
+    );
 
     assert!(
         generated.contains("read_record(record: &Record) {"),

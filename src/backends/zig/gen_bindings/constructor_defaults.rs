@@ -3,7 +3,11 @@ use crate::core::ir::{DefaultValue, FieldDef, PrimitiveType, TypeRef};
 use super::types::zig_enum_default;
 
 pub(super) fn literal(field: &FieldDef, enums: &[crate::core::ir::EnumDef]) -> Option<String> {
-    render(&field.ty, field.typed_default.as_ref()?, enums)
+    let value = field.typed_default.as_ref()?;
+    if field.optional && matches!(value, DefaultValue::Empty) {
+        return Some("null".into());
+    }
+    render(&field.ty, value, enums)
 }
 
 fn render(ty: &TypeRef, value: &DefaultValue, enums: &[crate::core::ir::EnumDef]) -> Option<String> {

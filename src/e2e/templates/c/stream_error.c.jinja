@@ -1,0 +1,10 @@
+    if (stream_handle != 0) {
+        while (1) {
+            {{ prefix_upper }}AlefHandle chunk = {{ stream_next }}(stream_handle);
+            if (chunk == 0) {
+                break;
+            }
+            {{ prefix }}_{{ item_type_snake }}_free(chunk);
+        }
+    }
+    assert({{ prefix }}_last_error_code() != 0 && "expected stream to fail");

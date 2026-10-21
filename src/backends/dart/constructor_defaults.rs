@@ -2,7 +2,11 @@ use crate::codegen::naming::{dart_value_identifier, pascal_to_camel};
 use crate::core::ir::{DefaultValue, FieldDef, PrimitiveType, TypeRef};
 
 pub(super) fn literal(field: &FieldDef) -> Option<String> {
-    render(&field.ty, field.typed_default.as_ref()?)
+    let value = field.typed_default.as_ref()?;
+    if field.optional && matches!(value, DefaultValue::Empty) {
+        return Some("null".into());
+    }
+    render(&field.ty, value)
 }
 
 fn render(ty: &TypeRef, value: &DefaultValue) -> Option<String> {
@@ -58,7 +62,9 @@ fn render(ty: &TypeRef, value: &DefaultValue) -> Option<String> {
 pub(super) fn frb_literal(field: &FieldDef) -> Option<String> {
     match field.typed_default.as_ref()? {
         DefaultValue::BoolLiteral(value) => Some(value.to_string()),
-        DefaultValue::Empty if field.ty == TypeRef::Primitive(PrimitiveType::Bool) => Some("false".into()),
+        DefaultValue::Empty if !field.optional && field.ty == TypeRef::Primitive(PrimitiveType::Bool) => {
+            Some("false".into())
+        }
         _ => None,
     }
 }

@@ -1,2 +1,2 @@
-{{ let_bindings }}let result = {{ core_call }}.map_err(|e| ext_php_rs::exception::PhpException::from_message(e.to_string()))?;
+{{ let_bindings }}let result = {{ core_call }}.map_err({% if error_converter %}{{ error_converter }}{% else %}|e| ext_php_rs::exception::PhpException::from_message(e.to_string()){% endif %})?;
     Ok(format!("{:?}", result))

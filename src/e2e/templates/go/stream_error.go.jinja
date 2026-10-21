@@ -1,0 +1,6 @@
+	stream, err := {{ call_prefix }}.{{ function_name }}({{ args }})
+	if err == nil {
+		for range stream.Chan() {
+		}
+		err = stream.Err()
+	}

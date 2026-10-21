@@ -287,7 +287,10 @@ pub fn render_test_file(
         let has_handle_teardown = fixture.http.is_none()
             && !resolve_function_name_for_call(call_config).is_empty()
             && recipe.rust_handle_teardown(rust_call_override).is_some();
-        fixture.needs_mock_server() || call_config.r#async || has_handle_teardown
+        fixture.needs_mock_server()
+            || call_config.r#async
+            || crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming_enabled())
+            || has_handle_teardown
     });
     if file_needs_common {
         let _ = writeln!(out, "mod common;");

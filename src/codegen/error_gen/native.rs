@@ -124,28 +124,7 @@ pub fn magnus_error_methods_registrations(error: &ErrorDef) -> Vec<String> {
 
 /// Generate a converter function that maps a core error to `PhpException`.
 pub fn gen_php_error_converter(error: &ErrorDef, core_import: &str) -> String {
-    let rust_path = if error.rust_path.is_empty() {
-        format!("{core_import}::{}", error.name)
-    } else {
-        error.rust_path.replace('-', "_")
-    };
-
-    let fn_name = format!("{}_to_php_err", to_snake_case(&error.name));
-
-    let mut variants = Vec::new();
-    for variant in &error.variants {
-        let pattern = error_variant_wildcard_pattern(&rust_path, variant);
-        variants.push((pattern, variant.name.clone()));
-    }
-
-    crate::codegen::template_env::render(
-        "error_gen/php_error_converter.jinja",
-        crate::alef_context! {
-            rust_path => rust_path.as_str(),
-            fn_name => fn_name.as_str(),
-            variants => variants,
-        },
-    )
+    super::php::gen_converter(error, core_import)
 }
 
 /// Return the PHP converter function name for a given error type.
@@ -436,6 +415,4 @@ pub fn gen_ffi_error_methods(error: &ErrorDef, core_import: &str, api_prefix: &s
 /// (e.g. `SampleLlmError` in package `samplellm` → exported as `Error`).
 use crate::core::ir::ErrorDef;
 
-use super::shared::{
-    duration_methods, error_variant_wildcard_pattern, millis_expr, millis_type, to_screaming_snake, to_snake_case,
-};
+use super::shared::{duration_methods, millis_expr, millis_type, to_screaming_snake, to_snake_case};

@@ -25,6 +25,71 @@ use std::process::{Command, Output};
 
 use super::*;
 
+#[test]
+fn should_preserve_duration_mirrors_without_core_serde_at_runtime() {
+    for optional in [false, true] {
+        let default_value = if optional {
+            DefaultValue::None
+        } else {
+            DefaultValue::IntLiteral(150)
+        };
+        let mut duration = field("quiet_window", TypeRef::Duration, Some(default_value));
+        duration.optional = optional;
+        let mut typ = policy(true, vec![duration]);
+        typ.has_serde = false;
+        let constructor = crate::codegen::config_gen::gen_php_kwargs_constructor(&typ, &|_| "i64".into());
+        let source = format!(
+            r#"
+#[derive(Default)]
+struct FetchPolicy {{ quiet_window: Option<i64> }}
+impl FetchPolicy {{ {constructor} }}
+fn main() {{
+    for value in [None, Some(0), Some(42)] {{
+        assert_eq!(FetchPolicy::__construct(value).quiet_window, value);
+    }}
+}}
+"#
+        );
+        let output = compile_and_run(&source);
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    }
+}
+
+#[test]
+fn should_preserve_duration_constructor_mirror_optionality_at_runtime() {
+    for core_optional in [false, true] {
+        let default_value = if core_optional {
+            DefaultValue::None
+        } else {
+            DefaultValue::IntLiteral(150)
+        };
+        let mut duration = field("quiet_window", TypeRef::Duration, Some(default_value));
+        duration.optional = core_optional;
+        let mut typ = policy(true, vec![duration]);
+        typ.version.legacy_constructor_fields = vec!["legacy".into()];
+        let init = build(&typ).unwrap();
+        let default = if core_optional { "None" } else { "Some(150)" };
+        let source = format!(
+            r#"
+#[derive(Debug, PartialEq)]
+struct FetchPolicy {{ quiet_window: Option<i64> }}
+impl Default for FetchPolicy {{ fn default() -> Self {{ Self {{ quiet_window: {default} }} }} }}
+impl FetchPolicy {{
+    fn new(quietWindow: Option<i64>) -> Self {{ {} Self {{ {} }} }}
+}}
+fn main() {{
+    assert_eq!(FetchPolicy::new(None).quiet_window, {default});
+    assert_eq!(FetchPolicy::new(Some(0)).quiet_window, Some(0));
+    assert_eq!(FetchPolicy::new(Some(42)).quiet_window, Some(42));
+}}
+"#,
+            init.prelude, init.field_inits
+        );
+        let output = compile_and_run(&source);
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    }
+}
+
 /// `CORE_TYPE`/`names`/`field`/`optional_field`/`rule_list`/`nested_policy`/`policy`/`build`
 /// below are deliberately re-declared rather than reached into from the sibling `tests` module:
 /// this file is a SIBLING of `tests`, not a child of it, so `tests`'s helpers are private to a

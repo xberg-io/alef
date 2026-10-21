@@ -1,0 +1,33 @@
+{# ~keep PHPUnit assertion failures can be Exceptions, so evaluate assertions after the application catch. #}
+{% if pattern %}
+        $caughtException = null;
+        try {
+{% for line in setup_lines %}
+            {{ line }}
+{% endfor %}
+{% if collect_snippet %}
+            ${{ result_var }} = {{ call_expr }};
+            {{ collect_snippet }}
+{% else %}
+            {{ call_expr }};
+{% endif %}
+        } catch (\Exception $e) {
+            $caughtException = $e;
+        }
+        $this->assertInstanceOf(\Exception::class, $caughtException);
+        $this->assertTrue(preg_match({{ pattern }}, $caughtException->getMessage()) === 1 || preg_match({{ pattern }}, get_class($caughtException)) === 1, 'expected exception message or class name to match {{ message_value }}');
+{% else %}
+{% if skip_marker %}
+{{ skip_marker }}
+{% endif %}
+        $this->expectException(\Exception::class);
+{% for line in setup_lines %}
+        {{ line }}
+{% endfor %}
+{% if collect_snippet %}
+        ${{ result_var }} = {{ call_expr }};
+        {{ collect_snippet }}
+{% else %}
+        {{ call_expr }};
+{% endif %}
+{% endif %}

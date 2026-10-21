@@ -1,0 +1,5 @@
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        public Builder {{ setter_name }}(final {{ primitive_type }} value) {
+            return {{ setter_name }}({{ boxed_type }}.valueOf(value));
+        }
+

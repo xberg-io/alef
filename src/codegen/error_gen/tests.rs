@@ -10,6 +10,10 @@ use crate::core::ir::{CoreWrapper, FieldDef, PrimitiveType, TypeRef};
 mod duration_methods;
 #[path = "tests/native_methods.rs"]
 mod native_methods;
+#[path = "tests/php_attributes.rs"]
+mod php_attributes;
+#[path = "tests/python_attributes.rs"]
+mod python_attributes;
 
 /// Helper to create a tuple-style field (e.g. `_0: String`).
 fn tuple_field(index: usize) -> FieldDef {
@@ -519,7 +523,7 @@ fn test_gen_php_error_converter() {
     assert!(output.contains(
         "fn conversion_error_to_php_err(e: sample_markup_rs::ConversionError) -> ext_php_rs::exception::PhpException {"
     ));
-    assert!(output.contains("PhpException::from_message(format!(\"[ParseError] {}\", msg))"));
+    assert!(output.contains("PhpParseError"));
     assert!(output.contains("#[allow(dead_code)]"));
 }
 

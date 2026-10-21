@@ -3,10 +3,35 @@
 fn {{ fn_name }}(e: {{ rust_path }}) -> ext_php_rs::exception::PhpException {
     let msg = e.to_string();
     #[allow(unreachable_patterns)]
-    match &e {
-{%- for pattern, variant_name in variants %}
-        {{ pattern }} => ext_php_rs::exception::PhpException::from_message(format!("[{{ variant_name }}] {}", msg)),
-{%- endfor %}
-        _ => ext_php_rs::exception::PhpException::from_message(msg),
+    let value = match &e {
+{% for variant in variants %}        {{ variant.pattern }} => ext_php_rs::convert::IntoZval::into_zval({{ variant.class_name }} {
+{% for field in variant.fields %}            {{ field.name }}: {{ field.value }},
+{% endfor %}        }, false),
+{% endfor %}        _ => ext_php_rs::convert::IntoZval::into_zval({{ base_class }}::default(), false),
+    };
+    let exception = ext_php_rs::exception::PhpException::from_class::<{{ base_class }}>(msg.clone());
+    match value {
+        Ok(mut value) => {
+            let initialized = (|| -> ext_php_rs::error::Result<()> {
+                let parent = ext_php_rs::types::ZendObject::new(ext_php_rs::zend::ce::exception());
+                parent.try_call_method("__construct", vec![&msg])?;
+                let object = value.object_mut().ok_or(ext_php_rs::error::Error::Callable)?;
+                let count = usize::try_from(ext_php_rs::zend::ce::exception().default_properties_count)?;
+                // SAFETY: Every emitted class extends Exception and initializes its inherited
+                // property slots. Copying the native parent's slots preserves PHP's trace metadata. ~keep
+                unsafe {
+                    for index in 0..count {
+                        *object.properties_table.as_mut_ptr().add(index) =
+                            (*parent.properties_table.as_ptr().add(index)).shallow_clone();
+                    }
+                }
+                Ok(())
+            })();
+            match initialized {
+                Ok(()) => exception.with_object(value),
+                Err(error) => ext_php_rs::exception::PhpException::from_message(format!("initializing exception: {error}; {msg}")),
+            }
+        },
+        Err(error) => ext_php_rs::exception::PhpException::from_message(format!("creating exception: {error}; {msg}")),
     }
 }

@@ -7,36 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.112.0] - 2026-10-21
+
+### Added
+
+- Add Windows process sampling and eight cold/warm Zig consumer checks with qualified failure controls and compiler receipts (GH#573).
+
 ### Changed (BREAKING)
 
+- Reject PHP error variants that share an exception class name but have incompatible payload layouts, with diagnostics naming both owners and fields. Compatible shared classes remain supported.
+
 - Generated Rust native-to-mirror error conversions use `TryFrom` so a newer native variant can fail safely instead of being forced into an existing mirror variant. Replace `MirrorError::from(native)` with `MirrorError::try_from(native)`.
-- Rename Swift enum case `None` to `none_` so optional fields retain explicitly selected values. Update `Type.none` to `Type.none_`; serialized values are unchanged (GH#593).
-- Generated Zig wrappers for infallible Rust string, list and map returns now report native failures as `UnknownFfiError` or `Cancelled`. Update exhaustive error handling for these variants and use `try` or `catch` when calling the wrappers.
+- Rename Swift enum case `None` to `none_` so optional fields retain explicitly selected values. Update `Type.none` to `Type.none_`; serialized values are unchanged.
+- Zig string and collection wrappers report native conversion failures through error unions, including for infallible Rust functions. Use `try` or `catch` when calling these wrappers.
+
+### Changed
+
+- Refresh dependency locks, Gradle 9.8.2, Dart 3.13.6, and the Ruby setup action.
 
 ### Fixed
 
-- Update `rustls-webpki` to 0.103.16 and `webpki-roots` to 1.0.10 to resolve RUSTSEC-2026-0381 and RUSTSEC-2026-0382.
+- Resolve Node and pin Python under the shared PATH guard so concurrent native-oracle tests cannot select a missing tool or an unintended interpreter.
+- Consume Rust, Go, Java, PHP, and C streams before asserting fixture errors, including errors after successful stream creation (GH#612).
+- Resolve the Elixir return-type oracle's batch launcher on Windows through the shared tool resolver.
+
+- Omit cfg-gated PHP and Python error payload fields so generated bindings compile with the native feature disabled or enabled.
+
+- Resolve the Windows diagnostic evidence directory from a context available when GitHub initializes the job.
+- Keep process sampling running after the observed tree exits and preserve its diagnostic artifacts.
+- Retain configured language lint rules when regenerating only one language, while removing withdrawn suppressions.
 - Preserve borrowed string error payloads in Dart and retain unlisted native failures as `StateError` with their original message. Internal failure carriers avoid declared error names.
-- Preserve typed Dart error variants and payloads for free functions, methods, and static calls, including calls with checked numeric arguments. Input validation failures remain `ArgumentError`. (GH#591)
-- Assert declared Dart error classes or all-unit enum values, nullable scalar payloads, and available introspection methods in generated e2e tests. Binding-excluded errors retain explicit unsupported-assertion markers. (GH#602)
-- Keep optional data-enum fields optional and preserve `Some("")`, `Some(false)`, and `Some(0)` through Dart conversions. (GH#601)
-- Repair Freezed 4 single-variant `copyWith` output and exclude custom-codec implementation functions from FRB coverage checks.
-- Preserve cancellation and native error messages when generated Zig static factories fail without a declared Rust error type.
-- Return the typed native error from a generated Zig constructor or static function that fails, and keep its message for `_last_error()`, instead of `error.UnknownFfiError`. The declared error set of a static function that has an error type now admits the typed errors (GH#594).
-- Check the C result of a generated Zig function that returns a string, list or map and cannot fail. A null result, such as the one for an argument that is not valid UTF-8, now returns an error with the native message instead of slicing a null pointer. The declared error set of such a function now lists `UnknownFfiError` and `Cancelled` (GH#595).
-- Describe Elixir return values with their generated public DTO types recursively, including lists and optional values; retain maps for types without a public DTO and preserve input argument types. (GH#596)
-- Raise `TypeError` in the generated Ruby binding when an optional string argument is neither nil nor a string. The binding replaced the failed conversion with an empty string and ran the call with it. (GH#597)
-
-
-## [0.111.1] - 2026-10-19
-
-### Fixed
+- Update rustls-webpki and webpki-roots to fix RUSTSEC-2026-0382 and RUSTSEC-2026-0381.
+- Preserve optional PHP constructor-extension defaults and keep omitted legacy fields consistent with generated stubs.
+- Accept null defaults for optional additions to generated Java constructors.
+- Preserve named scalar error payloads as Python exception attributes, including optional values, without changing exception messages or args.
+- Retain extension-native methods such as `default` in Python native stubs while keeping public dataclass declarations accurate.
+- Preserve typed PHP error subclasses and named scalar payloads, including nullable values, when native free functions fail.
+- Preserve explicit JSON null in Java nullable primitive builder setters while retaining primitive setter overloads.
+- Preserve optional data-enum fields and typed error payloads across the Dart bridge, including null and zero values.
+- Assert declared Dart error variants and scalar payload fields in generated e2e tests.
+- Repair Freezed 4 copyWith output for single-variant Dart unions and match all-unit errors as enum values.
+- Raise Ruby TypeError for invalid optional string arguments while preserving omitted and nil values. (GH#597)
+- Describe Elixir return values with their public DTO types recursively, including lists and optional values. (GH#596)
+- Preserve native Zig constructor and static-factory errors and messages, and guard null string and collection results.
+- Default new optional Dart and Zig constructor fields to null while retaining explicitly supplied false and zero values.
+- Preserve typed Zig streaming failures and verify them through the generated wrapper.
 
 - Return the payload from the Python variant getters of an enum marked `#[serde(untagged)]`. The getters looked for a key named after the variant, which an untagged value never has, so every getter returned `None`. Each getter now matches the variant that the value holds. (GH#579)
 - Read `fields_display_as_text` fields through their `.text` accessor in generated Python e2e tests, so a getter that returns `None` fails the test instead of passing through `str()` (GH#580).
 - Make the generated Python type stub describe the objects a caller receives. The stub of an enum wrapper now declares every getter of the native class, including `text` and `parts`, and the stub of a type the package publishes as a dataclass no longer declares the native methods that dataclass lacks. The Python e2e suite gets a generated `test_stub_conformance.py` that fails when a declared member is missing at runtime. (GH#581)
 - Generate an e2e call that names a library free function as a direct call. A named call with an empty `client_factory` in its own override table no longer inherits the default call's client, so the Python, Node, WASM and Rust suites import and call the function instead of calling it as a method of a client. Other e2e languages still apply the default call's client to every call. (GH#592)
 - Keep optional error variant fields, such as `retry_after`, optional in generated Dart error classes, and keep `None` as `None` when the error converts back to Rust. The Dart class required a value where the Rust error can have none.
+
 - Return the typed native error from a generated Zig stream when the server rejects the start or the stream fails midway, instead of `error.UnknownFfiError` (#585).
 - Generated Zig e2e tests for streaming error fixtures start the stream and read chunks through the wrapper, so they check the error the wrapper returns and no longer read it from the C library (#585).
 

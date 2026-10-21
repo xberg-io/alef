@@ -38,7 +38,7 @@ fn coded_error_def(variant_name: &str) -> ErrorDef {
 fn unavailable_variant_still_asserts_an_exception_with_phpunit() {
     let fixture = fixture_with_declared_error("Authentication");
     let errors = vec![coded_error_def("Authentication")];
-    let body = render_error_test_body(&[], "Client::create()", &fixture, &errors);
+    let body = render_error_test_body(&[], "Client::create()", &fixture, &errors, "", "result");
     assert!(body.contains("$this->expectException(\\Exception::class);"), "{body}");
     assert!(
         !body.contains("catch ("),
@@ -50,7 +50,7 @@ fn unavailable_variant_still_asserts_an_exception_with_phpunit() {
 #[test]
 fn literal_error_checks_are_outside_the_catch_that_observes_the_call() {
     let fixture = fixture_with_declared_error("Expected an exception to be thrown");
-    let body = render_error_test_body(&[], "Client::create()", &fixture, &[]);
+    let body = render_error_test_body(&[], "Client::create()", &fixture, &[], "", "result");
     let catch_end = body.find("        }\n").expect("catch must end before assertions");
     let assertion = body
         .find("$this->assertInstanceOf(\\Exception::class, $caughtException)")
@@ -73,6 +73,8 @@ fn no_declared_value_is_byte_identical_to_expect_exception() {
         "Client::create($options)",
         &fixture,
         &[],
+        "",
+        "result",
     );
     assert_eq!(
         body,
@@ -85,7 +87,7 @@ fn no_declared_value_is_byte_identical_to_expect_exception() {
 #[test]
 fn declared_value_adds_message_or_class_name_check() {
     let fixture = fixture_with_declared_error("BadRequest");
-    let body = render_error_test_body(&[], "Client::create()", &fixture, &[]);
+    let body = render_error_test_body(&[], "Client::create()", &fixture, &[], "", "result");
     assert_eq!(
         body,
         "        $caughtException = null;\n        try {\n            Client::create();\n        } catch (\\Exception $e) {\n            $caughtException = $e;\n        }\n        $this->assertInstanceOf(\\Exception::class, $caughtException);\n        $this->assertTrue(preg_match('/BadRequest/', $caughtException->getMessage()) === 1 || preg_match('/BadRequest/', get_class($caughtException)) === 1, 'expected exception message or class name to match BadRequest');"
@@ -95,7 +97,7 @@ fn declared_value_adds_message_or_class_name_check() {
 #[test]
 fn declared_value_with_regex_metacharacters_is_escaped() {
     let fixture = fixture_with_declared_error("field.name[0]");
-    let body = render_error_test_body(&[], "Client::create()", &fixture, &[]);
+    let body = render_error_test_body(&[], "Client::create()", &fixture, &[], "", "result");
     assert!(
         body.contains("'/field\\\\.name\\\\[0\\\\]/'"),
         "expected escaped PCRE literal, got: {body}"
@@ -111,7 +113,7 @@ fn declared_value_with_regex_metacharacters_is_escaped() {
 #[test]
 fn declared_value_message_argument_is_a_well_formed_php_single_quoted_literal() {
     let fixture = fixture_with_declared_error("max_depth");
-    let body = render_error_test_body(&[], "Client::create()", &fixture, &[]);
+    let body = render_error_test_body(&[], "Client::create()", &fixture, &[], "", "result");
     let message_start = body
         .find("'expected exception message or class name to match")
         .expect("message argument must be present");
@@ -142,7 +144,7 @@ fn declared_value_message_argument_is_a_well_formed_php_single_quoted_literal() 
 #[test]
 fn declared_value_with_single_quote_is_escaped_in_message() {
     let fixture = fixture_with_declared_error("it's bad");
-    let body = render_error_test_body(&[], "Client::create()", &fixture, &[]);
+    let body = render_error_test_body(&[], "Client::create()", &fixture, &[], "", "result");
     assert!(
         body.contains("match it\\'s bad')"),
         "expected escaped single quote in message, got: {body}"
@@ -156,7 +158,7 @@ fn declared_value_with_single_quote_is_escaped_in_message() {
 fn declared_value_naming_a_known_variant_renders_the_registered_skip_instead_of_an_assertion() {
     let fixture = fixture_with_declared_error("Authentication");
     let errors = vec![coded_error_def("Authentication")];
-    let body = render_error_test_body(&[], "Client::create()", &fixture, &errors);
+    let body = render_error_test_body(&[], "Client::create()", &fixture, &errors, "", "result");
     assert_eq!(
         body,
         "        // skipped: declared error variant 'Authentication' not yet preserved as a distinct identity by this backend's generator\n        $this->expectException(\\Exception::class);\n        Client::create();"

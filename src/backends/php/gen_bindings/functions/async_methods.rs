@@ -13,9 +13,10 @@ use super::super::helpers::{
     php_wrap_return,
 };
 use super::params::{
-    PhpEnumReturnSets, PhpParamTypeSets, apply_bridge_none_substitutions, apply_default_param_substitutions,
-    bridge_param_names, gen_php_serde_let_bindings, has_ref_named_params, has_sanitized_recoverable,
-    override_bytes_return_type, promote_default_params, promoted_default_param_names, return_type_sig,
+    PhpEnumReturnSets, PhpFunctionTarget, PhpParamTypeSets, apply_bridge_none_substitutions,
+    apply_default_param_substitutions, bridge_param_names, gen_php_serde_let_bindings, has_ref_named_params,
+    has_sanitized_recoverable, override_bytes_return_type, promote_default_params, promoted_default_param_names,
+    return_type_sig,
 };
 use super::stubs::gen_stub_return;
 
@@ -25,7 +26,7 @@ pub(crate) fn gen_async_function_as_static_method(
     func: &FunctionDef,
     mapper: &PhpMapper,
     type_sets: PhpParamTypeSets<'_>,
-    core_import: &str,
+    target: PhpFunctionTarget<'_>,
     bridges: &[TraitBridgeConfig],
     mutex_types: &AHashSet<String>,
 ) -> String {
@@ -36,7 +37,7 @@ pub(crate) fn gen_async_function_as_static_method(
     let body = gen_async_function_body(
         func,
         &type_sets,
-        core_import,
+        target,
         &mapper.enum_names,
         bridges,
         mutex_types,
@@ -90,12 +91,16 @@ pub(crate) fn gen_async_function_as_static_method(
 fn gen_async_function_body(
     func: &FunctionDef,
     type_sets: &PhpParamTypeSets<'_>,
-    core_import: &str,
+    target: PhpFunctionTarget<'_>,
     enum_names: &AHashSet<String>,
     bridges: &[TraitBridgeConfig],
     mutex_types: &AHashSet<String>,
     enum_returns: &PhpEnumReturnSets<'_>,
 ) -> String {
+    let PhpFunctionTarget {
+        core_import,
+        error_converter,
+    } = target;
     let bridge_names = bridge_param_names(bridges);
     let can_delegate = shared::can_auto_delegate_function(func, type_sets.opaque);
     let needs_serde = func.error_type.is_some()
@@ -143,6 +148,7 @@ fn gen_async_function_body(
                 crate::alef_context! {
                     let_bindings => &let_bindings,
                     core_call => &core_call,
+                        error_converter => error_converter,
                     result_wrap => &result_wrap,
                 },
             )
@@ -152,6 +158,7 @@ fn gen_async_function_body(
                 crate::alef_context! {
                     let_bindings => &let_bindings,
                     core_call => &core_call,
+                        error_converter => error_converter,
                     result_wrap => &result_wrap,
                 },
             )

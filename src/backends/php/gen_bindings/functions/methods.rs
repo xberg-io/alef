@@ -14,9 +14,10 @@ use super::super::helpers::{
     gen_php_lossy_binding_to_core_fields, gen_php_named_let_bindings, param_conversion_is_fallible, php_wrap_return,
 };
 use super::params::{
-    PhpEnumReturnSets, PhpParamTypeSets, apply_bridge_none_substitutions, apply_default_param_substitutions,
-    bridge_param_names, gen_php_serde_let_bindings, has_ref_named_params, has_sanitized_recoverable,
-    override_bytes_return_type, promote_default_params, promoted_default_param_names, return_type_sig,
+    PhpEnumReturnSets, PhpFunctionTarget, PhpParamTypeSets, apply_bridge_none_substitutions,
+    apply_default_param_substitutions, bridge_param_names, gen_php_serde_let_bindings, has_ref_named_params,
+    has_sanitized_recoverable, override_bytes_return_type, promote_default_params, promoted_default_param_names,
+    return_type_sig,
 };
 use super::stubs::gen_stub_return;
 
@@ -494,7 +495,7 @@ pub(crate) fn gen_function_as_static_method(
     func: &FunctionDef,
     mapper: &PhpMapper,
     type_sets: PhpParamTypeSets<'_>,
-    core_import: &str,
+    target: PhpFunctionTarget<'_>,
     bridges: &[TraitBridgeConfig],
     has_serde: bool,
     mutex_types: &AHashSet<String>,
@@ -502,7 +503,7 @@ pub(crate) fn gen_function_as_static_method(
     let body = gen_function_body(
         func,
         &type_sets,
-        core_import,
+        target,
         &PhpEnumReturnSets {
             string_enum_names: &mapper.enum_names,
             json_string_enum_names: &mapper.json_string_enum_names,
@@ -570,12 +571,16 @@ pub(crate) fn gen_function_as_static_method(
 fn gen_function_body(
     func: &FunctionDef,
     type_sets: &PhpParamTypeSets<'_>,
-    core_import: &str,
+    target: PhpFunctionTarget<'_>,
     enum_returns: &PhpEnumReturnSets<'_>,
     bridges: &[TraitBridgeConfig],
     has_serde: bool,
     mutex_types: &AHashSet<String>,
 ) -> String {
+    let PhpFunctionTarget {
+        core_import,
+        error_converter,
+    } = target;
     let bridge_names = bridge_param_names(bridges);
     let can_delegate = shared::can_auto_delegate_function(func, type_sets.opaque);
     let force_ok = func.error_type.is_none()
@@ -625,6 +630,7 @@ fn gen_function_body(
                     crate::alef_context! {
                         let_bindings => &let_bindings,
                         core_call => &core_call,
+                        error_converter => error_converter,
                     },
                 )
             } else {
@@ -645,6 +651,7 @@ fn gen_function_body(
                     crate::alef_context! {
                         let_bindings => &let_bindings,
                         core_call => &core_call,
+                        error_converter => error_converter,
                         wrap => &wrap,
                     },
                 )
@@ -655,6 +662,7 @@ fn gen_function_body(
                 crate::alef_context! {
                     let_bindings => &let_bindings,
                     core_call => &core_call,
+                        error_converter => error_converter,
                 },
             )
         } else {
@@ -723,6 +731,7 @@ fn gen_function_body(
                     crate::alef_context! {
                         let_bindings => &let_bindings,
                         core_call => &core_call,
+                        error_converter => error_converter,
                         wrap => &wrap_expr,
                     },
                 )
@@ -754,6 +763,7 @@ fn gen_function_body(
                 crate::alef_context! {
                     let_bindings => &let_bindings,
                     core_call => &core_call,
+                        error_converter => error_converter,
                     wrap => &wrap,
                 },
             )

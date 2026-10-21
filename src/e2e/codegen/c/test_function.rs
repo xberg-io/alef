@@ -684,6 +684,7 @@ pub(super) fn render_test_function_impl(
             client_factory.unwrap_or(""),
             &streaming,
             expects_error,
+            errors,
             api_key_var,
             documentation_snippet,
         );

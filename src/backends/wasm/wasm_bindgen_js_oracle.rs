@@ -325,7 +325,8 @@ fn run_node_ownership_oracle(cli: &Path, root: &Path, module: &Path) {
         String::from_utf8_lossy(&output.stderr),
     );
 
-    let node = which::which("node").expect("the wasm-bindgen runtime oracle requires Node");
+    let node =
+        crate::test_support::tool_path_with_stable_path("node").expect("the wasm-bindgen runtime oracle requires Node");
     let module = out_dir.join(format!("{}.js", BINDING_CRATE_NAME.replace('-', "_")));
     let script = root.join("ownership-oracle.cjs");
     std::fs::write(

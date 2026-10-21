@@ -156,9 +156,10 @@ pub fn render_test_function(
             call_config.returns_result
         });
 
-    // Tests with a mock server or an async handle teardown need a Tokio runtime.
+    let is_streaming =
+        crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming_enabled());
     let call_is_async = call_config.r#async || has_mock;
-    let is_async = call_is_async || handle_teardown.is_some();
+    let is_async = call_is_async || is_streaming || handle_teardown.is_some();
     let _ = writeln!(out, "#[test]");
     let _ = writeln!(out, "fn test_{fn_name}() {{");
     if is_async {
@@ -468,6 +469,12 @@ pub fn render_test_function(
         } else {
             let _ = writeln!(out, "    let {result_var} = {call_expr}{await_suffix};");
         }
+        if is_streaming {
+            out.push_str(&crate::e2e::template_env::render(
+                "rust/stream_error.rs.jinja",
+                crate::alef_context! { result_var => result_var, returns_result => returns_result },
+            ));
+        }
         // Check if any assertion accesses fields on the Ok value (not error-path fields).
         // Assertions on `error.*` fields access the Err value and do not need `result_ok`.
         let has_non_error_assertions = fixture.assertions.iter().any(|a| {
@@ -512,11 +519,7 @@ pub fn render_test_function(
     let has_not_error = fixture.assertions.iter().any(|a| a.assertion_type == "not_error");
 
     // Streaming detection (call-level `streaming` opt-out is honored).
-    // Shared helper auto-detects from unambiguous streaming-only field names
-    // (chunks, stream_content, …) — but not from ambiguous fields like `usage`
-    // or `finish_reason` that also exist on non-streaming response shapes.
-    let is_streaming =
-        crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming_enabled());
+
     let streaming_item_type = is_streaming
         .then(|| {
             crate::e2e::codegen::recipe::streaming_item_type(

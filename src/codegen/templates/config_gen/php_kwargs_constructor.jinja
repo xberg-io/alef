@@ -7,5 +7,6 @@ pub fn __construct(
 {% for field in fields -%}
         {{ field.init }},
 {% endfor -%}
-    }
+{% if default_rest %}        ..Default::default()
+{% endif %}    }
 }

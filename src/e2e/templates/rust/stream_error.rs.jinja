@@ -1,0 +1,15 @@
+    let {{ result_var }} = {% if returns_result %}match {{ result_var }} {
+        Err(error) => Err(error),
+        Ok(stream) => {
+{% else %}{
+        let stream = {{ result_var }};
+{% endif %}            let mut stream = std::pin::pin!(stream);
+            loop {
+                match tokio_stream::StreamExt::next(&mut stream).await {
+                    Some(Ok(_)) => {},
+                    Some(Err(error)) => break Err(error),
+                    None => break Ok(()),
+                }
+            }
+{% if returns_result %}        }
+{% endif %}    };

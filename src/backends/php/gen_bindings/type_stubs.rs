@@ -5,7 +5,7 @@ use crate::backends::php::gen_bindings::php_types::{
 use crate::backends::php::gen_bindings::types::{
     enum_constant_entries, flat_field_name, is_labeled_string_enum, is_php_prop_scalar, is_tagged_data_enum,
     is_untagged_data_enum, php_constructor_optional_field_names, php_field_can_be_constructor_param,
-    php_sort_constructor_fields, ty_is_or_wraps_json, ty_references_untagged_data_enum,
+    php_omitted_legacy_extension, php_sort_constructor_fields, ty_is_or_wraps_json, ty_references_untagged_data_enum,
 };
 use crate::backends::php::naming::php_autoload_namespace;
 use crate::codegen::doc_emission::{DocTarget, sanitize_rust_idioms};
@@ -73,6 +73,7 @@ pub(super) fn generate_type_stubs(
         crate::alef_context! { namespace => &namespace },
     ));
 
+    content.push_str(&crate::codegen::error_gen::gen_php_error_stubs(api)?);
     content.push_str(&crate::backends::php::template_env::render(
         "php_exception_class_declaration.jinja",
         crate::alef_context! { class_name => &class_name },
@@ -212,13 +213,8 @@ pub(super) fn generate_type_stubs(
                     crate::alef_context! { params => "" },
                 ));
             }
-            // `config_gen::gen_php_kwargs_constructor` derives its parameter list from a
-            // DIFFERENT algorithm than the positional shape: `constructor_fields` (only
-            // `binding_excluded` is filtered — no `cfg` filter, no representability filter), in
-            // raw declaration order, with EVERY param `Option<T>`. ext-php-rs treats every
-            // `Option<T>` arg as nullable-and-omittable (`Function::split_args`), so the whole
-            // list is optional and PHP's required-before-optional rule imposes no reordering —
-            // declaration order IS the positional order callers must use. ~keep
+            // Kwargs preserves declaration order and makes every retained parameter nullable.
+            // Optional complex legacy additions stay omitted and use their proven defaults. ~keep
             StubConstructorShape::Kwargs => {
                 for declaration in gen_kwargs_property_declarations(typ, &enum_names, serde_available) {
                     content.push_str(&declaration);
@@ -636,7 +632,11 @@ fn stub_constructor_shape(
             StubConstructorShape::FromJsonOnly
         };
     }
-    let has_named_params = typ.fields.iter().any(|f| !is_php_prop_scalar(&f.ty, enum_names));
+    let has_named_params = typ
+        .fields
+        .iter()
+        .filter(|field| !php_omitted_legacy_extension(typ, field, enum_names))
+        .any(|f| !is_php_prop_scalar(&f.ty, enum_names));
     if has_named_params {
         StubConstructorShape::ThrowsNoParams
     } else if typ.has_default {
@@ -737,6 +737,7 @@ fn gen_struct_constructor_stub_params(
 /// declared separately by [`gen_kwargs_property_declarations`]. ~keep
 fn gen_kwargs_constructor_stub_params(typ: &crate::core::ir::TypeDef, enum_names: &AHashSet<String>) -> Vec<String> {
     binding_fields(&typ.fields)
+        .filter(|field| !php_omitted_legacy_extension(typ, field, enum_names))
         .map(|f| {
             let ptype = enum_aware_php_type(&f.ty, enum_names);
             let nullable = if ptype.starts_with('?') {
@@ -812,7 +813,11 @@ pub(super) fn struct_needs_from_json_stub(
     if has_explicit_static_new || typ.fields.is_empty() || !serde_available {
         return false;
     }
-    let has_named_params = typ.fields.iter().any(|f| !is_php_prop_scalar(&f.ty, enum_names));
+    let has_named_params = typ
+        .fields
+        .iter()
+        .filter(|field| !php_omitted_legacy_extension(typ, field, enum_names))
+        .any(|f| !is_php_prop_scalar(&f.ty, enum_names));
     let has_field_defaults = typ
         .fields
         .iter()

@@ -432,3 +432,6 @@ fn crc32_ieee(bytes: &[u8]) -> u32 {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod diagnostic_tests;

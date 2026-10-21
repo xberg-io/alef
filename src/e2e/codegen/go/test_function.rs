@@ -326,7 +326,14 @@ pub(super) fn render_test_function_with_facts(
     let effective_returns_result_pre = returns_result || binding_returns_error_pre || client_factory.is_some();
 
     if expects_error {
-        if effective_returns_result_pre && !returns_void {
+        if is_streaming {
+            out.push_str(&crate::e2e::template_env::render(
+                "go/stream_error.go.jinja",
+                crate::alef_context! {
+                    call_prefix => call_prefix, function_name => invocation_function_name, args => final_args,
+                },
+            ));
+        } else if effective_returns_result_pre && !returns_void {
             let _ = writeln!(
                 out,
                 "\t_, err := {call_prefix}.{invocation_function_name}({final_args})"

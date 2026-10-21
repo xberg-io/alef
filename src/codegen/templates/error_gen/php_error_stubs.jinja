@@ -1,0 +1,6 @@
+{% for class in classes %}
+class {{ class.name }} extends {{ class.parent or '\\Exception' }}
+{
+{% for field in class.fields %}    public {{ field.php_type }} ${{ field.php_name }};
+{% endfor %}}
+{% endfor %}

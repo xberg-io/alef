@@ -2,6 +2,12 @@ use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::TypeRef;
 use ahash::AHashSet;
 
+#[derive(Clone, Copy)]
+pub(crate) struct PhpFunctionTarget<'a> {
+    pub(crate) core_import: &'a str,
+    pub(crate) error_converter: Option<&'a str>,
+}
+
 pub(crate) struct PhpParamTypeSets<'a> {
     pub(crate) opaque: &'a AHashSet<String>,
     pub(crate) default: &'a AHashSet<String>,
