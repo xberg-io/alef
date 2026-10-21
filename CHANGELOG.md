@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fail a request-body assertion when the mock server could not read the stored body. A body that is not valid JSON (plain text, empty, gzip) or a body over 1 MiB was treated as a body without the field, so `not_equals` passed on it, also when the real body held the forbidden value. The `/__alef/requests/body` endpoint now answers with a sentence that names the reason ("request body was not valid JSON" or "it is larger than 1048576 bytes") for `equals` and `not_equals` alike, and the C and R count helpers stop with that sentence. The server does not decode a gzip body. (GH#626)
 - Serve a newline-delimited JSON stream when a streaming fixture sets a `content-type` that contains `ndjson`. The mock server wrote each chunk as `data: <chunk>`, added a `data: [DONE]` line, and sent two content-type headers. It now writes each chunk followed by one newline, with no `data:` prefix, no `[DONE]` line and one content-type header.
 
 ## [0.112.0] - 2026-10-21
