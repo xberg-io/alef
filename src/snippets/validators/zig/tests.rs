@@ -15,6 +15,13 @@ const WARM_UP_TIMEOUT_SECS: u64 = 900;
 
 type Fixture = (tempfile::TempDir, ValidationSession);
 
+/// The cache directory the warm-up build used, set once per test process by the warm-up itself.
+///
+/// It holds the `ZIG_GLOBAL_CACHE_DIR` of the warm-up session, or `None` when that session had
+/// none. It does not depend on what is already in the cache, so a test can tell on a warm cache,
+/// too, that the warm-up ran and that it filled the shared cache. ~keep
+static WARM_UP_CACHE: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+
 /// Builds one C-importing package into the shared Zig global cache, once per test process.
 ///
 /// Without this, the test that starts first pays the cold compile of the build runner, the
@@ -23,8 +30,7 @@ type Fixture = (tempfile::TempDir, ValidationSession);
 /// outside any single test's budget. Each test still runs its own real `zig build` with the full
 /// budget. ~keep
 fn warm_shared_global_cache() {
-    static WARMED: std::sync::Once = std::sync::Once::new();
-    WARMED.call_once(|| {
+    WARM_UP_CACHE.get_or_init(|| {
         let (package, mut session) = sample_package(true);
         session.env.extend(shared_test_cache_env());
         let snippet = zig_snippet(
@@ -35,6 +41,7 @@ fn warm_shared_global_cache() {
             .expect("the warm-up session validates");
         assert_eq!(status, SnippetStatus::Pass, "the cache warm-up build must pass: {output:?}");
         drop(package);
+        session.env.get("ZIG_GLOBAL_CACHE_DIR").map(PathBuf::from)
     });
 }
 
@@ -48,15 +55,13 @@ pub(super) fn on_shared_global_cache((root, mut session): Fixture) -> Fixture {
     (root, session)
 }
 
-/// Fails the calling test when its session does not use the warmed shared cache. Each test that
-/// calls [`on_shared_global_cache`] also calls this, so dropping the call or the warm-up turns that
-/// test red on any host, not only on a slow one. ~keep
+/// Fails the calling test when its session does not use the shared cache, or when the warm-up did
+/// not build into that same cache. Each test that calls [`on_shared_global_cache`] also calls this.
+/// The warm-up check reads what the warm-up recorded, not the cache contents, so dropping the
+/// warm-up or pointing it at a private cache turns the test red on a cold and on a warm cache. ~keep
 pub(super) fn assert_on_warm_shared_global_cache(session: &ValidationSession) {
     let shared = shared_test_global_cache();
-    let target_profile = std::env::current_exe()
-        .ok()
-        .and_then(|binary| binary.parent()?.parent().map(PathBuf::from))
-        .expect("the test binary sits in target/<profile>/deps");
+    let target_profile = test_profile_directory();
     assert!(
         shared.starts_with(&target_profile),
         "the shared cache must live under {}, not in a directory other users or checkouts share: {}",
@@ -67,6 +72,11 @@ pub(super) fn assert_on_warm_shared_global_cache(session: &ValidationSession) {
         session.env.get("ZIG_GLOBAL_CACHE_DIR").map(PathBuf::from),
         Some(shared.clone()),
         "the session must point zig at the shared global cache"
+    );
+    assert_eq!(
+        WARM_UP_CACHE.get(),
+        Some(&Some(shared.clone())),
+        "the warm-up build must run, and must build into the shared global cache"
     );
     assert!(
         shared

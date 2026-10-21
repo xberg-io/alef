@@ -47,15 +47,21 @@ fn zig_is_runnable() -> bool {
 /// behind. ~keep
 #[cfg(test)]
 fn shared_test_global_cache() -> std::path::PathBuf {
-    let binary = std::env::current_exe().expect("locate the running test binary");
-    // `target/<profile>/deps/<test binary>` -> `target/<profile>/alef-zig-test-global-cache`
-    let profile_directory = binary
-        .parent()
-        .and_then(std::path::Path::parent)
-        .expect("the test binary sits in target/<profile>/deps");
-    let directory = profile_directory.join("alef-zig-test-global-cache");
+    let directory = test_profile_directory().join("alef-zig-test-global-cache");
     std::fs::create_dir_all(&directory).expect("create the shared Zig global cache");
     directory
+}
+
+/// The cargo profile directory of the running test binary: `target/<profile>/deps/<binary>` gives
+/// `target/<profile>`. ~keep
+#[cfg(test)]
+fn test_profile_directory() -> std::path::PathBuf {
+    let binary = std::env::current_exe().expect("locate the running test binary");
+    binary
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("the test binary sits in target/<profile>/deps")
+        .to_path_buf()
 }
 
 /// The session environment that points a test session at [`shared_test_global_cache`]. ~keep
