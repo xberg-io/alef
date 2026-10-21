@@ -1,6 +1,20 @@
-/// Convert a `{{ rust_path }}` error to a Magnus runtime error.
+/// Convert a `{{ rust_path }}` error to a typed Ruby exception.
 #[allow(dead_code)]
 fn {{ fn_name }}(e: {{ rust_path }}) -> magnus::Error {
-    let msg = e.to_string();
-    magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_runtime_error(), msg)
+    use magnus::prelude::*;
+    let message = e.to_string();
+    let ruby = unsafe { magnus::Ruby::get_unchecked() };
+    #[allow(unreachable_patterns)]
+    let class_name = match &e {
+{% for variant in variants %}        {{ variant.pattern }} => "{{ variant.class_name }}",
+{% endfor %}        _ => "{{ base_class }}",
+    };
+    let build = || -> Result<magnus::Error, magnus::Error> {
+        let module = ruby.define_module("{{ module_name }}")?;
+        let class: magnus::ExceptionClass = module.const_get(class_name)?;
+        let exception = class.new_instance((message.as_str(),))?;
+{% for field in info %}        exception.ivar_set("@{{ field.name }}", {{ field.value }})?;
+{% endfor %}        Ok(magnus::Error::from(exception))
+    };
+    build().unwrap_or_else(|_| magnus::Error::new(ruby.exception_runtime_error(), message))
 }

@@ -21,26 +21,26 @@ struct PayloadField {
 /// exception object when the converter builds it and read back through a PHP method of the same
 /// name in lower camel case (`statusCode()`).
 #[derive(serde::Serialize, Clone)]
-struct InfoField {
-    name: String,
+pub(super) struct InfoField {
+    pub(super) name: String,
     php_name: String,
     rust_type: String,
     php_type: String,
     /// Expression over the live core error `e`. Empty for the root exception class.
-    value: String,
+    pub(super) value: String,
     doc: String,
     /// True when the stored value is `Clone` but not `Copy`.
     clone: bool,
 }
 
 #[derive(serde::Serialize)]
-struct ExceptionClass {
-    name: String,
+pub(super) struct ExceptionClass {
+    pub(super) name: String,
     rust_name: String,
     php_name_literal: String,
-    parent: Option<String>,
+    pub(super) parent: Option<String>,
     fields: Vec<PayloadField>,
-    info: Vec<InfoField>,
+    pub(super) info: Vec<InfoField>,
     /// True for the project-level root class, which extends PHP's `RuntimeException`.
     root: bool,
 }
@@ -95,7 +95,7 @@ fn info_field(method: &crate::core::ir::MethodDef) -> Option<InfoField> {
 }
 
 /// The introspection fields of one error, in declaration order.
-fn error_info(error: &ErrorDef) -> Vec<InfoField> {
+pub(super) fn error_info(error: &ErrorDef) -> Vec<InfoField> {
     error.methods.iter().filter_map(info_field).collect()
 }
 
@@ -226,7 +226,7 @@ fn validate_payload_layouts(api: &ApiSurface) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn classes(api: &ApiSurface, namespace: &str, root: Option<&str>) -> anyhow::Result<Vec<ExceptionClass>> {
+pub(super) fn classes(api: &ApiSurface, namespace: &str, root: Option<&str>) -> anyhow::Result<Vec<ExceptionClass>> {
     let families = exception_families(api, ExceptionNaming::Python)?;
     validate_payload_layouts(api)?;
     // A root named like an error of the API would be two classes with one name.

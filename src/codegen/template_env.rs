@@ -258,6 +258,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/error_gen/php_error_converter.jinja"),
     ),
     (
+        "error_gen/magnus_error_dispatch.jinja",
+        include_str!("templates/error_gen/magnus_error_dispatch.jinja"),
+    ),
+    (
         "error_gen/magnus_error_converter.jinja",
         include_str!("templates/error_gen/magnus_error_converter.jinja"),
     ),

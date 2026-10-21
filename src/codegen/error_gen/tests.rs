@@ -530,14 +530,38 @@ fn test_gen_php_error_converter() {
 #[test]
 fn test_gen_magnus_error_converter() {
     let error = sample_error();
-    let output = gen_magnus_error_converter(&error, "sample_markup_rs");
+    let output = gen_magnus_error_converter(&error, "sample_markup_rs", "SampleMarkup");
     assert!(
         output.contains("fn conversion_error_to_magnus_err(e: sample_markup_rs::ConversionError) -> magnus::Error {")
     );
-    assert!(
-        output.contains("magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_runtime_error(), msg)")
-    );
+    assert!(output.contains("let class: magnus::ExceptionClass = module.const_get(class_name)?;"));
+    assert!(output.contains("define_module(\"SampleMarkup\")"));
+    assert!(output.contains("exception.ivar_set(\"@status_code\""));
     assert!(output.contains("#[allow(dead_code)]"));
+}
+
+#[test]
+fn magnus_dispatch_downcasts_to_each_error_converter() {
+    let api = ApiSurface {
+        errors: vec![sample_error()],
+        ..Default::default()
+    };
+    let output = gen_magnus_error_dispatch(&api, "sample_markup_rs");
+    assert!(output.contains("fn alef_magnus_err<E: std::fmt::Display + 'static>(e: E) -> magnus::Error {"));
+    assert!(output.contains("downcast::<sample_markup_rs::ConversionError>()"));
+    assert!(output.contains("conversion_error_to_magnus_err(*typed)"));
+}
+
+#[test]
+fn magnus_registers_error_classes_with_readers() {
+    let api = ApiSurface {
+        errors: vec![sample_error()],
+        ..Default::default()
+    };
+    let lines = gen_magnus_error_class_registrations(&api).unwrap().join("\n");
+    assert!(lines.contains("module.define_error(\"ConversionError\""));
+    assert!(lines.contains("define_attr(\"status_code\", magnus::Attr::Read)"));
+    assert!(lines.contains("define_alias(\"transient?\", \"is_transient\")"));
 }
 
 #[test]

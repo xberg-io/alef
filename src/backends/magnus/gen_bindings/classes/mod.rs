@@ -266,7 +266,7 @@ fn gen_opaque_instance_method(
         if method.error_type.is_some() {
             if matches!(method.return_type, TypeRef::Unit) {
                 format!(
-                    "{refs_preamble}{core_call}.map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        Ok(())"
+                    "{refs_preamble}{core_call}.map_err(alef_magnus_err)?;\n        Ok(())"
                 )
             } else {
                 let wrap = generators::wrap_return_with_mutex(
@@ -280,7 +280,7 @@ fn gen_opaque_instance_method(
                     method.returns_cow,
                 );
                 format!(
-                    "{refs_preamble}let result = {core_call}.map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        Ok({wrap})"
+                    "{refs_preamble}let result = {core_call}.map_err(alef_magnus_err)?;\n        Ok({wrap})"
                 )
             }
         } else {
@@ -382,8 +382,8 @@ fn gen_opaque_async_instance_method(
                      .enable_all()\n            \
                      .thread_stack_size(ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES)\n            \
                      .build()\n            \
-                     .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
-                 let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                     .map_err(alef_magnus_err)?;\n        \
+                 let result = rt.block_on(async {{ {core_call}.await }}).map_err(alef_magnus_err)?;\n        \
                  Ok({result_wrap})"
             )
         } else {
@@ -396,7 +396,7 @@ fn gen_opaque_async_instance_method(
                      .enable_all()\n            \
                      .thread_stack_size(ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES)\n            \
                      .build()\n            \
-                     .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                     .map_err(alef_magnus_err)?;\n        \
                  let result = rt.block_on(async {{ {core_call}.await }});\n        \
                  {result_wrap}"
             )
@@ -671,7 +671,7 @@ fn gen_instance_method(
         let result_wrap = non_opaque_method_result_wrap(method);
         if method.error_type.is_some() {
             format!(
-                "{field_conversions}let result = {core_call}.map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        Ok(result{result_wrap})"
+                "{field_conversions}let result = {core_call}.map_err(alef_magnus_err)?;\n        Ok(result{result_wrap})"
             )
         } else {
             format!("{field_conversions}{core_call}{result_wrap}")
@@ -736,8 +736,8 @@ fn gen_async_instance_method(
                      .enable_all()\n            \
                      .thread_stack_size(ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES)\n            \
                      .build()\n            \
-                     .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
-                 let result = rt.block_on(async {{ core_self.{name}({call_args}).await }}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                     .map_err(alef_magnus_err)?;\n        \
+                 let result = rt.block_on(async {{ core_self.{name}({call_args}).await }}).map_err(alef_magnus_err)?;\n        \
                  Ok(result{result_wrap})",
                 name = method.name
             )
@@ -751,7 +751,7 @@ fn gen_async_instance_method(
                      .enable_all()\n            \
                      .thread_stack_size(ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES)\n            \
                      .build()\n            \
-                     .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                     .map_err(alef_magnus_err)?;\n        \
                  let result = rt.block_on(async {{ core_self.{name}({call_args}).await }});\n        \
                  result{result_wrap}",
                 name = method.name

@@ -322,19 +322,19 @@ fn gen_ruby_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
              .enable_all()\n        \
              .thread_stack_size(STREAMING_RUNTIME_STACK_SIZE_BYTES)\n        \
              .build()\n        \
-             .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
+             .map_err(alef_magnus_err)?;\n    \
          {bindings_block}\
          rt.block_on(async {{\n        \
              let stream = self.inner.{core_path}({call_str}).await\n            \
-                 .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                 .map_err(alef_magnus_err)?;\n        \
              let chunks: Vec<{item_type}> = stream\n            \
                  .collect::<Vec<_>>().await\n            \
                  .into_iter()\n            \
                  .collect::<std::result::Result<Vec<_>, _>>()\n            \
                  .map(|v| v.into_iter().map({item_type}::from).collect())\n            \
-                 .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                 .map_err(alef_magnus_err)?;\n        \
              serde_json::to_string(&chunks)\n            \
-                 .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))\n    \
+                 .map_err(alef_magnus_err)\n    \
          }})"
     );
 
