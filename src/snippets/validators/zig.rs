@@ -31,6 +31,30 @@ fn zig_is_runnable() -> bool {
     })
 }
 
+/// The one Zig global cache every real-`zig` test in this module compiles into.
+///
+/// A session's own global cache is keyed by its working directory, and every test builds its own
+/// temporary project, so each `zig build` starts with an empty cache and recompiles the build
+/// runner and the standard library from scratch. Those artifacts are identical across tests. On
+/// a 4-core Windows runner, five such builds at once saturate the CPU and push the slowest past
+/// its 300 s budget. Zig's global cache is built for concurrent use: builds that need the same
+/// artifact wait for one compile instead of each doing it. ~keep
+#[cfg(test)]
+fn shared_test_global_cache() -> std::path::PathBuf {
+    let directory = std::env::temp_dir().join("alef-zig-test-global-cache");
+    std::fs::create_dir_all(&directory).expect("create the shared Zig global cache");
+    directory
+}
+
+/// The session environment that points a test session at [`shared_test_global_cache`]. ~keep
+#[cfg(test)]
+fn shared_test_cache_env() -> std::collections::BTreeMap<String, String> {
+    std::collections::BTreeMap::from([(
+        "ZIG_GLOBAL_CACHE_DIR".to_string(),
+        shared_test_global_cache().display().to_string(),
+    )])
+}
+
 impl SnippetValidator for ZigValidator {
     fn language(&self) -> Language {
         Language::Zig

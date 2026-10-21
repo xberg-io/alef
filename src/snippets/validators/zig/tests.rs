@@ -8,6 +8,33 @@ use std::path::PathBuf;
 // ~keep
 const TOOLCHAIN_TEST_TIMEOUT_SECS: u64 = 300;
 
+// Budget for filling the shared Zig global cache once per test process. A cold cache makes the
+// first `zig build` compile the build runner, the standard library, and libc translation, which
+// is roughly 190 s on a 4-core runner and about 300 s on a slower host. ~keep
+const WARM_UP_TIMEOUT_SECS: u64 = 900;
+
+/// Builds one C-importing package into the shared Zig global cache, once per test process.
+///
+/// Every real-`zig` test below compiles into that cache (see `shared_test_global_cache`). Without
+/// this call, the tests that start first each wait for the cold compile inside their own
+/// 300 s budget, so a slow host fails them for time spent on the toolchain, not on the build they
+/// check. The warm-up pays that cost once, outside any single test's budget. Each test still runs
+/// its own real `zig build` with the full budget. ~keep
+pub(super) fn warm_shared_global_cache() {
+    static WARMED: std::sync::Once = std::sync::Once::new();
+    WARMED.call_once(|| {
+        let (package, session) = sample_package(true);
+        let snippet = zig_snippet(
+            "const sample_package = @import(\"sample_package\");\n\npub fn main() void {\n    _ = sample_package.value();\n}\n",
+        );
+        let (status, output) = ZigValidator
+            .validate_in_session(&snippet, ValidationLevel::Compile, WARM_UP_TIMEOUT_SECS, Some(&session))
+            .expect("the warm-up session validates");
+        assert_eq!(status, SnippetStatus::Pass, "the cache warm-up build must pass: {output:?}");
+        drop(package);
+    });
+}
+
 #[test]
 fn compiles_a_snippet_under_the_sanitized_environment() {
     if !zig_is_runnable() {
@@ -259,6 +286,7 @@ fn snippet_build_zon_parses_under_real_zig() {
         .args(["build", "--summary", "none", "--build-file"])
         .arg(&build_file);
     apply_cache_dirs(&mut command, &scratch, None);
+    command.env("ZIG_GLOBAL_CACHE_DIR", shared_test_global_cache());
     let output = command.output().expect("zig must be installed to verify this test");
 
     assert!(
@@ -275,6 +303,7 @@ fn a_snippet_compiles_against_the_include_path_its_manifest_declares() {
     if !zig_is_runnable() {
         return;
     }
+    warm_shared_global_cache();
 
     let (declaring, declaring_session) = sample_project(true);
     let (omitting, omitting_session) = sample_project(false);
@@ -327,6 +356,7 @@ fn a_snippet_compiles_when_the_package_is_built_from_an_unrelated_working_direct
     if !zig_is_runnable() {
         return;
     }
+    warm_shared_global_cache();
 
     let (rebased, rebased_session) = sample_package(true);
     let (raw, raw_session) = sample_package(false);
@@ -411,7 +441,7 @@ fn sample_package(rebase_onto_build_root: bool) -> (tempfile::TempDir, Validatio
         working_directory: elsewhere,
         manifest: Some(package.join("build.zig")),
         fingerprint: "foreign-cwd-project".into(),
-        env: std::collections::BTreeMap::new(),
+        env: super::shared_test_cache_env(),
         include_paths: Vec::new(),
         rust_features: Vec::new(),
         rust_dependencies: std::collections::BTreeMap::new(),
@@ -464,7 +494,7 @@ fn sample_project(with_include: bool) -> (tempfile::TempDir, ValidationSession) 
         working_directory: root.to_path_buf(),
         manifest: Some(root.join("build.zig")),
         fingerprint: "neutral-project".into(),
-        env: std::collections::BTreeMap::new(),
+        env: super::shared_test_cache_env(),
         include_paths: Vec::new(),
         rust_features: Vec::new(),
         rust_dependencies: std::collections::BTreeMap::new(),
@@ -504,6 +534,7 @@ fn debug_only_ffi_project() -> (tempfile::TempDir, ValidationSession) {
         .arg(&lib_source)
         .arg(format!("-femit-bin={}", lib_path.display()));
     apply_cache_dirs(&mut lib_command, directory.path(), None);
+    lib_command.env("ZIG_GLOBAL_CACHE_DIR", shared_test_global_cache());
     let lib_output = lib_command
         .output()
         .expect("zig must be installed to build the fixture library");
@@ -542,7 +573,7 @@ fn debug_only_ffi_project() -> (tempfile::TempDir, ValidationSession) {
         working_directory: package.clone(),
         manifest: Some(package.join("build.zig")),
         fingerprint: "debug-only-ffi-project".into(),
-        env: std::collections::BTreeMap::new(),
+        env: super::shared_test_cache_env(),
         include_paths: Vec::new(),
         rust_features: Vec::new(),
         rust_dependencies: std::collections::BTreeMap::new(),
@@ -561,6 +592,7 @@ fn a_snippet_links_against_the_debug_profile_when_release_is_missing() {
     if !zig_is_runnable() {
         return;
     }
+    warm_shared_global_cache();
 
     let (project, session) = debug_only_ffi_project();
     let snippet = zig_snippet(
