@@ -540,3 +540,68 @@ pub(super) fn gen_opaque_method(
     out.push_str("    }\n");
     out
 }
+
+#[cfg(test)]
+mod stream_open_error_regressions {
+    use super::*;
+    use crate::core::ir::ParamDef;
+
+    fn generated() -> String {
+        let method = MethodDef {
+            name: "chat_stream".to_string(),
+            params: vec![ParamDef {
+                name: "req".to_string(),
+                ty: TypeRef::Named("ChatRequest".to_string()),
+                ..ParamDef::default()
+            }],
+            receiver: Some(ReceiverKind::Ref),
+            ..MethodDef::default()
+        };
+        let meta = StreamingMethodMeta {
+            owner_type: "DefaultClient".to_string(),
+            item_type: "ChatChunk".to_string(),
+        };
+        gen_opaque_streaming_method(&method, "DefaultClient", "SampleException", &meta)
+    }
+
+    /// Freeing the request handle clears the native last-error state, so the exception for a
+    /// rejected stream start must be built before the free. After the free the state is empty and
+    /// the exception reads "Unknown error" with no kind, status or retry delay.
+    #[test]
+    fn a_rejected_stream_start_builds_its_exception_before_freeing_the_request() {
+        let generated = generated();
+        let start = generated
+            .find("if (streamHandle == 0)")
+            .expect("stream start check");
+        let after_check = &generated[start..];
+        let build = after_check
+            .find("SampleException.FromLastError(")
+            .expect("exception built from the native error");
+        let free = after_check
+            .find("NativeMethods.ChatRequestFree(")
+            .expect("request handle freed");
+        assert!(
+            build < free,
+            "the request free clears the native last-error state before it is read:\n{generated}"
+        );
+        assert!(
+            after_check[free..].contains("throw startError;"),
+            "the exception built before the free must be the one thrown:\n{generated}"
+        );
+    }
+
+    #[test]
+    fn a_mid_stream_error_is_built_from_the_native_error_without_another_native_call() {
+        let generated = generated();
+        let check = generated
+            .find("if (NativeMethods.LastErrorCode() != 0)")
+            .expect("mid-stream error check");
+        let after_check = &generated[check..];
+        let body = after_check.find('{').expect("error branch body");
+        let build = after_check.find("FromLastError(").expect("exception built");
+        assert!(
+            !after_check[body..build].contains("NativeMethods."),
+            "a native call between the failed read and the error read clears the state:\n{generated}"
+        );
+    }
+}
