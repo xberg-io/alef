@@ -148,7 +148,11 @@ impl super::E2eCodegen for PythonE2eCodegen {
         if config.python.as_ref().is_some_and(|c| c.stubs.is_some()) {
             files.push(GeneratedFile {
                 path: output_base.join("tests").join("test_stub_conformance.py"),
-                content: render_stub_conformance_test(&pkg_name.replace('-', "_"), &config.python_module_name()),
+                content: render_stub_conformance_test(
+                    &pkg_name.replace('-', "_"),
+                    &config.python_module_name(),
+                    &forwarded_native_methods(type_defs, enums, config),
+                ),
                 generated_header: true,
             });
         }
@@ -231,9 +235,34 @@ fn render_python_smoke_test(pip_name: &str) -> String {
     crate::e2e::template_env::render("python/test_smoke.py.jinja", ctx)
 }
 
+/// The native methods the package generator forwards from each public dataclass, read from the
+/// same decision `options.py` is written from.
+fn forwarded_native_methods(
+    type_defs: &[crate::core::ir::TypeDef],
+    enums: &[crate::core::ir::EnumDef],
+    config: &ResolvedCrateConfig,
+) -> Vec<(String, Vec<String>)> {
+    let surface = crate::core::ir::ApiSurface {
+        types: type_defs.to_vec(),
+        enums: enums.to_vec(),
+        ..Default::default()
+    };
+    let reexported_types = config
+        .python
+        .as_ref()
+        .map(|python| python.reexported_types.clone())
+        .unwrap_or_default();
+    crate::backends::pyo3::gen_bindings::forwarded_method_names(&surface, &config.dto, &reexported_types)
+}
+
 /// Render the test that parses the shipped `.pyi` and asserts each declared class member exists
-/// on the runtime class (GH#581).
-fn render_stub_conformance_test(import_name: &str, native_module: &str) -> String {
+/// on the runtime class (GH#581), and that each public dataclass has the native methods the
+/// package generator forwards to it.
+fn render_stub_conformance_test(
+    import_name: &str,
+    native_module: &str,
+    forwarded_methods: &[(String, Vec<String>)],
+) -> String {
     use crate::core::hash::{self, CommentStyle};
 
     crate::e2e::template_env::render(
@@ -242,6 +271,7 @@ fn render_stub_conformance_test(import_name: &str, native_module: &str) -> Strin
             header => hash::e2e_header(CommentStyle::Hash),
             import_name => import_name,
             native_module => native_module,
+            forwarded_methods => forwarded_methods,
         },
     )
 }

@@ -3,7 +3,7 @@ mod native_stub_runtime {
     use super::*;
 
     #[test]
-    fn should_preserve_native_methods_and_public_dataclass_surface() {
+    fn should_forward_instance_methods_and_keep_native_surface() {
         Python::initialize();
         Python::attach(|py| {
             let module = PyModule::new(py, "_sample").unwrap();
@@ -21,22 +21,22 @@ mod native_stub_runtime {
             let globals = pyo3::types::PyDict::new(py);
             globals.set_item("native", &module).unwrap();
             let options = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../sample/options.py");
-            globals.set_item("options_path", options.to_str().unwrap()).unwrap();
-            let script = std::ffi::CString::new(
-                "import importlib.util\nimport sys\nvalue = native.ContentConfig.default()\nassert value.label == 'native-default'\nassert value.validate() is None\nspec = importlib.util.spec_from_file_location('public_options', options_path)\npublic = importlib.util.module_from_spec(spec)\nsys.modules['public_options'] = public\nspec.loader.exec_module(public)\nassert public.ContentConfig(label='public').label == 'public'\nassert not hasattr(public.ContentConfig, 'default')\nassert not hasattr(public.ContentConfig, 'validate')\n",
-            ).unwrap();
-            py.run(&script, Some(&globals), None).unwrap();
+            let package_root = options.parent().unwrap().parent().unwrap().to_str().unwrap();
+            let public_script = std::ffi::CString::new(include_str!("public_probe.py")).unwrap();
+            py.run(&public_script, Some(&globals), None).unwrap();
+            globals
+                .get_item("verify_public")
+                .unwrap()
+                .unwrap()
+                .call1((&module, package_root))
+                .unwrap();
             let conformance_script = std::ffi::CString::new(include_str!("conformance_probe.py")).unwrap();
             py.run(&conformance_script, Some(&globals), None).unwrap();
             globals
                 .get_item("verify_conformance")
                 .unwrap()
                 .unwrap()
-                .call1((
-                    module,
-                    failure.value(py),
-                    options.parent().unwrap().parent().unwrap().to_str().unwrap(),
-                ))
+                .call1((module, failure.value(py), package_root))
                 .unwrap();
         });
     }

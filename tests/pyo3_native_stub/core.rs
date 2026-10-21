@@ -29,4 +29,8 @@ impl ContentConfig {
     }
 
     pub fn validate(&self) {}
+
+    pub fn describe(&self) -> String {
+        format!("config:{}", self.label)
+    }
 }

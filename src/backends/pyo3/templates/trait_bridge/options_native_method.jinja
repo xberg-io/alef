@@ -1,0 +1,11 @@
+    def {{ name }}({{ signature }}) -> {{ return_type }}:
+        """{{ doc }}"""
+        from .api import {{ to_native }}  # noqa: PLC0415
+{% if converts_result %}
+        result = {{ to_native }}(self).{{ name }}({{ call_args }})
+        return {{ result_expr }}
+{% elif returns_unit %}
+        {{ to_native }}(self).{{ name }}({{ call_args }})
+{% else %}
+        return {{ to_native }}(self).{{ name }}({{ call_args }})
+{% endif %}

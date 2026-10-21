@@ -79,6 +79,15 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
             }
         }
     }
+    // Forwarded methods name types in their results; a published reply type is not always in the
+    // `has_default` loop above, so the signature types are collected for every dataclass here. ~keep
+    for typ in api
+        .types
+        .iter()
+        .filter(|typ| renders_dataclass(typ, &dataclass_names, &published_return_type_names, reexported_types))
+    {
+        delegated_signature_types(typ, api, &mut referenced_types);
+    }
 
     let mut needed_enums: AHashSet<String> = AHashSet::new();
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
@@ -216,6 +225,12 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
     out.push_str("\n\n");
 
     let field_defaults = OptionsFieldDefaults::new(api);
+    // The dataclasses this file defines: the set a forwarded method result is converted into. ~keep
+    let options_types: std::collections::HashSet<String> = {
+        let mut names = dataclass_names.clone();
+        names.extend(published_return_type_names.iter().cloned());
+        names
+    };
 
     // Unit enums (needed_enums) live as #[pyclass] in the native module. Each variant is
     // already exposed as UPPER_SNAKE_CASE via #[pyo3(name = "UPPER_SNAKE_CASE")] in the
@@ -351,7 +366,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
         ));
         out.push('\n');
 
-        let native_delegation_py = render_native_delegation_methods(typ, api, has_serde, module_name);
+        let native_delegation_py = render_native_delegation_methods(typ, api, has_serde, module_name, &options_types);
 
         if ordered_fields.is_empty() {
             out.push_str(&native_delegation_py);

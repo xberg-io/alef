@@ -114,14 +114,12 @@ pub(super) fn pyo3_would_inject_from_json(
 /// Names of the types whose public Python spelling is `options.py`'s `@dataclass` mirror rather
 /// than the native `#[pyclass]` — the exact union `__init__.py`/`api.py` import from `.options`
 /// (`options_dataclass_type_names` ∪ `options_return_dataclass_names`,
-/// `src/backends/pyo3/gen_bindings/types.rs`). `gen_options_py` never emits a method on any
-/// dataclass it writes (see that function's doc comment): a type in this set exposes `from_json`
-/// -- or any other native-only method -- through its public name only by accident of a caller
-/// never checking, regardless of whether pyo3 injected `from_json` on the native class
-/// underneath. Built from a synthetic `ApiSurface` over the same `type_defs`/`enums` slices
-/// already threaded through e2e codegen, mirroring [`core_to_binding_convertible_types`] above,
-/// so this reads the pyo3 backend's actual export decision instead of re-deriving a third,
-/// independently-drifting copy of it. ~keep
+/// `src/backends/pyo3/gen_bindings/types.rs`). `gen_options_py` writes only `from_json` and the
+/// qualifying instance methods on such a dataclass (`types/native_methods.rs`); the static
+/// helpers and every other native-only method stay on the native class. Built from a synthetic
+/// `ApiSurface` over the same `type_defs`/`enums` slices already threaded through e2e codegen,
+/// mirroring [`core_to_binding_convertible_types`] above, so this reads the pyo3 backend's
+/// actual export decision instead of re-deriving a third, independently-drifting copy of it. ~keep
 pub(super) fn options_wrapped_type_names(
     type_defs: &[crate::core::ir::TypeDef],
     enums: &[crate::core::ir::EnumDef],
@@ -144,9 +142,9 @@ pub(super) fn options_wrapped_type_names(
 
 /// Preserve `from_json` only when the selected class exposes the native serde constructor.
 /// Public imports supply their options-wrapped names, which shadow native classes with
-/// method-less dataclasses. An explicitly selected native module passes `None` because that
-/// namespace has no public dataclass shadowing; serde availability and core-to-binding
-/// convertibility still apply in both cases. ~keep
+/// dataclasses that carry only `from_json` and the forwarded instance methods. An explicitly
+/// selected native module passes `None` because that namespace has no public dataclass
+/// shadowing; serde availability and core-to-binding convertibility still apply in both cases. ~keep
 pub(super) fn effective_options_via_for_type<'a>(
     options_via: &'a str,
     options_type: Option<&str>,

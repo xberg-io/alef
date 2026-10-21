@@ -10,7 +10,10 @@ use ahash::{AHashMap, AHashSet};
 
 use super::enums::{EmitContext, class_name_to_docstring, sanitize_python_doc};
 
+mod native_methods;
 mod options_py;
+pub(crate) use native_methods::forwarded_method_names;
+pub(super) use native_methods::{delegated_signature_types, delegating_dataclass_names, renders_dataclass};
 pub(super) use options_py::gen_options_py;
 
 /// Convert a Rust variant name to snake_case for Python enum members (PEP 8),
@@ -154,26 +157,22 @@ pub(in crate::backends::pyo3) fn from_native_converter_name(type_name: &str) -> 
 
 /// Delegating methods appended to one `options.py` dataclass body so a consumer's public name
 /// for `typ` does not lose native-only capability relative to the native `#[pyclass]` it shadows
-/// -- the defect this generator exists to close. Eligibility is decided by the SAME predicate
-/// the native `#[pymethods]` injection uses (`type_has_from_json`, consulted from
+/// -- the defect this generator exists to close. Eligibility for `from_json` is decided by the
+/// SAME predicate the native `#[pymethods]` injection uses (`type_has_from_json`, consulted from
 /// `gen_bindings::mod`'s `from_json` text injection too), so the two call sites can never drift
 /// apart again the way they did before.
 ///
-/// Only `from_json` is wired up here. The no-arg native helpers (`validate`, `is_empty`,
-/// `is_ok`, ...) and the `Self`-returning builders (`with_*`, `from_bytes`, `from_uri`) both
-/// need a dataclass -> native forward conversion first, and that conversion is not a small
-/// thing to add safely: the only existing implementation is `functions::converters::emit_converters`
-/// (~700 lines), which handles trait-bridge params, opaque/capsule types, and fields that must
-/// be OMITTED from the native constructor call (not passed as `None`) so the Rust-side default
-/// applies (see `defers_to_rust_default`). A parallel, simplified re-implementation here would
-/// silently mishandle exactly the fields that logic exists to get right. The correct follow-up
-/// is extracting a per-type callable out of `emit_converters` that both `api.py` and `options.py`
-/// can call, not duplicating it. ~keep
+/// The instance methods of the native class follow `from_json`. Each forwards through the
+/// `_to_rust_*` converter `api.py` already emits for function arguments (see
+/// [`native_methods::delegated_methods`] for which methods qualify), so the dataclass-to-native
+/// conversion has one implementation. The static helpers (`default`, `from_bytes`, `with_*`) stay
+/// native-only: they have no `self` to convert, and a type that needs one calls the native class. ~keep
 fn render_native_delegation_methods(
     typ: &crate::core::ir::TypeDef,
     api: &ApiSurface,
     has_serde: bool,
     module_name: &str,
+    options_types: &std::collections::HashSet<String>,
 ) -> String {
     let mut out = String::new();
     if type_has_from_json(typ, api, has_serde) {
@@ -186,6 +185,7 @@ fn render_native_delegation_methods(
             },
         ));
     }
+    out.push_str(&native_methods::render_delegated_methods(typ, api, options_types));
     out
 }
 

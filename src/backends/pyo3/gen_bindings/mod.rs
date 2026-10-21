@@ -43,7 +43,8 @@ pub(in crate::backends::pyo3) use types::type_has_from_json;
 // than the native `#[pyclass]` -- required before trusting the from_json eligibility predicate,
 // which only knows what the native class carries, not which class the public name resolves to. ~keep
 pub(crate) use types::{
-    crate_has_serde, options_dataclass_type_names, options_return_dataclass_names, python_visible_field_name,
+    crate_has_serde, forwarded_method_names, options_dataclass_type_names, options_return_dataclass_names,
+    python_visible_field_name,
 };
 pub(in crate::backends::pyo3) mod wire_schema;
 
