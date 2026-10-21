@@ -21,7 +21,7 @@ fn test_gen_async_body_napi_with_error() {
 
     assert!(result.contains("await"));
     assert!(result.contains("map_err"));
-    assert!(result.contains("napi::Error"));
+    assert!(result.contains(".map_err(alef_napi_err)"));
 }
 
 #[test]
