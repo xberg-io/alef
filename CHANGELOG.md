@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Update `rustls-webpki` to 0.103.16 and `webpki-roots` to 1.0.10 to resolve RUSTSEC-2026-0381 and RUSTSEC-2026-0382.
 - Preserve typed Dart error variants and payloads for free functions, methods, and static calls, including calls with checked numeric arguments. Input validation failures remain `ArgumentError`. (GH#591)
 - Assert declared Dart error classes or all-unit enum values, nullable scalar payloads, and available introspection methods in generated e2e tests. Binding-excluded errors retain explicit unsupported-assertion markers. (GH#602)
 - Keep optional data-enum fields optional and preserve `Some("")`, `Some(false)`, and `Some(0)` through Dart conversions. (GH#601)
