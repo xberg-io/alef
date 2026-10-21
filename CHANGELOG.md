@@ -10,10 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Update `rustls-webpki` to 0.103.16 and `webpki-roots` to 1.0.10 to resolve RUSTSEC-2026-0381 and RUSTSEC-2026-0382.
+- Preserve borrowed string error payloads in Dart and retain unlisted native failures as `StateError` with their original message. Internal failure carriers avoid declared error names.
 - Preserve typed Dart error variants and payloads for free functions, methods, and static calls, including calls with checked numeric arguments. Input validation failures remain `ArgumentError`. (GH#591)
 - Assert declared Dart error classes or all-unit enum values, nullable scalar payloads, and available introspection methods in generated e2e tests. Binding-excluded errors retain explicit unsupported-assertion markers. (GH#602)
 - Keep optional data-enum fields optional and preserve `Some("")`, `Some(false)`, and `Some(0)` through Dart conversions. (GH#601)
 - Repair Freezed 4 single-variant `copyWith` output and exclude custom-codec implementation functions from FRB coverage checks.
+
+### Changed (BREAKING)
+
+- Generated Rust native-to-mirror error conversions use `TryFrom` so a newer native variant can fail safely instead of being forced into an existing mirror variant. Replace `MirrorError::from(native)` with `MirrorError::try_from(native)`.
 
 ## [0.111.1] - 2026-10-19
 

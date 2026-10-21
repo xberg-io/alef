@@ -35,6 +35,8 @@ pub(super) fn emit(out: &mut String, errors: &[ErrorDef], source_crate: &str) {
     if errors.is_empty() {
         return;
     }
+    let invalid_input = carrier_name("InvalidInput", &errors);
+    let native_failure = carrier_name("NativeFailure", &errors);
     let mut decode_arms = Vec::new();
     let mut encode_arms = Vec::new();
     let entries = errors.iter().map(|error| {
@@ -49,18 +51,43 @@ pub(super) fn emit(out: &mut String, errors: &[ErrorDef], source_crate: &str) {
             arms => error.variants.iter().map(|variant| variant_arm(error, variant, source_crate)).collect::<Vec<_>>(),
         }
     }).collect::<Vec<_>>();
-    decode_arms.push("AlefBridgeErrorWire_InvalidInput(:final message) => ArgumentError(message)".into());
-    encode_arms
-        .push("ArgumentError error => AlefBridgeErrorWire.invalidInput(message: error.message.toString())".into());
+    for (carrier, exception, message) in [
+        (&invalid_input, "ArgumentError", "error.message.toString()"),
+        (&native_failure, "StateError", "error.message"),
+    ] {
+        let dart_name = public_host_identifier(Language::Dart, PublicIdentifierKind::Type, carrier);
+        let dart_factory = public_host_identifier(Language::Dart, PublicIdentifierKind::Method, carrier);
+        decode_arms.push(format!(
+            "AlefBridgeErrorWire_{dart_name}(:final message) => {exception}(message)"
+        ));
+        encode_arms.push(format!(
+            "{exception} error => AlefBridgeErrorWire.{dart_factory}(message: {message})"
+        ));
+    }
     encode_arms.push("_ => throw ArgumentError.value({}, 'error', 'Unsupported bridge error')".into());
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_typed_error_bridge.jinja",
         crate::alef_context! {
             errors => entries,
+            invalid_input => invalid_input,
+            native_failure => native_failure,
             decode_code => format!("{:?}", format!("switch ({{}}) {{ {} }}", decode_arms.join(", "))),
             encode_code => format!("{:?}", format!("switch ({{}}) {{ {} }}", encode_arms.join(", "))),
         },
     ));
+}
+
+fn carrier_name(preferred: &str, errors: &[&ErrorDef]) -> String {
+    let mut name = preferred.to_string();
+    let mut suffix = 0;
+    while errors.iter().any(|error| {
+        public_host_identifier(Language::Dart, PublicIdentifierKind::Type, &error.name)
+            == public_host_identifier(Language::Dart, PublicIdentifierKind::Type, &name)
+    }) {
+        suffix += 1;
+        name = format!("{preferred}{suffix}");
+    }
+    name
 }
 
 fn variant_arm(error: &ErrorDef, variant: &ErrorVariant, source_crate: &str) -> minijinja::Value {
@@ -152,6 +179,9 @@ fn field_expression(binding: &str, field: &FieldDef, source_crate: &str) -> Stri
     }
     if field.sanitized {
         return format!("{binding}.to_string()");
+    }
+    if field.ty == TypeRef::String {
+        return format!("{binding}.into()");
     }
     super::enum_fields::enum_variant_field_conv(binding, field, source_crate)
 }

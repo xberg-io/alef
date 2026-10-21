@@ -181,7 +181,7 @@ fn core_error_converts_into_every_mirror_variant_shape() {
     let lib = generated_lib(vec![api_error(false)]);
 
     assert!(
-        lib.contains("impl From<demo_crate::ApiErr> for ApiErr"),
+        lib.contains("impl TryFrom<demo_crate::ApiErr> for ApiErr"),
         "the core error must convert into the mirror: {lib}"
     );
     assert!(
@@ -190,16 +190,18 @@ fn core_error_converts_into_every_mirror_variant_shape() {
     );
     assert!(
         lib.contains(
-            "demo_crate::ApiErr::Status { status, .. } => Self::Status {\n                status: status as _,"
+            "demo_crate::ApiErr::Status { status, .. } => Ok(Self::Status {\n                status: status as _,"
         ),
         "an integer field must widen in the conversion: {lib}"
     );
     assert!(
-        lib.contains("demo_crate::ApiErr::Timeout => Self::Timeout,"),
+        lib.contains("demo_crate::ApiErr::Timeout => Ok(Self::Timeout),"),
         "a unit variant must convert to the unit variant: {lib}"
     );
     assert!(
-        lib.contains("demo_crate::ApiErr::Serialization(_) => Self::Serialization {\n                field0: message,"),
+        lib.contains(
+            "demo_crate::ApiErr::Serialization(_) => Ok(Self::Serialization {\n                field0: message,"
+        ),
         "a variant with only excluded fields must carry the message: {lib}"
     );
 }
@@ -213,5 +215,5 @@ fn error_excluded_from_the_binding_keeps_the_string_error() {
         "an error with no mirror reports its text: {lib}"
     );
     assert!(lib.contains(".map_err(|e| e.to_string())"), "{lib}");
-    assert!(!lib.contains("impl From<demo_crate::ApiErr> for ApiErr"), "{lib}");
+    assert!(!lib.contains("impl TryFrom<demo_crate::ApiErr> for ApiErr"), "{lib}");
 }

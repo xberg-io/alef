@@ -60,30 +60,38 @@ use alef_bridge_error::AlefBridgeError;
 pub enum AlefBridgeErrorWire {
     DemoError { error: DemoError },
     InvalidInput { message: String },
+    NativeFailure { message: String },
 }
 
-#[frb(rust2dart(dart_type = "Object", dart_code = "switch ({}) { AlefBridgeErrorWire_DemoError(:final error) => error, AlefBridgeErrorWire_InvalidInput(:final message) => ArgumentError(message) }"))]
+#[frb(rust2dart(dart_type = "Object", dart_code = "switch ({}) { AlefBridgeErrorWire_DemoError(:final error) => error, AlefBridgeErrorWire_InvalidInput(:final message) => ArgumentError(message), AlefBridgeErrorWire_NativeFailure(:final message) => StateError(message) }"))]
 pub fn alef_encode_bridge_error(value: AlefBridgeError) -> AlefBridgeErrorWire {
     value.0
 }
 
-#[frb(dart2rust(dart_type = "Object", dart_code = "switch ({}) { DemoError error => AlefBridgeErrorWire.demoError(error: error), ArgumentError error => AlefBridgeErrorWire.invalidInput(message: error.message.toString()), _ => throw ArgumentError.value({}, 'error', 'Unsupported bridge error') }"))]
+#[frb(dart2rust(dart_type = "Object", dart_code = "switch ({}) { DemoError error => AlefBridgeErrorWire.demoError(error: error), ArgumentError error => AlefBridgeErrorWire.invalidInput(message: error.message.toString()), StateError error => AlefBridgeErrorWire.nativeFailure(message: error.message), _ => throw ArgumentError.value({}, 'error', 'Unsupported bridge error') }"))]
 pub fn alef_decode_bridge_error(value: AlefBridgeErrorWire) -> AlefBridgeError {
     AlefBridgeError(value)
 }
 
-impl From<demo::DemoError> for DemoError {
-    fn from(value: demo::DemoError) -> Self {
+impl TryFrom<demo::DemoError> for DemoError {
+    type Error = String;
+
+    #[allow(unreachable_patterns, clippy::useless_conversion, reason = "extracted errors may gain variants or contain borrowed strings")]
+    fn try_from(value: demo::DemoError) -> Result<Self, String> {
         match value {
-            demo::DemoError::InvalidInput => Self::InvalidInput,
-            demo::DemoError::ProcessingFailed => Self::ProcessingFailed,
+            demo::DemoError::InvalidInput => Ok(Self::InvalidInput),
+            demo::DemoError::ProcessingFailed => Ok(Self::ProcessingFailed),
+other => Err(other.to_string()),
         }
     }
 }
 
 impl From<demo::DemoError> for AlefBridgeError {
     fn from(value: demo::DemoError) -> Self {
-        Self(AlefBridgeErrorWire::DemoError { error: DemoError::from(value) })
+        Self(match DemoError::try_from(value) {
+            Ok(error) => AlefBridgeErrorWire::DemoError { error },
+            Err(message) => AlefBridgeErrorWire::NativeFailure { message },
+        })
     }
 }
 
