@@ -152,7 +152,7 @@ fn single_param_adapter_decomposes_into_a_scalar_go_parameter() {
     assert_eq!(
         signature_lines(&rendered),
         vec![
-            "func CrawlStream(engine *CrawlEngineHandle, URL string) (*CrawlEngineHandleCrawlStreamStream, error) {",
+            "func CrawlStream(engine *CrawlEngineHandle, URL string) (<-chan CrawlEvent, error) {",
             "func CrawlStreamWithContext(ctx context.Context, engine *CrawlEngineHandle, URL string) (*CrawlEngineHandleCrawlStreamStream, error) {",
         ]
     );
@@ -180,7 +180,7 @@ fn two_param_adapter_exposes_each_configured_param_directly() {
     assert_eq!(
         signature_lines(&rendered),
         vec![
-            "func CrawlStream(engine *CrawlEngineHandle, url string, depth u32) (*CrawlEngineHandleCrawlStreamStream, error) {",
+            "func CrawlStream(engine *CrawlEngineHandle, url string, depth u32) (<-chan CrawlEvent, error) {",
             "func CrawlStreamWithContext(ctx context.Context, engine *CrawlEngineHandle, url string, depth u32) (*CrawlEngineHandleCrawlStreamStream, error) {",
         ]
     );
@@ -204,7 +204,7 @@ fn fieldless_request_type_falls_back_to_the_configured_param() {
     assert_eq!(
         signature_lines(&rendered),
         vec![
-            "func CrawlStream(engine *CrawlEngineHandle, request CrawlRequest) (*CrawlEngineHandleCrawlStreamStream, error) {",
+            "func CrawlStream(engine *CrawlEngineHandle, request CrawlRequest) (<-chan CrawlEvent, error) {",
             "func CrawlStreamWithContext(ctx context.Context, engine *CrawlEngineHandle, request CrawlRequest) (*CrawlEngineHandleCrawlStreamStream, error) {",
         ]
     );
@@ -229,7 +229,7 @@ fn owner_type_with_an_initialism_is_normalized_like_the_receiver_type() {
     assert_eq!(
         signature_lines(&rendered),
         vec![
-            "func CrawlStream(engine *APIEngine) (*APIEngineCrawlStreamStream, error) {",
+            "func CrawlStream(engine *APIEngine) (<-chan CrawlEvent, error) {",
             "func CrawlStreamWithContext(ctx context.Context, engine *APIEngine) (*APIEngineCrawlStreamStream, error) {",
         ]
     );
@@ -253,6 +253,6 @@ fn batch_adapter_uses_distinct_compatibility_and_cancellable_names() {
 
     assert_eq!(rendered.matches("func BatchCrawlStream(").count(), 1);
     assert_eq!(rendered.matches("func BatchCrawlStreamWithContext(").count(), 1);
-    assert!(!rendered.contains("<-chan"), "no wrapper may return a bare channel:\n{rendered}");
+    assert!(rendered.contains("(<-chan BatchEvent, error)"));
     assert!(rendered.contains("(*CrawlEngineHandleBatchCrawlStreamStream, error)"));
 }

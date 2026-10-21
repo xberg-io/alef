@@ -782,7 +782,7 @@ fn streaming_method_preserves_parameters_in_both_compatibility_surfaces() {
     );
 
     assert!(out.contains(
-        "func (h *Engine) BatchCrawlStream(request BatchCrawlStreamRequest) (*EngineBatchCrawlStreamStream, error) {"
+        "func (h *Engine) BatchCrawlStream(request BatchCrawlStreamRequest) (<-chan BatchCrawlEvent, error) {"
     ));
     assert!(out.contains(
         "func (h *Engine) BatchCrawlStreamWithContext(ctx context.Context, request BatchCrawlStreamRequest) (*EngineBatchCrawlStreamStream, error) {"

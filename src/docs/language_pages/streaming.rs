@@ -233,7 +233,7 @@ fn streaming_method_signature_override(
                  func (s *{stream_type}) Chan() <-chan {item}\n\
                  func (s *{stream_type}) Err() error\n\
                  \n\
-                 func (o *{go_receiver_type}) {name}({}) (*{stream_type}, error)\n\
+                 func (o *{go_receiver_type}) {name}({}) (<-chan {item}, error)\n\
                  func (o *{go_receiver_type}) {method_with_context_name}({}) (*{stream_type}, error)",
                 method_params.join(", "),
                 context_params.join(", ")
@@ -461,7 +461,8 @@ fn streaming_example(
         // null next-chunk pointer means either clean end-of-stream or a stream error (issue
         // #441), and an example that only ranges the channel documents the bug the accessor
         // exists to fix. Calls the cancellable `WithContext` variant with
-        // `context.Background()`; the plain method name returns the same stream (#623).
+        // `context.Background()`; the original method name remains a channel-returning
+        // compatibility wrapper.
         Language::Go => format!(
             "stream, err := instance.{method_name}WithContext(context.Background(), {req_value})\nif err != nil {{\n    return err\n}}\nfor chunk := range stream.Chan() {{\n    fmt.Println(chunk)\n}}\nif err := stream.Err(); err != nil {{\n    return err\n}}"
         ),
@@ -774,7 +775,7 @@ mod tests {
                          func (s *DefaultClientChatStreamStream) Chan() <-chan ChatChunk\n\
                          func (s *DefaultClientChatStreamStream) Err() error\n\
                          \n\
-                         func (o *DefaultClient) ChatStream(req StreamRequest) (*DefaultClientChatStreamStream, error)\n\
+                         func (o *DefaultClient) ChatStream(req StreamRequest) (<-chan ChatChunk, error)\n\
                          func (o *DefaultClient) ChatStreamWithContext(ctx context.Context, req StreamRequest) \
                          (*DefaultClientChatStreamStream, error)";
         assert_eq!(override_.signature.as_deref(), Some(expected));

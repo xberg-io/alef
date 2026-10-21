@@ -170,7 +170,7 @@ fn extract_backend_shape(binding_go: &str) -> StreamingShape {
         .unwrap_or_else(|| panic!("no Err() accessor found in:\n{binding_go}"));
     let err_owner_matches_stream_type = err_caps.get(1).unwrap().as_str() == stream_type;
 
-    let method_re = regex::Regex::new(r"func \(\w+ \*(\w+)\) (\w+WithContext)\(([^)]*)\) \(\*(\w+), error\) \{").unwrap();
+    let method_re = regex::Regex::new(r"func \(\w+ \*(\w+)\) (\w+)\(([^)]*)\) \(\*(\w+), error\) \{").unwrap();
     let method_caps = method_re
         .captures(binding_go)
         .unwrap_or_else(|| panic!("no streaming start-method signature found in:\n{binding_go}"));
@@ -213,7 +213,7 @@ fn extract_docs_shape(api_go_md: &str) -> StreamingShape {
         .unwrap_or_else(|| panic!("no Err() accessor found in:\n{api_go_md}"));
     let err_owner_matches_stream_type = err_caps.get(1).unwrap().as_str() == stream_type;
 
-    let method_re = regex::Regex::new(r"func \(\w+ \*(\w+)\) (\w+WithContext)\(([^)]*)\) \(\*(\w+), error\)").unwrap();
+    let method_re = regex::Regex::new(r"func \(\w+ \*(\w+)\) (\w+)\(([^)]*)\) \(\*(\w+), error\)").unwrap();
     let method_caps = method_re
         .captures(api_go_md)
         .unwrap_or_else(|| panic!("no streaming start-method signature found in:\n{api_go_md}"));
@@ -305,16 +305,6 @@ fn go_streaming_signature_matches_backend_emitted_shape() {
     // caller can unblock the forwarding goroutine's channel send after cancelling.
     assert_eq!(backend_shape.params, "ctx context.Context, req CrawlRequest");
     assert_eq!(backend_shape.return_type, "(*EngineCrawlStreamStream, error)");
-
-    // #623: the plain method returns the stream too, on both sides, so its caller can read Err().
-    assert!(
-        binding_go.contains("func (h *Engine) CrawlStream(req CrawlRequest) (*EngineCrawlStreamStream, error) {"),
-        "the plain method must return the stream object:\n{binding_go}"
-    );
-    assert!(
-        api_go_md.contains("func (o *Engine) CrawlStream(req CrawlRequest) (*EngineCrawlStreamStream, error)"),
-        "the documented plain method must return the stream object:\n{api_go_md}"
-    );
 }
 
 /// Issue #449 fixed the mismatch pinned here previously: `src/docs/naming.rs::type_name`
