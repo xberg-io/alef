@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Add `delay_ms` and `stream_chunk_delay_ms` to the fixture `mock_response`. The mock server waits `delay_ms` before it sends a response, and waits `stream_chunk_delay_ms` before each stream chunk, so a fixture can model a slow or paused stream. Every language shares the one mock server, so every language gets the stream pause. (GH#589)
-- Add `client_options` to a fixture. The Rust and Python generated tests set these options on the client they build: Rust writes them into the JSON for `client_factory_from_json`, and Python passes them as keyword arguments of `client_factory`. Every other language leaves the fixture out and records the reason. (GH#589)
+- Add `client_options` to a fixture. The Rust and Python generated tests set these options on the client they build: Rust writes them into the JSON for `client_factory_from_json`, and Python passes them as keyword arguments of `client_factory`. Every other language leaves the fixture out, so a fixture never runs there with default options. The Python suite also leaves out a fixture with an option name that is a Python keyword. (GH#589)
 - Add the `mock.requests["<key>"].body.<path>` assertion field. It checks the JSON body of the requests the mock server received, with `equals` and `not_equals`. (GH#590)
 
 ### Changed (BREAKING)

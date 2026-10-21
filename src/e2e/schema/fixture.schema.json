@@ -96,7 +96,7 @@
         "mock_response": { "$ref": "#/$defs/mock_response" },
         "client_options": {
           "type": "object",
-          "description": "Options the generated test sets on the client it builds, keyed by option name, for example `timeout_secs` and `max_retries`. The Rust and Python generators apply them. Every other language excludes the fixture and records that reason, so the fixture never runs there with default options.",
+          "description": "Options the generated test sets on the client it builds, keyed by option name, for example `timeout_secs` and `max_retries`. The Rust and Python generators apply them. Every other language leaves the fixture out, so the fixture never runs there with default options. The Python generator also leaves out a fixture with an option name that is a Python keyword.",
           "additionalProperties": { "type": ["string", "number", "boolean"] }
         },
         "visitor": {

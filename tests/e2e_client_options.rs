@@ -5,9 +5,9 @@
 //! each option as a keyword argument of `client_factory`.
 
 use alef::core::config::NewAlefConfig;
-use alef::e2e::codegen::E2eCodegen;
 use alef::e2e::codegen::python::PythonE2eCodegen;
 use alef::e2e::codegen::rust::RustE2eCodegen;
+use alef::e2e::codegen::{E2eCodegen, InclusionDecision, all_generators, fixture_inclusion};
 use alef::e2e::fixture::{Assertion, Fixture, FixtureGroup, MockResponse};
 use std::collections::BTreeMap;
 
@@ -45,6 +45,10 @@ type = "json_object"
 }
 
 fn build_group(client_options: Option<BTreeMap<String, serde_json::Value>>) -> FixtureGroup {
+    build_group_with_mock(client_options, true)
+}
+
+fn build_group_with_mock(client_options: Option<BTreeMap<String, serde_json::Value>>, with_mock: bool) -> FixtureGroup {
     FixtureGroup {
         category: "smoke".to_string(),
         fixtures: vec![Fixture {
@@ -52,7 +56,7 @@ fn build_group(client_options: Option<BTreeMap<String, serde_json::Value>>) -> F
             category: Some("smoke".to_string()),
             description: "a client with a short timeout".to_string(),
             input: serde_json::json!({ "request": { "model": "m", "messages": [] } }),
-            mock_response: Some(MockResponse {
+            mock_response: with_mock.then(|| MockResponse {
                 status: 200,
                 body: Some(serde_json::json!({ "ok": true })),
                 stream_chunks: None,
@@ -170,4 +174,124 @@ fn python_without_client_options_adds_no_keyword_arguments() {
         .find(|line| line.contains("create_client("))
         .unwrap_or_else(|| panic!("no factory call:\n{content}"));
     assert!(!factory_line.contains("timeout_secs"), "{factory_line}");
+}
+
+fn keyword_options() -> Option<BTreeMap<String, serde_json::Value>> {
+    Some(BTreeMap::from([("class".to_string(), serde_json::json!(1))]))
+}
+
+#[test]
+fn python_leaves_out_a_fixture_whose_client_option_is_a_python_keyword() {
+    let cfg = build_config("python", "client_factory = \"create_client\"");
+    let content = generate(&PythonE2eCodegen, &cfg, build_group(keyword_options()));
+
+    assert!(
+        !content.contains("class=1") && !content.contains("smoke_client_options"),
+        "a keyword argument named `class` is a syntax error, so the fixture must not be emitted:\n{content}"
+    );
+}
+
+#[test]
+fn python_applies_client_options_when_the_fixture_has_no_mock_response() {
+    let cfg = build_config("python", "client_factory = \"create_client\"");
+    let content = generate(&PythonE2eCodegen, &cfg, build_group_with_mock(options(), false));
+
+    let factory_line = content
+        .lines()
+        .find(|line| line.contains("create_client("))
+        .unwrap_or_else(|| panic!("no factory call:\n{content}"));
+    assert!(
+        factory_line.contains("timeout_secs=1") && factory_line.contains("max_retries=0"),
+        "a client with no mock server still gets the options: {factory_line}"
+    );
+}
+
+#[test]
+fn rust_applies_client_options_when_the_fixture_has_no_mock_response() {
+    let cfg = build_config("rust", RUST_FACTORIES);
+    let content = generate(&RustE2eCodegen, &cfg, build_group_with_mock(options(), false));
+
+    assert!(
+        content.contains("\"timeout_secs\":1") && content.contains("\"max_retries\":0"),
+        "the Rust client gets the options with no mock server too:\n{content}"
+    );
+    assert!(
+        !content.contains("client_config[\"base_url\"]"),
+        "no mock server, so no mock address:\n{content}"
+    );
+}
+
+/// Whether a generated file spells the fixture id, in any casing or with any separator.
+fn mentions_fixture(content: &str) -> bool {
+    let squashed: String = content
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+    squashed.contains("smokeclientoptions")
+}
+
+#[test]
+fn every_language_but_rust_and_python_decides_to_leave_out_a_fixture_with_client_options() {
+    let cfg = build_config("rust", RUST_FACTORIES);
+    let e2e = cfg.crates[0].e2e.clone().expect("e2e config present");
+    let with_options = build_group(options()).fixtures.remove(0);
+    let without_options = build_group(None).fixtures.remove(0);
+    let mut checked = 0;
+    for generator in all_generators() {
+        let language = generator.language_name();
+        if language == "rust" || language == "python" {
+            continue;
+        }
+        assert_eq!(
+            fixture_inclusion(&without_options, language, &e2e),
+            InclusionDecision::Include,
+            "{language}: the fixture without options is the control"
+        );
+        match fixture_inclusion(&with_options, language, &e2e) {
+            InclusionDecision::Exclude(reason) => {
+                assert!(reason.contains("client options"), "{language}: {reason}");
+            }
+            InclusionDecision::Include => panic!("{language} must leave out a fixture with client_options"),
+        }
+        checked += 1;
+    }
+    assert!(checked >= 15, "only {checked} languages were checked");
+}
+
+#[test]
+fn no_language_but_rust_and_python_emits_a_fixture_with_client_options() {
+    let cfg = build_config("rust", RUST_FACTORIES);
+    let e2e = cfg.crates[0].e2e.clone().expect("e2e config present");
+    let resolved = cfg.clone().resolve().expect("config resolves").remove(0);
+    let mut controls_that_emit = 0;
+    let mut leaked: Vec<String> = Vec::new();
+    for generator in all_generators() {
+        let language = generator.language_name();
+        if language == "rust" || language == "python" {
+            continue;
+        }
+        let emit = |group: FixtureGroup| {
+            generator
+                .generate(&[group], &e2e, &resolved, &[], &[], &[], &[])
+                .ok()
+                .map(|files| files.iter().any(|file| mentions_fixture(&file.content)))
+        };
+        // A language whose generator cannot render the control fixture at all says nothing here.
+        if emit(build_group(None)) != Some(true) {
+            continue;
+        }
+        controls_that_emit += 1;
+        if emit(build_group(options())) != Some(false) {
+            leaked.push(language.to_string());
+        }
+    }
+    assert!(
+        controls_that_emit >= 5,
+        "only {controls_that_emit} languages emit the control fixture, so the check proves little"
+    );
+    assert!(
+        leaked.is_empty(),
+        "these languages emitted a fixture with client_options: {leaked:?}"
+    );
 }

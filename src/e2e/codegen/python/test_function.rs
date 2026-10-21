@@ -305,8 +305,9 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
     // Fixtures without mock_response (real-API smoke tests) use no base_url override.
     let client_factory = resolve_call_client_factory(e2e_config, call_config);
     // The fixture's `client_options` become keyword arguments of the client factory, named as the
-    // fixture names them (`timeout_secs=1`). The options reach only a client that talks to the
-    // mock server; `client_options_exclusion` keeps a fixture with options on a client factory. ~keep
+    // fixture names them (`timeout_secs=1`). Every branch below passes them, with or without a
+    // mock server, so the client the fixture builds matches the one the Rust suite builds.
+    // `client_options_exclusion` keeps a fixture with options on a client factory. ~keep
     let client_option_kwargs: String = fixture
         .client_options
         .iter()
@@ -334,7 +335,10 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
                 "        sys.stdout.write(\"{fixture_id}: using real API ({api_key_var} is set)\\n\")"
             );
             let _ = writeln!(client_setup, "        sys.stdout.flush()");
-            let _ = writeln!(client_setup, "        client = {factory}(api_key=api_key)");
+            let _ = writeln!(
+                client_setup,
+                "        client = {factory}(api_key=api_key{client_option_kwargs})"
+            );
             let _ = writeln!(client_setup, "    else:");
             let _ = writeln!(
                 client_setup,
@@ -363,9 +367,15 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
             let _ = writeln!(client_setup, "    api_key = os.environ.get(\"{api_key_var}\")");
             let _ = writeln!(client_setup, "    if not api_key:");
             let _ = writeln!(client_setup, "        pytest.skip(\"{api_key_var} not set\")");
-            let _ = writeln!(client_setup, "    client = {factory}(api_key=api_key)");
+            let _ = writeln!(
+                client_setup,
+                "    client = {factory}(api_key=api_key{client_option_kwargs})"
+            );
         } else {
-            let _ = writeln!(client_setup, "    client = {factory}(api_key=\"test-key\")");
+            let _ = writeln!(
+                client_setup,
+                "    client = {factory}(api_key=\"test-key\"{client_option_kwargs})"
+            );
         }
         format!("{await_prefix}client.{function_name}({call_args_str})")
     } else {
