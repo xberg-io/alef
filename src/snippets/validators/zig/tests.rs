@@ -35,6 +35,33 @@ pub(super) fn warm_shared_global_cache() {
     });
 }
 
+/// The sessions the heavy tests build must compile into the shared cache, and the warm-up must
+/// have filled it. Without the first, the tests fall back to a cold cache each; without the
+/// second, the first test to run pays the cold compile inside its own budget. ~keep
+#[test]
+fn sessions_compile_into_a_warmed_shared_global_cache() {
+    if !zig_is_runnable() {
+        return;
+    }
+    warm_shared_global_cache();
+
+    let (_package, session) = sample_package(true);
+    let shared = shared_test_global_cache();
+    assert_eq!(
+        session.env.get("ZIG_GLOBAL_CACHE_DIR").map(PathBuf::from),
+        Some(shared.clone()),
+        "the session must point zig at the shared global cache"
+    );
+    assert!(
+        shared
+            .join("o")
+            .read_dir()
+            .is_ok_and(|mut entries| entries.next().is_some()),
+        "the warm-up build must leave compiled artifacts in {}",
+        shared.display()
+    );
+}
+
 #[test]
 fn compiles_a_snippet_under_the_sanitized_environment() {
     if !zig_is_runnable() {

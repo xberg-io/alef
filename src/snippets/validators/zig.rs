@@ -38,10 +38,22 @@ fn zig_is_runnable() -> bool {
 /// runner and the standard library from scratch. Those artifacts are identical across tests. On
 /// a 4-core Windows runner, five such builds at once saturate the CPU and push the slowest past
 /// its 300 s budget. Zig's global cache is built for concurrent use: builds that need the same
-/// artifact wait for one compile instead of each doing it. ~keep
+/// artifact wait for one compile instead of each doing it. The cache is content-addressed, so a
+/// build that fails for a missing include or a wrong working directory still fails with a warm
+/// cache; the negative controls in `tests` assert that.
+///
+/// The directory sits next to the test binary, under the cargo target directory. It belongs to
+/// one checkout and one user, `cargo clean` removes it, and nothing outside `target` is left
+/// behind. ~keep
 #[cfg(test)]
 fn shared_test_global_cache() -> std::path::PathBuf {
-    let directory = std::env::temp_dir().join("alef-zig-test-global-cache");
+    let binary = std::env::current_exe().expect("locate the running test binary");
+    // `target/<profile>/deps/<test binary>` -> `target/<profile>/alef-zig-test-global-cache`
+    let profile_directory = binary
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("the test binary sits in target/<profile>/deps");
+    let directory = profile_directory.join("alef-zig-test-global-cache");
     std::fs::create_dir_all(&directory).expect("create the shared Zig global cache");
     directory
 }
