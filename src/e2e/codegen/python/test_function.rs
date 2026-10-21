@@ -151,7 +151,7 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
     // Only honor "from_json" when the pyo3 backend actually injects a from_json()
     // staticmethod for this type (gated on per-type has_serde AND crate-level serde
     // availability AND core→binding convertibility) AND the selected import isn't
-    // shadowed by options.py's method-less dataclass mirror — every DTO still has a plain
+    // shadowed by options.py's static-helper-less dataclass mirror — every DTO still has a plain
     // kwargs constructor, so downgrading keeps the emitted call valid. ~keep
     let native_module = python_override
         .and_then(|value| value.from_json_module.as_deref())

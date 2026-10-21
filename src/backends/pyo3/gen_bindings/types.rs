@@ -66,7 +66,7 @@ fn to_python_enum_variant(name: &str) -> String {
 /// instances. ~keep
 ///
 /// `pub(crate)`: `e2e::codegen::python` calls this (alongside [`options_return_dataclass_names`])
-/// to know when a type's public spelling is this method-less dataclass rather than the native
+/// to know when a type's public spelling is this dataclass (no static helpers) rather than the native
 /// `#[pyclass]`, before trusting [`crate::codegen::conversions::pyo3_from_json_eligible`]'s
 /// verdict that the native class carries `from_json` -- that verdict says nothing about which
 /// class the public name actually resolves to. ~keep
@@ -133,7 +133,7 @@ pub(crate) fn options_dataclass_type_names(
 /// like every other type `options.py` defines. See [`gen_options_py`]'s doc for why.
 ///
 /// `pub(crate)`: see [`options_dataclass_type_names`]'s visibility note -- the two together are
-/// the complete set of names `e2e::codegen::python` must treat as method-less. ~keep
+/// the complete set of names `e2e::codegen::python` must treat as static-helper-less. ~keep
 pub(crate) fn options_return_dataclass_names(
     api: &ApiSurface,
     dto: &DtoConfig,

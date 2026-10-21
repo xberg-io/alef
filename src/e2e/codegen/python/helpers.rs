@@ -602,7 +602,7 @@ mod tests {
                 Some(&options_wrapped),
             ),
             "kwargs",
-            "the public name resolves to options.py's method-less dataclass, not the native class"
+            "the public name resolves to options.py's dataclass (no static helpers), not the native class"
         );
     }
 
