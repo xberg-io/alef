@@ -53,6 +53,16 @@ pub(super) fn on_shared_global_cache((root, mut session): Fixture) -> Fixture {
 /// test red on any host, not only on a slow one. ~keep
 pub(super) fn assert_on_warm_shared_global_cache(session: &ValidationSession) {
     let shared = shared_test_global_cache();
+    let target_profile = std::env::current_exe()
+        .ok()
+        .and_then(|binary| binary.parent()?.parent().map(PathBuf::from))
+        .expect("the test binary sits in target/<profile>/deps");
+    assert!(
+        shared.starts_with(&target_profile),
+        "the shared cache must live under {}, not in a directory other users or checkouts share: {}",
+        target_profile.display(),
+        shared.display()
+    );
     assert_eq!(
         session.env.get("ZIG_GLOBAL_CACHE_DIR").map(PathBuf::from),
         Some(shared.clone()),
