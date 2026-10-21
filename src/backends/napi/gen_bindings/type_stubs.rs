@@ -102,7 +102,9 @@ const BINDING_SHIM: &str = include_str!("../templates/binding.cjs");
 fn runtime_export_names(dts: &str) -> Vec<String> {
     let mut names = Vec::new();
     for line in dts.lines() {
-        let rest = line.strip_prefix("export declare ").or_else(|| line.strip_prefix("export "));
+        let rest = line
+            .strip_prefix("export declare ")
+            .or_else(|| line.strip_prefix("export "));
         let Some(rest) = rest else { continue };
         let mut words = rest.split_whitespace();
         let mut kind = words.next();
@@ -132,11 +134,53 @@ fn runtime_export_names(dts: &str) -> Vec<String> {
 /// An export name the ESM wrapper can declare with `export const`.
 fn is_esm_export_name(name: &str) -> bool {
     const RESERVED: &[&str] = &[
-        "default", "class", "function", "const", "let", "var", "new", "delete", "import", "export", "static", "enum",
-        "await", "yield", "null", "true", "false", "void", "this", "super", "with", "in", "of", "if", "else",
-        "for", "while", "do", "switch", "case", "return", "break", "continue", "try", "catch", "finally", "throw",
-        "typeof", "instanceof", "debugger", "extends", "implements", "interface", "package", "private",
-        "protected", "public",
+        "default",
+        "class",
+        "function",
+        "const",
+        "let",
+        "var",
+        "new",
+        "delete",
+        "import",
+        "export",
+        "static",
+        "enum",
+        "await",
+        "yield",
+        "null",
+        "true",
+        "false",
+        "void",
+        "this",
+        "super",
+        "with",
+        "in",
+        "of",
+        "if",
+        "else",
+        "for",
+        "while",
+        "do",
+        "switch",
+        "case",
+        "return",
+        "break",
+        "continue",
+        "try",
+        "catch",
+        "finally",
+        "throw",
+        "typeof",
+        "instanceof",
+        "debugger",
+        "extends",
+        "implements",
+        "interface",
+        "package",
+        "private",
+        "protected",
+        "public",
     ];
     let mut chars = name.chars();
     chars

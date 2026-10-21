@@ -1152,12 +1152,20 @@ mod error_shim_migration_tests {
 
         let root = dir.path().join("crates/example-node");
         let index = std::fs::read_to_string(root.join("index.js")).unwrap();
-        assert!(index.contains("module.exports = require(\"./binding.cjs\")(nativeBinding);"), "{index}");
+        assert!(
+            index.contains("module.exports = require(\"./binding.cjs\")(nativeBinding);"),
+            "{index}"
+        );
         let package = std::fs::read_to_string(root.join("package.json")).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&package).expect("package.json stays valid JSON");
         assert_eq!(parsed["exports"]["."]["import"], "./index.mjs", "{package}");
         assert_eq!(parsed["exports"]["."]["require"], "./index.js", "{package}");
-        let files: Vec<&str> = parsed["files"].as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();
+        let files: Vec<&str> = parsed["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
         assert_eq!(files, ["index.js", "binding.cjs", "index.mjs", "index.d.ts", "*.node"]);
 
         assert!(
@@ -1173,7 +1181,10 @@ mod error_shim_migration_tests {
         assert!(!migrate_node_error_shim(dir.path(), relative).expect("migration runs"));
         let root = dir.path().join("crates/example-node");
         assert_eq!(std::fs::read_to_string(root.join("index.js")).unwrap(), OLD_INDEX_JS);
-        assert_eq!(std::fs::read_to_string(root.join("package.json")).unwrap(), OLD_PACKAGE_JSON);
+        assert_eq!(
+            std::fs::read_to_string(root.join("package.json")).unwrap(),
+            OLD_PACKAGE_JSON
+        );
     }
 
     #[test]
@@ -1183,6 +1194,9 @@ mod error_shim_migration_tests {
         std::fs::write(root.join("index.js"), "module.exports = { custom: true };\n").unwrap();
         let relative = Path::new("crates/example-node/package.json");
         assert!(!migrate_node_error_shim(dir.path(), relative).expect("migration runs"));
-        assert_eq!(std::fs::read_to_string(root.join("package.json")).unwrap(), OLD_PACKAGE_JSON);
+        assert_eq!(
+            std::fs::read_to_string(root.join("package.json")).unwrap(),
+            OLD_PACKAGE_JSON
+        );
     }
 }

@@ -157,9 +157,7 @@ pub fn gen_method(
                 AsyncPattern::Pyo3FutureIntoPy => {
                     ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))"
                 }
-                AsyncPattern::NapiNativeAsync => {
-                    ".map_err(alef_napi_err)"
-                }
+                AsyncPattern::NapiNativeAsync => ".map_err(alef_napi_err)",
                 AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
                 AsyncPattern::TokioBlockOn => {
                     ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))"
@@ -206,9 +204,7 @@ pub fn gen_method(
                     AsyncPattern::Pyo3FutureIntoPy => {
                         ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))"
                     }
-                    AsyncPattern::NapiNativeAsync => {
-                        ".map_err(alef_napi_err)"
-                    }
+                    AsyncPattern::NapiNativeAsync => ".map_err(alef_napi_err)",
                     AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
                     AsyncPattern::TokioBlockOn => {
                         ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))"
@@ -338,9 +334,7 @@ pub fn gen_method(
                     AsyncPattern::Pyo3FutureIntoPy => {
                         ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))"
                     }
-                    AsyncPattern::NapiNativeAsync => {
-                        ".map_err(alef_napi_err)"
-                    }
+                    AsyncPattern::NapiNativeAsync => ".map_err(alef_napi_err)",
                     AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
                     _ => ".map_err(|e| e.to_string())",
                 };
@@ -458,9 +452,7 @@ pub fn gen_method(
                 AsyncPattern::Pyo3FutureIntoPy => {
                     ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))"
                 }
-                AsyncPattern::NapiNativeAsync => {
-                    ".map_err(alef_napi_err)"
-                }
+                AsyncPattern::NapiNativeAsync => ".map_err(alef_napi_err)",
                 AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
                 AsyncPattern::TokioBlockOn => {
                     ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))"

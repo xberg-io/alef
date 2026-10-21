@@ -62,6 +62,7 @@ fn api() -> ApiSurface {
         functions: vec![
             function("failing", true),
             function("failing_sync", false),
+            function("plain", true),
             function("open_stream", true),
         ],
         errors: vec![ErrorDef {
@@ -204,7 +205,10 @@ fn the_esm_wrapper_names_every_runtime_export() {
 }
 
 fn node_available() -> bool {
-    Command::new("node").arg("--version").output().is_ok_and(|out| out.status.success())
+    Command::new("node")
+        .arg("--version")
+        .output()
+        .is_ok_and(|out| out.status.success())
 }
 
 fn write(root: &Path, relative: &str, content: &str) {

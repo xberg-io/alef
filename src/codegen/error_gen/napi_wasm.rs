@@ -126,7 +126,9 @@ pub fn gen_napi_error_converter(error: &ErrorDef, core_import: &str) -> String {
             .map_or(unknown_code, |taxonomy| taxonomy.code);
         arms.push(format!("        {pattern} => (\"{}\", {code}),", variant.name));
     }
-    arms.push(format!("        #[allow(unreachable_patterns)]\n        _ => (\"Unknown\", {unknown_code}),"));
+    arms.push(format!(
+        "        #[allow(unreachable_patterns)]\n        _ => (\"Unknown\", {unknown_code}),"
+    ));
 
     let props = napi_error_properties(error);
     let json_template = format!(
@@ -137,7 +139,11 @@ pub fn gen_napi_error_converter(error: &ErrorDef, core_import: &str) -> String {
             .collect::<Vec<_>>()
             .join(",")
     );
-    let json_args = props.iter().map(|p| p.json_expr.clone()).collect::<Vec<_>>().join(",\n        ");
+    let json_args = props
+        .iter()
+        .map(|p| p.json_expr.clone())
+        .collect::<Vec<_>>()
+        .join(",\n        ");
     let info_block = format!(
         "    let (kind, error_code): (&str, u32) = match &e {{\n{arms}\n    }};\n    \
          let info = format!(\n        \"{json_template}\",\n        {json_args}\n    );\n    \
