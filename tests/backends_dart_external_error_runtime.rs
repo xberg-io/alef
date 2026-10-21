@@ -81,6 +81,30 @@ fn external_non_exhaustive_errors_preserve_borrowed_fields_and_unknown_failures(
 }
 
 #[test]
+fn optional_string_error_fields_pass_clippy_without_an_identity_map() {
+    let root = tempfile::tempdir().unwrap();
+    let generated = emitted_bridge(root.path(), false, "ConsumerError");
+    assert!(
+        !generated.contains("as_ref().map(|v| v.clone())"),
+        "an optional string field is cloned directly:\n{generated}"
+    );
+    compile_consumer(root.path(), &generated, DRIVER, CORE);
+    let library = root.path().join("libconsumer_core.rlib");
+    let consumer = root.path().join("consumer.rs");
+    successful(
+        Command::new("clippy-driver")
+            .arg("--edition=2024")
+            .arg(&consumer)
+            .arg("--extern")
+            .arg(format!("consumer_core={}", library.display()))
+            .arg("--emit=metadata")
+            .arg("--out-dir")
+            .arg(root.path())
+            .args(["-D", "warnings"]),
+    );
+}
+
+#[test]
 fn external_non_exhaustive_error_with_hidden_payloads_compiles() {
     let root = tempfile::tempdir().unwrap();
     let generated = emitted_bridge(root.path(), true, "ConsumerError");
