@@ -1,0 +1,17 @@
+version: "3"
+
+tasks:
+  prepare:
+    desc: Build the exact Windows Zig diagnostic fixture before process sampling
+    cmds:
+      - task test:run -- --lib snippets::validators::zig::diagnostic_tests::qualify_cold_and_warm_real_consumer_cases --no-run
+
+  controls:
+    desc: Qualify Windows Zig diagnostic process accounting and receipt guards
+    cmds:
+      - pwsh -NoProfile -File '{{.TASKFILE_DIR}}/../scripts/zig-diagnostics/test-controls.ps1'
+
+  run:
+    desc: Sample Windows process identities while running eight cold/warm Zig consumer checks
+    cmds:
+      - pwsh -NoProfile -File '{{.TASKFILE_DIR}}/../scripts/zig-diagnostics/run.ps1'

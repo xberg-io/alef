@@ -1,0 +1,11 @@
+{% for class in classes %}
+#[php_class]
+#[php(name = {{ class.php_name_literal }})]
+{% if class.parent %}#[php(extends(Php{{ class.parent }}))]
+{% else %}#[php(extends(ce = ext_php_rs::zend::ce::exception, stub = "\\Exception"))]
+{% endif %}#[derive(Default)]
+pub struct {{ class.rust_name }} {
+{% for field in class.fields %}    #[php(prop, name = "{{ field.php_name }}")]
+    pub {{ field.name }}: {{ field.rust_type }},
+{% endfor %}}
+{% endfor %}

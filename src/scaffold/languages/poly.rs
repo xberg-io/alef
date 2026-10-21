@@ -436,7 +436,7 @@ fn workspace_hook(name: &str, dir: &str, run: &str, files_glob: &str) -> String 
 
 /// Generate the repo-root `poly.toml` from the configured language set.
 pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[Language]) -> Vec<GeneratedFile> {
-    let has = |lang: Language| languages.contains(&lang);
+    let has = |lang: Language| config.languages.contains(&lang) || languages.contains(&lang);
 
     // `all_excludes` merges alef's own tagged EXCLUDES/POLY_FORMAT_EXCLUDES with
     // author-supplied `config.poly.exclude` entries (classified per `classify_extra`).

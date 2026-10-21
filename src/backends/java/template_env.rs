@@ -2,6 +2,10 @@ use minijinja::Environment;
 
 static TEMPLATES: &[(&str, &str)] = &[
     (
+        "record_builder_primitive_overload.jinja",
+        include_str!("templates/record_builder_primitive_overload.jinja"),
+    ),
+    (
         "record_legacy_constructor.jinja",
         include_str!("templates/record_legacy_constructor.jinja"),
     ),

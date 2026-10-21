@@ -118,38 +118,34 @@ fn render_error_test_body(
     call_expr: &str,
     fixture: &Fixture,
     errors: &[crate::core::ir::ErrorDef],
+    collect_snippet: &str,
+    result_var: &str,
 ) -> String {
     use crate::e2e::codegen::declared_error_variant::{DeclaredErrorAssertion, classify, skip_line};
-    let mut out = String::new();
-    match classify("php", fixture, errors) {
-        DeclaredErrorAssertion::Assert(declared) => {
-            let pattern = php_pcre_literal(declared);
-            let message_value = escape_php_single(declared);
-            // ~keep PHPUnit assertion failures are Exceptions too; assert outside the application's catch.
-            out.push_str("        $caughtException = null;\n        try {\n");
-            for line in setup_lines {
-                let _ = writeln!(out, "            {line}");
-            }
-            let _ = writeln!(out, "            {call_expr};");
-            out.push_str("        } catch (\\Exception $e) {\n            $caughtException = $e;\n        }\n");
-            out.push_str("        $this->assertInstanceOf(\\Exception::class, $caughtException);\n");
-            let _ = write!(
-                out,
-                "        $this->assertTrue(preg_match({pattern}, $caughtException->getMessage()) === 1 || preg_match({pattern}, get_class($caughtException)) === 1, 'expected exception message or class name to match {message_value}');"
-            );
-        }
-        declared => {
-            if let DeclaredErrorAssertion::Unsubstantiable(variant) = declared {
-                let _ = writeln!(out, "{}", skip_line("        ", "//", variant, &fixture.id, "php"));
-            }
-            out.push_str("        $this->expectException(\\Exception::class);\n");
-            for line in setup_lines {
-                let _ = writeln!(out, "        {line}");
-            }
-            let _ = write!(out, "        {call_expr};");
-        }
-    }
-    out
+    let declared = classify("php", fixture, errors);
+    let (pattern, message_value, skip_marker) = match declared {
+        DeclaredErrorAssertion::Assert(value) => (php_pcre_literal(value), escape_php_single(value), String::new()),
+        DeclaredErrorAssertion::Unsubstantiable(variant) => (
+            String::new(),
+            String::new(),
+            skip_line("        ", "//", variant, &fixture.id, "php"),
+        ),
+        _ => (String::new(), String::new(), String::new()),
+    };
+    crate::e2e::template_env::render(
+        "php/error_test_body.jinja",
+        crate::alef_context! {
+            setup_lines => setup_lines,
+            call_expr => call_expr,
+            pattern => pattern,
+            message_value => message_value,
+            skip_marker => skip_marker,
+            collect_snippet => collect_snippet,
+            result_var => result_var,
+        },
+    )
+    .trim_end()
+    .to_string()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -498,7 +494,7 @@ pub(super) fn render_test_method(
     }
 
     let error_test_body = if expects_error {
-        let mut body = render_error_test_body(&setup_lines, &call_expr, fixture, errors);
+        let mut body = render_error_test_body(&setup_lines, &call_expr, fixture, errors, &collect_snippet, result_var);
         // ~keep `render_error_test_body` ends without a trailing newline on the `None` arm, so the
         // markers have to open their own line rather than being appended to the last statement.
         let markers = crate::e2e::codegen::error_path_assertions::render(fixture, "        // ", "php");

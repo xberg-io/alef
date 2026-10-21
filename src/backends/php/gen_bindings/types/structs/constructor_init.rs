@@ -357,8 +357,12 @@ fn constructor_extension_init(
         .split_once(": ")
         .map_or(assignment.as_str(), |(_, expression)| expression);
     let fallback = match default {
-        DefaultValue::BoolLiteral(value) => value.to_string(),
-        DefaultValue::Empty if matches!(field.ty, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)) => {
+        DefaultValue::BoolLiteral(value) if !field.optional && !matches!(field.ty, TypeRef::Optional(_)) => {
+            value.to_string()
+        }
+        DefaultValue::Empty
+            if !field.optional && matches!(field.ty, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)) =>
+        {
             "false".into()
         }
         _ => format!("Self::default().{}", field.name),
@@ -366,7 +370,8 @@ fn constructor_extension_init(
     Some(crate::backends::php::template_env::render(
         "php_constructor_extension_init.jinja",
         crate::alef_context! { field => &field.name, parameter => supplied, default => fallback,
-            optional => field.optional || matches!(field.ty, TypeRef::Optional(_)),
+            optional => field.optional || matches!(field.ty, TypeRef::Optional(_))
+                || (typ.has_default && matches!(field.ty, TypeRef::Duration)),
             lazy => !matches!(default, DefaultValue::BoolLiteral(_)) && !matches!(field.ty, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)) },
     ).trim_end().to_string())
 }

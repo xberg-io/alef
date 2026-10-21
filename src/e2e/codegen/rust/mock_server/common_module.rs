@@ -144,31 +144,11 @@ pub fn mock_server_url() -> &'static str {
     }).as_str()
 }
 
-/// The single process-wide Tokio runtime every generated test blocks on.
-///
-/// ~keep Every test used to be its own `#[tokio::test]`, which builds and drops a fresh
-/// `current_thread` runtime per test. The extraction code under test reaches a crawler
-/// whose HTTP client pool is a process-global cache keyed on config alone, with no runtime
-/// identity. Hyper spawns a connection's driver task and the pool's idle reaper on whichever
-/// runtime is current when the connection is created; when that runtime is dropped at the end
-/// of the test, those tasks die but the now-dead connection stays in the global pool, ready
-/// for a later test on a different runtime to check it out. That produced intermittent
-/// "error sending request" and "error decoding response body" failures. Routing every test
-/// through one shared runtime that lives for the whole process keeps every pooled connection's
-/// driver task alive for as long as the pool can hand the connection out.
-pub fn runtime() -> &'static tokio::runtime::Runtime {
-    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-    RUNTIME.get_or_init(|| {
-        // 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep extraction
-        // future (a nested archive member, a multi-stage OCR pipeline), and a stack overflow
-        // aborts the process with SIGBUS instead of raising a catchable panic.
-        const TEST_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .thread_stack_size(TEST_RUNTIME_STACK_SIZE_BYTES)
-            .build()
-            .expect("failed to build the shared test runtime")
-    })
+"# + include_str!("../../../templates/rust/shared_runtime.rs.jinja")
 }
-"#
+
+pub fn render_runtime_module() -> String {
+    hash::e2e_header(CommentStyle::DoubleSlash)
+        + "#![allow(dead_code)]\n\nuse std::sync::OnceLock;\n\n"
+        + include_str!("../../../templates/rust/shared_runtime.rs.jinja")
 }

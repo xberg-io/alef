@@ -80,7 +80,7 @@ fn generated_struct_list_return_specs_execute_in_elixir() {
     std::fs::write(&source, generated_public_api(&fixture_api(true))).unwrap();
     let script = directory.path().join("check.exs");
     std::fs::write(&script, include_str!("return_types.exs")).unwrap();
-    let result = std::process::Command::new("elixir")
+    let result = crate::core::tool_command("elixir")
         .arg(&script)
         .arg(&source)
         .output()

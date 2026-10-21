@@ -145,11 +145,18 @@ fn generate_fixture(binding: &Path, send_sync_types: &[&str]) -> String {
 }
 
 fn cargo_command(binding: &Path, command: &str) -> Command {
+    let python = std::env::var_os("PYO3_PYTHON").unwrap_or_else(|| {
+        crate::test_support::tool_path_with_stable_path("python3")
+            .or_else(|| crate::test_support::tool_path_with_stable_path("python"))
+            .expect("native PyO3 fixture requires a Python interpreter")
+            .into_os_string()
+    });
     let mut cargo = crate::test_support::spawn_from_stable_dir("cargo");
     cargo
         .args([command, "--quiet", "--manifest-path"])
         .arg(binding.join("Cargo.toml"))
         .env("CARGO_TARGET_DIR", binding.parent().unwrap().join("target"))
+        .env("PYO3_PYTHON", python)
         .current_dir(binding);
     cargo
 }

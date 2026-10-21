@@ -8,6 +8,9 @@ pub(super) fn java_constructor_default(field: &FieldDef) -> anyhow::Result<Strin
         .typed_default
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Java constructor extension {} has no resolved default", field.name))?;
+    if field.optional && matches!(value, DefaultValue::Empty | DefaultValue::None) {
+        return Ok("null".into());
+    }
     literal(&field.ty, value).ok_or_else(|| {
         anyhow::anyhow!(
             "Java cannot render constructor default for {} ({:?})",

@@ -122,6 +122,7 @@ pub(super) fn render_streaming_test_function(
     client_factory: &str,
     streaming: &CStreamingAdapterMetadata,
     expects_error: bool,
+    errors: &[crate::core::ir::ErrorDef],
     api_key_var: Option<&str>,
     documentation_snippet: bool,
 ) {
@@ -235,10 +236,18 @@ pub(super) fn render_streaming_test_function(
     );
 
     if expects_error {
-        let _ = writeln!(
-            out,
-            "    assert(stream_handle == 0 && \"expected stream-start to fail\");"
-        );
+        out.push_str(&crate::e2e::template_env::render(
+            "c/stream_error.c.jinja",
+            crate::alef_context! {
+                prefix => prefix, prefix_upper => prefix_upper, stream_next => stream_next,
+                item_type_snake => item_type_snake,
+            },
+        ));
+        super::test_function::emit_c_error_epilogue(out, prefix, fixture, errors, documentation_snippet);
+        out.push_str(&crate::e2e::template_env::render(
+            "c/stream_error_free.c.jinja",
+            crate::alef_context! { stream_free => stream_free },
+        ));
         if request_var.is_some() {
             let _ = writeln!(out, "    {prefix}_{req_snake}_free({req_handle});");
         }
@@ -569,6 +578,7 @@ mod stream_completion_signal_tests {
             "client_new",
             &adapter(),
             false,
+            &[],
             None,
             false,
         );

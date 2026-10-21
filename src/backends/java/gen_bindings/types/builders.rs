@@ -374,13 +374,12 @@ pub(super) fn gen_builder_nested_class(
             "Map<String, Object>".to_string()
         } else if matches!(resolved_field_ty, TypeRef::Optional(_)) {
             java_boxed_type(&resolved_field_ty).to_string()
-        } else if has_serde_default
+        } else if field.optional
+            || has_serde_default
             || matches!(resolved_field_ty, TypeRef::Duration)
             || is_unresolved_default
             || boxes_to_carry_literal_default(&field.ty, field.typed_default.as_ref())
         {
-            // Non-optional fields with #[serde(default)], Duration, an unresolved default, or a
-            // literal default must box the parameter type
             java_boxed_type(&resolved_field_ty).to_string()
         } else {
             java_type(&resolved_field_ty).to_string()
@@ -460,6 +459,17 @@ pub(super) fn gen_builder_nested_class(
         body.push_str("            return this;\n");
         body.push_str("        }\n");
         body.push('\n');
+
+        if field.optional && matches!(resolved_field_ty, TypeRef::Primitive(_)) {
+            body.push_str(&crate::backends::java::template_env::render(
+                "record_builder_primitive_overload.jinja",
+                crate::alef_context! {
+                    setter_name => format!("with{field_name_pascal}"),
+                    primitive_type => java_type(&resolved_field_ty),
+                    boxed_type => &field_type,
+                },
+            ));
+        }
 
         if is_flattened_json {
             body.push_str("        /** Absorbs unknown sibling fields (serde flatten). */\n");

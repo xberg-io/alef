@@ -20,6 +20,6 @@ mod tests;
 mod truncation_tests;
 
 pub use binary::render_mock_server_binary;
-pub use common_module::render_common_module;
+pub use common_module::{render_common_module, render_runtime_module};
 pub use server_module::render_mock_server_module;
 pub use setup::render_mock_server_setup;

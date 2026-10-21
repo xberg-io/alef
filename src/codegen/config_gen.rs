@@ -16,6 +16,7 @@ pub use java::gen_java_builder;
 pub use magnus::gen_magnus_kwargs_constructor;
 pub use napi::gen_napi_defaults_constructor;
 pub use php::gen_php_kwargs_constructor;
+pub(crate) use php::gen_php_kwargs_constructor_with_rest;
 pub use pyo3::gen_pyo3_kwargs_constructor;
 pub use rustler::{gen_rustler_kwargs_constructor, gen_rustler_kwargs_constructor_with_exclude};
 pub(crate) use shared::validate_rust_default_functions;

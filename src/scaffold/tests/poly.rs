@@ -376,7 +376,8 @@ fn poly_toml_php_uses_mago_correctness_security() {
 
 #[test]
 fn poly_toml_omits_language_tables_when_language_absent() {
-    let config = test_config();
+    let mut config = test_config();
+    config.languages = vec![Language::Node];
     let api = test_api();
     let files = scaffold(&api, &config, &[Language::Node]).unwrap();
     let c = &poly_toml(&files).content;

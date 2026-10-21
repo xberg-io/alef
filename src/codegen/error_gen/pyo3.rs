@@ -71,10 +71,25 @@ pub fn gen_pyo3_error_converter(error: &ErrorDef, core_import: &str) -> String {
         }
     };
 
+    let mut attribute_arms = Vec::new();
     let mut arms = Vec::with_capacity(error.variants.len());
     for variant in &error.variants {
         let pattern = error_variant_wildcard_pattern(&rust_path, variant);
         let variant_exc_name = python_exception_name(&variant.name, &error.name);
+        let fields = pyo3_error_attribute_fields(variant);
+        if !fields.is_empty() {
+            attribute_arms.push(crate::alef_context! {
+                pattern => format!("{rust_path}::{}", variant.name),
+                bindings => fields.iter()
+                    .map(|field| internal_rust_identifier(&field.name))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                fields => fields.iter().map(|field| crate::alef_context! {
+                    name => internal_rust_identifier(&field.name),
+                    python_name => public_field_name(Language::Python, &field.name, None),
+                }).collect::<Vec<_>>(),
+            });
+        }
         let code = variant
             .taxonomy(&error.rust_path)
             .map_or(crate::core::ir::ApiSurface::FFI_ERROR_CODE_UNKNOWN, |taxonomy| {
@@ -98,6 +113,7 @@ pub fn gen_pyo3_error_converter(error: &ErrorDef, core_import: &str) -> String {
             fn_name => fn_name.as_str(),
             arms => arms,
             default_arm => default_arm.as_str(),
+            attribute_arms => attribute_arms,
         },
     )
 }
@@ -338,6 +354,8 @@ pub fn pyo3_error_info_fn_name(error: &ErrorDef) -> String {
     format!("{}_info", to_snake_case(&error.name))
 }
 
+use crate::codegen::naming::{internal_rust_identifier, public_field_name};
+use crate::core::config::Language;
 use crate::core::ir::ErrorDef;
 /// Generate a `#[napi]` class struct for the error type that stores the
 /// whitelisted introspection method values as fields and exposes them as methods.
@@ -348,3 +366,35 @@ use ahash::AHashSet;
 use super::shared::{
     duration_methods, error_variant_wildcard_pattern, millis_expr, millis_type, python_exception_name, to_snake_case,
 };
+
+/// Named scalar payloads shared by native conversion and stub declarations. ~keep
+pub fn pyo3_error_attribute_fields(variant: &crate::core::ir::ErrorVariant) -> Vec<&crate::core::ir::FieldDef> {
+    if variant.is_tuple || variant.is_unit {
+        return Vec::new();
+    }
+    variant
+        .fields
+        .iter()
+        .filter(|field| {
+            !field.binding_excluded
+                && field.cfg.is_none()
+                && !field.sensitive
+                && !field.sanitized
+                && !field.is_boxed
+                && field.core_wrapper == crate::core::ir::CoreWrapper::None
+                && field.newtype_wrapper.is_none()
+                && !field.name.starts_with('_')
+                && !matches!(field.name.as_str(), "args" | "with_traceback" | "add_note")
+                && scalar_error_attribute_type(&field.ty)
+        })
+        .collect()
+}
+
+fn scalar_error_attribute_type(ty: &crate::core::ir::TypeRef) -> bool {
+    use crate::core::ir::TypeRef;
+    match ty {
+        TypeRef::Primitive(_) | TypeRef::String => true,
+        TypeRef::Optional(inner) => scalar_error_attribute_type(inner),
+        _ => false,
+    }
+}

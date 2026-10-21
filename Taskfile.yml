@@ -2,6 +2,7 @@ version: "3"
 
 includes:
   consumer-swift: .task/consumer-swift.yml
+  zig-diagnostics: .task/zig-diagnostics.yml
 
 vars:
   RUST_LOG: info

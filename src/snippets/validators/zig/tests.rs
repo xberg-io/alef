@@ -6,7 +6,7 @@ use std::path::PathBuf;
 // compile that graph against libc headers, which can exceed the generic two-minute tool
 // timeout on a contended developer or CI host even though the build is progressing normally.
 // ~keep
-const TOOLCHAIN_TEST_TIMEOUT_SECS: u64 = 300;
+pub(super) const TOOLCHAIN_TEST_TIMEOUT_SECS: u64 = 300;
 
 #[test]
 fn compiles_a_snippet_under_the_sanitized_environment() {
@@ -28,7 +28,7 @@ fn compiles_a_snippet_under_the_sanitized_environment() {
     );
 }
 
-fn zig_snippet(code: &str) -> Snippet {
+pub(super) fn zig_snippet(code: &str) -> Snippet {
     Snippet {
         id: None,
         path: PathBuf::from("snippet.zig"),
@@ -368,7 +368,7 @@ fn a_snippet_compiles_when_the_package_is_built_from_an_unrelated_working_direct
 /// include directory resolves, paired with a session whose working directory is a *sibling* of
 /// the package rather than the package itself. `rebase_onto_build_root` selects between the
 /// declaration alef emits today and the raw `.cwd_relative` one it emitted before.
-fn sample_package(rebase_onto_build_root: bool) -> (tempfile::TempDir, ValidationSession) {
+pub(super) fn sample_package(rebase_onto_build_root: bool) -> (tempfile::TempDir, ValidationSession) {
     const PACKAGE: &str = "sample_package";
 
     let directory = tempfile::tempdir().expect("project directory");
@@ -434,7 +434,7 @@ fn package_fingerprint(name: &[u8]) -> u64 {
 
 /// A self-contained Zig project whose module only compiles when its declared include directory
 /// is on the search path. Returns the temp dir so the caller keeps it alive.
-fn sample_project(with_include: bool) -> (tempfile::TempDir, ValidationSession) {
+pub(super) fn sample_project(with_include: bool) -> (tempfile::TempDir, ValidationSession) {
     let directory = tempfile::tempdir().expect("project directory");
     let root = directory.path();
     std::fs::create_dir_all(root.join("src")).unwrap();

@@ -103,6 +103,32 @@ fn write_native_fixture(directory: &std::path::Path) {
     }
 }
 
+fn ruby_native_target(ruby_binary: &std::path::Path) -> Option<&'static str> {
+    let config = std::process::Command::new(ruby_binary)
+        .args(["-rrbconfig", "-e", "print RbConfig::CONFIG.fetch('arch')"])
+        .output()
+        .unwrap();
+    assert!(config.status.success(), "{}", String::from_utf8_lossy(&config.stderr));
+    native_rust_target(String::from_utf8(config.stdout).unwrap().trim())
+}
+
+fn build_native_fixture(directory: &std::path::Path, ruby_binary: &std::path::Path, target: Option<&str>) {
+    let mut command = std::process::Command::new("task");
+    command
+        .arg("build")
+        .env("RUBY", ruby_binary)
+        .env("CARGO_INCREMENTAL", "0")
+        .env("CARGO_TARGET_DIR", directory.join("target"))
+        .env_remove("CARGO_BUILD_TARGET")
+        .current_dir(directory);
+    // ~keep RubyInstaller uses MinGW even when Alef's test executable was compiled with MSVC.
+    if let Some(target) = target {
+        command.env("CARGO_BUILD_TARGET", target);
+    }
+    let build = command.output().unwrap();
+    assert!(build.status.success(), "{}", String::from_utf8_lossy(&build.stderr));
+}
+
 #[test]
 fn should_raise_type_error_in_compiled_ruby_extension() {
     let Some(ruby_binary) = crate::test_support::toolchain::RUBY.open() else {
@@ -110,14 +136,8 @@ fn should_raise_type_error_in_compiled_ruby_extension() {
     };
     let fixture = tempfile::tempdir().unwrap();
     write_native_fixture(fixture.path());
-    let build = std::process::Command::new("task")
-        .args(["build"])
-        .env("CARGO_INCREMENTAL", "0")
-        .env("CARGO_TARGET_DIR", fixture.path().join("target"))
-        .current_dir(fixture.path())
-        .output()
-        .unwrap();
-    assert!(build.status.success(), "{}", String::from_utf8_lossy(&build.stderr));
+    let target = ruby_native_target(&ruby_binary);
+    build_native_fixture(fixture.path(), &ruby_binary, target);
     let filename = if cfg!(target_os = "macos") {
         "liboptional_string_fixture.dylib"
     } else if cfg!(target_os = "windows") {
@@ -131,7 +151,11 @@ fn should_raise_type_error_in_compiled_ruby_extension() {
         "optional_string_fixture.so"
     };
     let extension = fixture.path().join(extension_name);
-    std::fs::copy(fixture.path().join("target/debug").join(filename), &extension).unwrap();
+    std::fs::copy(
+        native_artifact_directory(fixture.path(), target).join(filename),
+        &extension,
+    )
+    .unwrap();
     let ruby = std::process::Command::new(ruby_binary)
         .arg(fixture.path().join("check.rb"))
         .arg(extension)
@@ -142,4 +166,43 @@ fn should_raise_type_error_in_compiled_ruby_extension() {
         String::from_utf8(ruby.stdout).unwrap().trim(),
         "PASS: 4 valid controls, 4 TypeError cases"
     );
+}
+
+fn native_rust_target(ruby_arch: &str) -> Option<&'static str> {
+    match ruby_arch {
+        "x64-mingw-ucrt" | "x64-mingw32" | "x86_64-mingw32" => Some("x86_64-pc-windows-gnu"),
+        _ => None,
+    }
+}
+
+fn native_artifact_directory(directory: &std::path::Path, target: Option<&str>) -> std::path::PathBuf {
+    let mut artifact = directory.join("target");
+    if let Some(target) = target {
+        artifact.push(target);
+    }
+    artifact.join("debug")
+}
+
+#[test]
+fn should_match_rubyinstaller_abi_instead_of_the_msvc_host_target() {
+    for arch in ["x64-mingw-ucrt", "x64-mingw32", "x86_64-mingw32"] {
+        assert_eq!(native_rust_target(arch), Some("x86_64-pc-windows-gnu"), "{arch}");
+    }
+}
+
+#[test]
+fn should_keep_the_native_target_for_non_mingw_ruby() {
+    for arch in ["arm64-darwin27", "x86_64-linux", "x64-mswin64_140"] {
+        assert_eq!(native_rust_target(arch), None, "{arch}");
+    }
+}
+
+#[test]
+fn should_read_the_explicit_target_artifact_instead_of_the_host_artifact() {
+    let root = std::path::Path::new("fixture");
+    assert_eq!(
+        native_artifact_directory(root, Some("x86_64-pc-windows-gnu")),
+        root.join("target/x86_64-pc-windows-gnu/debug")
+    );
+    assert_eq!(native_artifact_directory(root, None), root.join("target/debug"));
 }

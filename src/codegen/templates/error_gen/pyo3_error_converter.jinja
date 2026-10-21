@@ -2,10 +2,47 @@
 fn {{ fn_name }}(e: {{ rust_path }}) -> pyo3::PyErr {
     let msg = e.to_string();
     #[allow(unreachable_patterns)]
+{% if attribute_arms %}
+    let exception = match &e {
+{% else %}
     match &e {
+{% endif %}
 {% for arm in arms %}
         {{ arm }}
 {% endfor %}
         {{ default_arm }}
+{% if attribute_arms %}
+    };
+    let attributes = pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
+        let value = exception.value(py);
+{% if attribute_arms|length == 1 %}
+{% set arm = attribute_arms[0] %}
+        #[allow(irrefutable_let_patterns, reason = "single-variant and non-exhaustive errors share this payload branch")]
+        if let {{ arm.pattern }} { {{ arm.bindings }}, .. } = &e {
+{% for field in arm.fields %}
+            value.setattr("{{ field.python_name }}", Clone::clone({{ field.name }}))?;
+{% endfor %}
+        }
+{% else %}
+        #[allow(unreachable_patterns)]
+        match &e {
+{% for arm in attribute_arms %}
+            {{ arm.pattern }} { {{ arm.bindings }}, .. } => {
+{% for field in arm.fields %}
+                value.setattr("{{ field.python_name }}", Clone::clone({{ field.name }}))?;
+{% endfor %}
+            }
+{% endfor %}
+            _ => {}
+        }
+{% endif %}
+        Ok(())
+    });
+    match attributes {
+        Ok(()) => exception,
+        Err(error) => error,
     }
+{% else %}
+    }
+{% endif %}
 }

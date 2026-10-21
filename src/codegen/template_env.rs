@@ -242,6 +242,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/error_gen/wasm_error_converter.jinja"),
     ),
     (
+        "error_gen/php_error_types.jinja",
+        include_str!("templates/error_gen/php_error_types.jinja"),
+    ),
+    (
+        "error_gen/php_error_stubs.jinja",
+        include_str!("templates/error_gen/php_error_stubs.jinja"),
+    ),
+    (
         "error_gen/php_error_converter.jinja",
         include_str!("templates/error_gen/php_error_converter.jinja"),
     ),

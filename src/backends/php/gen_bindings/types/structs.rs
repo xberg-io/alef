@@ -56,6 +56,17 @@ mod constructor_param;
 
 pub use constructor_param::php_field_can_be_constructor_param;
 
+pub(crate) fn php_omitted_legacy_extension(typ: &TypeDef, field: &FieldDef, enums: &AHashSet<String>) -> bool {
+    typ.has_default
+        && typ.is_constructor_extension(field)
+        && (field.optional || matches!(field.ty, TypeRef::Optional(_)))
+        && matches!(
+            field.typed_default,
+            Some(crate::core::ir::DefaultValue::Empty | crate::core::ir::DefaultValue::None)
+        )
+        && !is_php_prop_scalar(&field.ty, enums)
+}
+
 /// Optionality that may reorder parameters without changing a serde-defaulted field's legacy slot. ~keep
 pub(crate) fn php_field_base_constructor_optional(typ: &TypeDef, field: &FieldDef, serde_available: bool) -> bool {
     field.optional
@@ -533,6 +544,7 @@ fn gen_struct_methods_impl(
             .fields
             .iter()
             .filter(|field| constructor_init::php_binding_keeps_field(field, never_skip_cfg_field_names))
+            .filter(|field| has_serde || !php_omitted_legacy_extension(typ, field, enum_names))
             .any(|f| !is_php_prop_scalar_with_enums(&f.ty, enum_names));
         let has_field_defaults = typ
             .fields
@@ -700,9 +712,16 @@ fn gen_struct_methods_impl(
         } else {
             let map_fn = |ty: &crate::core::ir::TypeRef| mapper.map_type(ty);
             if typ.has_default {
-                let binding_type = constructor_init::php_binding_type(typ, never_skip_cfg_field_names);
-                let config_method =
-                    crate::codegen::config_gen::gen_php_kwargs_constructor(binding_type.as_ref(), &map_fn);
+                let mut binding_type = constructor_init::php_binding_type(typ, never_skip_cfg_field_names).into_owned();
+                let count = binding_type.fields.len();
+                binding_type
+                    .fields
+                    .retain(|field| !php_omitted_legacy_extension(typ, field, enum_names));
+                let config_method = crate::codegen::config_gen::gen_php_kwargs_constructor_with_rest(
+                    &binding_type,
+                    &map_fn,
+                    binding_type.fields.len() != count,
+                );
                 impl_builder.add_method(&config_method);
             } else {
                 // decorated with #[php(constructor)] that accepts named parameters.

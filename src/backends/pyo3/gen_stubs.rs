@@ -1,5 +1,6 @@
 mod classes;
 mod enums;
+mod errors;
 mod functions;
 mod protocol;
 
@@ -328,24 +329,9 @@ pub fn gen_stubs(
         }
     }
 
-    // The package publishes these names as `options.py` dataclasses, which keep the native
-    // type's fields and delegate only `from_json`; every other native method is absent from the
-    // class a caller receives, so the stub must not declare it. ~keep
-    let mut dataclass_public_types = options_types.clone();
-    dataclass_public_types.extend(crate::backends::pyo3::gen_bindings::options_return_dataclass_names(
-        api,
-        &config.dto,
-        &stub_reexported_types,
-    ));
+    // This stub describes the native module; public dataclass twins are typed by options.py. ~keep
     for typ in &non_opaque {
         let typ_for_stub = with_from_json_stub(typ, api, has_serde);
-        let typ_for_stub = if dataclass_public_types.contains(&typ.name) {
-            let mut public = typ_for_stub.into_owned();
-            public.methods.retain(|m| m.is_static && m.name == "from_json");
-            std::borrow::Cow::Owned(public)
-        } else {
-            typ_for_stub
-        };
         body_lines.push(gen_type_stub(
             &typ_for_stub,
             api,
@@ -386,32 +372,7 @@ pub fn gen_stubs(
         body_lines.push("".to_string());
     }
 
-    {
-        let mut seen_exc: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let mut exc_lines: Vec<String> = Vec::new();
-        for family in
-            crate::codegen::error_gen::exception_families(api, crate::codegen::error_gen::ExceptionNaming::Python)?
-        {
-            let error = &family.error;
-            if seen_exc.insert(error.name.clone()) {
-                exc_lines.push(format!(
-                    "class {}({}): ...",
-                    error.name,
-                    family.parent.as_deref().unwrap_or("Exception")
-                ));
-            }
-            for variant in &error.variants {
-                let variant_name = crate::codegen::error_gen::python_exception_name(&variant.name, &error.name);
-                if seen_exc.insert(variant_name.clone()) {
-                    exc_lines.push(format!("class {variant_name}({}): ...", error.name));
-                }
-            }
-        }
-        if !exc_lines.is_empty() {
-            body_lines.extend(exc_lines);
-            body_lines.push("".to_string());
-        }
-    }
+    body_lines.extend(errors::gen_error_stubs(api)?);
 
     // Companion `{Error}Info` class + `{error}_info` free function for each error with
     // whitelisted introspection methods -- see `gen_init_py`'s matching block in
@@ -734,13 +695,9 @@ module_name = "test_lib"
         );
     }
 
-    /// GH#581: the package publishes a `has_default` type as the `options.py` dataclass, which
-    /// keeps the fields of the native type and carries none of its methods (only `from_json` is
-    /// delegated). The stub must declare what that public class has, so a method that exists
-    /// solely on the native class is not advertised; a type the package keeps native retains
-    /// every method.
+    /// Native stubs retain native methods even when the public package exports a dataclass twin. ~keep
     #[test]
-    fn dataclass_backed_type_stub_declares_no_native_only_methods() {
+    fn native_stub_declares_methods_of_dataclass_backed_types() {
         let validate = MethodDef {
             name: "validate".to_string(),
             return_type: TypeRef::Unit,
@@ -768,8 +725,8 @@ module_name = "test_lib"
         assert!(public.contains("class PublicConfig"), "{stub}");
         assert!(public.contains("label: str"), "{stub}");
         assert!(
-            !public.contains("def validate("),
-            "dataclass-backed type must not declare validate:\n{stub}"
+            public.contains("def validate("),
+            "native class must retain validate:\n{stub}"
         );
         assert!(
             stub.contains("class NativeOnly:") && stub.contains("def validate("),

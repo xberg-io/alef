@@ -13,3 +13,5 @@ pub(crate) use structs::{
     php_sort_constructor_fields, ty_is_or_wraps_json,
 };
 pub use structs::{gen_struct_methods_with_exclude, is_php_prop_scalar, php_field_can_be_constructor_param};
+
+pub(crate) use structs::php_omitted_legacy_extension;

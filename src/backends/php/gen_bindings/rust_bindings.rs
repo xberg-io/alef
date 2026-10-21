@@ -1,5 +1,5 @@
 use crate::backends::php::gen_bindings::functions::{
-    PhpParamTypeSets, gen_async_function_as_static_method, gen_function_as_static_method,
+    PhpFunctionTarget, PhpParamTypeSets, gen_async_function_as_static_method, gen_function_as_static_method,
 };
 use crate::backends::php::gen_bindings::helpers::{
     gen_enum_tainted_from_binding_to_core, gen_tokio_runtime, has_enum_named_field, references_named_type,
@@ -484,6 +484,11 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         // line, instead of exposing them as toggleable `[features]` on the php crate. ~keep
         let mut method_items: Vec<String> = Vec::new();
         for func in included_functions {
+            let error_converter = api
+                .errors
+                .iter()
+                .find(|error| Some(error.name.as_str()) == func.error_type.as_deref())
+                .map(crate::codegen::error_gen::php_converter_fn_name);
             if config.trait_bridge_manages_function(&func.name) {
                 continue;
             }
@@ -517,7 +522,10 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                         default: &default_types,
                         enums: &enum_names,
                     },
-                    &core_import,
+                    PhpFunctionTarget {
+                        core_import: &core_import,
+                        error_converter: error_converter.as_deref(),
+                    },
                     &config.trait_bridges_for_vec(Language::Php),
                     &mutex_types,
                 );
@@ -531,7 +539,10 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                         default: &default_types,
                         enums: &enum_names,
                     },
-                    &core_import,
+                    PhpFunctionTarget {
+                        core_import: &core_import,
+                        error_converter: error_converter.as_deref(),
+                    },
                     &config.trait_bridges_for_vec(Language::Php),
                     has_serde,
                     &mutex_types,
@@ -807,6 +818,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         }
     }
 
+    builder.add_item(&crate::codegen::error_gen::gen_php_error_types(api, &php_namespace)?);
     for error in &api.errors {
         builder.add_item(&crate::codegen::error_gen::gen_php_error_converter(error, &core_import));
         // Emit #[php_class] + #[php_impl] block for errors with introspection methods.
@@ -853,6 +865,12 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         class_registrations.push_str(&crate::backends::php::template_env::render(
             "php_class_registration.jinja",
             crate::alef_context! { class_name => &enum_def.name },
+        ));
+    }
+    for class_name in crate::codegen::error_gen::php_error_class_names(api)? {
+        class_registrations.push_str(&crate::backends::php::template_env::render(
+            "php_class_registration.jinja",
+            crate::alef_context! { class_name => class_name },
         ));
     }
     for error in api.errors.iter().filter(|e| !e.methods.is_empty()) {

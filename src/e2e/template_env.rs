@@ -2,6 +2,30 @@ use minijinja::Environment;
 
 static TEMPLATES: &[(&str, &str)] = &[
     (
+        "rust/shared_runtime.rs.jinja",
+        include_str!("templates/rust/shared_runtime.rs.jinja"),
+    ),
+    (
+        "php/error_test_body.jinja",
+        include_str!("templates/php/error_test_body.jinja"),
+    ),
+    (
+        "rust/stream_error.rs.jinja",
+        include_str!("templates/rust/stream_error.rs.jinja"),
+    ),
+    (
+        "go/stream_error.go.jinja",
+        include_str!("templates/go/stream_error.go.jinja"),
+    ),
+    (
+        "c/stream_error.c.jinja",
+        include_str!("templates/c/stream_error.c.jinja"),
+    ),
+    (
+        "c/stream_error_free.c.jinja",
+        include_str!("templates/c/stream_error_free.c.jinja"),
+    ),
+    (
         "dart/error_matcher.dart.jinja",
         include_str!("templates/dart/error_matcher.dart.jinja"),
     ),

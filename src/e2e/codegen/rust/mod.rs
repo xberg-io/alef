@@ -198,6 +198,7 @@ impl E2eCodegen for RustE2eCodegen {
         }
         let body_names = |path: &str| test_files.iter().any(|file| file.content.contains(path));
         let needs_tokio_stream = body_names(crate::e2e::codegen::streaming_assertions::RUST_STREAM_CRATE_PATH);
+        let needs_tokio = needs_tokio || body_names("common::runtime()");
         let needs_serde_json = needs_serde_json || body_names(RUST_JSON_CRATE_PATH);
 
         let crate_version = resolve_crate_version(e2e_config).or_else(|| config.resolved_version());
@@ -235,7 +236,11 @@ impl E2eCodegen for RustE2eCodegen {
         if needs_tokio {
             files.push(GeneratedFile {
                 path: output_base.join("tests").join("common.rs"),
-                content: render_common_module(),
+                content: if needs_mock_server {
+                    render_common_module()
+                } else {
+                    mock_server::render_runtime_module()
+                },
                 generated_header: true,
             });
         }

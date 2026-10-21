@@ -4,7 +4,9 @@ mod host_langs;
 mod last_error_fields;
 mod napi_wasm;
 mod native;
+mod php;
 mod pyo3;
+pub use php::{gen_php_error_stubs, gen_php_error_types, php_error_class_names};
 mod shared;
 
 pub(crate) use host_langs::{
@@ -27,8 +29,8 @@ pub use native::{
 };
 pub use pyo3::{
     converter_fn_name, gen_pyo3_error_converter, gen_pyo3_error_methods_impl, gen_pyo3_error_registration,
-    gen_pyo3_error_types, gen_pyo3_error_types_with_parent, pyo3_error_has_methods, pyo3_error_info_field_specs,
-    pyo3_error_info_fn_name, pyo3_error_info_struct_name,
+    gen_pyo3_error_types, gen_pyo3_error_types_with_parent, pyo3_error_attribute_fields, pyo3_error_has_methods,
+    pyo3_error_info_field_specs, pyo3_error_info_fn_name, pyo3_error_info_struct_name,
 };
 pub use shared::{acronym_aware_snake_phrase, python_exception_name, strip_thiserror_placeholders};
 

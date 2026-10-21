@@ -39,7 +39,13 @@
 {% for line in setup_lines %}
             {{ line }}
 {% endfor %}
+{% if is_streaming %}
+            var {{ result_var }} = {{ call_expr }};
+            var _it = {{ result_var }}.iterator();
+            while (_it.hasNext()) { _it.next(); }
+{% else %}
             {{ call_expr }};
+{% endif %}
         });
 {% if declared_error_check %}
 {{ declared_error_check }}

@@ -82,6 +82,8 @@ jobs:
         with:
           install-llvm-cov: "false"
           cache-key-prefix: ci-test
+          # ~keep Only the Ruby native fixture selects GNU; the workspace continues to use MSVC.
+          target: ${{ runner.os == 'Windows' && 'x86_64-pc-windows-gnu' || '' }}
       # Several `#[test]`s compile alef's own generated output, or alef's own compiler-oracle
       # probes, with the real per-language toolchain rather than mocking it (that is the point
       # of them), so those toolchains have to actually be on PATH here, not just in the

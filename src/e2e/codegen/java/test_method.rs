@@ -591,6 +591,7 @@ pub(super) fn render_test_method(
             setup_lines => combined_setup,
             throws_clause => throws_clause,
             expects_error => expects_error,
+            is_streaming => is_streaming,
             declared_error_check => declared_error_check,
             unrenderable_error_assertions => unrenderable_error_assertions.trim_end(),
             call_expr => call_expr,

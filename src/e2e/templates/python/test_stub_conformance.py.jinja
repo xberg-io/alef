@@ -5,7 +5,7 @@
    - import_name: public Python package that ships the native module and its stub
    - native_module: name of the native extension module inside that package
 #}
-{{ header }}"""Every class member the type stub declares must exist on the runtime class."""
+{{ header }}"""Check native class members while respecting exception instance annotations."""
 
 import ast
 import importlib
@@ -14,17 +14,26 @@ from pathlib import Path
 import pytest
 
 
-def _declared_members(stub: Path) -> dict[str, set[str]]:
-    members: dict[str, set[str]] = {}
+def _is_class_variable(annotation: ast.expr) -> bool:
+    if not isinstance(annotation, ast.Subscript):
+        return False
+    name = annotation.value
+    return (isinstance(name, ast.Name) and name.id == "ClassVar") or (
+        isinstance(name, ast.Attribute) and name.attr == "ClassVar"
+    )
+
+
+def _declared_members(stub: Path) -> dict[str, dict[str, bool]]:
+    members: dict[str, dict[str, bool]] = {}
     for node in ast.parse(stub.read_text(encoding="utf-8")).body:
         if not isinstance(node, ast.ClassDef):
             continue
-        names = members.setdefault(node.name, set())
+        names = members.setdefault(node.name, {})
         for item in node.body:
             if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
-                names.add(item.target.id)
+                names[item.target.id] = not _is_class_variable(item.annotation)
             elif isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name != "__init__":
-                names.add(item.name)
+                names[item.name] = False
     return members
 
 
@@ -41,7 +50,11 @@ def test_stub_declares_only_members_present_at_runtime() -> None:
         cls = getattr(native, class_name, None)
         if cls is None:
             continue
+        is_exception = isinstance(cls, type) and issubclass(cls, BaseException)
         for name in sorted(names):
+            # Exception payload annotations describe raised instances rather than class descriptors. ~keep
+            if is_exception and names[name]:
+                continue
             checked += 1
             if not hasattr(cls, name):
                 missing.append(f"{class_name}.{name}")
