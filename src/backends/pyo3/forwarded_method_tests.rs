@@ -66,7 +66,7 @@ fn param(name: &str, ty: TypeRef, optional: bool) -> ParamDef {
     }
 }
 
-/// A reply message with the methods of the liter-llm `AssistantMessage`, one method of each kind
+/// A reply message with the methods of a chat reply, one method of each kind
 /// the generator must leave out, and a reply type (`ImageUrl`) that a method returns.
 fn reply_surface() -> ApiSurface {
     let named = |name: &str| TypeRef::Named(name.to_string());

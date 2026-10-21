@@ -71,12 +71,13 @@ def verify_forwarded_mutation(check: object) -> None:
     cls = importlib.import_module("sample.options").ContentConfig
     original = cls.__dict__["describe"]
     delattr(cls, "describe")
+    failure = ""
     try:
         check()
     except AssertionError as error:
-        assert "ContentConfig.describe" in str(error), error
-    else:
-        raise AssertionError("conformance accepted a public class without a forwarded method")
+        failure = str(error)
     finally:
         setattr(cls, "describe", original)  # noqa: B010 ~keep The attribute name is fixed.
+    if "ContentConfig.describe" not in failure:
+        raise AssertionError(f"conformance did not name the missing method: {failure!r}")
     check()
