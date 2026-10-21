@@ -52,7 +52,7 @@ pub fn gen_options_field_bridge_function(
     let return_type = mapper.map_type(&func.return_type);
     let ret = mapper.wrap_return(&return_type, func.error_type.is_some());
 
-    let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
+    let err_conv = ".map_err(alef_napi_err)";
 
     let call_args: String = func
         .params

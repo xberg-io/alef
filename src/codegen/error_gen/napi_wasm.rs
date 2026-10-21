@@ -22,7 +22,92 @@ pub fn gen_napi_error_types(error: &ErrorDef) -> String {
     )
 }
 
+/// Marker that starts the message of the `cause` error that carries the structured properties
+/// of a thrown error. The generated `binding.cjs` strips the cause and assigns the properties
+/// to the thrown error. `napi::Error` holds only a status string, a message and a cause, so the
+/// cause is the one slot that crosses from an async Rust function to the JS error object.
+pub const NAPI_ERROR_INFO_MARKER: &str = "alef:error-info:";
+
+/// One own property of a thrown Node error: the same name and type in the Rust payload, the
+/// `binding.cjs` shim and the `.d.ts`.
+pub struct NapiErrorProperty {
+    pub js_name: String,
+    pub ts_type: String,
+    /// Rust expression of type `String`: the JSON fragment for the property value. It reads the
+    /// converter locals `e`, `kind` and `error_code`.
+    pub json_expr: String,
+}
+
+/// The properties attached to every error thrown for `error`, in a fixed order.
+///
+/// `kind` and `errorCode` are always present. `statusCode`, `isTransient`, `errorType` and the
+/// duration getters (`retryAfter`, in whole milliseconds) follow the introspection methods
+/// the core error type has, as `gen_napi_error_class` does for the `*Info` class.
+pub fn napi_error_properties(error: &ErrorDef) -> Vec<NapiErrorProperty> {
+    let kind_ts = if error.variants.is_empty() {
+        "string".to_string()
+    } else {
+        let mut names: Vec<String> = error.variants.iter().map(|v| format!("\"{}\"", v.name)).collect();
+        names.push("\"Unknown\"".to_string());
+        names.join(" | ")
+    };
+    let mut props = vec![
+        NapiErrorProperty {
+            js_name: "kind".to_string(),
+            ts_type: kind_ts,
+            json_expr: "format!(\"{kind:?}\")".to_string(),
+        },
+        NapiErrorProperty {
+            js_name: "errorCode".to_string(),
+            ts_type: "number".to_string(),
+            json_expr: "error_code.to_string()".to_string(),
+        },
+    ];
+    for method in &error.methods {
+        match method.name.as_str() {
+            "status_code" => props.push(NapiErrorProperty {
+                js_name: "statusCode".to_string(),
+                ts_type: "number".to_string(),
+                json_expr: "e.status_code().to_string()".to_string(),
+            }),
+            "is_transient" => props.push(NapiErrorProperty {
+                js_name: "isTransient".to_string(),
+                ts_type: "boolean".to_string(),
+                json_expr: "e.is_transient().to_string()".to_string(),
+            }),
+            "error_type" => props.push(NapiErrorProperty {
+                js_name: "errorType".to_string(),
+                ts_type: "string".to_string(),
+                json_expr: "format!(\"{:?}\", e.error_type())".to_string(),
+            }),
+            other => {
+                let Some((_, optional)) = duration_methods(error).into_iter().find(|(m, _)| m.name == other) else {
+                    continue;
+                };
+                let call = millis_expr(&format!("e.{other}()"), optional, "i64");
+                let (ts_type, json_expr) = if optional {
+                    (
+                        "number | null",
+                        format!("match {call} {{ Some(v) => v.to_string(), None => \"null\".to_string() }}"),
+                    )
+                } else {
+                    ("number", format!("({call}).to_string()"))
+                };
+                props.push(NapiErrorProperty {
+                    js_name: heck::ToLowerCamelCase::to_lower_camel_case(other),
+                    ts_type: ts_type.to_string(),
+                    json_expr,
+                });
+            }
+        }
+    }
+    props
+}
+
 /// Generate a converter function that maps a core error to `napi::Error`.
+///
+/// The returned error keeps the display text as its message and carries the structured
+/// properties (see [`napi_error_properties`]) as a JSON payload in its `cause`.
 pub fn gen_napi_error_converter(error: &ErrorDef, core_import: &str) -> String {
     let rust_path = if error.rust_path.is_empty() {
         format!("{core_import}::{}", error.name)
@@ -32,12 +117,73 @@ pub fn gen_napi_error_converter(error: &ErrorDef, core_import: &str) -> String {
 
     let fn_name = format!("{}_to_napi_err", to_snake_case(&error.name));
 
+    let unknown_code = crate::core::ir::ApiSurface::FFI_ERROR_CODE_UNKNOWN;
+    let mut arms = Vec::with_capacity(error.variants.len() + 1);
+    for variant in &error.variants {
+        let pattern = error_variant_wildcard_pattern(&rust_path, variant);
+        let code = variant
+            .taxonomy(&error.rust_path)
+            .map_or(unknown_code, |taxonomy| taxonomy.code);
+        arms.push(format!("        {pattern} => (\"{}\", {code}),", variant.name));
+    }
+    arms.push(format!("        #[allow(unreachable_patterns)]\n        _ => (\"Unknown\", {unknown_code}),"));
+
+    let props = napi_error_properties(error);
+    let json_template = format!(
+        "{{{{{}}}}}",
+        props
+            .iter()
+            .map(|p| format!("\\\"{}\\\":{{}}", p.js_name))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    let json_args = props.iter().map(|p| p.json_expr.clone()).collect::<Vec<_>>().join(",\n        ");
+    let info_block = format!(
+        "    let (kind, error_code): (&str, u32) = match &e {{\n{arms}\n    }};\n    \
+         let info = format!(\n        \"{json_template}\",\n        {json_args}\n    );\n    \
+         error.set_cause(napi::Error::new(\n        napi::Status::GenericFailure,\n        format!(\"{marker}{{info}}\"),\n    ));",
+        arms = arms.join("\n"),
+        marker = NAPI_ERROR_INFO_MARKER,
+    );
+
     crate::codegen::template_env::render(
         "error_gen/napi_error_converter.jinja",
         crate::alef_context! {
             rust_path => rust_path.as_str(),
             fn_name => fn_name.as_str(),
+            info_block => info_block.as_str(),
         },
+    )
+}
+
+/// Generate `alef_napi_err`, the one conversion every generated Node call site uses.
+///
+/// A core error that has a typed converter (see [`gen_napi_error_converter`]) keeps its kind,
+/// status and retry delay; any other `Display` error becomes a plain `GenericFailure` error. The
+/// downcast lets a call site convert without naming the error type it came from.
+pub fn gen_napi_error_dispatch(errors: &[ErrorDef], core_import: &str) -> String {
+    let mut arms = String::new();
+    for error in errors {
+        let rust_path = if error.rust_path.is_empty() {
+            format!("{core_import}::{}", error.name)
+        } else {
+            error.rust_path.replace('-', "_")
+        };
+        arms.push_str(&format!(
+            "    let boxed = match boxed.downcast::<{rust_path}>() {{\n        Ok(typed) => return {}(*typed),\n        Err(other) => other,\n    }};\n",
+            napi_converter_fn_name(error)
+        ));
+    }
+    format!(
+        "/// Convert any error a binding call returns into a `napi::Error`.\n\
+         #[allow(dead_code)]\n\
+         fn alef_napi_err<E: std::fmt::Display + 'static>(e: E) -> napi::Error {{\n    \
+             let message = e.to_string();\n    \
+             let boxed: Box<dyn std::any::Any> = Box::new(e);\n\
+         {arms}    \
+             drop(boxed);\n    \
+             napi::Error::new(napi::Status::GenericFailure, message)\n\
+         }}"
     )
 }
 

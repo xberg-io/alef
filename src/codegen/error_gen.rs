@@ -19,8 +19,9 @@ pub use host_langs::{
 };
 pub use last_error_fields::{LastErrorField, LastErrorFieldKind, last_error_field_kind, last_error_fields};
 pub use napi_wasm::{
-    gen_napi_error_class, gen_napi_error_converter, gen_napi_error_types, gen_wasm_error_converter,
-    gen_wasm_error_methods, napi_converter_fn_name, wasm_converter_fn_name,
+    NAPI_ERROR_INFO_MARKER, NapiErrorProperty, gen_napi_error_class, gen_napi_error_converter,
+    gen_napi_error_dispatch, gen_napi_error_types, gen_wasm_error_converter, gen_wasm_error_methods,
+    napi_converter_fn_name, napi_error_properties, wasm_converter_fn_name,
 };
 pub use native::{
     gen_ffi_error_codes, gen_ffi_error_methods, gen_magnus_error_converter, gen_magnus_error_methods_struct,

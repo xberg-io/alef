@@ -98,8 +98,8 @@ fn test_sync_function_node() {
     let body = &bodies["validate"];
 
     assert!(
-        body.contains("napi::Error"),
-        "Node body should contain napi::Error conversion. Got: {}",
+        body.contains(".map_err(alef_napi_err)"),
+        "Node body should convert errors through the shared napi converter. Got: {}",
         body
     );
     assert!(body.contains("my_crate::validate"), "Body should reference core path");
@@ -188,8 +188,8 @@ fn test_async_method_node() {
     let body = &bodies["HttpClient.fetch"];
     assert!(body.contains(".await"), "Node async body should contain .await");
     assert!(
-        body.contains("napi::Error"),
-        "Node async body should handle napi::Error"
+        body.contains(".map_err(alef_napi_err)"),
+        "Node async body should convert errors through the shared napi converter"
     );
 }
 
@@ -473,7 +473,7 @@ fn test_streaming_node_open_error_rejects_call() {
     );
     // Positive twin: errors after the first chunk still go through the channel.
     assert!(
-        body.contains("tx.send(Err(napi::Error::new"),
+        body.contains("tx.send(Err(alef_napi_err(e)))"),
         "mid-stream errors must still reach the reader. Got: {body}"
     );
     assert!(

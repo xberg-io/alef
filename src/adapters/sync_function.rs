@@ -83,7 +83,7 @@ fn gen_node_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> Stri
     format!(
         "{core_path}({call_str})\n        \
          .map({returns}::from)\n        \
-         .map_err(|e| napi::Error::from_reason(e.to_string()))"
+         .map_err(alef_napi_err)"
     )
 }
 

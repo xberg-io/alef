@@ -161,7 +161,7 @@ pub fn gen_static_method(
                     ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))"
                 }
                 AsyncPattern::NapiNativeAsync => {
-                    ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
+                    ".map_err(alef_napi_err)"
                 }
                 AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
                 AsyncPattern::TokioBlockOn => {

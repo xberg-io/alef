@@ -208,7 +208,7 @@ fn gen_node_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> Strin
         format!(
             "self.inner.{core_path}().await\n        \
              {map_expr}\n        \
-             .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
+             .map_err(alef_napi_err)"
         )
     } else {
         let call_str = args.join(", ");
@@ -216,7 +216,7 @@ fn gen_node_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> Strin
             "let core_req = {call_str};\n    \
              self.inner.{core_path}(core_req).await\n        \
              {map_expr}\n        \
-             .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
+             .map_err(alef_napi_err)"
         )
     }
 }

@@ -26,7 +26,7 @@ pub(crate) fn resolve_err_conv(cfg: &RustBindingConfig<'_>, error_type: Option<&
             ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))".to_string()
         }
         AsyncPattern::NapiNativeAsync => {
-            ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))".to_string()
+            ".map_err(alef_napi_err)".to_string()
         }
         AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))".to_string(),
         AsyncPattern::TokioBlockOn => {

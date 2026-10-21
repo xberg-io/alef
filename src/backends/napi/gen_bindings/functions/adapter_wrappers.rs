@@ -261,7 +261,7 @@ pub(in crate::backends::napi::gen_bindings) fn gen_adapter_wrapper(
                                              Ok(c) => Js{}::from(c),\n\
                                              Err(e) => {{\n\
                                                  let _ = tx\n\
-                                                     .send(Err(napi::Error::new(napi::Status::GenericFailure, e.to_string())))\n\
+                                                     .send(Err(alef_napi_err(e)))\n\
                                                      .await;\n\
                                                  break;\n\
                                              }}\n\
@@ -283,7 +283,7 @@ pub(in crate::backends::napi::gen_bindings) fn gen_adapter_wrapper(
                  {}    let inner = engine.inner.clone();\n\
                      use futures_util::StreamExt;\n\
                      let mut stream = {}.await\n\
-                         .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n\
+                         .map_err(alef_napi_err)?;\n\
                      let (tx, rx) = tokio::sync::mpsc::channel(32);\n\
                      tokio::spawn(async move {{\n\
                          {}\n\

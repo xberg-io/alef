@@ -259,7 +259,7 @@ fn gen_node_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
                                 let item = match chunk {{
                                     Ok(c) => {item_type}::from(c),
                                     Err(e) => {{
-                                        let _ = tx.send(Err(napi::Error::new(napi::Status::GenericFailure, e.to_string()))).await;
+                                        let _ = tx.send(Err(alef_napi_err(e))).await;
                                         break;
                                     }}
                                 }};
@@ -281,7 +281,7 @@ fn gen_node_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
          {bindings_block}\
          use futures_util::StreamExt;\n    \
          let mut stream = inner.{core_path}({call_str}).await\n        \
-             .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n    \
+             .map_err(alef_napi_err)?;\n    \
          let (tx, rx) = tokio::sync::mpsc::channel(32);\n    \
          tokio::spawn(async move {{\n        \
              {stream_forward_loop}\n    \
