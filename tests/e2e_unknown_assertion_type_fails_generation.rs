@@ -95,6 +95,7 @@ fn fixture_group_with_assertion_type(assertion_type: &str) -> FixtureGroup {
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         }],
     }

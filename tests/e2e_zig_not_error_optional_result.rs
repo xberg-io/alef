@@ -117,6 +117,7 @@ fn not_error_alone_does_not_emit_not_null_check() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     };
 
@@ -158,6 +159,7 @@ fn not_error_with_is_empty_does_not_contradict() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     };
 

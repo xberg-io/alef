@@ -32,6 +32,7 @@ fn make_fixture(id: &str, description: &str) -> Fixture {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     }
 }

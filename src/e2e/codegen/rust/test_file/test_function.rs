@@ -394,7 +394,29 @@ pub fn render_test_function(
     // When client_factory is configured, emit a `create_client` call and dispatch
     // methods on the returned client object instead of calling free functions.
     let call_expr = if let Some(factory) = client_factory {
-        if let Some((from_json_factory, json)) =
+        if let (Some(options), Some(from_json_factory)) = (
+            fixture.client_options.as_ref(),
+            crate::e2e::codegen::client_factory::from_json_factory(e2e_config, call_config, "rust"),
+        ) {
+            // The options go into the JSON the factory reads, next to the credential and the
+            // mock server address. `client_options_exclusion` leaves a fixture with options out
+            // of the Rust suite when the call has no JSON factory. ~keep
+            let options_json = serde_json::to_string(options).unwrap_or_default();
+            let _ = writeln!(
+                out,
+                "    let mut client_config: serde_json::Value = serde_json::from_str({}).unwrap();",
+                crate::e2e::escape::rust_raw_string(&options_json)
+            );
+            let _ = writeln!(out, "    client_config[\"api_key\"] = \"test-key\".into();");
+            if has_mock {
+                let _ = writeln!(out, "    client_config[\"base_url\"] = mock_server.url.clone().into();");
+            }
+            let _ = writeln!(
+                out,
+                "    let client = {module}::{from_json_factory}(&client_config.to_string()).unwrap();"
+            );
+            format!("client.{function_name}({args_str})")
+        } else if let Some((from_json_factory, json)) =
             crate::e2e::codegen::client_factory::client_config_call(fixture, e2e_config, call_config, "rust")
         {
             let _ = writeln!(

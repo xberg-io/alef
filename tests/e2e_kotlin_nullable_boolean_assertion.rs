@@ -30,6 +30,8 @@ fn make_fixture(id: &str, description: &str, assertions: Vec<Assertion>) -> Fixt
             body: Some(serde_json::Value::Null),
             stream_chunks: None,
             headers: BTreeMap::new(),
+            delay_ms: None,
+            stream_chunk_delay_ms: None,
         }),
         visitor: None,
         args: Vec::new(),
@@ -39,6 +41,7 @@ fn make_fixture(id: &str, description: &str, assertions: Vec<Assertion>) -> Fixt
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     }
 }

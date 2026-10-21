@@ -123,6 +123,7 @@ fn render(assertions: Vec<Assertion>) -> String {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
         category: None,
     };

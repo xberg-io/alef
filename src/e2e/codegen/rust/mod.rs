@@ -60,6 +60,13 @@ use crate::e2e::fixture::{Fixture, FixtureGroup};
 use super::E2eCodegen;
 use test_file::{is_skipped, render_test_file};
 
+/// Whether the Rust suite leaves `fixture` out: its own `skip` names rust, or it declares
+/// `client_options` the Rust client factory configuration cannot apply.
+fn rust_skips(fixture: &Fixture, e2e_config: &E2eConfig) -> bool {
+    is_skipped(fixture, "rust")
+        || crate::e2e::codegen::client_factory::client_options_exclusion(fixture, e2e_config, "rust").is_some()
+}
+
 /// The JSON crate path an emitted Rust test body may name.
 ///
 /// ~keep `needs_serde_json` is derived from the call's argument types, which is blind to what an
@@ -103,19 +110,19 @@ impl E2eCodegen for RustE2eCodegen {
         let needs_mock_server = groups
             .iter()
             .flat_map(|g| g.fixtures.iter())
-            .any(|f| !is_skipped(f, "rust") && f.needs_mock_server());
+            .any(|f| !rust_skips(f, e2e_config) && f.needs_mock_server());
 
         // Check if any fixture uses the http integration test pattern (sample_project http fixtures).
         let needs_http_tests = groups
             .iter()
             .flat_map(|g| g.fixtures.iter())
-            .any(|f| !is_skipped(f, "rust") && f.http.is_some());
+            .any(|f| !rust_skips(f, e2e_config) && f.http.is_some());
 
         // Check if any http fixture uses CORS or static-files middleware (needs tower-http).
         let needs_tower_http = groups
             .iter()
             .flat_map(|g| g.fixtures.iter())
-            .filter(|f| !is_skipped(f, "rust"))
+            .filter(|f| !rust_skips(f, e2e_config))
             .filter_map(|f| f.http.as_ref())
             .filter_map(|h| h.handler.middleware.as_ref())
             .any(|m| m.cors.is_some() || m.static_files.is_some());
@@ -137,7 +144,7 @@ impl E2eCodegen for RustE2eCodegen {
         let any_fixture_test_backend = groups
             .iter()
             .flat_map(|g| g.fixtures.iter())
-            .filter(|f| !is_skipped(f, "rust"))
+            .filter(|f| !rust_skips(f, e2e_config))
             .any(|f| f.args.iter().any(|a| a.arg_type == "test_backend"));
         let needs_anyhow = all_call_args_for_anyhow || any_fixture_test_backend;
 
@@ -160,7 +167,7 @@ impl E2eCodegen for RustE2eCodegen {
         // asking the emitted text is the only derivation that cannot disagree with it. ~keep
         let mut test_files = Vec::new();
         for group in groups {
-            let fixtures: Vec<&Fixture> = group.fixtures.iter().filter(|f| !is_skipped(f, "rust")).collect();
+            let fixtures: Vec<&Fixture> = group.fixtures.iter().filter(|f| !rust_skips(f, e2e_config)).collect();
 
             if fixtures.is_empty() {
                 continue;

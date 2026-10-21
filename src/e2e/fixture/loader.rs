@@ -201,6 +201,10 @@ fn deserialize_fixture_value(mut value: serde_json::Value) -> Result<Fixture> {
             .tags
             .push(format!("{}{test_timeout_ms}", Fixture::TEST_TIMEOUT_TAG_PREFIX));
     }
+    for assertion in &mut fixture.assertions {
+        crate::e2e::codegen::mock_assertions::normalize_body_assertion(assertion)
+            .map_err(|reason| anyhow::anyhow!("fixture '{}': {reason}", fixture.id))?;
+    }
     Ok(fixture)
 }
 

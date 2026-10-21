@@ -513,6 +513,7 @@ mod tests {
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
             assertions: Vec::new(),
             visitor: None,
@@ -1182,6 +1183,8 @@ mod tests {
             body: None,
             stream_chunks: None,
             headers: Default::default(),
+            delay_ms: None,
+            stream_chunk_delay_ms: None,
         });
         let mut e2e = E2eConfig::default();
         e2e.call.function = "chat".into();

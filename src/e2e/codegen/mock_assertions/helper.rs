@@ -30,6 +30,10 @@ pub(crate) const MOCK_TOTAL_PATH: &str = "/__alef/requests/total";
 /// The mock server's single-key introspection endpoint path.
 pub(crate) const MOCK_ONE_PATH: &str = "/__alef/requests/one";
 
+/// The mock server's request-body introspection endpoint path. It answers `1` or `0`, so the
+/// helper that reads request counts reads it too.
+pub(crate) const MOCK_BODY_PATH: &str = "/__alef/requests/body";
+
 /// Render `language`'s once-per-suite mock-request-count helper, or `None` when `language` has no
 /// capture-table entry (see [`super::snippets::mock_capture`]).
 pub(crate) fn render_helper(language: &str) -> Option<String> {

@@ -62,6 +62,7 @@ fn declared_api_key_var_without_mock_or_client_factory_still_imports_os() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
         assertions: vec![],
         visitor: None,

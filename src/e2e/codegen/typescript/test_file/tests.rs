@@ -1305,6 +1305,7 @@ fn render_json_body_test_file() -> String {
         }),
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     };
 
@@ -1496,6 +1497,7 @@ fn multipart_param_with_json_object_body_does_not_emit_boundary_content_type() {
         }),
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     };
 
@@ -1572,6 +1574,7 @@ fn multipart_synthesized_body_emits_boundary_content_type() {
         }),
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     };
 

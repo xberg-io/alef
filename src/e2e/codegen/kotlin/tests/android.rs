@@ -35,6 +35,8 @@ fn kotlin_android_streaming_fixture_emits_flow_to_list_import() {
             body: None,
             stream_chunks: Some(vec![serde_json::json!({"delta": "hi"})]),
             headers: BTreeMap::new(),
+            delay_ms: None,
+            stream_chunk_delay_ms: None,
         }),
         visitor: None,
         args: vec![],
@@ -44,6 +46,7 @@ fn kotlin_android_streaming_fixture_emits_flow_to_list_import() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     };
 
@@ -189,6 +192,7 @@ fn kotlin_android_object_mapper_emits_register_kotlin_module() {
         }),
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     };
 
@@ -289,6 +293,7 @@ fn kotlin_android_bytes_arg_emits_files_read_all_bytes() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     };
 
@@ -381,6 +386,7 @@ fn kotlin_android_batch_bytes_item_wraps_paths() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     };
 
@@ -445,6 +451,8 @@ fn kotlin_android_test_file_loads_resolved_jni_lib_name_not_crate_name() {
             body: None,
             stream_chunks: None,
             headers: BTreeMap::new(),
+            delay_ms: None,
+            stream_chunk_delay_ms: None,
         }),
         visitor: None,
         args: vec![],
@@ -454,6 +462,7 @@ fn kotlin_android_test_file_loads_resolved_jni_lib_name_not_crate_name() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     };
     let e2e_config = E2eConfig {

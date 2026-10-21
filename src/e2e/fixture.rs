@@ -40,6 +40,13 @@ pub struct MockResponse {
     /// Bridged from `http.expected_response.headers` for HTTP fixtures.
     #[serde(default)]
     pub headers: BTreeMap<String, String>,
+    /// Milliseconds the mock server waits before it sends the response.
+    #[serde(default)]
+    pub delay_ms: Option<u64>,
+    /// Milliseconds the mock server waits before each stream chunk.
+    /// Only streaming responses read it (`stream_chunks` is set).
+    #[serde(default)]
+    pub stream_chunk_delay_ms: Option<u64>,
 }
 
 /// Conventional `exclude_functions` token a per-language config uses to drop the fixture
@@ -188,6 +195,11 @@ pub struct Fixture {
     pub asyncapi: Option<AsyncApiFixture>,
     #[serde(default)]
     pub websocket: Option<WebSocketFixture>,
+    /// Options the generated test sets on the client it builds, keyed by option name
+    /// (for example `timeout_secs`, `max_retries`). A language whose generator cannot apply
+    /// them excludes the fixture (see `codegen::fixture_inclusion`).
+    #[serde(default)]
+    pub client_options: Option<BTreeMap<String, serde_json::Value>>,
 }
 
 /// HTTP server test specification.
@@ -443,6 +455,7 @@ impl Default for Fixture {
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         }
     }
@@ -568,6 +581,8 @@ impl Fixture {
                 body: http.expected_response.body.clone(),
                 stream_chunks: None,
                 headers: http.expected_response.headers.clone(),
+                delay_ms: None,
+                stream_chunk_delay_ms: None,
             });
         }
         None

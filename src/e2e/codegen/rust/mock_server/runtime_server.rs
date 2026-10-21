@@ -19,6 +19,8 @@ struct MockRoute {
     /// constructing the response — used by timeout-error fixtures to force
     /// client-side request timeouts.
     delay_ms: Option<u64>,
+    /// Optional pause before each stream chunk of a streaming response, in milliseconds.
+    stream_chunk_delay_ms: Option<u64>,
 }
 
 type RouteTable = Arc<HashMap<String, MockRoute>>;
@@ -45,7 +47,7 @@ async fn handle_request(State(state): State<AppState>, req: Request<Body>) -> Re
     if let Some(response) = handle_request_counter_control(&method, &path, query.as_deref()) {
         return response;
     }
-    record_request(&method, &path);
+    record_request(&method, &path, read_request_body(req.into_body()).await);
 
     let routes = &state.routes;
 
@@ -87,22 +89,33 @@ fn serve_route(route: &MockRoute, origins: &Origins) -> Response {
     if route.is_streaming {
         // Note: stream_chunks may be empty for an empty-stream fixture; we still emit
         // `data: [DONE]\n\n` with the correct SSE headers so clients do not hang.
-        let mut sse = String::new();
-        for chunk in &route.stream_chunks {
-            sse.push_str("data: ");
-            sse.push_str(&origins.substitute_str(chunk));
-            sse.push_str("\n\n");
-        }
-        sse.push_str("data: [DONE]\n\n");
+        let ndjson = headers_declare_ndjson(&route.headers);
+        let chunks: Vec<String> = route.stream_chunks.iter().map(|chunk| origins.substitute_str(chunk)).collect();
+        let body = match route.stream_chunk_delay_ms {
+            Some(delay_ms) if delay_ms > 0 => paced_sse_body(chunks, delay_ms, ndjson),
+            _ => {
+                let mut sse = String::new();
+                for chunk in &chunks {
+                    sse.push_str(&frame_stream_event(chunk, ndjson));
+                }
+                if !ndjson {
+                    sse.push_str("data: [DONE]\n\n");
+                }
+                Body::from(sse)
+            }
+        };
 
         let mut builder = Response::builder()
             .status(status)
-            .header("content-type", "text/event-stream")
+            .header("content-type", if ndjson { "application/x-ndjson" } else { "text/event-stream" })
             .header("cache-control", "no-cache");
         for (name, value) in &route.headers {
+            if ndjson && name.eq_ignore_ascii_case("content-type") {
+                continue;
+            }
             builder = builder.header(name, origins.substitute_str(value));
         }
-        return builder.body(Body::from(sse)).unwrap().into_response();
+        return builder.body(body).unwrap().into_response();
     }
 
     // Substitute origin tokens before content-type sniffing and encoding, so a fixture

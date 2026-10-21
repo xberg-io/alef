@@ -164,6 +164,9 @@ pub fn fixture_inclusion(fixture: &Fixture, language: &str, e2e_config: &E2eConf
     if let Some(reason) = call_skip_reason(fixture, language, e2e_config) {
         return InclusionDecision::Exclude(reason);
     }
+    if let Some(reason) = client_factory::client_options_exclusion(fixture, e2e_config, language) {
+        return InclusionDecision::Exclude(reason);
+    }
     let call_config = e2e_config.resolve_call_for_fixture(
         fixture.call.as_deref(),
         &fixture.id,

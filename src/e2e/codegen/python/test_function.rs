@@ -304,6 +304,15 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
     // the fixture response is served via prefix routing.
     // Fixtures without mock_response (real-API smoke tests) use no base_url override.
     let client_factory = resolve_call_client_factory(e2e_config, call_config);
+    // The fixture's `client_options` become keyword arguments of the client factory, named as the
+    // fixture names them (`timeout_secs=1`). The options reach only a client that talks to the
+    // mock server; `client_options_exclusion` keeps a fixture with options on a client factory. ~keep
+    let client_option_kwargs: String = fixture
+        .client_options
+        .iter()
+        .flatten()
+        .map(|(name, value)| format!(", {name}={}", super::json::json_to_python_literal(value)))
+        .collect();
     let mut client_setup = String::new();
     let call_expr = if let Some(ref factory) = client_factory {
         let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
@@ -334,7 +343,7 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
             let _ = writeln!(client_setup, "        sys.stdout.flush()");
             let _ = writeln!(
                 client_setup,
-                "        client = {factory}(api_key=\"test-key\", base_url={mock_base_url_expr})"
+                "        client = {factory}(api_key=\"test-key\", base_url={mock_base_url_expr}{client_option_kwargs})"
             );
         } else if has_mock {
             let fixture_id = &fixture.id;
@@ -348,7 +357,7 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
             };
             let _ = writeln!(
                 client_setup,
-                "    client = {factory}(api_key=\"test-key\", base_url={base_url_expr})"
+                "    client = {factory}(api_key=\"test-key\", base_url={base_url_expr}{client_option_kwargs})"
             );
         } else if let Some(api_key_var) = api_key_opt {
             let _ = writeln!(client_setup, "    api_key = os.environ.get(\"{api_key_var}\")");
@@ -492,6 +501,7 @@ mod tests {
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
             assertions: Vec::new(),
             call: None,
@@ -556,6 +566,7 @@ mod tests {
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
             assertions: Vec::new(),
             call: None,

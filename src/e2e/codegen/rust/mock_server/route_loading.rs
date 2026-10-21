@@ -165,6 +165,7 @@ fn load_routes_recursive(
                         stream_chunks,
                         headers,
                         delay_ms: resolved.response.delay_ms,
+                        stream_chunk_delay_ms: resolved.response.stream_chunk_delay_ms,
                     };
 
                     // Insert into the shared namespaced table, but skip origin-root paths

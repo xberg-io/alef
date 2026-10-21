@@ -119,6 +119,11 @@ pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config:
             }
             let _ = writeln!(out, "        ],");
             let _ = writeln!(out, "        delay_ms: None,");
+            let _ = writeln!(
+                out,
+                "        stream_chunk_delay_ms: {},",
+                option_u64_literal(mock.stream_chunk_delay_ms)
+            );
             let _ = writeln!(out, "    }};");
             let _ = writeln!(out, "    let {var_name} = MockServer::start(vec![mock_route]).await;");
             return;
@@ -158,6 +163,7 @@ pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config:
         }
         let _ = writeln!(out, "        ],");
         let _ = writeln!(out, "        delay_ms: {delay_literal},");
+        let _ = writeln!(out, "        stream_chunk_delay_ms: None,");
         let _ = writeln!(out, "    }};");
         let _ = writeln!(out, "    let {var_name} = MockServer::start(vec![mock_route]).await;");
     } else {
@@ -182,9 +188,18 @@ pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config:
             }
             let _ = writeln!(out, "        ],");
             let _ = writeln!(out, "        delay_ms: {delay_literal},");
+            let _ = writeln!(out, "        stream_chunk_delay_ms: None,");
             let _ = writeln!(out, "    }});");
         }
         let _ = writeln!(out, "    let {var_name} = MockServer::start(mock_routes).await;");
+    }
+}
+
+/// Rust source for an `Option<u64>` value.
+fn option_u64_literal(value: Option<u64>) -> String {
+    match value {
+        Some(ms) => format!("Some({ms})"),
+        None => "None".to_string(),
     }
 }
 

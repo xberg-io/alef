@@ -66,6 +66,7 @@ fn test_fixture(input: serde_json::Value) -> Fixture {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     }
 }

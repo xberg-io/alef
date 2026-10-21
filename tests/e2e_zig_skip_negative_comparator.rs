@@ -86,6 +86,8 @@ fn greater_than_negative_one_is_skipped() {
             })),
             stream_chunks: None,
             headers: Default::default(),
+            delay_ms: None,
+            stream_chunk_delay_ms: None,
         }),
         visitor: None,
         args: Vec::new(),
@@ -105,6 +107,7 @@ fn greater_than_negative_one_is_skipped() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     };
 
@@ -144,6 +147,8 @@ fn greater_than_or_equal_negative_one_is_skipped() {
             })),
             stream_chunks: None,
             headers: Default::default(),
+            delay_ms: None,
+            stream_chunk_delay_ms: None,
         }),
         visitor: None,
         args: Vec::new(),
@@ -163,6 +168,7 @@ fn greater_than_or_equal_negative_one_is_skipped() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     };
 
@@ -206,6 +212,8 @@ fn greater_than_positive_value_is_emitted() {
             })),
             stream_chunks: None,
             headers: Default::default(),
+            delay_ms: None,
+            stream_chunk_delay_ms: None,
         }),
         visitor: None,
         args: Vec::new(),
@@ -225,6 +233,7 @@ fn greater_than_positive_value_is_emitted() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     };
 
@@ -261,6 +270,8 @@ fn less_than_negative_value_is_emitted() {
             })),
             stream_chunks: None,
             headers: Default::default(),
+            delay_ms: None,
+            stream_chunk_delay_ms: None,
         }),
         visitor: None,
         args: Vec::new(),
@@ -280,6 +291,7 @@ fn less_than_negative_value_is_emitted() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     };
 

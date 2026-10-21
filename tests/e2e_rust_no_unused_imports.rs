@@ -50,6 +50,7 @@ fn fixture_without_config(id: &str) -> Fixture {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     }
 }

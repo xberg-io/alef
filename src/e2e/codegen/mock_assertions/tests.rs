@@ -187,3 +187,18 @@ fn a_fixture_without_a_mock_assertion_never_trips_the_gate() {
     let groups = one_group(fixture);
     assert!(ensure_capture_declared(&groups, &included_e2e_config(), UNWIRED_LANGUAGE).is_ok());
 }
+
+/// A request-body assertion is a `mock.*` field too: a backend with no capture-table entry fails
+/// generation for it, naming the fixture, instead of rendering nothing.
+#[test]
+fn a_backend_with_no_capture_cannot_silently_green_a_request_body_assertion() {
+    let mut fixture = mock_total_fixture("mock_body_no_capture");
+    fixture.assertions[0].field =
+        Some(r#"mock.requests["POST /api/chat"].body.options.num_ctx == 8192"#.to_string());
+    fixture.assertions[0].value = Some(serde_json::json!(1));
+    let error = ensure_capture_declared(&one_group(fixture.clone()), &included_e2e_config(), UNWIRED_LANGUAGE)
+        .expect_err("an uncaptured body assertion must fail generation");
+    let message = format!("{error:#}");
+    assert!(message.contains(&fixture.id), "error must name the fixture, got: {message}");
+    assert!(message.contains("body.options.num_ctx"), "error must name the field, got: {message}");
+}
