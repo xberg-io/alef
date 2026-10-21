@@ -355,6 +355,58 @@ mod tests {
     }
 
     #[test]
+    fn a_request_body_assertion_loads_in_the_predicate_form() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("fixtures.json"),
+            r#"[{
+                "id": "body_check",
+                "description": "body check",
+                "assertions": [
+                    {"type": "equals", "field": "mock.requests[\"POST /api/chat\"].body.options.num_ctx", "value": 8192},
+                    {"type": "equals", "field": "mock.requests.total", "value": 2}
+                ]
+            }]"#,
+        )
+        .unwrap();
+
+        let fixtures = load_fixtures(directory.path()).unwrap();
+
+        let body = &fixtures[0].assertions[0];
+        assert_eq!(
+            body.field.as_deref(),
+            Some(r#"mock.requests["POST /api/chat"].body.options.num_ctx == 8192"#)
+        );
+        assert_eq!(body.value, Some(serde_json::json!(1)));
+        let count = &fixtures[0].assertions[1];
+        assert_eq!(count.field.as_deref(), Some("mock.requests.total"));
+        assert_eq!(count.value, Some(serde_json::json!(2)));
+    }
+
+    #[test]
+    fn a_request_body_assertion_the_generators_cannot_render_fails_the_load() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("fixtures.json"),
+            r#"{
+                "id": "bad_body_check",
+                "description": "bad body check",
+                "assertions": [
+                    {"type": "contains", "field": "mock.requests[\"POST /api/chat\"].body.model", "value": "m"}
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        let error = format!("{:#}", load_fixtures(directory.path()).unwrap_err());
+
+        assert!(
+            error.contains("bad_body_check") && error.contains("'contains'"),
+            "{error}"
+        );
+    }
+
+    #[test]
     fn fixture_test_timeout_rejects_malformed_or_duplicate_carrier_tags() {
         for tags in [
             serde_json::json!(["alef:test_timeout_ms="]),

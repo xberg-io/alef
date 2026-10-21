@@ -599,4 +599,201 @@ mod request_counter_and_origins_probe {
             "{\"a\":1}\n{\"done\":true}\n"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // Number equality in the body predicate: integers compare as integers.
+    // -----------------------------------------------------------------------
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn body_endpoint_tells_two_large_integers_apart() {
+        let routes = std::collections::HashMap::from([("/fixtures/n".to_string(), binary_route("ok"))]);
+        let address = spawn_binary_server(routes).await;
+        let base = format!("http://{address}");
+        let client = reqwest::Client::new();
+        client
+            .post(format!("{base}/fixtures/n"))
+            .body(r#"{"big":9007199254740993,"small":8192}"#)
+            .send()
+            .await
+            .expect("post large integer");
+        let key = "POST%20%2Ffixtures%2Fn";
+
+        assert_eq!(
+            control_body(&client, &base, key, "big", "equals", "9007199254740993").await,
+            "1"
+        );
+        assert_eq!(
+            control_body(&client, &base, key, "big", "equals", "9007199254740992").await,
+            "0",
+            "2^53 + 1 is not 2^53"
+        );
+        assert_eq!(
+            control_body(&client, &base, key, "big", "not_equals", "9007199254740992").await,
+            "1"
+        );
+        assert_eq!(
+            control_body(&client, &base, key, "small", "equals", "8192.0").await,
+            "1",
+            "an integer still equals the same number written with a fraction"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // The body size cap: a larger body is counted and stored empty.
+    // -----------------------------------------------------------------------
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn binary_server_counts_but_does_not_store_a_body_over_the_size_cap() {
+        let routes = std::collections::HashMap::from([("/fixtures/big".to_string(), binary_route("ok"))]);
+        let address = spawn_binary_server(routes).await;
+        let base = format!("http://{address}");
+        let client = reqwest::Client::new();
+        let key = "POST%20%2Ffixtures%2Fbig";
+        let body_with_padding = |len: usize| format!(r#"{{"a":1,"pad":"{}"}}"#, "x".repeat(len));
+
+        client
+            .post(format!("{base}/fixtures/big"))
+            .body(body_with_padding(900 * 1024))
+            .send()
+            .await
+            .expect("post a body under the cap");
+        assert_eq!(control_one(&client, &base, "POST%20/fixtures/big").await, "1");
+        assert_eq!(
+            control_body(&client, &base, key, "a", "equals", "1").await,
+            "1",
+            "a body under 1 MiB is stored"
+        );
+
+        client
+            .post(format!("{base}/__alef/requests/reset?prefix=%2Ffixtures%2Fbig"))
+            .send()
+            .await
+            .expect("reset");
+        // The server stops reading at the cap, so the send may report a closed connection.
+        let _ = client
+            .post(format!("{base}/fixtures/big"))
+            .body(body_with_padding(1024 * 1024 + 4096))
+            .send()
+            .await;
+        assert_eq!(
+            control_one(&client, &base, "POST%20/fixtures/big").await,
+            "1",
+            "a body over the cap is still counted"
+        );
+        assert_eq!(
+            control_body(&client, &base, key, "a", "equals", "1").await,
+            "0",
+            "a body over 1 MiB is not stored"
+        );
+        assert_eq!(
+            control_body(&client, &base, key, "a", "not_equals", "1").await,
+            "1",
+            "the request matched, and its empty stored body does not hold the value"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // NDJSON framing on both servers: newline framing, no DONE line, one content-type header.
+    // -----------------------------------------------------------------------
+
+    const NDJSON_BODY: &str = "{\"a\":1}\n{\"done\":true}\n";
+
+    fn ndjson_chunks() -> Vec<String> {
+        vec![r#"{"a":1}"#.to_string(), r#"{"done":true}"#.to_string()]
+    }
+
+    /// Fetch `url` and return every content-type header value and the body text.
+    async fn content_types_and_body(url: &str) -> (Vec<String>, String) {
+        let response = reqwest::Client::new().get(url).send().await.expect("ndjson request");
+        let types = response
+            .headers()
+            .get_all("content-type")
+            .iter()
+            .map(|value| value.to_str().expect("ascii header").to_string())
+            .collect();
+        (types, response.text().await.expect("ndjson body"))
+    }
+
+    fn per_test_ndjson_route(
+        content_type_name: &str,
+        content_type: &str,
+        delay_ms: Option<u64>,
+    ) -> per_test::MockRoute {
+        per_test::MockRoute {
+            path: "/fixtures/n",
+            method: "GET",
+            status: 200,
+            body: String::new(),
+            is_streaming: true,
+            stream_chunks: ndjson_chunks(),
+            headers: vec![(content_type_name.to_string(), content_type.to_string())],
+            delay_ms: None,
+            stream_chunk_delay_ms: delay_ms,
+        }
+    }
+
+    fn binary_ndjson_route(content_type_name: &str, content_type: &str, delay_ms: Option<u64>) -> MockRoute {
+        MockRoute {
+            status: 200,
+            body: Vec::new(),
+            is_streaming: true,
+            stream_chunks: ndjson_chunks(),
+            headers: vec![(content_type_name.to_string(), content_type.to_string())],
+            delay_ms: None,
+            stream_chunk_delay_ms: delay_ms,
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn per_test_server_streams_ndjson_when_the_content_type_says_so() {
+        let server = per_test::MockServer::start(vec![per_test_ndjson_route(
+            "content-type",
+            "application/x-ndjson",
+            None,
+        )])
+        .await;
+        let (types, body) = content_types_and_body(&format!("{}/fixtures/n", server.url)).await;
+        assert_eq!(types, vec!["application/x-ndjson"], "one content-type header");
+        assert_eq!(body, NDJSON_BODY);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn per_test_server_matches_the_ndjson_content_type_in_any_case() {
+        let route = per_test_ndjson_route("Content-Type", "Application/X-NDJSON; charset=utf-8", None);
+        let server = per_test::MockServer::start(vec![route]).await;
+        let (types, body) = content_types_and_body(&format!("{}/fixtures/n", server.url)).await;
+        assert_eq!(types, vec!["application/x-ndjson"], "one content-type header");
+        assert_eq!(body, NDJSON_BODY);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn per_test_server_paces_an_ndjson_stream_without_a_done_line() {
+        let server = per_test::MockServer::start(vec![per_test_ndjson_route(
+            "content-type",
+            "application/x-ndjson",
+            Some(30),
+        )])
+        .await;
+        let (types, body) = content_types_and_body(&format!("{}/fixtures/n", server.url)).await;
+        assert_eq!(types, vec!["application/x-ndjson"], "one content-type header");
+        assert_eq!(body, NDJSON_BODY, "a paced NDJSON stream has no DONE line");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn binary_server_matches_the_ndjson_content_type_in_any_case() {
+        let route = binary_ndjson_route("Content-Type", "Application/X-NDJSON; charset=utf-8", None);
+        let address = spawn_binary_server(std::collections::HashMap::from([("/fixtures/n".to_string(), route)])).await;
+        let (types, body) = content_types_and_body(&format!("http://{address}/fixtures/n")).await;
+        assert_eq!(types, vec!["application/x-ndjson"], "one content-type header");
+        assert_eq!(body, NDJSON_BODY);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn binary_server_paces_an_ndjson_stream_without_a_done_line() {
+        let route = binary_ndjson_route("content-type", "application/x-ndjson", Some(30));
+        let address = spawn_binary_server(std::collections::HashMap::from([("/fixtures/n".to_string(), route)])).await;
+        let (types, body) = content_types_and_body(&format!("http://{address}/fixtures/n")).await;
+        assert_eq!(types, vec!["application/x-ndjson"], "one content-type header");
+        assert_eq!(body, NDJSON_BODY, "a paced NDJSON stream has no DONE line");
+    }
 }

@@ -207,3 +207,39 @@ fn a_backend_with_no_capture_cannot_silently_green_a_request_body_assertion() {
         "error must name the field, got: {message}"
     );
 }
+
+/// Brew reads a CLI's output with `jq`, never the mock server, so a request-body assertion has
+/// nothing to read there. Generation refuses it and names the fixture and the field, instead of
+/// emitting a check that compares CLI output with the predicate's `1`.
+#[test]
+fn brew_refuses_a_request_body_assertion_instead_of_reading_cli_output() {
+    use crate::core::config::ResolvedCrateConfig;
+    use crate::e2e::codegen::E2eCodegen;
+    use crate::e2e::codegen::brew::BrewCodegen;
+
+    let mut fixture = mock_total_fixture("brew_body_check");
+    fixture.assertions[0].field = Some(r#"mock.requests["POST /api/chat"].body.options.num_ctx == 8192"#.to_string());
+    fixture.assertions[0].value = Some(serde_json::json!(1));
+
+    let error = BrewCodegen
+        .generate_gated(
+            &one_group(fixture.clone()),
+            &included_e2e_config(),
+            &ResolvedCrateConfig::default(),
+            &[],
+            &[],
+            &[],
+            &[],
+        )
+        .expect_err("brew has no way to read the mock server, so generation must fail");
+
+    let message = format!("{error:#}");
+    assert!(
+        message.contains(&fixture.id),
+        "error must name the fixture, got: {message}"
+    );
+    assert!(
+        message.contains("body.options.num_ctx"),
+        "error must name the field, got: {message}"
+    );
+}

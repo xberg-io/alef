@@ -112,10 +112,30 @@ fn json_at_path<'a>(root: &'a serde_json::Value, path: &str) -> Option<&'a serde
     Some(current)
 }
 
+/// The value of an integer JSON number, or `None` for a number written with a fraction or exponent.
+fn exact_integer(number: &serde_json::Number) -> Option<i128> {
+    number.as_i64().map(i128::from).or_else(|| number.as_u64().map(i128::from))
+}
+
+/// Number equality that treats `8192` and `8192.0` as the same number. Two integers compare as
+/// integers, so `9007199254740992` and `9007199254740993` stay different.
+fn json_numbers_equal(a: &serde_json::Number, b: &serde_json::Number) -> bool {
+    match (exact_integer(a), exact_integer(b)) {
+        (Some(x), Some(y)) => x == y,
+        (None, None) => a.as_f64() == b.as_f64(),
+        (Some(integer), None) | (None, Some(integer)) => {
+            let float = if exact_integer(a).is_some() { b } else { a };
+            float
+                .as_f64()
+                .is_some_and(|f| f.fract() == 0.0 && f.abs() < 1e18 && f as i128 == integer)
+        }
+    }
+}
+
 /// JSON equality that treats `8192` and `8192.0` as the same number.
 fn json_values_equal(actual: &serde_json::Value, expected: &serde_json::Value) -> bool {
     match (actual, expected) {
-        (serde_json::Value::Number(a), serde_json::Value::Number(b)) => a == b || a.as_f64() == b.as_f64(),
+        (serde_json::Value::Number(a), serde_json::Value::Number(b)) => json_numbers_equal(a, b),
         _ => actual == expected,
     }
 }
