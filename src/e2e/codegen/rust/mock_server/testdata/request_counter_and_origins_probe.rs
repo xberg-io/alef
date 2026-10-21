@@ -461,7 +461,8 @@ mod request_counter_and_origins_probe {
             if let Some(encoding) = encoding {
                 request = request.header("content-encoding", encoding);
             }
-            request.send().await.expect("post body");
+            // The server stops reading at the cap, so the send may report a closed connection.
+            let _ = request.send().await;
             let equals = control_body(&client, &base, key, "model", "equals", "%22m%22").await;
             let not_equals_other = control_body(&client, &base, key, "model", "not_equals", "%22other%22").await;
             let not_equals_same = control_body(&client, &base, key, "model", "not_equals", "%22m%22").await;
@@ -766,16 +767,13 @@ mod request_counter_and_origins_probe {
             "1",
             "a body over the cap is still counted"
         );
-        assert_eq!(
-            control_body(&client, &base, key, "a", "equals", "1").await,
-            "0",
-            "a body over 1 MiB is not stored"
-        );
-        assert_eq!(
-            control_body(&client, &base, key, "a", "not_equals", "1").await,
-            "1",
-            "the request matched, and its empty stored body does not hold the value"
-        );
+        for op in ["equals", "not_equals"] {
+            let answer = control_body(&client, &base, key, "a", op, "1").await;
+            assert!(
+                answer.contains("larger than 1048576 bytes"),
+                "{op}: a body over 1 MiB is not stored and must say so, got {answer:?}"
+            );
+        }
     }
 
     // -----------------------------------------------------------------------
