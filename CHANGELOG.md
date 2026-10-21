@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Generated Go streaming methods and module functions have a `WithErr` variant, such as `ChatStreamWithErr`. It returns the stream object and takes no context. Range over `stream.Chan()`, then read `stream.Err()` to see a stream error. The plain call keeps its channel return and still drops stream errors, as its doc comment now says (#623).
+
+### Fixed
+
+- Generated Node packages load with a named ESM import such as `import { createClient } from "pkg"`. A generated `index.mjs` re-declares each export by name, and `package.json` maps the `import` condition to it (#620).
+- Generated Node bindings throw errors that carry `kind`, `errorCode`, `statusCode`, `retryAfter` (milliseconds), `isTransient` and `errorType`. A generated `binding.cjs` moves these from the native error onto the thrown error, and the `.d.ts` declares them (#621).
+- Generated Node `chatStream`-style calls reject when the stream fails to open, instead of resolving and failing on the first read (#622).
+
 ## [0.112.0] - 2026-10-21
 
 ### Added
