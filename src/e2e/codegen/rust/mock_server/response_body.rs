@@ -22,4 +22,37 @@ pub(super) const RESPONSE_BODY_SOURCE: &str = r#"fn response_body_with_headers(h
     Body::from_stream(partial.chain(termination))
 }
 
+/// Whether a streaming route declares a newline-delimited JSON body through its content-type
+/// header (as Ollama's `/api/chat` sends). Such a stream has no `data:` prefix and no `[DONE]`.
+fn headers_declare_ndjson(headers: &[(String, String)]) -> bool {
+    headers
+        .iter()
+        .any(|(name, value)| name.eq_ignore_ascii_case("content-type") && value.to_ascii_lowercase().contains("ndjson"))
+}
+
+/// One stream event as the wire frames it: `data: <chunk>` plus a blank line for SSE, or the
+/// chunk plus one newline for NDJSON.
+fn frame_stream_event(chunk: &str, ndjson: bool) -> String {
+    if ndjson { format!("{chunk}\n") } else { format!("data: {chunk}\n\n") }
+}
+
+/// SSE body that waits `delay_ms` before each chunk, then ends with `data: [DONE]`.
+/// The server writes each event as soon as its delay ends, so a client sees the stream
+/// arrive over time instead of in one write. The task stops when the client disconnects.
+fn paced_sse_body(chunks: Vec<String>, delay_ms: u64, ndjson: bool) -> Body {
+    let (sender, receiver) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::convert::Infallible>>(1);
+    tokio::spawn(async move {
+        for chunk in chunks {
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            if sender.send(Ok(frame_stream_event(&chunk, ndjson).into_bytes())).await.is_err() {
+                return;
+            }
+        }
+        if !ndjson {
+            let _ = sender.send(Ok(b"data: [DONE]\n\n".to_vec())).await;
+        }
+    });
+    Body::from_stream(tokio_stream::wrappers::ReceiverStream::new(receiver))
+}
+
 "#;

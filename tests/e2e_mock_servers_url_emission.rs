@@ -56,6 +56,7 @@ fn make_host_root_fixture(id: &str) -> Fixture {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     }
 }
@@ -92,6 +93,7 @@ fn make_plain_fixture(id: &str) -> Fixture {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     }
 }
@@ -134,6 +136,7 @@ fn make_typed_url_fixture(id: &str) -> Fixture {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     }
 }

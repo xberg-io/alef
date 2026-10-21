@@ -213,6 +213,7 @@ mod tests {
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
             assertions: vec![crate::e2e::fixture::Assertion {
                 skip: None,

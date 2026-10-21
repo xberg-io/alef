@@ -630,6 +630,7 @@ mod visitor_tests {
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         }
     }

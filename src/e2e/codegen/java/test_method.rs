@@ -746,6 +746,7 @@ mod dropped_field_marker_tests {
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
             assertions: vec![Assertion {
                 assertion_type: "equals".to_string(),

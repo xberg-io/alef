@@ -440,3 +440,66 @@ fn every_wired_backend_emits_its_mock_capture_call_across_every_shape() {
         failures.join("\n\n")
     );
 }
+
+/// The predicate field a request-body assertion normalizes to (see
+/// `model::normalize_body_assertion`).
+const BODY_PREDICATE_FIELD: &str = r#"mock.requests["POST /api/chat"].body.options.num_ctx == 8192"#;
+
+/// The mock-server URL every backend must carry into its generated test for that field.
+const BODY_PREDICATE_ENDPOINT: &str =
+    "/__alef/requests/body?key=POST%20%2Fapi%2Fchat&field=options.num_ctx&op=equals&value=8192";
+
+/// A request-body assertion reaches the mock server's body endpoint in every wired backend.
+///
+/// Each backend reads the body comparison through the helper it already has for request counts,
+/// so a backend whose renderer built the URL by some other route, or dropped the assertion,
+/// would emit no body endpoint at all.
+#[test]
+fn every_wired_backend_emits_the_request_body_endpoint() {
+    let mut checked = 0usize;
+    let mut failures: Vec<String> = Vec::new();
+    for generator in all_generators() {
+        let language = generator.language_name();
+        if UNWIRED_LANGUAGES.contains(&language) {
+            continue;
+        }
+        let shape = Shape::MockOnly;
+        let fixture = Fixture {
+            assertions: vec![Assertion {
+                assertion_type: "equals".to_string(),
+                field: Some(BODY_PREDICATE_FIELD.to_string()),
+                value: Some(serde_json::json!(1)),
+                ..Default::default()
+            }],
+            ..shape.fixture(&format!("mock_matrix_body_{language}"))
+        };
+        let groups = [FixtureGroup {
+            category: "mock_matrix".to_string(),
+            fixtures: vec![fixture],
+        }];
+        checked += 1;
+        match generator.generate(
+            &groups,
+            &shape.e2e_config(language),
+            &shape.resolved_crate_config(),
+            &[],
+            &[],
+            &[],
+            &[],
+        ) {
+            Ok(files) => {
+                if !files.iter().any(|file| file.content.contains(BODY_PREDICATE_ENDPOINT)) {
+                    failures.push(format!("{language}: no emitted file holds the body endpoint"));
+                }
+            }
+            Err(error) => failures.push(format!("{language}: generation failed: {error:#}")),
+        }
+    }
+    assert!(checked >= 15, "only {checked} backends were checked");
+    assert!(
+        failures.is_empty(),
+        "{} failure(s):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}

@@ -37,6 +37,7 @@ fn error_fixture() -> Fixture {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
         assertions: vec![Assertion {
             assertion_type: "error".to_string(),

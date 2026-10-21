@@ -57,6 +57,8 @@ fn fixture_for(category: &str, id: &str) -> Fixture {
             body: Some(serde_json::Value::String("<html></html>".to_string())),
             stream_chunks: None,
             headers: std::collections::BTreeMap::new(),
+            delay_ms: None,
+            stream_chunk_delay_ms: None,
         }),
         visitor: None,
         args: Vec::new(),
@@ -76,6 +78,7 @@ fn fixture_for(category: &str, id: &str) -> Fixture {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     }
 }

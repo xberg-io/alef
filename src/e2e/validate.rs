@@ -1020,6 +1020,7 @@ mod tests {
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         }
     }
@@ -1260,6 +1261,7 @@ mod tests {
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         };
         let call = CallConfig {
@@ -1336,6 +1338,7 @@ mod tests {
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         };
         let call = CallConfig {
@@ -1400,6 +1403,7 @@ mod tests {
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         };
         let call = CallConfig {
@@ -1460,6 +1464,7 @@ mod tests {
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         };
         let mut config = make_e2e_config(vec![]);

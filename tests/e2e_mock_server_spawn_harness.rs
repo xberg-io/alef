@@ -79,6 +79,7 @@ fn make_http_fixture(id: &str) -> Fixture {
         }),
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     }
 }
