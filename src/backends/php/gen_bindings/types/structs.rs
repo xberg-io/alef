@@ -212,7 +212,7 @@ pub(crate) fn gen_opaque_struct_methods_with_exclude(
 
                 let method_code = format!(
                     "    #[php(name = \"{}\")]\n    \
-                         pub fn {}(&self{}{}) -> std::result::Result<Vec<String>, ext_php_rs::exception::PhpException> {{\n    \
+                         pub fn {}(&self{}{}) -> std::result::Result<ext_php_rs::types::Zval, ext_php_rs::exception::PhpException> {{\n    \
                          {}\n    \
                          }}",
                     method_name.to_lower_camel_case(),

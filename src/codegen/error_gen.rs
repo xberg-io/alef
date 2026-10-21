@@ -6,7 +6,7 @@ mod napi_wasm;
 mod native;
 mod php;
 mod pyo3;
-pub use php::{gen_php_error_stubs, gen_php_error_types, php_error_class_names};
+pub use php::{gen_php_error_dispatch, gen_php_error_stubs, gen_php_error_types, php_error_class_names};
 mod shared;
 
 pub(crate) use host_langs::{

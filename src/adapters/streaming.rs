@@ -341,18 +341,51 @@ fn gen_ruby_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
     (body, None)
 }
 
+/// The Rust name of the PHP class that holds the open stream of a streaming adapter.
+pub(crate) fn php_stream_handle_name(adapter: &AdapterConfig) -> String {
+    format!(
+        "{}{}Handle",
+        to_pascal_case(adapter.owner_type.as_deref().unwrap_or("")),
+        to_pascal_case(&adapter.name)
+    )
+}
+
 /// Streaming adapter for PHP (ext-php-rs).
 ///
-/// Emits a pair of standalone `#[php_function]` functions plus a per-adapter
-/// handle resource. The pair is `{owner_lc}_{name}_start` (returns the opaque handle id)
-/// and `{owner_lc}_{name}_next` (returns chunk JSON or null on end-of-stream).
-/// The PHP wrapper drives the pair via a `Generator` that `yield`s decoded chunks.
-///
-/// The corresponding method on the owner type is suppressed in the PHP backend
-/// (via the `streaming_method_keys` exclusion) to avoid double-emitting for the same method name.
+/// The method opens the stream before it returns, so an error on open throws at the call. It
+/// then returns a PHP `Generator`. A native handle class owns the live stream and offers
+/// `next()` (the next chunk as JSON text, `null` at the end) and `close()`. A small PHP function,
+/// compiled on first use in the request, loops over `next()` and yields each chunk. A failure
+/// part way through the stream throws from `next()` at that point, so the chunks the generator
+/// already yielded stay with the caller.
 fn gen_php_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
     let core_import = config.core_import_name();
+    let item_type = adapter.item_type.as_deref().unwrap_or("()");
+    let error_type = adapter.error_type.as_deref().unwrap_or("anyhow::Error");
+    let handle = php_stream_handle_name(adapter);
+    let namespace = crate::backends::php::naming::php_autoload_namespace(config);
+    let function = format!(
+        "alef_stream_{}_{}",
+        to_pascal_case(adapter.owner_type.as_deref().unwrap_or("")).to_snake_case(),
+        adapter.name.to_snake_case()
+    );
+    // The PHP source is embedded as a raw string, so no backslash needs doubling.
+    let php_source = format!(
+        "<?php\nnamespace {namespace};\nif (!\\function_exists('{namespace}\\{function}')) {{\n    \
+         function {function}(object $handle): \\Generator {{\n        \
+         try {{\n            \
+         while (($chunk = $handle->next()) !== null) {{\n                \
+         yield $chunk;\n            \
+         }}\n        \
+         }} finally {{\n            \
+         $handle->close();\n        \
+         }}\n    \
+         }}\n\
+         }}\n"
+    );
+    let function_name = format!("{namespace}\\{function}");
+    let class_name = format!("{namespace}\\{handle}");
 
     let args = call_args(adapter);
     let call_str = args.join(", ");
@@ -365,31 +398,85 @@ fn gen_php_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Strin
     };
 
     let body = format!(
-        "use futures_util::StreamExt;\n    \
-         // 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep\n    \
-         // extraction future (a nested archive member, a multi-stage OCR pipeline), and a\n    \
-         // stack overflow aborts the process with SIGBUS instead of raising a catchable panic.\n    \
-         const STREAMING_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;\n    \
-         let rt = tokio::runtime::Builder::new_multi_thread()\n        \
-             .enable_all()\n        \
-             .thread_stack_size(STREAMING_RUNTIME_STACK_SIZE_BYTES)\n        \
-             .build()\n        \
-             .map_err(|e| ext_php_rs::exception::PhpException::from_message(e.to_string()))?;\n    \
-         {bindings_block}\
-         rt.block_on(async {{\n        \
-             let stream = self.inner.{core_path}({call_str}).await\n            \
-                 .map_err(|e| ext_php_rs::exception::PhpException::from_message(e.to_string()))?;\n        \
-             let chunks: Vec<String> = stream\n            \
-                 .collect::<Vec<_>>().await\n            \
-                 .into_iter()\n            \
-                 .collect::<std::result::Result<Vec<_>, _>>()\n            \
-                 .map(|chunks| chunks.into_iter().map(|c| serde_json::to_string(&c).unwrap_or_default()).collect())\n            \
-                 .map_err(|e| ext_php_rs::exception::PhpException::from_message(e.to_string()))?;\n        \
-             Ok(chunks)\n    \
-         }})"
+        "{bindings_block}let stream = WORKER_RUNTIME\n        \
+             .block_on(self.inner.{core_path}({call_str}))\n        \
+             .map_err(alef_php_err)?;\n    \
+         {handle}::into_generator(stream)"
     );
 
-    (body, None)
+    let stream_type = format!(
+        "futures_util::stream::BoxStream<'static, std::result::Result<{core_import}::{item_type}, {core_import}::{error_type}>>"
+    );
+    let struct_def = format!(
+        r####"/// The open stream of `{core_path}`, read chunk by chunk by the PHP generator that the
+/// method returns.
+#[php_class]
+#[php(name = r#"{class_name}"#)]
+pub struct {handle} {{
+    stream: std::sync::Mutex<Option<{stream_type}>>,
+}}
+
+impl {handle} {{
+    /// Wrap an open stream in a PHP generator that yields each chunk as JSON text.
+    fn into_generator(stream: {stream_type}) -> std::result::Result<ext_php_rs::types::Zval, ext_php_rs::exception::PhpException> {{
+        const FUNCTION: &str = r#"{function_name}"#;
+        const SOURCE: &str = r#"{php_source}"#;
+        let to_exception = |e: &dyn std::fmt::Display| ext_php_rs::exception::PhpException::from_message(e.to_string());
+        let handle = Self {{ stream: std::sync::Mutex::new(Some(stream)) }};
+        let handle = ext_php_rs::convert::IntoZval::into_zval(handle, false).map_err(|e| to_exception(&e))?;
+        let generator = match ext_php_rs::types::ZendCallable::try_from_name(FUNCTION) {{
+            Ok(callable) => callable,
+            Err(_) => {{
+                ext_php_rs::php_eval::execute(SOURCE).map_err(|e| to_exception(&e))?;
+                ext_php_rs::types::ZendCallable::try_from_name(FUNCTION).map_err(|e| to_exception(&e))?
+            }}
+        }};
+        generator.try_call(vec![&handle]).map_err(|e| to_exception(&e))
+    }}
+}}
+
+#[php_impl]
+impl {handle} {{
+    /// The next chunk as JSON text, or `null` at the end of the stream. A failure of the stream
+    /// throws here, after the chunks that came before it.
+    pub fn next(&self) -> std::result::Result<Option<String>, ext_php_rs::exception::PhpException> {{
+        use futures_util::StreamExt;
+        let mut guard = self.stream.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(stream) = guard.as_mut() else {{
+            return Ok(None);
+        }};
+        match WORKER_RUNTIME.block_on(stream.next()) {{
+            Some(Ok(chunk)) => serde_json::to_string(&chunk)
+                .map(Some)
+                .map_err(|e| ext_php_rs::exception::PhpException::from_message(e.to_string())),
+            Some(Err(e)) => {{
+                *guard = None;
+                Err(alef_php_err(e))
+            }}
+            None => {{
+                *guard = None;
+                Ok(None)
+            }}
+        }}
+    }}
+
+    /// Drop the stream. The generator calls this when it ends or is destroyed.
+    pub fn close(&self) {{
+        *self.stream.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }}
+}}"####
+    );
+
+    (body, Some(struct_def))
+}
+
+/// The Rust name of the PHP class that holds the open stream of a streaming adapter.
+pub(crate) fn php_stream_handle_name(adapter: &AdapterConfig) -> String {
+    format!(
+        "{}{}Handle",
+        to_pascal_case(adapter.owner_type.as_deref().unwrap_or("")),
+        to_pascal_case(&adapter.name)
+    )
 }
 
 /// Streaming adapter for Rustler/Elixir.
