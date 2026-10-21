@@ -129,10 +129,13 @@ fn swift_cases(swift_src: &str) -> Vec<String> {
 /// The Swift spelling `emit_enum` derives a `case` name from, so the two lists can be compared as
 /// the same set of variants rather than as raw strings.
 fn as_swift_case(variant_name: &str) -> String {
-    use heck::ToLowerCamelCase;
-    crate::backends::swift::naming::swift_source_ident(&variant_name.to_lower_camel_case())
-        .trim_matches('`')
-        .to_string()
+    crate::codegen::naming::public_host_identifier(
+        crate::core::config::Language::Swift,
+        crate::codegen::naming::PublicIdentifierKind::EnumVariant,
+        variant_name,
+    )
+    .trim_matches('`')
+    .to_string()
 }
 
 fn emitted_surfaces(configured_feature: Option<&str>, rust_path: &str) -> (Vec<String>, Vec<String>) {

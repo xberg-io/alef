@@ -1,1 +1,1 @@
-let {{ name }}: Option<String> = {{ name }}.and_then(|v| if v.is_nil() { None } else { Some(String::try_convert(v).unwrap_or_default()) });
+let {{ name }}: Option<String> = match {{ name }} { Some(v) if !v.is_nil() => Some(String::try_convert(v)?), _ => None };

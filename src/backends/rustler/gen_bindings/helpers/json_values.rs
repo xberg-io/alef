@@ -388,6 +388,14 @@ pub(in crate::backends::rustler::gen_bindings) fn elixir_typespec(
     }
 }
 
+/// The `t()` type of a generated struct module, `{app_module}.{Name}.t()`.
+///
+/// This is the single place that builds the module name the struct emitter declares, so a
+/// field spec and a return spec cannot disagree about it.
+pub(in crate::backends::rustler::gen_bindings) fn elixir_struct_module_type(app_module: &str, name: &str) -> String {
+    format!("{app_module}.{}.t()", elixir_safe_type_name(name))
+}
+
 /// Map a TypeRef to an Elixir struct-field typespec for generated public DTO modules.
 ///
 /// Unlike NIF-boundary specs, known generated DTO names can reference their public
@@ -401,7 +409,7 @@ pub(in crate::backends::rustler::gen_bindings) fn elixir_struct_field_typespec(
 ) -> String {
     match ty {
         TypeRef::Named(name) if known_struct_types.contains(name) && !opaque_types.contains(name) => {
-            format!("{app_module}.{}.t()", elixir_safe_type_name(name))
+            elixir_struct_module_type(app_module, name)
         }
         TypeRef::Optional(inner) => {
             let inner_spec =

@@ -1,3 +1,4 @@
+use crate::backends::zig::gen_bindings::errors::{UNMATCHED_ERROR_SET, resolve_zig_error_type};
 use crate::backends::zig::gen_bindings::helpers::emit_cleaned_zig_doc;
 use crate::codegen::c_consumer;
 use crate::core::ir::{MethodDef, TypeDef, TypeRef};
@@ -8,7 +9,7 @@ use super::params::{
     emit_static_method_param_conversion, method_param_needs_from_json, param_zig_type_with_enums,
     static_method_c_arg_names,
 };
-use super::render;
+use super::{null_handle_return, render};
 
 /// Emit a static method (constructor) on an opaque handle type.
 ///
@@ -21,6 +22,7 @@ pub(super) fn emit_opaque_static_method(
     prefix: &str,
     struct_names: &HashSet<String>,
     enum_names: &HashSet<String>,
+    declared_errors: &[String],
     out: &mut String,
 ) {
     emit_cleaned_zig_doc(out, &method.doc, "");
@@ -50,17 +52,37 @@ pub(super) fn emit_opaque_static_method(
         .iter()
         .any(|p| method_param_needs_from_json(p, struct_names));
 
-    // `opaque_static_body.jinja` unconditionally returns `error.UnknownFfiError` on a null
-    // handle, so the declared set must carry that member even when nothing else can fail —
-    // otherwise the signature and the body disagree and the emitted Zig does not compile. ~keep
-    let err_set = if body_needs_invalid_json {
-        "error{OutOfMemory,InvalidJson,UnknownFfiError}"
-    } else if body_needs_try {
-        "error{OutOfMemory,UnknownFfiError}"
-    } else {
-        "error{UnknownFfiError}"
+    // Every null handle reads the native error, including cancellation; a declared Rust
+    // error type additionally determines the available typed variants. ~keep
+    let zig_error_type = method
+        .error_type
+        .as_ref()
+        .map(|e| resolve_zig_error_type(e, declared_errors));
+    let return_ty = match &zig_error_type {
+        Some(err_ty) => {
+            let mut members = Vec::new();
+            if body_needs_try {
+                members.push("OutOfMemory");
+            }
+            if body_needs_invalid_json {
+                members.push("InvalidJson");
+            }
+            if members.is_empty() {
+                format!("{err_ty}!{}", ty.name)
+            } else {
+                format!("({err_ty}||error{{{}}})!{}", members.join(","), ty.name)
+            }
+        }
+        None => {
+            let err_set = if body_needs_invalid_json {
+                "error{OutOfMemory,InvalidJson,UnknownFfiError,Cancelled}"
+            } else {
+                UNMATCHED_ERROR_SET
+            };
+            format!("{err_set}!{}", ty.name)
+        }
     };
-    let return_ty = format!("{err_set}!{}", ty.name);
+    let null_return = null_handle_return(zig_error_type.as_deref());
 
     out.push_str(&render(
         "opaque_static_signature.jinja",
@@ -91,6 +113,7 @@ pub(super) fn emit_opaque_static_method(
             c_call => &c_call,
             upper_prefix => &upper_prefix,
             type_name => &ty.name,
+            null_return => &null_return,
         },
     ));
 }

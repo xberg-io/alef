@@ -30,6 +30,7 @@ use std::path::Path;
 use tempfile::TempDir;
 
 mod gate;
+mod return_types;
 
 /// Elixir module prefix for the generated enum module under test.
 const APP_MODULE: &str = "AlefOracle";

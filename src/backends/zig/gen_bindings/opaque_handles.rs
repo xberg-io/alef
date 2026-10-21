@@ -1,4 +1,6 @@
 mod constructors;
+#[cfg(test)]
+mod creation_tests;
 mod instance_methods;
 mod params;
 mod returns;
@@ -20,6 +22,13 @@ fn render(template_name: &str, ctx: minijinja::Value) -> String {
     crate::backends::zig::template_env::render(template_name, ctx)
 }
 
+/// Preserve the native context and cancellation even when the factory declares no Rust
+/// error type. ~keep
+fn null_handle_return(zig_error_type: Option<&str>) -> String {
+    let error_type = zig_error_type.unwrap_or(super::errors::UNMATCHED_ERROR_SET);
+    format!("_error_with_message({error_type})")
+}
+
 /// The lookup context `emit_opaque_handle` needs beyond the type/prefix pair, grouped to keep its
 /// own parameter count under the lint limit. `pub(crate)` (matching `emit_opaque_handle` itself)
 /// because its call sites in `gen_bindings/mod.rs` and `gen_bindings/result_presence/tests.rs`
@@ -38,9 +47,10 @@ pub(crate) fn emit_opaque_constructor(
     prefix: &str,
     ctor: &ClientConstructorConfig,
     top_level_names: &HashSet<String>,
+    declared_errors: &[String],
     out: &mut String,
 ) {
-    emit_constructor_impl(ty, prefix, ctor, top_level_names, out);
+    emit_constructor_impl(ty, prefix, ctor, top_level_names, declared_errors, out);
 }
 
 /// Emit a Zig struct wrapper for an opaque handle type (one with `is_opaque = true`
@@ -125,7 +135,7 @@ fn emit_streaming_structs(
 fn emit_static_methods(
     ty: &TypeDef,
     prefix: &str,
-    _declared_errors: &[String],
+    declared_errors: &[String],
     struct_names: &HashSet<String>,
     enum_names: &HashSet<String>,
     out: &mut String,
@@ -135,7 +145,7 @@ fn emit_static_methods(
         .iter()
         .filter(|m| m.is_static && !m.returns_ref_to_owner(&ty.name))
     {
-        emit_opaque_static_method(method, ty, prefix, struct_names, enum_names, out);
+        emit_opaque_static_method(method, ty, prefix, struct_names, enum_names, declared_errors, out);
         out.push('\n');
     }
 }

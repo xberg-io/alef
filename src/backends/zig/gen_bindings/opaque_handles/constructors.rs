@@ -1,3 +1,4 @@
+use crate::backends::zig::gen_bindings::errors::resolve_zig_error_type;
 use crate::codegen::c_consumer;
 use crate::core::config::workspace::ClientConstructorConfig;
 use crate::core::ir::TypeDef;
@@ -5,7 +6,7 @@ use heck::AsSnakeCase;
 use std::collections::HashSet;
 
 use super::params::{ffi_ty_needs_dupez, ffi_ty_to_zig};
-use super::render;
+use super::{null_handle_return, render};
 
 /// Emit a top-level `pub fn create_<type_snake>(allocator, params...) !TypeName`
 /// constructor that wraps the `c.{prefix}_{type_snake}_new(...)` FFI symbol.
@@ -14,6 +15,7 @@ pub(crate) fn emit_opaque_constructor(
     prefix: &str,
     ctor: &ClientConstructorConfig,
     top_level_names: &HashSet<String>,
+    declared_errors: &[String],
     out: &mut String,
 ) {
     let type_snake = AsSnakeCase(&ty.name).to_string();
@@ -87,6 +89,14 @@ pub(crate) fn emit_opaque_constructor(
         .collect::<Vec<_>>()
         .join(", ");
 
+    // A constructor always can fail, so a null handle always reads the native error. With no
+    // declared error type the helper falls back to `anyerror`, as a stream start does. ~keep
+    let zig_error_type = ctor.error_type.as_ref().map_or_else(
+        || "anyerror".to_string(),
+        |e| resolve_zig_error_type(e, declared_errors),
+    );
+    let null_return = null_handle_return(Some(&zig_error_type));
+
     out.push_str(&render(
         "opaque_constructor_body.jinja",
         crate::alef_context! {
@@ -95,6 +105,7 @@ pub(crate) fn emit_opaque_constructor(
             c_args => &c_args,
             upper_prefix => &upper_prefix,
             type_name => &ty.name,
+            null_return => &null_return,
         },
     ));
 }

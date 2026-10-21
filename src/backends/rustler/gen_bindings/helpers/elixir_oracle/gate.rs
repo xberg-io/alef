@@ -39,7 +39,7 @@ const ORACLE_FILTER: &str = "elixir_oracle";
 
 /// How many `#[ignore]`d lanes the parent module defines. Pinned rather than merely checked for
 /// "more than zero" so that deleting three of the four is a failure, not a silent halving.
-const EXPECTED_IGNORED_LANES: usize = 5;
+const EXPECTED_IGNORED_LANES: usize = 6;
 
 const CI_WORKFLOW: &str = ".github/workflows/ci.yml";
 

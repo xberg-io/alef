@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (BREAKING)
+
+- Generated Rust native-to-mirror error conversions use `TryFrom` so a newer native variant can fail safely instead of being forced into an existing mirror variant. Replace `MirrorError::from(native)` with `MirrorError::try_from(native)`.
+- Rename Swift enum case `None` to `none_` so optional fields retain explicitly selected values. Update `Type.none` to `Type.none_`; serialized values are unchanged (GH#593).
+- Generated Zig wrappers for infallible Rust string, list and map returns now report native failures as `UnknownFfiError` or `Cancelled`. Update exhaustive error handling for these variants and use `try` or `catch` when calling the wrappers.
+
 ### Fixed
 
 - Update `rustls-webpki` to 0.103.16 and `webpki-roots` to 1.0.10 to resolve RUSTSEC-2026-0381 and RUSTSEC-2026-0382.
@@ -15,10 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Assert declared Dart error classes or all-unit enum values, nullable scalar payloads, and available introspection methods in generated e2e tests. Binding-excluded errors retain explicit unsupported-assertion markers. (GH#602)
 - Keep optional data-enum fields optional and preserve `Some("")`, `Some(false)`, and `Some(0)` through Dart conversions. (GH#601)
 - Repair Freezed 4 single-variant `copyWith` output and exclude custom-codec implementation functions from FRB coverage checks.
+- Preserve cancellation and native error messages when generated Zig static factories fail without a declared Rust error type.
+- Return the typed native error from a generated Zig constructor or static function that fails, and keep its message for `_last_error()`, instead of `error.UnknownFfiError`. The declared error set of a static function that has an error type now admits the typed errors (GH#594).
+- Check the C result of a generated Zig function that returns a string, list or map and cannot fail. A null result, such as the one for an argument that is not valid UTF-8, now returns an error with the native message instead of slicing a null pointer. The declared error set of such a function now lists `UnknownFfiError` and `Cancelled` (GH#595).
+- Describe Elixir return values with their generated public DTO types recursively, including lists and optional values; retain maps for types without a public DTO and preserve input argument types. (GH#596)
+- Raise `TypeError` in the generated Ruby binding when an optional string argument is neither nil nor a string. The binding replaced the failed conversion with an empty string and ran the call with it. (GH#597)
 
-### Changed (BREAKING)
-
-- Generated Rust native-to-mirror error conversions use `TryFrom` so a newer native variant can fail safely instead of being forced into an existing mirror variant. Replace `MirrorError::from(native)` with `MirrorError::try_from(native)`.
 
 ## [0.111.1] - 2026-10-19
 

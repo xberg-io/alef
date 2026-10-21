@@ -8,6 +8,8 @@ use crate::backends::zig::trait_bridge::emit_trait_bridge;
 mod components;
 mod constructor_defaults;
 mod errors;
+#[cfg(test)]
+mod function_null_tests;
 mod functions;
 mod helpers;
 mod opaque_handles;
@@ -381,7 +383,7 @@ impl Backend for ZigBackend {
             );
             content.push('\n');
             if let Some(ctor) = config.client_constructors.get(&ty.name) {
-                emit_opaque_constructor(ty, &prefix, ctor, &top_level_names, &mut content);
+                emit_opaque_constructor(ty, &prefix, ctor, &top_level_names, &declared_errors, &mut content);
                 content.push('\n');
             }
         }
