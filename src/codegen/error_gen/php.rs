@@ -261,7 +261,11 @@ pub(super) fn classes(api: &ApiSurface, namespace: &str, root: Option<&str>) -> 
                 });
             }
         };
-        add(error.name.clone(), family.parent.or_else(|| root.map(str::to_string)), Vec::new());
+        add(
+            error.name.clone(),
+            family.parent.or_else(|| root.map(str::to_string)),
+            Vec::new(),
+        );
         for variant in &error.variants {
             add(
                 python_exception_name(&variant.name, &error.name),
@@ -290,7 +294,10 @@ pub fn gen_php_error_stubs(api: &ApiSurface, root: Option<&str>) -> anyhow::Resu
 }
 
 pub fn php_error_class_names(api: &ApiSurface, root: Option<&str>) -> anyhow::Result<Vec<String>> {
-    Ok(classes(api, "", root)?.into_iter().map(|class| class.rust_name).collect())
+    Ok(classes(api, "", root)?
+        .into_iter()
+        .map(|class| class.rust_name)
+        .collect())
 }
 
 /// `fn alef_php_err`: turns the error a core call returned into the typed exception of its family.
@@ -311,7 +318,10 @@ pub fn gen_php_error_dispatch(api: &ApiSurface, core_import: &str) -> String {
             }
         })
         .collect::<Vec<_>>();
-    crate::codegen::template_env::render("error_gen/php_error_dispatch.jinja", crate::alef_context! { arms => arms })
+    crate::codegen::template_env::render(
+        "error_gen/php_error_dispatch.jinja",
+        crate::alef_context! { arms => arms },
+    )
 }
 
 pub(super) fn gen_converter(error: &ErrorDef, core_import: &str) -> String {

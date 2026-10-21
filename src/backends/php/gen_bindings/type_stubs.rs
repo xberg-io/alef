@@ -110,7 +110,10 @@ pub(super) fn generate_type_stubs(
     }
     content.push_str(&error_methods::duration_error_method_stubs(api));
     content.push_str("}\n\n");
-    content.push_str(&crate::codegen::error_gen::gen_php_error_stubs(api, Some(&crate::backends::php::naming::php_root_exception_name(&extension_name)))?);
+    content.push_str(&crate::codegen::error_gen::gen_php_error_stubs(
+        api,
+        Some(&crate::backends::php::naming::php_root_exception_name(&extension_name)),
+    )?);
 
     // Derived exactly as `rust_bindings.rs` derives them for the real extension, so the stub's
     // constructor-param filter (`php_field_can_be_constructor_param`) sees the same enum/opaque

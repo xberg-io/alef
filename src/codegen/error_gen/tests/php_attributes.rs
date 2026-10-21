@@ -112,7 +112,8 @@ fn assert_nullable_payloads(normalized: bool) {
         errors: vec![error.clone()],
         ..Default::default()
     };
-    let output = gen_php_error_types(&api, "Sample", None).unwrap() + &gen_php_error_converter(&error, "sample_markup_rs");
+    let output =
+        gen_php_error_types(&api, "Sample", None).unwrap() + &gen_php_error_converter(&error, "sample_markup_rs");
     let stubs = gen_php_error_stubs(&api, None).unwrap();
     assert!(stubs.contains("public ?int $status;"), "{stubs}");
     assert!(stubs.contains("public ?string $body;"), "{stubs}");

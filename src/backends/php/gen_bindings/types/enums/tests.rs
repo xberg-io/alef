@@ -442,7 +442,10 @@ mod variant_constructor_tests {
             generated.contains("serde::Serialize, serde::Deserialize)]"),
             "got:\n{generated}"
         );
-        assert!(!generated.contains("impl<'de> serde::Deserialize<'de>"), "got:\n{generated}");
+        assert!(
+            !generated.contains("impl<'de> serde::Deserialize<'de>"),
+            "got:\n{generated}"
+        );
     }
 }
 

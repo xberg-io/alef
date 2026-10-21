@@ -281,21 +281,31 @@ mod optional_named_setter_tests {
                 || out.contains("#[php(getter)]\n    pub fn get_choices(&self)"),
             "the property getter is missing:\n{out}"
         );
-        assert!(out.contains("#[php(name = \"getChoices\")]"), "the method is missing:\n{out}");
+        assert!(
+            out.contains("#[php(name = \"getChoices\")]"),
+            "the method is missing:\n{out}"
+        );
     }
 
     #[test]
     fn prop_field_does_not_get_a_second_property() {
         let out = gen_one_field_impl(field("id", TypeRef::String, false), &AHashSet::new(), &AHashSet::new());
 
-        assert!(!out.contains("#[php(getter)]"), "the field already owns the property:\n{out}");
+        assert!(
+            !out.contains("#[php(getter)]"),
+            "the field already owns the property:\n{out}"
+        );
         assert!(out.contains("pub fn get_id(&self)"), "{out}");
     }
 
     /// A JSON string value must read as its bare text, not as a quoted JSON literal.
     #[test]
     fn json_field_getter_returns_a_string_value_as_bare_text() {
-        let out = gen_one_field_impl(field("content", TypeRef::Json, false), &AHashSet::new(), &AHashSet::new());
+        let out = gen_one_field_impl(
+            field("content", TypeRef::Json, false),
+            &AHashSet::new(),
+            &AHashSet::new(),
+        );
 
         assert!(
             out.contains("serde_json::Value::String(text) => Some(text)"),

@@ -265,9 +265,7 @@ fn gen_opaque_instance_method(
         let core_call = format!("{inner_access}.{}({})", method.name, call_args);
         if method.error_type.is_some() {
             if matches!(method.return_type, TypeRef::Unit) {
-                format!(
-                    "{refs_preamble}{core_call}.map_err(alef_magnus_err)?;\n        Ok(())"
-                )
+                format!("{refs_preamble}{core_call}.map_err(alef_magnus_err)?;\n        Ok(())")
             } else {
                 let wrap = generators::wrap_return_with_mutex(
                     "result",
@@ -279,9 +277,7 @@ fn gen_opaque_instance_method(
                     method.returns_ref,
                     method.returns_cow,
                 );
-                format!(
-                    "{refs_preamble}let result = {core_call}.map_err(alef_magnus_err)?;\n        Ok({wrap})"
-                )
+                format!("{refs_preamble}let result = {core_call}.map_err(alef_magnus_err)?;\n        Ok({wrap})")
             }
         } else {
             let wrapped = generators::wrap_return_with_mutex(

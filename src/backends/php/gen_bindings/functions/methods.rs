@@ -411,9 +411,7 @@ pub(crate) fn gen_static_method(
         let is_enum_return = matches!(&method.return_type, TypeRef::Named(n) if mapper.enum_names.contains(n.as_str()));
         if method.error_type.is_some() {
             if is_enum_return {
-                format!(
-                    "{core_call}.map(|val| format!(\"{{:?}}\", val)).map_err(alef_php_err)"
-                )
+                format!("{core_call}.map(|val| format!(\"{{:?}}\", val)).map_err(alef_php_err)")
             } else {
                 let wrap = php_wrap_return(
                     "val",

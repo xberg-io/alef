@@ -837,7 +837,14 @@ fn gen_struct_methods_impl(
             } else {
                 format!("{{ let v = &self.{name}; {JSON_TEXT_EXPR} }}", name = field.name)
             };
-            add_php_getter(impl_builder, &getter_ident, &field.name, "Option<String>", &body, has_property);
+            add_php_getter(
+                &mut impl_builder,
+                &getter_ident,
+                &field.name,
+                "Option<String>",
+                &body,
+                has_property,
+            );
             continue;
         }
         let map_fn = |ty: &crate::core::ir::TypeRef| mapper.map_type(ty);
@@ -869,7 +876,14 @@ fn gen_struct_methods_impl(
             format!("self.{name}.clone()", name = field.name)
         };
 
-        add_php_getter(impl_builder, &getter_ident, &field.name, &rust_return_type, &body, has_property);
+        add_php_getter(
+            &mut impl_builder,
+            &getter_ident,
+            &field.name,
+            &rust_return_type,
+            &body,
+            has_property,
+        );
 
         // GH#461: `is_optional_named` fields (e.g. `ExtractionConfig.security_limits`) had a
         // getter but no way whatsoever to set them — not via the constructor (excluded, see

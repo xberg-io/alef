@@ -542,7 +542,7 @@ fn test_gen_magnus_error_converter() {
 
 #[test]
 fn magnus_dispatch_downcasts_to_each_error_converter() {
-    let api = ApiSurface {
+    let api = crate::core::ir::ApiSurface {
         errors: vec![sample_error()],
         ..Default::default()
     };
@@ -554,7 +554,7 @@ fn magnus_dispatch_downcasts_to_each_error_converter() {
 
 #[test]
 fn magnus_registers_error_classes_with_readers() {
-    let api = ApiSurface {
+    let api = crate::core::ir::ApiSurface {
         errors: vec![sample_error()],
         ..Default::default()
     };

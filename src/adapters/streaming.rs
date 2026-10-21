@@ -470,15 +470,6 @@ impl {handle} {{
     (body, Some(struct_def))
 }
 
-/// The Rust name of the PHP class that holds the open stream of a streaming adapter.
-pub(crate) fn php_stream_handle_name(adapter: &AdapterConfig) -> String {
-    format!(
-        "{}{}Handle",
-        to_pascal_case(adapter.owner_type.as_deref().unwrap_or("")),
-        to_pascal_case(&adapter.name)
-    )
-}
-
 /// Streaming adapter for Rustler/Elixir.
 ///
 /// Emits a pair of standalone `#[rustler::nif]` functions plus a per-adapter
