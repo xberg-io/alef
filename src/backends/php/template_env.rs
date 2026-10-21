@@ -263,6 +263,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/php_flat_enum_struct_start.jinja"),
     ),
     (
+        "php_flat_enum_inline_deserialize.jinja",
+        include_str!("templates/php_flat_enum_inline_deserialize.jinja"),
+    ),
+    (
         "php_flat_enum_tag_field.jinja",
         include_str!("templates/php_flat_enum_tag_field.jinja"),
     ),

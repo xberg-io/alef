@@ -403,6 +403,47 @@ mod variant_constructor_tests {
             "a host-owned cfg-gated variant's factory must stay unconditionally reachable:\n{code:?}"
         );
     }
+
+    fn message_enum() -> EnumDef {
+        EnumDef {
+            name: "Message".to_string(),
+            rust_path: "test_lib::Message".to_string(),
+            variants: vec![
+                variant("System", vec![field("_0", TypeRef::Named("SystemMessage".to_string()))]),
+                variant("User", vec![field("_0", TypeRef::Named("UserMessage".to_string()))]),
+            ],
+            serde_tag: Some("role".to_string()),
+            serde_rename_all: Some("lowercase".to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn newtype_payload_enum_reads_the_payload_next_to_the_tag() {
+        let generated = gen_flat_data_enum(&message_enum(), &mapper(), None);
+        assert!(
+            generated.contains("#[derive(Clone, Default, serde::Serialize)]"),
+            "the derived Deserialize looks for the payload under the variant key; got:\n{generated}"
+        );
+        assert!(
+            generated.contains("impl<'de> serde::Deserialize<'de> for Message"),
+            "got:\n{generated}"
+        );
+        assert!(
+            generated.contains(r#""user" => value.user = Some(Self::payload(object, "user")"#),
+            "the rest of the object is the payload of the variant the tag names; got:\n{generated}"
+        );
+    }
+
+    #[test]
+    fn struct_variant_enum_keeps_the_derived_deserialize() {
+        let generated = gen_flat_data_enum(&shape_enum(), &mapper(), None);
+        assert!(
+            generated.contains("serde::Serialize, serde::Deserialize)]"),
+            "got:\n{generated}"
+        );
+        assert!(!generated.contains("impl<'de> serde::Deserialize<'de>"), "got:\n{generated}");
+    }
 }
 
 #[cfg(test)]
