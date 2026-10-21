@@ -68,7 +68,7 @@ fn build_system_project() -> (tempfile::TempDir, ValidationSession) {
         working_directory: root.to_path_buf(),
         manifest: Some(root.join("build.zig")),
         fingerprint: "build-system-project".into(),
-        env: super::shared_test_cache_env(),
+        env: std::collections::BTreeMap::new(),
         // Nonempty and pointing at a directory that does not even exist: proving this test
         // requires no `-I` ever reaching the command, not merely a `-I` that happens to resolve.
         include_paths: vec![root.join("vendor/include")],
@@ -111,8 +111,8 @@ fn session_include_paths_are_not_forwarded_to_the_build_system_command() {
     if !super::zig_is_runnable() {
         return;
     }
-    super::tests::warm_shared_global_cache();
-    let (_directory, session) = build_system_project();
+    let (_directory, session) = super::tests::on_shared_global_cache(build_system_project());
+    super::tests::assert_on_warm_shared_global_cache(&session);
     let snippet = build_system_snippet();
 
     let (status, output) = ZigValidator

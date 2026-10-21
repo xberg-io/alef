@@ -13,17 +13,20 @@ pub(super) const TOOLCHAIN_TEST_TIMEOUT_SECS: u64 = 300;
 // is roughly 190 s on a 4-core runner and about 300 s on a slower host. ~keep
 const WARM_UP_TIMEOUT_SECS: u64 = 900;
 
+type Fixture = (tempfile::TempDir, ValidationSession);
+
 /// Builds one C-importing package into the shared Zig global cache, once per test process.
 ///
-/// Every real-`zig` test below compiles into that cache (see `shared_test_global_cache`). Without
-/// this call, the tests that start first each wait for the cold compile inside their own
-/// 300 s budget, so a slow host fails them for time spent on the toolchain, not on the build they
-/// check. The warm-up pays that cost once, outside any single test's budget. Each test still runs
-/// its own real `zig build` with the full budget. ~keep
-pub(super) fn warm_shared_global_cache() {
+/// Without this, the test that starts first pays the cold compile of the build runner, the
+/// standard library and libc translation inside its own 300 s budget, so a slow host fails it for
+/// time spent on the toolchain, not on the build it checks. The warm-up pays that cost once,
+/// outside any single test's budget. Each test still runs its own real `zig build` with the full
+/// budget. ~keep
+fn warm_shared_global_cache() {
     static WARMED: std::sync::Once = std::sync::Once::new();
     WARMED.call_once(|| {
-        let (package, session) = sample_package(true);
+        let (package, mut session) = sample_package(true);
+        session.env.extend(shared_test_cache_env());
         let snippet = zig_snippet(
             "const sample_package = @import(\"sample_package\");\n\npub fn main() void {\n    _ = sample_package.value();\n}\n",
         );
@@ -35,17 +38,20 @@ pub(super) fn warm_shared_global_cache() {
     });
 }
 
-/// The sessions the heavy tests build must compile into the shared cache, and the warm-up must
-/// have filled it. Without the first, the tests fall back to a cold cache each; without the
-/// second, the first test to run pays the cold compile inside its own budget. ~keep
-#[test]
-fn sessions_compile_into_a_warmed_shared_global_cache() {
-    if !zig_is_runnable() {
-        return;
-    }
+/// Moves a fixture session onto the shared Zig global cache, after the cache is warm.
+///
+/// The fixtures themselves keep a cache of their own, because the ignored Windows diagnostics in
+/// `diagnostic_tests` measure a cold per-session cache. Only the tests that check a build opt in. ~keep
+pub(super) fn on_shared_global_cache((root, mut session): Fixture) -> Fixture {
     warm_shared_global_cache();
+    session.env.extend(shared_test_cache_env());
+    (root, session)
+}
 
-    let (_package, session) = sample_package(true);
+/// Fails the calling test when its session does not use the warmed shared cache. Each test that
+/// calls [`on_shared_global_cache`] also calls this, so dropping the call or the warm-up turns that
+/// test red on any host, not only on a slow one. ~keep
+pub(super) fn assert_on_warm_shared_global_cache(session: &ValidationSession) {
     let shared = shared_test_global_cache();
     assert_eq!(
         session.env.get("ZIG_GLOBAL_CACHE_DIR").map(PathBuf::from),
@@ -330,10 +336,11 @@ fn a_snippet_compiles_against_the_include_path_its_manifest_declares() {
     if !zig_is_runnable() {
         return;
     }
-    warm_shared_global_cache();
 
-    let (declaring, declaring_session) = sample_project(true);
-    let (omitting, omitting_session) = sample_project(false);
+    let (declaring, declaring_session) = on_shared_global_cache(sample_project(true));
+    let (omitting, omitting_session) = on_shared_global_cache(sample_project(false));
+    assert_on_warm_shared_global_cache(&declaring_session);
+    assert_on_warm_shared_global_cache(&omitting_session);
     let snippet = zig_snippet(
         "const sample_binding = @import(\"sample_binding\");\n\npub fn main() void {\n    _ = sample_binding.value();\n}\n",
     );
@@ -383,10 +390,11 @@ fn a_snippet_compiles_when_the_package_is_built_from_an_unrelated_working_direct
     if !zig_is_runnable() {
         return;
     }
-    warm_shared_global_cache();
 
-    let (rebased, rebased_session) = sample_package(true);
-    let (raw, raw_session) = sample_package(false);
+    let (rebased, rebased_session) = on_shared_global_cache(sample_package(true));
+    let (raw, raw_session) = on_shared_global_cache(sample_package(false));
+    assert_on_warm_shared_global_cache(&rebased_session);
+    assert_on_warm_shared_global_cache(&raw_session);
     let snippet = zig_snippet(
         "const sample_package = @import(\"sample_package\");\n\npub fn main() void {\n    _ = sample_package.value();\n}\n",
     );
@@ -468,7 +476,7 @@ pub(super) fn sample_package(rebase_onto_build_root: bool) -> (tempfile::TempDir
         working_directory: elsewhere,
         manifest: Some(package.join("build.zig")),
         fingerprint: "foreign-cwd-project".into(),
-        env: super::shared_test_cache_env(),
+        env: std::collections::BTreeMap::new(),
         include_paths: Vec::new(),
         rust_features: Vec::new(),
         rust_dependencies: std::collections::BTreeMap::new(),
@@ -521,7 +529,7 @@ pub(super) fn sample_project(with_include: bool) -> (tempfile::TempDir, Validati
         working_directory: root.to_path_buf(),
         manifest: Some(root.join("build.zig")),
         fingerprint: "neutral-project".into(),
-        env: super::shared_test_cache_env(),
+        env: std::collections::BTreeMap::new(),
         include_paths: Vec::new(),
         rust_features: Vec::new(),
         rust_dependencies: std::collections::BTreeMap::new(),
@@ -600,7 +608,7 @@ fn debug_only_ffi_project() -> (tempfile::TempDir, ValidationSession) {
         working_directory: package.clone(),
         manifest: Some(package.join("build.zig")),
         fingerprint: "debug-only-ffi-project".into(),
-        env: super::shared_test_cache_env(),
+        env: std::collections::BTreeMap::new(),
         include_paths: Vec::new(),
         rust_features: Vec::new(),
         rust_dependencies: std::collections::BTreeMap::new(),
@@ -619,9 +627,9 @@ fn a_snippet_links_against_the_debug_profile_when_release_is_missing() {
     if !zig_is_runnable() {
         return;
     }
-    warm_shared_global_cache();
 
-    let (project, session) = debug_only_ffi_project();
+    let (project, session) = on_shared_global_cache(debug_only_ffi_project());
+    assert_on_warm_shared_global_cache(&session);
     let snippet = zig_snippet(
         "const sample_binding = @import(\"sample_binding\");\n\npub fn main() void {\n    _ = sample_binding.value();\n}\n",
     );
