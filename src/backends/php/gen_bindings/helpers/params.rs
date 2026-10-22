@@ -53,9 +53,7 @@ pub(crate) fn param_conversion_is_fallible(
 /// refused with an error that names the parameter; it never reaches the core call as a default
 /// value. The `?` needs a wrapper that returns `PhpResult`: see [`has_json_param`].
 pub(crate) fn php_json_decode_expr(php_name: &str, param: &str, optional: bool) -> String {
-    let refuse = format!(
-        "map_err(|e| PhpException::from_message(format!(\"invalid JSON in `{param}`: {{e}}\")))?"
-    );
+    let refuse = format!("map_err(|e| PhpException::from_message(format!(\"invalid JSON in `{param}`: {{e}}\")))?");
     if optional {
         format!("{php_name}.as_deref().map(serde_json::from_str).transpose().{refuse}")
     } else {

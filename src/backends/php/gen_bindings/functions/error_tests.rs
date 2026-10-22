@@ -100,12 +100,18 @@ fn should_refuse_invalid_json_in_php_free_function_params() {
             false,
             &empty,
         );
-        assert!(output.contains("from_str"), "positive control, optional={optional}: {output}");
+        assert!(
+            output.contains("from_str"),
+            "positive control, optional={optional}: {output}"
+        );
         assert!(
             !output.contains("unwrap_or_default()") && !output.contains(".ok()"),
             "optional={optional}: {output}"
         );
-        assert!(output.contains("invalid JSON in `payload`"), "optional={optional}: {output}");
+        assert!(
+            output.contains("invalid JSON in `payload`"),
+            "optional={optional}: {output}"
+        );
     }
 }
 

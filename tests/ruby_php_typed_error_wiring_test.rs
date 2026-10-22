@@ -125,7 +125,10 @@ fn api() -> ApiSurface {
             FunctionDef {
                 name: "send_payload".to_string(),
                 rust_path: "test_lib::send_payload".to_string(),
-                params: vec![param("payload", TypeRef::Json, false), param("extra", TypeRef::Json, true)],
+                params: vec![
+                    param("payload", TypeRef::Json, false),
+                    param("extra", TypeRef::Json, true),
+                ],
                 return_type: TypeRef::String,
                 ..Default::default()
             },
@@ -147,7 +150,10 @@ fn generated(backend: &dyn Backend, config: &ResolvedCrateConfig, file: &str) ->
 #[test]
 fn ruby_core_calls_raise_the_typed_exception() {
     let lib = generated(&MagnusBackend, &ruby_config(), "lib.rs");
-    assert!(lib.contains("fn alef_magnus_err<E"), "dispatch function missing:\n{lib}");
+    assert!(
+        lib.contains("fn alef_magnus_err<E"),
+        "dispatch function missing:\n{lib}"
+    );
     assert!(lib.contains("fn client_error_to_magnus_err("), "{lib}");
     assert!(
         lib.contains("let result = test_lib::ping().map_err(alef_magnus_err)?;"),
@@ -156,7 +162,10 @@ fn ruby_core_calls_raise_the_typed_exception() {
     assert!(lib.contains("define_error(\"RateLimited\""), "{lib}");
     assert!(lib.contains("define_attr(\"status_code\""), "{lib}");
     assert!(lib.contains("define_attr(\"retry_after\""), "{lib}");
-    assert!(!lib.contains("e.to_string())).map_err"), "no call may keep the message-only RuntimeError:\n{lib}");
+    assert!(
+        !lib.contains("e.to_string())).map_err"),
+        "no call may keep the message-only RuntimeError:\n{lib}"
+    );
 }
 
 #[test]
@@ -171,7 +180,10 @@ fn ruby_optional_primitive_arguments_accept_nil() {
         lib.contains("Some(v) if !v.is_nil() => Some(u64::try_convert(v)?)"),
         "an explicit nil for an optional integer must read as absent:\n{lib}"
     );
-    assert!(lib.contains("Some(v) if !v.is_nil() => Some(u32::try_convert(v)?)"), "{lib}");
+    assert!(
+        lib.contains("Some(v) if !v.is_nil() => Some(u32::try_convert(v)?)"),
+        "{lib}"
+    );
 }
 
 #[test]
@@ -185,7 +197,10 @@ fn php_core_calls_throw_the_typed_exception() {
     );
     assert!(lib.contains("info_status_code"), "{lib}");
     assert!(lib.contains("#[php(name = \"statusCode\")]"), "{lib}");
-    assert!(lib.contains("TestLibException"), "the root exception class is missing:\n{lib}");
+    assert!(
+        lib.contains("TestLibException"),
+        "the root exception class is missing:\n{lib}"
+    );
     assert!(!lib.contains("PhpException::from_message(e.to_string()))"), "{lib}");
 }
 
@@ -196,7 +211,10 @@ fn php_json_parameters_refuse_text_that_does_not_parse() {
         lib.contains("invalid JSON in `payload`") && lib.contains("invalid JSON in `extra`"),
         "the refusal must name each parameter:\n{lib}"
     );
-    assert!(lib.contains("send_payload"), "control: the function is generated:\n{lib}");
+    assert!(
+        lib.contains("send_payload"),
+        "control: the function is generated:\n{lib}"
+    );
     assert!(
         !lib.contains("serde_json::from_str(&payload).unwrap_or_default()"),
         "a Json parameter must not default silently:\n{lib}"
