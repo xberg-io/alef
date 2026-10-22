@@ -681,7 +681,7 @@ fn optional_field_uses_zig_optional_syntax() {
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
-    assert!(content.contains("value: ?[]const u8,"), "missing optional: {content}");
+    assert!(content.contains("value: ?[]const u8 = null,"), "missing optional: {content}");
 }
 
 #[test]
@@ -2140,3 +2140,48 @@ mod cfg_gate;
 
 #[path = "backends_zig_gen_bindings/native_boundary.rs"]
 mod native_boundary;
+
+/// The generated file must carry the error's status and retry delay to the caller: the
+/// production path is `generate_bindings`, not the helper emitter alone.
+#[test]
+fn generated_bindings_expose_the_status_and_retry_delay_of_the_last_error() {
+    let method = |name: &str, return_type: TypeRef| MethodDef {
+        name: name.to_string(),
+        return_type,
+        ..MethodDef::default()
+    };
+    let api = ApiSurface {
+        unresolved_modules: Vec::new(),
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            exception_base: None,
+            name: "DemoError".into(),
+            rust_path: "demo::DemoError".into(),
+            original_rust_path: String::new(),
+            variants: vec![],
+            doc: String::new(),
+            methods: vec![
+                method("status_code", TypeRef::Primitive(PrimitiveType::U16)),
+                method("retry_after", TypeRef::Optional(Box::new(TypeRef::Duration))),
+            ],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }],
+        excluded_type_paths: ::std::collections::BTreeMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+    assert!(content.contains("pub fn _last_error_details() LastErrorDetails"), "{content}");
+    assert!(content.contains("status_code: u16 = 0,"), "{content}");
+    assert!(content.contains("retry_after: ?u64 = null,"), "{content}");
+}

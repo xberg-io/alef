@@ -172,6 +172,66 @@ mod tests {
         }
     }
 
+    fn introspective_error() -> ErrorDef {
+        use crate::core::ir::{MethodDef, PrimitiveType, TypeRef};
+        let method = |name: &str, return_type: TypeRef| MethodDef {
+            name: name.to_string(),
+            return_type,
+            ..MethodDef::default()
+        };
+        let mut error = request_error(Some(100));
+        error.methods = vec![
+            method("status_code", TypeRef::Primitive(PrimitiveType::U16)),
+            method("is_transient", TypeRef::Primitive(PrimitiveType::Bool)),
+            method("error_type", TypeRef::String),
+            method("retry_after", TypeRef::Optional(Box::new(TypeRef::Duration))),
+        ];
+        error
+    }
+
+    /// The FFI layer captures `status_code`, `retry_after` and the other introspection methods
+    /// with the failing call; the deferred `_free` calls then clear that state. The helper must
+    /// copy every getter into binding-owned storage before returning the error. ~keep
+    #[test]
+    fn capture_copies_every_error_introspection_getter_before_the_deferred_frees_run() {
+        let mut out = String::new();
+        emit_helpers("example_pack", &[introspective_error()], &mut out);
+
+        assert!(out.contains("pub const LastErrorDetails = struct {"), "{out}");
+        for declaration in [
+            "    status_code: u16 = 0,\n",
+            "    is_transient: bool = false,\n",
+            "    error_type: ?[]const u8 = null,\n",
+            "    retry_after: ?u64 = null,\n",
+        ] {
+            assert!(out.contains(declaration), "missing {declaration:?}:\n{out}");
+        }
+        assert!(
+            out.contains("pub fn _last_error_details() LastErrorDetails {\n    return _captured_details;\n}"),
+            "{out}"
+        );
+        let capture = out.split("fn _capture_error_message() void {").nth(1).expect("capture fn");
+        let capture = capture.split("\n}\n").next().unwrap();
+        for read in [
+            "_captured_details.status_code = c.example_pack_last_error_status_code();",
+            "_captured_details.is_transient = c.example_pack_last_error_is_transient();",
+            "c.example_pack_last_error_error_type()",
+            "const _retry_after_ms = c.example_pack_last_error_retry_after();",
+            "_captured_details.retry_after = if (_retry_after_ms >= 0) @as(u64, @intCast(_retry_after_ms)) else null;",
+        ] {
+            assert!(capture.contains(read), "capture must read {read:?}:\n{capture}");
+        }
+    }
+
+    /// An error with no capturable method has nothing to copy, so no details type is emitted.
+    #[test]
+    fn no_introspection_method_means_no_details_type() {
+        let mut out = String::new();
+        emit_helpers("example_pack", &[request_error(Some(100))], &mut out);
+        assert!(!out.contains("LastErrorDetails"), "{out}");
+        assert!(!out.contains("_captured_details"), "{out}");
+    }
+
     #[test]
     fn error_with_message_dispatches_to_each_declared_error() {
         let errors = vec![request_error(Some(100))];
