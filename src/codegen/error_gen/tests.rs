@@ -529,10 +529,10 @@ fn test_gen_php_error_converter() {
 
 #[test]
 fn test_gen_magnus_error_converter() {
-    let error = sample_error();
-    let output = gen_magnus_error_converter(&error, "sample_markup_rs", "SampleMarkup");
+    let error = error_with_methods();
+    let output = gen_magnus_error_converter(&error, "sample_app", "SampleMarkup");
     assert!(
-        output.contains("fn conversion_error_to_magnus_err(e: sample_markup_rs::ConversionError) -> magnus::Error {")
+        output.contains("fn sample_app_error_to_magnus_err(e: sample_app::error::SampleAppError) -> magnus::Error {")
     );
     assert!(output.contains("let class: magnus::ExceptionClass = module.const_get(class_name)?;"));
     assert!(output.contains("define_module(\"SampleMarkup\")"));
@@ -543,23 +543,23 @@ fn test_gen_magnus_error_converter() {
 #[test]
 fn magnus_dispatch_downcasts_to_each_error_converter() {
     let api = crate::core::ir::ApiSurface {
-        errors: vec![sample_error()],
+        errors: vec![error_with_methods()],
         ..Default::default()
     };
-    let output = gen_magnus_error_dispatch(&api, "sample_markup_rs");
+    let output = gen_magnus_error_dispatch(&api, "sample_app");
     assert!(output.contains("fn alef_magnus_err<E: std::fmt::Display + 'static>(e: E) -> magnus::Error {"));
-    assert!(output.contains("downcast::<sample_markup_rs::ConversionError>()"));
-    assert!(output.contains("conversion_error_to_magnus_err(*typed)"));
+    assert!(output.contains("downcast::<sample_app::error::SampleAppError>()"));
+    assert!(output.contains("sample_app_error_to_magnus_err(*typed)"));
 }
 
 #[test]
 fn magnus_registers_error_classes_with_readers() {
     let api = crate::core::ir::ApiSurface {
-        errors: vec![sample_error()],
+        errors: vec![error_with_methods()],
         ..Default::default()
     };
     let lines = gen_magnus_error_class_registrations(&api).unwrap().join("\n");
-    assert!(lines.contains("module.define_error(\"ConversionError\""));
+    assert!(lines.contains("module.define_error(\"SampleAppError\""));
     assert!(lines.contains("define_attr(\"status_code\", magnus::Attr::Read)"));
     assert!(lines.contains("define_alias(\"transient?\", \"is_transient\")"));
 }

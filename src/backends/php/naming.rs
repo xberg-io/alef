@@ -62,6 +62,12 @@ pub fn php_ext_api_class_name(extension_name: &str) -> String {
     format!("{}Api", extension_name.to_pascal_case())
 }
 
+/// The name of the project-level exception class every typed error extends, for example
+/// `LiterLlmException` for the extension `liter_llm`. The stub and the runtime use the same name.
+pub(crate) fn php_root_exception_name(extension_name: &str) -> String {
+    format!("{}Exception", heck::ToPascalCase::to_pascal_case(extension_name))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,10 +148,4 @@ namespace = "SampleMarkdown"
         );
         assert_eq!(php_autoload_namespace(&r), "SampleMarkdown");
     }
-}
-
-/// The name of the project-level exception class every typed error extends, for example
-/// `LiterLlmException` for the extension `liter_llm`. The stub and the runtime use the same name.
-pub(crate) fn php_root_exception_name(extension_name: &str) -> String {
-    format!("{}Exception", heck::ToPascalCase::to_pascal_case(extension_name))
 }
