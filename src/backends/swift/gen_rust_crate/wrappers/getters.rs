@@ -93,6 +93,7 @@ pub(super) fn emit_getters(
     first_class_names: &HashSet<&str>,
     exclude_fields: &HashSet<String>,
     configured_features: &std::collections::HashSet<&str>,
+    text_types: &HashSet<&str>,
     out: &mut String,
 ) {
     let parent_first_class = first_class_names.contains(ty.name.as_str());
@@ -160,6 +161,8 @@ pub(super) fn emit_getters(
                     name => &ctx.name,
                 },
             ));
+        } else if is_text_type_field(field, text_types) {
+            emit_text_type_getter(field, &ctx, out);
         } else if is_enum_named(&field.ty, enum_names) {
             emit_enum_string_getter(field, &ctx, enum_names, unit_enum_names, out);
         } else if is_vec_of_enum(&field.ty, enum_names) {
@@ -219,6 +222,36 @@ fn emit_remaining_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx: &
             return_type => &ctx.bridge_ty_owned,
             name => &ctx.name,
         },
+    ));
+}
+
+/// Returns true when `field` holds an enum named in `untagged_union_text_types`.
+///
+/// Those enums stand for "the text of the value" (a plain string or a list of typed parts), so
+/// a getter returns the text itself, not the enum serialized as JSON.
+fn is_text_type_field(field: &FieldDef, text_types: &HashSet<&str>) -> bool {
+    let named = match &field.ty {
+        TypeRef::Optional(inner) => inner.as_ref(),
+        other => other,
+    };
+    matches!(named, TypeRef::Named(n) if text_types.contains(n.as_str()))
+}
+
+/// Emit the getter for a field whose enum is listed in `untagged_union_text_types`.
+///
+/// The value converts through the core type's `Display` impl, the same conversion the WASM
+/// backend uses for these fields. A `Text` value gives its string without JSON quotes, and a
+/// list of parts gives the joined text of its text parts.
+fn emit_text_type_getter(field: &FieldDef, ctx: &GetterCtx, out: &mut String) {
+    let optional = field.optional || matches!(field.ty, TypeRef::Optional(_));
+    let body = if optional {
+        format!("self.0.{}.as_ref().map(|v| v.to_string())", ctx.name)
+    } else {
+        format!("self.0.{}.to_string()", ctx.name)
+    };
+    out.push_str(&format!(
+        "    pub fn {}(&self) -> {} {{\n        {}\n    }}\n",
+        ctx.getter_name, ctx.bridge_ty_owned, body
     ));
 }
 
@@ -734,6 +767,7 @@ mod tests {
             &HashSet::new(),
             &HashSet::new(),
             &HashSet::new(),
+            &HashSet::new(),
             &mut out,
         );
 
@@ -763,6 +797,7 @@ mod tests {
             &HashSet::new(),
             &HashSet::new(),
             &HashSet::new(),
+            &HashSet::new(),
             &mut out,
         );
 
@@ -774,6 +809,72 @@ mod tests {
         assert!(
             !out.contains("serde_json::to_string(v)"),
             "the optional getter must not JSON-encode the inner Path value:\n{out}"
+        );
+    }
+
+    fn emit_message_getters(optional: bool, text_types: &HashSet<&str>) -> String {
+        let field = FieldDef {
+            name: "content".to_string(),
+            ty: TypeRef::Named("AssistantContent".to_string()),
+            optional,
+            ..Default::default()
+        };
+        let ty = serde_struct("AssistantMessage", vec![field]);
+        let enum_names: HashSet<&str> = ["AssistantContent"].into_iter().collect();
+        let mut out = String::new();
+        emit_getters(
+            &ty,
+            &HashMap::new(),
+            &enum_names,
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            text_types,
+            &mut out,
+        );
+        out
+    }
+
+    /// A field whose enum is in `untagged_union_text_types` returns the reply text. The pre-fix
+    /// getter serialized the enum to JSON, so a text reply carried JSON quotes and a reply made of
+    /// parts came back as the JSON array.
+    #[test]
+    fn should_return_plain_text_for_an_optional_text_type_field() {
+        let text_types: HashSet<&str> = ["AssistantContent"].into_iter().collect();
+        let out = emit_message_getters(true, &text_types);
+
+        assert!(
+            out.contains("self.0.content.as_ref().map(|v| v.to_string())"),
+            "a text-type field getter must return the text of the value:\n{out}"
+        );
+        assert!(
+            !out.contains("serde_json::to_string"),
+            "a text-type field getter must not return JSON text:\n{out}"
+        );
+    }
+
+    #[test]
+    fn should_return_plain_text_for_a_required_text_type_field() {
+        let text_types: HashSet<&str> = ["AssistantContent"].into_iter().collect();
+        let out = emit_message_getters(false, &text_types);
+
+        assert!(
+            out.contains("self.0.content.to_string()"),
+            "a required text-type field getter must return the text of the value:\n{out}"
+        );
+        assert!(!out.contains("serde_json::to_string"), "no JSON round-trip expected:\n{out}");
+    }
+
+    /// An enum that is not a text type keeps the JSON encoding that Swift decodes.
+    #[test]
+    fn should_keep_json_for_an_enum_outside_the_text_types() {
+        let out = emit_message_getters(true, &HashSet::new());
+
+        assert!(
+            out.contains("serde_json::to_string"),
+            "an enum outside the text types keeps the JSON getter:\n{out}"
         );
     }
 }

@@ -712,6 +712,7 @@ fn emit_lib_rs(
         out.push_str("mod extern_callbacks;\n\n");
     }
 
+    let text_types: HashSet<&str> = config.untagged_union_text_types.iter().map(String::as_str).collect();
     for ty in &visible_types {
         out.push_str(&wrappers::emit_type_wrapper(
             ty,
@@ -724,6 +725,7 @@ fn emit_lib_rs(
             &first_class_names,
             exclude_fields,
             configured_features,
+            &text_types,
         ));
         out.push('\n');
         if ty.is_opaque && !ty.methods.iter().all(|m| m.sanitized) && !ty.methods.is_empty() {

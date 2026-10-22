@@ -32,6 +32,7 @@ pub(crate) fn emit_type_wrapper(
     first_class_names: &HashSet<&str>,
     exclude_fields: &HashSet<String>,
     configured_features: &HashSet<&str>,
+    text_types: &HashSet<&str>,
 ) -> String {
     let mut out = String::new();
     let source_path = resolve_type_path(&ty.name, source_crate, type_paths);
@@ -100,6 +101,7 @@ pub(crate) fn emit_type_wrapper(
             first_class_names,
             exclude_fields,
             configured_features,
+            text_types,
             &mut out,
         );
 
@@ -326,6 +328,7 @@ mod tests {
             &HashSet::new(),
             &HashSet::new(),
             &HashSet::new(),
+            &HashSet::new(),
         );
 
         assert!(
@@ -355,6 +358,7 @@ mod tests {
             &ty,
             "sample",
             &HashMap::new(),
+            &HashSet::new(),
             &HashSet::new(),
             &HashSet::new(),
             &HashSet::new(),
@@ -465,6 +469,7 @@ mod tests {
             &std::collections::HashSet::new(),
             &exclude_fields,
             &configured_features,
+            &HashSet::new(),
         );
 
         assert!(output.contains("pub struct TestType"));
@@ -504,6 +509,7 @@ mod tests {
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
+            &HashSet::new(),
         )
     }
 
