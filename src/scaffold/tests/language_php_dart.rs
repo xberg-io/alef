@@ -519,7 +519,7 @@ fn test_scaffold_dart() {
         files[7].path,
         PathBuf::from("packages/dart/example/my_lib_example.dart")
     );
-    assert!(files[7].content.contains("void main"));
+    assert!(files[7].content.contains("Future<void> main() async"));
     assert!(
         files[7].content.contains("await my_lib.RustLib.init();"),
         "example must init the native library before its first call; got: {}",

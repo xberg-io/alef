@@ -74,10 +74,14 @@ fn emit_text_accessor_arm(out: &mut String, name: &str, variant: &EnumVariant) {
                 out.push('.');
                 out.push_str(&variant.name);
                 out.push_str(" -> {\n");
-                out.push_str("            val mapper = com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()\n");
+                out.push_str(
+                    "            val mapper = com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()\n",
+                );
                 out.push_str("            val sb = StringBuilder()\n");
                 out.push_str("            for (part in this.value) {\n");
-                out.push_str("                val node = mapper.valueToTree<com.fasterxml.jackson.databind.JsonNode>(part)\n");
+                out.push_str(
+                    "                val node = mapper.valueToTree<com.fasterxml.jackson.databind.JsonNode>(part)\n",
+                );
                 out.push_str("                val typeNode = node.get(\"type\")\n");
                 out.push_str("                if (typeNode?.asText() == \"text\") {\n");
                 out.push_str("                    val textNode = node.get(\"text\")\n");

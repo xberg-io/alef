@@ -864,7 +864,10 @@ mod tests {
             out.contains("self.0.content.to_string()"),
             "a required text-type field getter must return the text of the value:\n{out}"
         );
-        assert!(!out.contains("serde_json::to_string"), "no JSON round-trip expected:\n{out}");
+        assert!(
+            !out.contains("serde_json::to_string"),
+            "no JSON round-trip expected:\n{out}"
+        );
     }
 
     /// An enum that is not a text type keeps the JSON encoding that Swift decodes.

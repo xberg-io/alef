@@ -290,7 +290,9 @@ From the repository root:
     );
 
     let example_init = match style {
-        DartStyle::Frb => format!("  // Load the native library once, before the first call.\n  await {module_name}.RustLib.init();\n"),
+        DartStyle::Frb => format!(
+            "  // Load the native library once, before the first call.\n  await {module_name}.RustLib.init();\n"
+        ),
         DartStyle::Ffi => String::new(),
     };
     let example_dart = format!(
