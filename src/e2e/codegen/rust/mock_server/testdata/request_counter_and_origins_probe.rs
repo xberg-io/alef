@@ -449,7 +449,12 @@ mod request_counter_and_origins_probe {
             ("not json", b"hello".to_vec(), None, Some("not valid JSON")),
             ("empty body", Vec::new(), None, Some("not valid JSON")),
             ("gzip body", gzip, Some("gzip"), Some("not valid JSON")),
-            ("body over 1 MiB", big.into_bytes(), None, Some("larger than 1048576 bytes")),
+            (
+                "body over 1 MiB",
+                big.into_bytes(),
+                None,
+                Some("larger than 1048576 bytes"),
+            ),
         ];
         for (name, body, encoding, reason) in cases {
             client
@@ -478,7 +483,10 @@ mod request_counter_and_origins_probe {
                         ("not_equals on another value", &not_equals_other),
                         ("not_equals on the same value", &not_equals_same),
                     ] {
-                        assert!(answer.contains(reason), "{name}: {label} must say \"{reason}\", got {answer:?}");
+                        assert!(
+                            answer.contains(reason),
+                            "{name}: {label} must say \"{reason}\", got {answer:?}"
+                        );
                         assert!(answer != "0" && answer != "1", "{name}: {label} answered {answer:?}");
                     }
                 }
@@ -496,7 +504,12 @@ mod request_counter_and_origins_probe {
         let client = reqwest::Client::new();
         let key = "POST%20%2Ffixtures%2Fd";
         for body in [r#"{"model":"m"}"#, "hello"] {
-            client.post(format!("{base}/fixtures/d")).body(body).send().await.expect("post");
+            client
+                .post(format!("{base}/fixtures/d"))
+                .body(body)
+                .send()
+                .await
+                .expect("post");
         }
         for op in ["equals", "not_equals"] {
             let answer = control_body(&client, &base, key, "model", op, "%22m%22").await;
@@ -657,7 +670,15 @@ mod request_counter_and_origins_probe {
             .send()
             .await
             .expect("post");
-        let answer = control_body(&client, &server.url, "POST%20%2Ffixtures%2Fu", "model", "not_equals", "%22m%22").await;
+        let answer = control_body(
+            &client,
+            &server.url,
+            "POST%20%2Ffixtures%2Fu",
+            "model",
+            "not_equals",
+            "%22m%22",
+        )
+        .await;
         assert!(answer.contains("not valid JSON"), "got {answer:?}");
     }
 
