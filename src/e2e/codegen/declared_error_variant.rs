@@ -146,9 +146,10 @@ pub(crate) fn declared_variant<'a>(
 ///   this — it is backed by the same NIF glue.
 /// - `r`: no error-conversion code exists in the R backend at all; extendr's default panic
 ///   handling surfaces a generic `simpleError`.
-/// - `typescript` (NAPI): every throw site is `napi::Error::new(Status::GenericFailure,
-///   e.to_string())` — generic status, generic `.name`, message only, even though NAPI-RS
-///   supports custom JS `Error` subclasses.
+/// - `typescript` (NAPI): every thrown error keeps a generic `.name` and its message, and also
+///   carries `kind`, `statusCode` and `retryAfter` as own properties (the generated
+///   `binding.cjs` shim). The e2e assertion still matches message and `.name` only, so a
+///   variant identity stays unsubstantiated here until the assertion reads `kind`.
 /// - `wasm`: fallible calls use `JsValue::from_str(&e.to_string())`, exposing only the display
 ///   message. Generated structured-error helpers are not used by these call sites. ~keep
 ///

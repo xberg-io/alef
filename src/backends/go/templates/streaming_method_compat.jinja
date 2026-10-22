@@ -1,9 +1,17 @@
 // {{ method_name }} starts the stream using a background context.
-// Use {{ method_name }}WithContext to cancel a stream before it ends.
+// The channel it returns closes the same way when the stream ends in an error and when it ends
+// cleanly, so this call drops stream errors. Use {{ method_name }}WithErr to read them, or
+// {{ method_name }}WithContext to read them and to cancel a stream before it ends.
 func ({{ receiver_name }} *{{ receiver_type }}) {{ method_name }}({{ params }}) (<-chan {{ item_type }}, error) {
 	stream, err := {{ receiver_name }}.{{ method_with_context_name }}(context.Background(){% if param_args %}, {{ param_args }}{% endif %})
 	if err != nil {
 		return nil, err
 	}
 	return stream.Chan(), nil
+}
+
+// {{ method_name }}WithErr starts the stream using a background context and returns the stream
+// object. Range over Chan on the result, then read Err to see a stream error.
+func ({{ receiver_name }} *{{ receiver_type }}) {{ method_name }}WithErr({{ params }}) (*{{ stream_type_name }}, error) {
+	return {{ receiver_name }}.{{ method_with_context_name }}(context.Background(){% if param_args %}, {{ param_args }}{% endif %})
 }

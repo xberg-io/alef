@@ -132,10 +132,29 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
     let exception_content = format!(
         "{marker}\n\n\
          package {package}\n\n\
-         class {exception_class}(message: String?, cause: Throwable?) : RuntimeException(message, cause) {{\n\
-         {}\n\
-         }}\n",
-        "    constructor(message: String?) : this(message, null)"
+         /**\n\
+         \x20* Thrown by the native layer. `kind` names the core error variant, `status` is its HTTP\n\
+         \x20* status and `retryAfterMs` is the delay the server asked for. Each is `null` when the\n\
+         \x20* error carries none.\n\
+         \x20*/\n\
+         class {exception_class} private constructor(\n\
+         \x20   message: String?,\n\
+         \x20   cause: Throwable?,\n\
+         \x20   val kind: String?,\n\
+         \x20   val status: Int?,\n\
+         \x20   val retryAfterMs: Long?,\n\
+         ) : RuntimeException(message, cause) {{\n\
+         \x20   constructor(message: String?, cause: Throwable?) : this(message, cause, null, null, null)\n\n\
+         \x20   constructor(message: String?) : this(message, null)\n\n\
+         \x20   /** Called by the native layer. A negative `status` or `retryAfterMs` means absent. */\n\
+         \x20   constructor(message: String?, kind: String?, status: Int, retryAfterMs: Long) : this(\n\
+         \x20       message,\n\
+         \x20       null,\n\
+         \x20       kind,\n\
+         \x20       if (status >= 0) status else null,\n\
+         \x20       if (retryAfterMs >= 0) retryAfterMs else null,\n\
+         \x20   )\n\
+         }}\n"
     );
     files.push(GeneratedFile {
         path: kotlin_source_dir.join(format!("{exception_class}.kt")),

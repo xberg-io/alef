@@ -1,1 +1,0 @@
-let {{ bound_name }}: Option<serde_json::Value> = {{ php_name }}.as_deref().map(|s| serde_json::from_str(s).unwrap_or_default());

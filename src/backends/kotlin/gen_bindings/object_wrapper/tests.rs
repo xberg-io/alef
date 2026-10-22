@@ -785,6 +785,47 @@ fn untagged_union_text_types_emits_text_accessor() {
     );
 }
 
+/// Regression: the parts of a reply are typed objects (`List<AssistantPart>`), so the `text()`
+/// accessor must not test them with `is JsonNode` (kotlinc rejects that check as always false, and
+/// a build that accepts a cast returns an empty string). It must read each part through its
+/// JSON tree.
+#[test]
+fn untagged_union_text_accessor_reads_typed_parts_through_json_tree() {
+    let en = make_enum(
+        "AssistantContent",
+        None,
+        true,
+        None,
+        vec![
+            make_variant("Text", None, vec![make_field("_0", TypeRef::String)]),
+            make_variant(
+                "Parts",
+                None,
+                vec![make_field(
+                    "_0",
+                    TypeRef::Vec(Box::new(TypeRef::Named("AssistantPart".to_string()))),
+                )],
+            ),
+        ],
+    );
+    let mut out = String::new();
+    let text_types = vec!["AssistantContent".to_string()];
+    emit_enum(&en, &mut out, "", &text_types);
+
+    assert!(
+        !out.contains("part is "),
+        "text() must not test a typed part with an instance check; got:\n{out}",
+    );
+    assert!(
+        out.contains("mapper.valueToTree<com.fasterxml.jackson.databind.JsonNode>(part)"),
+        "text() must convert each typed part to a JSON tree; got:\n{out}",
+    );
+    assert!(
+        out.contains("sb.append(textNode.asText())"),
+        "text() must concatenate the text of each text part; got:\n{out}",
+    );
+}
+
 /// Untagged sealed class WITHOUT text_types config does NOT emit text() accessor.
 ///
 /// When an untagged enum is not in `config.untagged_union_text_types`,

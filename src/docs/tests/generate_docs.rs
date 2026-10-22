@@ -397,6 +397,12 @@ fn streaming_adapter_docs_use_language_native_stream_types() {
     );
     assert!(
         go.contains(
+            "func (o *DefaultClient) ChatStreamWithErr(req ChatCompletionRequest) (*DefaultClientChatStreamStream, error)"
+        ),
+        "{go}"
+    );
+    assert!(
+        go.contains(
             "func (o *DefaultClient) ChatStreamWithContext(ctx context.Context, req ChatCompletionRequest) (*DefaultClientChatStreamStream, error)"
         ),
         "{go}"

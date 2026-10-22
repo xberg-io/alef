@@ -64,6 +64,17 @@ static __ALEF_KEEP_FFI_LINKED: unsafe extern "C" fn() -> *const ::std::ffi::c_ch
 #[swift_bridge::bridge]
 mod ffi {
     extern "Rust" {
+        type AlefBridgeError;
+
+        fn message(self: &AlefBridgeError) -> String;
+        fn error_type(self: &AlefBridgeError) -> String;
+        fn kind(self: &AlefBridgeError) -> String;
+        fn status(self: &AlefBridgeError) -> i32;
+        #[swift_bridge(swift_name = "retryAfterMs")]
+        fn retry_after_ms(self: &AlefBridgeError) -> i64;
+    }
+
+    extern "Rust" {
         type KeywordConfig;
         #[swift_bridge(init)]
         fn new(max_keywords: usize, ngram_range: Vec<usize>) -> KeywordConfig;
@@ -75,12 +86,12 @@ mod ffi {
 
     extern "Rust" {
         #[swift_bridge(swift_name = "extractKeywords")]
-        fn extract_keywords(text: String, config: KeywordConfig) -> Result<Vec<String>, String>;
+        fn extract_keywords(text: String, config: KeywordConfig) -> Result<Vec<String>, AlefBridgeError>;
     }
 
     extern "Rust" {
         #[swift_bridge(swift_name = "keywordConfigFromJson")]
-        fn keyword_config_from_json(json: String) -> Result<KeywordConfig, String>;
+        fn keyword_config_from_json(json: String) -> Result<KeywordConfig, AlefBridgeError>;
     }
     extern "Rust" {
         // Phantom Vec<T> functions: swift-bridge-build must emit the full Vec support
@@ -95,6 +106,93 @@ mod ffi {
         fn __alef_phantom_vec_keyword_config() -> Vec<KeywordConfig>;
     }
 
+}
+
+/// Error returned by every fallible bridge call. Swift receives it as a thrown value and
+/// converts it into the typed Swift error. `kind` is the variant name of the core error,
+/// `status` its HTTP status and `retry_after_ms` its retry delay. A text field is empty and a number
+/// is `-1` when the error does not carry it, for example an error that does not come from the
+/// core crate.
+pub struct AlefBridgeError {
+    message: String,
+    error_type: String,
+    kind: String,
+    status: i32,
+    retry_after_ms: i64,
+}
+
+impl AlefBridgeError {
+    pub fn message(&self) -> String {
+        self.message.clone()
+    }
+
+    pub fn error_type(&self) -> String {
+        self.error_type.clone()
+    }
+
+    pub fn kind(&self) -> String {
+        self.kind.clone()
+    }
+
+    pub fn status(&self) -> i32 {
+        self.status
+    }
+
+    pub fn retry_after_ms(&self) -> i64 {
+        self.retry_after_ms
+    }
+}
+
+impl From<String> for AlefBridgeError {
+    fn from(message: String) -> Self {
+        AlefBridgeError {
+            message,
+            error_type: String::new(),
+            kind: String::new(),
+            status: -1,
+            retry_after_ms: -1,
+        }
+    }
+}
+
+impl From<&str> for AlefBridgeError {
+    fn from(message: &str) -> Self {
+        AlefBridgeError::from(message.to_string())
+    }
+}
+
+fn alef_bridge_error_demo_error(message: String, e: &demo::DemoError) -> AlefBridgeError {
+    let kind = match e {
+        demo::DemoError::ExtractionFailed => "ExtractionFailed",
+        _ => "",
+    };
+    AlefBridgeError {
+        message,
+        error_type: "DemoError".to_string(),
+        kind: kind.to_string(),
+        status: -1,
+        retry_after_ms: -1,
+    }
+}
+
+/// Build the bridge error for `error`. The core error types give their kind, status and retry
+/// delay, also when a stream or a boxed error holds them; any other error gives its message only.
+pub fn alef_bridge_error<E: std::fmt::Display + 'static>(error: E) -> AlefBridgeError {
+    let message = error.to_string();
+    let any: &dyn std::any::Any = &error;
+    let boxed_sync = any.downcast_ref::<Box<dyn std::error::Error + Send + Sync + 'static>>();
+    let boxed = any.downcast_ref::<Box<dyn std::error::Error + 'static>>();
+    if let Some(e) = any.downcast_ref::<demo::DemoError>() {
+        return alef_bridge_error_demo_error(message, e);
+    }
+    if let Some(e) = boxed_sync.and_then(|b| b.downcast_ref::<demo::DemoError>()) {
+        return alef_bridge_error_demo_error(message, e);
+    }
+    if let Some(e) = boxed.and_then(|b| b.downcast_ref::<demo::DemoError>()) {
+        return alef_bridge_error_demo_error(message, e);
+    }
+    let _ = (boxed_sync, boxed);
+    AlefBridgeError::from(message)
 }
 
 #[doc(hidden)]
@@ -118,12 +216,12 @@ impl KeywordConfig {
     }
 }
 
-pub fn extract_keywords(text: String, config: KeywordConfig) -> Result<Vec<String>, String> {
-    demo::extract_keywords(text, config.0).map_err(|e| e.to_string()).map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>())
+pub fn extract_keywords(text: String, config: KeywordConfig) -> Result<Vec<String>, AlefBridgeError> {
+    demo::extract_keywords(text, config.0).map_err(alef_bridge_error).map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>())
 }
 
-pub fn keyword_config_from_json(json: String) -> Result<KeywordConfig, String> {
+pub fn keyword_config_from_json(json: String) -> Result<KeywordConfig, AlefBridgeError> {
     serde_json::from_str::<demo::KeywordConfig>(&json)
         .map(KeywordConfig)
-        .map_err(|e| e.to_string())
+        .map_err(alef_bridge_error)
 }

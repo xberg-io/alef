@@ -125,6 +125,16 @@ fn compatibility_and_cancellable_methods_keep_distinct_signatures() {
     assert!(out.contains("h.CrawlStreamWithContext(context.Background())"));
     assert!(out.contains("return stream.Chan(), nil"));
     assert!(
+        out.contains("func (h *Engine) CrawlStreamWithErr() (*EngineCrawlStreamStream, error) {")
+            && out.contains("return h.CrawlStreamWithContext(context.Background())"),
+        "the WithErr method must return the stream object so the caller can read Err (#623), got:\n{out}"
+    );
+    assert_eq!(out.matches("func (h *Engine) CrawlStreamWithErr(").count(), 1);
+    assert!(
+        out.contains("so this call drops stream errors. Use CrawlStreamWithErr to read them"),
+        "the plain method's doc comment must say it drops stream errors and name the new call, got:\n{out}"
+    );
+    assert!(
         out.contains("stream := &EngineCrawlStreamStream{ch: ch}"),
         "the goroutine must be handed a stream value to report its error through, got:\n{out}"
     );

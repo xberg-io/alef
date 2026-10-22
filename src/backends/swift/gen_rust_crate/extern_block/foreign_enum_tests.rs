@@ -4,13 +4,13 @@
 //! `emit_function_shim` (`shims.rs`) reconstructs a unit-enum parameter from its wire `String` via
 //! a fallible helper (`__alef_{enum}_from_swift_string`, see `type_bridge::enum_from_string_fn_name`)
 //! and, when the underlying Rust function has no `error_type` of its own, forces the SHIM's return
-//! type to `Result<_, String>` purely so the reconstruction's `?` has somewhere to propagate --
+//! type to `Result<_, AlefBridgeError>` purely so the reconstruction's `?` has somewhere to propagate --
 //! see `has_fallible_enum_param`/`forced_fallible` there. `emit_extern_block_for_functions`
 //! (`extern_block.rs`) builds the separate `#[swift_bridge::bridge]` extern declaration for the
 //! same function; before this fix it computed the declared return type from `f.error_type.is_some()`
 //! alone, so it never noticed the shim's forced fallibility and declared a bare, non-`Result`
 //! return. swift-bridge parses the emitted `pub fn` against that declaration and rejects the
-//! mismatch: error[E0308]: expected enum `Swatch`, found enum `Result<Swatch, String>`. ~keep
+//! mismatch: error[E0308]: expected enum `Swatch`, found enum `Result<Swatch, AlefBridgeError>`. ~keep
 
 use super::emit_extern_block_for_functions;
 use crate::core::ir::{FunctionDef, ParamDef, TypeRef};
@@ -65,7 +65,7 @@ fn render(functions: &[FunctionDef], enum_names: &HashSet<String>, unit_enum_nam
 /// The exact shape that failed to compile: a unit enum used as BOTH the parameter and the return
 /// type of a function with no `error_type` of its own. The parameter must cross as `String` (the
 /// established enum-crossing convention -- swift-bridge cannot parse a fieldless enum from Swift
-/// directly), and the return type must become `Result<{Enum}, String>`: the raw enum type (not
+/// directly), and the return type must become `Result<{Enum}, AlefBridgeError>`: the raw enum type (not
 /// `String` -- the Ok side crosses as the real opaque handle, matching the shim's own
 /// `Swatch::from(...)` wrap), Result-wrapped only because the parameter reconstruction can fail.
 ///
@@ -87,13 +87,13 @@ fn foreign_unit_enum_param_and_return_forces_a_result_wrapped_declaration() {
     let block = render(&functions, &enum_names, &unit_enum_names);
 
     assert!(
-        block.contains("fn retint(tag: String) -> Result<PaletteTag, String>;"),
+        block.contains("fn retint(tag: String) -> Result<PaletteTag, AlefBridgeError>;"),
         "expected block to declare a Result-wrapped return, got:\n{block}"
     );
 }
 
 /// Positive control: when the function is already fallible (`error_type` set), the declared
-/// return type was always `Result<_, String>` even before this fix -- `forced_fallible` must be
+/// return type was always `Result<_, AlefBridgeError>` even before this fix -- `forced_fallible` must be
 /// additive, not a behavior change for the already-correct case.
 #[test]
 fn already_fallible_function_is_unaffected() {
@@ -109,7 +109,7 @@ fn already_fallible_function_is_unaffected() {
     let block = render(&functions, &enum_names, &unit_enum_names);
 
     assert!(
-        block.contains("fn retint(tag: String) -> Result<PaletteTag, String>;"),
+        block.contains("fn retint(tag: String) -> Result<PaletteTag, AlefBridgeError>;"),
         "an already-fallible function's declaration must be unchanged, got:\n{block}"
     );
 }
@@ -160,7 +160,7 @@ fn vec_of_foreign_unit_enum_param_also_forces_a_result_wrapped_declaration() {
     let block = render(&functions, &enum_names, &unit_enum_names);
 
     assert!(
-        block.contains("fn retint_many(tags: Vec<String>) -> Result<(), String>;"),
+        block.contains("fn retint_many(tags: Vec<String>) -> Result<(), AlefBridgeError>;"),
         "a Vec<enum> parameter must also force a Result-wrapped unit return, got:\n{block}"
     );
 }

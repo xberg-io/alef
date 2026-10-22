@@ -177,7 +177,7 @@ pub(super) fn gen_function(
 
     let can_delegate_fn = generators::can_auto_delegate_function_with_named_let_bindings(func, opaque_types);
 
-    let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
+    let err_conv = ".map_err(alef_napi_err)";
 
     let async_kw = if func.is_async { "async " } else { "" };
 

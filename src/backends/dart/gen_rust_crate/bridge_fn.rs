@@ -183,6 +183,7 @@ pub(crate) fn emit_bridge_fn(
             }
             if conversion_is_fallible {
                 append_unsigned_field_checks(&mut pre_call_bindings, p, types);
+                append_json_param_check(&mut pre_call_bindings, p);
             }
             dart_call_arg_with_mirror_transmute(
                 p,
@@ -517,8 +518,34 @@ fn append_unsigned_field_checks(bindings: &mut Vec<String>, param: &ParamDef, ty
     }
 }
 
+/// A JSON-typed parameter arrives as a string. The call converts it with `from_str(..).ok()`
+/// or `unwrap_or(Null)`, so invalid text would reach the core call as `None` or `null`. This
+/// binding rejects the text first and names the parameter.
+fn append_json_param_check(bindings: &mut Vec<String>, param: &ParamDef) {
+    if !is_json_param(&param.ty) {
+        return;
+    }
+    let name = &param.name;
+    let check = format!(
+        "serde_json::from_str::<serde_json::Value>(text).map_err(|e| format!(\"{name} is not valid JSON: {{e}}\"))?;"
+    );
+    if param.optional || matches!(param.ty, TypeRef::Optional(_)) {
+        bindings.push(format!("    if let Some(text) = {name}.as_deref() {{ {check} }}"));
+    } else {
+        bindings.push(format!("    {{ let text = {name}.as_str(); {check} }}"));
+    }
+}
+
+fn is_json_param(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Json => true,
+        TypeRef::Optional(inner) => is_json_param(inner),
+        _ => false,
+    }
+}
+
 fn parameter_needs_checked_conversion(param: &ParamDef, types: &[TypeDef]) -> bool {
-    if unsigned_primitive(&param.ty).is_some() {
+    if unsigned_primitive(&param.ty).is_some() || is_json_param(&param.ty) {
         return true;
     }
     let Some((type_name, _, _)) = dto_parameter_shape(&param.ty) else {

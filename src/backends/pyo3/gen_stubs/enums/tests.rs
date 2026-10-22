@@ -172,6 +172,35 @@ fn emits_staticmethod_constructor_per_struct_variant() {
     assert!(circle_at < str_at, "constructors must precede dunders: {stub}");
 }
 
+/// A struct variant has a `@staticmethod` constructor under its bare snake_case name, so the
+/// stub must not also declare an attribute of that name: the runtime class registers the
+/// constructor there and the payload getter under `<name>_payload`.
+#[test]
+fn should_declare_the_struct_variant_payload_under_a_name_the_constructor_does_not_use() {
+    let def = enum_def(
+        "AssistantPart",
+        vec![
+            variant("Text", vec![field("text", TypeRef::String)]),
+            variant("Empty", vec![]),
+        ],
+    );
+    let stub = gen_enum_stub(&def, false, &no_dtos(), true, &[]);
+
+    assert!(
+        stub.contains("    @staticmethod\n    def text(text: str) -> AssistantPart: ..."),
+        "{stub}"
+    );
+    assert!(stub.contains("    text_payload: Any | None"), "{stub}");
+    assert!(
+        !stub.lines().any(|line| line == "    text: Any | None"),
+        "an attribute named like the constructor is shadowed at runtime: {stub}"
+    );
+    assert!(
+        stub.contains("    empty: Any | None"),
+        "a variant without a constructor keeps its bare getter name: {stub}"
+    );
+}
+
 fn cfg_shape_enum() -> EnumDef {
     let mut gated = variant(
         "Rect",
@@ -594,7 +623,10 @@ fn metadata_enum() -> EnumDef {
                 vec![field("_0", TypeRef::Named("FictionBookMetadata".to_string()))],
             ),
             variant("Empty", vec![]),
-            variant("Pair", vec![field("_0", TypeRef::String), field("_1", TypeRef::String)]),
+            EnumVariant {
+                is_tuple: true,
+                ..variant("Pair", vec![field("_0", TypeRef::String), field("_1", TypeRef::String)])
+            },
         ],
     )
 }

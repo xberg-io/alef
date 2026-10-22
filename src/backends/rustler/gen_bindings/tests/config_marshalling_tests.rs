@@ -63,10 +63,10 @@ fn assert_default_contexts(content: &str) {
 
 fn assert_default_signatures(content: &str) {
     for signature in [
-        "pub fn builder_configure(resource: rustler::ResourceArc<Builder>, config: Option<String>) -> Result<(), String>",
-        "pub fn build(config: Option<String>) -> Result<(), String>",
-        "pub fn builder_configure_many(resource: rustler::ResourceArc<Builder>, configs: Option<String>) -> Result<(), String>",
-        "pub fn registry_configure_many(obj: Registry, configs: Option<String>) -> Result<(), String>",
+        "pub fn builder_configure(resource: rustler::ResourceArc<Builder>, config: Option<String>) -> Result<(), AlefNifError>",
+        "pub fn build(config: Option<String>) -> Result<(), AlefNifError>",
+        "pub fn builder_configure_many(resource: rustler::ResourceArc<Builder>, configs: Option<String>) -> Result<(), AlefNifError>",
+        "pub fn registry_configure_many(obj: Registry, configs: Option<String>) -> Result<(), AlefNifError>",
     ] {
         assert!(
             content.contains(signature),
@@ -99,7 +99,7 @@ fn assert_default_conversion(content: &str) {
 fn native_default_typed_receiver_methods_should_json_decode_into_core_type() {
     let content = generated_native(&config_marshalling_api_surface());
     assert!(
-        content.contains("pub fn config_validate(obj: String) -> Result<(), String> {"),
+        content.contains("pub fn config_validate(obj: String) -> Result<(), AlefNifError> {"),
         "receiver must become a JSON string parameter, not the struct itself:\n{content}"
     );
     let expected_preamble = "let obj: my_lib::Config = serde_json::from_str::<my_lib::Config>(&obj)\n    \
@@ -265,13 +265,13 @@ fn assert_json_contexts(native: &str) {
 
 fn assert_json_native_contract(native: &str) {
     for expected in [
-        "pub fn render(metadata: String) -> Result<(), String>",
+        "pub fn render(metadata: String) -> Result<(), AlefNifError>",
         "pub fn nondelegated_json(metadata: String) -> ()",
         "pub fn builder_sanitized_metadata(resource: rustler::ResourceArc<Builder>, metadata: String) -> ()",
-        "pub fn nondelegated_json_async(metadata: String) -> Result<(), String>",
-        "pub fn builder_sanitized_metadata_later_async(resource: rustler::ResourceArc<Builder>, metadata: String) -> Result<(), String>",
-        "Err(String::from(\"Not implemented: nondelegated_json_async\"))",
-        "Err(String::from(\"Not implemented: builder_sanitized_metadata_later_async\"))",
+        "pub fn nondelegated_json_async(metadata: String) -> Result<(), AlefNifError>",
+        "pub fn builder_sanitized_metadata_later_async(resource: rustler::ResourceArc<Builder>, metadata: String) -> Result<(), AlefNifError>",
+        "Err(AlefNifError::from(String::from(\"Not implemented: nondelegated_json_async\")))",
+        "Err(AlefNifError::from(String::from(\"Not implemented: builder_sanitized_metadata_later_async\")))",
     ] {
         assert!(
             native.contains(expected),

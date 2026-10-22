@@ -977,3 +977,40 @@ fn result_body_preserves_one_trailing_newline_for_each_branch() {
         );
     }
 }
+
+#[test]
+fn json_parameter_rejects_invalid_text_and_names_the_parameter() {
+    for (optional, expected_binding) in [
+        (false, "let text = options.as_str();"),
+        (true, "if let Some(text) = options.as_deref()"),
+    ] {
+        let function = FunctionDef {
+            name: "configure".to_string(),
+            rust_path: "sample_crate::configure".to_string(),
+            params: vec![make_param("options", TypeRef::Json, false, false, optional)],
+            return_type: TypeRef::Unit,
+            error_type: Some("Error".to_string()),
+            ..FunctionDef::default()
+        };
+        let mut generated = String::new();
+        emit_bridge_fn(
+            &mut generated,
+            &function,
+            "sample_crate",
+            &std::collections::HashMap::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &[],
+            &[],
+            &[],
+        )
+        .expect("emit bridge");
+
+        assert!(generated.contains(expected_binding), "{generated}");
+        assert!(generated.contains("-> Result<(), String>"), "{generated}");
+        assert!(
+            generated.contains("options is not valid JSON"),
+            "an invalid JSON string must produce an error naming the parameter: {generated}"
+        );
+    }
+}

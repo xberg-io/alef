@@ -425,21 +425,96 @@ mod request_counter_and_origins_probe {
         );
     }
 
+    /// A body the server could not parse must never satisfy a body assertion: both operators
+    /// answer with the reason, never `1`, and never `0` (which `not_equals` read as a pass).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn body_endpoint_treats_a_non_json_body_as_not_holding_the_value() {
-        let routes = std::collections::HashMap::from([("/fixtures/c".to_string(), binary_route("ok"))]);
+    async fn body_endpoint_fails_both_operators_for_a_body_that_did_not_parse() {
+        use std::io::Write;
+        let routes = std::collections::HashMap::from([("/fixtures/b/api/chat".to_string(), binary_route("ok"))]);
         let address = spawn_binary_server(routes).await;
         let base = format!("http://{address}");
         let client = reqwest::Client::new();
-        client
-            .post(format!("{base}/fixtures/c"))
-            .body("not json")
-            .send()
-            .await
-            .expect("post text");
-        let key = "POST%20%2Ffixtures%2Fc";
-        assert_eq!(control_body(&client, &base, key, "a", "equals", "1").await, "0");
-        assert_eq!(control_body(&client, &base, key, "a", "not_equals", "1").await, "1");
+        let key = "POST%20%2Ffixtures%2Fb%2Fapi%2Fchat";
+        let url = format!("{base}/fixtures/b/api/chat");
+        let json = r#"{"model":"m"}"#;
+
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(json.as_bytes()).unwrap();
+        let gzip = encoder.finish().unwrap();
+        let big = format!(r#"{{"model":"m","pad":"{}"}}"#, "x".repeat(1024 * 1024 + 10));
+
+        // (name, body, content-encoding, the text the answer must hold; None for the valid control)
+        let cases: Vec<(&str, Vec<u8>, Option<&str>, Option<&str>)> = vec![
+            ("valid json", json.as_bytes().to_vec(), None, None),
+            ("not json", b"hello".to_vec(), None, Some("not valid JSON")),
+            ("empty body", Vec::new(), None, Some("not valid JSON")),
+            ("gzip body", gzip, Some("gzip"), Some("not valid JSON")),
+            (
+                "body over 1 MiB",
+                big.into_bytes(),
+                None,
+                Some("larger than 1048576 bytes"),
+            ),
+        ];
+        for (name, body, encoding, reason) in cases {
+            client
+                .post(format!("{base}/__alef/requests/reset?prefix=%2Ffixtures"))
+                .send()
+                .await
+                .expect("reset");
+            let mut request = client.post(&url).body(body);
+            if let Some(encoding) = encoding {
+                request = request.header("content-encoding", encoding);
+            }
+            // The server stops reading at the cap, so the send may report a closed connection.
+            let _ = request.send().await;
+            let equals = control_body(&client, &base, key, "model", "equals", "%22m%22").await;
+            let not_equals_other = control_body(&client, &base, key, "model", "not_equals", "%22other%22").await;
+            let not_equals_same = control_body(&client, &base, key, "model", "not_equals", "%22m%22").await;
+            match reason {
+                None => {
+                    assert_eq!(equals, "1", "{name}: equals");
+                    assert_eq!(not_equals_other, "1", "{name}: not_equals on another value");
+                    assert_eq!(not_equals_same, "0", "{name}: not_equals on the same value");
+                }
+                Some(reason) => {
+                    for (label, answer) in [
+                        ("equals", &equals),
+                        ("not_equals on another value", &not_equals_other),
+                        ("not_equals on the same value", &not_equals_same),
+                    ] {
+                        assert!(
+                            answer.contains(reason),
+                            "{name}: {label} must say \"{reason}\", got {answer:?}"
+                        );
+                        assert!(answer != "0" && answer != "1", "{name}: {label} answered {answer:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// One body that did not parse among matching requests fails the assertion, even when the
+    /// other requests hold the value.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn body_endpoint_fails_when_any_matching_body_did_not_parse() {
+        let routes = std::collections::HashMap::from([("/fixtures/d".to_string(), binary_route("ok"))]);
+        let address = spawn_binary_server(routes).await;
+        let base = format!("http://{address}");
+        let client = reqwest::Client::new();
+        let key = "POST%20%2Ffixtures%2Fd";
+        for body in [r#"{"model":"m"}"#, "hello"] {
+            client
+                .post(format!("{base}/fixtures/d"))
+                .body(body)
+                .send()
+                .await
+                .expect("post");
+        }
+        for op in ["equals", "not_equals"] {
+            let answer = control_body(&client, &base, key, "model", op, "%22m%22").await;
+            assert!(answer.contains("not valid JSON"), "{op}: got {answer:?}");
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -575,6 +650,39 @@ mod request_counter_and_origins_probe {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn per_test_server_fails_not_equals_for_a_body_that_did_not_parse() {
+        let route = per_test::MockRoute {
+            path: "/fixtures/u",
+            method: "POST",
+            status: 200,
+            body: "{}".to_string(),
+            is_streaming: false,
+            stream_chunks: Vec::new(),
+            headers: Vec::new(),
+            delay_ms: None,
+            stream_chunk_delay_ms: None,
+        };
+        let server = per_test::MockServer::start(vec![route]).await;
+        let client = reqwest::Client::new();
+        client
+            .post(format!("{}/fixtures/u", server.url))
+            .body("hello")
+            .send()
+            .await
+            .expect("post");
+        let answer = control_body(
+            &client,
+            &server.url,
+            "POST%20%2Ffixtures%2Fu",
+            "model",
+            "not_equals",
+            "%22m%22",
+        )
+        .await;
+        assert!(answer.contains("not valid JSON"), "got {answer:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn binary_server_streams_ndjson_when_the_content_type_says_so() {
         let route = MockRoute {
             status: 200,
@@ -680,16 +788,13 @@ mod request_counter_and_origins_probe {
             "1",
             "a body over the cap is still counted"
         );
-        assert_eq!(
-            control_body(&client, &base, key, "a", "equals", "1").await,
-            "0",
-            "a body over 1 MiB is not stored"
-        );
-        assert_eq!(
-            control_body(&client, &base, key, "a", "not_equals", "1").await,
-            "1",
-            "the request matched, and its empty stored body does not hold the value"
-        );
+        for op in ["equals", "not_equals"] {
+            let answer = control_body(&client, &base, key, "a", op, "1").await;
+            assert!(
+                answer.contains("larger than 1048576 bytes"),
+                "{op}: a body over 1 MiB is not stored and must say so, got {answer:?}"
+            );
+        }
     }
 
     // -----------------------------------------------------------------------

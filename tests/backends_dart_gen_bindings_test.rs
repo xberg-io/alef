@@ -2161,5 +2161,54 @@ fn error_message_template_strips_placeholders_and_escapes_special_chars() {
     );
 }
 
+fn barrel_content(extra_config: &str) -> String {
+    let toml = format!(
+        r#"
+[workspace]
+languages = ["dart"]
+
+[[crates]]
+name = "demo-crate"
+sources = ["src/lib.rs"]
+{extra_config}
+"#
+    );
+    let cfg: NewAlefConfig = toml::from_str(&toml).expect("test config must parse");
+    let config = cfg.resolve().expect("test config must resolve").remove(0);
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        ..Default::default()
+    };
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("packages/dart/lib/demo_crate.dart"))
+        .expect("barrel file should be emitted")
+        .content
+        .clone()
+}
+
+/// The README example starts with `await RustLib.init()`, so `package:<name>/<name>.dart` must
+/// export `RustLib`. Without the export, a user imports the private `src/` path.
+#[test]
+fn barrel_file_exports_the_rust_lib_init_symbol() {
+    let content = barrel_content("");
+    assert!(
+        content.contains("export 'src/demo_crate_bridge_generated/frb_generated.dart' show RustLib;"),
+        "barrel must export RustLib from the generated bridge: {content}"
+    );
+}
+
+/// With `skip_frb` the bridge file is not generated, so the barrel must not export it.
+#[test]
+fn barrel_file_omits_the_rust_lib_export_when_frb_is_skipped() {
+    let content = barrel_content("\n[crates.dart]\nskip_frb = true\n");
+    assert!(
+        !content.contains("frb_generated.dart"),
+        "barrel must not export a bridge file that skip_frb leaves ungenerated: {content}"
+    );
+}
+
 #[path = "backends_dart_gen_bindings/build_config.rs"]
 mod build_config;

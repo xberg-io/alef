@@ -202,6 +202,7 @@ impl Backend for DartBackend {
             "dart_barrel_file.jinja",
             crate::alef_context! {
                 module_name => module_name.as_str(),
+                export_rust_lib => !config.dart.as_ref().is_some_and(|c| c.skip_frb),
             },
         );
 
