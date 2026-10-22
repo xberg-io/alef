@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Serve a newline-delimited JSON stream when a streaming fixture sets a `content-type` that contains `ndjson`. The mock server wrote each chunk as `data: <chunk>`, added a `data: [DONE]` line, and sent two content-type headers. It now writes each chunk followed by one newline, with no `data:` prefix, no `[DONE]` line and one content-type header.
+- Add the instance methods of a native Python class (for example `text()` and `output_images()` on a reply message) to the public `options.py` dataclass that shadows it. Each method converts `self` to the native object and calls it. Static helpers stay on the native class.
+- Generate a plain `.clone()` for an optional string field of a Dart error mirror, so clippy no longer reports `useless_asref`.
+- Generated Swift tests for a mid-stream error now read the stream inside the `do` block, so the throw of the loop reaches the `catch`.
+- Generated Elixir tests for a mid-stream error now read the stream. The test accepts `{:error, reason}` from the call, or the exception that the enumeration raises, and fails when the stream ends without an error.
+- The Python constructor of a class with a JSON-typed field now raises `ValueError` that names the field when the string is not valid JSON. Before, the conversion dropped the field and the call went on without it.
 
 ## [0.112.0] - 2026-10-21
 
