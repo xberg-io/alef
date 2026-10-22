@@ -283,6 +283,30 @@ fn trait_interface_projects_configured_excluded_carrier_to_public_result() {
     assert!(!content.contains("HiddenCarrier"), "{content}");
 }
 
+/// The exception class carries the kind, the status and the retry delay, and has the
+/// `(message, kind, status, retryAfterMs)` constructor the native layer calls. The signature
+/// here must equal the one the JNI shim builds, or the throw falls back to `RuntimeException`.
+#[test]
+fn exception_class_has_the_constructor_the_native_layer_calls() {
+    let api = make_streaming_api();
+    let config = make_streaming_config();
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+
+    let exception = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("Exception.kt"))
+        .expect("an exception class is emitted");
+    for needle in [
+        "val kind: String?",
+        "val status: Int?",
+        "val retryAfterMs: Long?",
+        "constructor(message: String?, kind: String?, status: Int, retryAfterMs: Long)",
+        "constructor(message: String?)",
+    ] {
+        assert!(exception.content.contains(needle), "missing `{needle}`: {}", exception.content);
+    }
+}
+
 /// A streaming adapter owned by a client type must produce a `Flow<T>`
 /// wrapper (via `callbackFlow`) in the generated `DefaultClient.kt`, and JNI
 /// `external fun` declarations in the `DemoBridge.kt` object (not in any

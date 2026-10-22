@@ -11,7 +11,7 @@ pub unsafe extern "system" fn {{ symbol }}(
     let result = {{ call_expr }};
     match result {
         Err(e) => {
-            throw_jni_error(env, &e.to_string());
+            throw_jni_error_from(env, &e);
             0
         }
         Ok(v) => Box::into_raw(Box::new(v)) as jlong,
