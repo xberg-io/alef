@@ -31,7 +31,10 @@ fn type_defs() -> Vec<TypeDef> {
     vec![
         def("Reply", vec![field("choices", TypeRef::Vec(Box::new(named("Choice"))))]),
         def("Choice", vec![field("message", named("Message"))]),
-        def("Message", vec![field("content", TypeRef::Optional(Box::new(named("Body"))))]),
+        def(
+            "Message",
+            vec![field("content", TypeRef::Optional(Box::new(named("Body"))))],
+        ),
     ]
 }
 
@@ -80,11 +83,10 @@ fn enums() -> Vec<EnumDef> {
 fn resolver() -> FieldResolver {
     let optional: HashSet<String> = ["choices[0].message.content".to_string()].into_iter().collect();
     let array: HashSet<String> = ["choices".to_string()].into_iter().collect();
-    FieldResolver::new(&HashMap::new(), &optional, &HashSet::new(), &array, &HashSet::new())
-        .with_ir_enum_map(
-            FieldResolver::ir_enum_fields(&type_defs(), &enums()),
-            Some("Reply".to_string()),
-        )
+    FieldResolver::new(&HashMap::new(), &optional, &HashSet::new(), &array, &HashSet::new()).with_ir_enum_map(
+        FieldResolver::ir_enum_fields(&type_defs(), &enums()),
+        Some("Reply".to_string()),
+    )
 }
 
 #[test]
@@ -126,7 +128,10 @@ fn measure_every_language() {
             "choices[0].message.content.parts",
             "choices[0].message.content.parts[0].text",
         ] {
-            println!("MEASURE {language} {path} => {}", resolver.accessor(path, language, "result"));
+            println!(
+                "MEASURE {language} {path} => {}",
+                resolver.accessor(path, language, "result")
+            );
         }
     }
 }
