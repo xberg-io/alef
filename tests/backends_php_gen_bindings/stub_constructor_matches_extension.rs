@@ -94,9 +94,10 @@ fn json_field_is_excluded_from_constructor_but_reachable_via_getter() {
 
     // --- positive: `value` (Vec<Json>) is not representable as a constructor param ---
     assert!(
-        !content.contains("$value"),
+        !content.contains("$value,") && !content.contains("$value =") && !content.contains("$value\n"),
         "Vec<Json> field `value` has no ext-php-rs constructor-param support and must not \
-         appear as a promoted property or a plain constructor parameter:\n{content}"
+         appear as a promoted property or a plain constructor parameter (the getter-backed \
+         property declaration ends in a semicolon):\n{content}"
     );
 
     assert!(
@@ -200,7 +201,7 @@ fn bytes_field_is_a_plain_constructor_param_without_a_promoted_property() {
         "Bytes field must still be a constructor parameter (field_can_be_param allows Bytes):\n{content}"
     );
     assert!(
-        !content.contains("public readonly string $payload"),
+        !content.contains("public readonly string $payload,") && !content.contains("public readonly string $payload\n"),
         "Bytes has no #[php(prop)] on the real extension's struct field, so the stub must not \
          promote `payload` to a property:\n{content}"
     );
@@ -285,7 +286,7 @@ fn optional_json_field_is_a_plain_constructor_param_and_reachable_via_getter() {
          (field_can_be_param's Json arm allows it):\n{content}"
     );
     assert!(
-        !content.contains("public readonly ?string $value"),
+        !content.contains("public readonly ?string $value,") && !content.contains("public readonly ?string $value\n"),
         "Json has no #[php(prop)] on the real extension's struct field, so the stub must not \
          promote `value` to a property:\n{content}"
     );

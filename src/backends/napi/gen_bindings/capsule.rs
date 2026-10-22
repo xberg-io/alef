@@ -110,7 +110,7 @@ pub(super) fn gen_capsule_function(
         }
     };
 
-    let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?";
+    let err_conv = ".map_err(alef_napi_err)?";
 
     let capsule_name = return_type_name(func, capsule_types).unwrap_or("");
     let cfg = capsule_types.get(capsule_name);

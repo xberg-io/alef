@@ -696,12 +696,34 @@ pub(crate) fn variant_accessor(variant: &EnumVariant) -> Option<VariantAccessor<
     })
 }
 
+/// The Python-visible name of the dict-shaped `#[getter]` for `variant`.
+///
+/// A struct variant also gets a `@staticmethod` constructor under its bare snake_case name
+/// (`AssistantPart.text(...)`), and a class attribute holds one object per name: the constructor
+/// registered after the getter shadows it, so the payload became unreachable while the stub
+/// declared it. The constructor keeps the bare name because callers build values with it; the
+/// getter takes `<name>_payload`. Tuple variants build with `from_<name>` and keep the bare getter
+/// name. The stub emitter calls this too, so the declared names and the runtime names stay equal.
+/// The rule keys on the constructor list, not on whether a foreign `cfg` drops the constructor, so
+/// the getter name does not change with the feature set. ~keep
+pub(crate) fn dict_getter_py_name(enum_def: &EnumDef, variant: &EnumVariant) -> String {
+    let snake = crate::codegen::naming::pascal_to_snake(&variant.name);
+    let has_bare_constructor = collect_pyo3_variant_constructors(enum_def)
+        .iter()
+        .any(|ctor| ctor.variant_name == variant.name && ctor.snake_name == snake);
+    if has_bare_constructor {
+        format!("{snake}_payload")
+    } else {
+        snake
+    }
+}
+
 /// Generate variant accessor properties for a data enum.
 /// For single-tuple variants with a Named inner type, returns the typed binding struct directly.
 /// For all other variants, returns the variant data as a Python dict, or None if not active.
 pub(crate) fn write_pyo3_variant_accessors(out: &mut String, enum_def: &EnumDef, core_path: &str, is_host_enum: bool) {
     for variant in &enum_def.variants {
-        let variant_name_lower = crate::codegen::naming::pascal_to_snake(&variant.name);
+        let variant_name_lower = dict_getter_py_name(enum_def, variant);
         let fn_name = pyo3_getter_fn_name(&variant_name_lower);
 
         if let Some(accessor) = variant_accessor(variant) {

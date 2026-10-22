@@ -46,6 +46,27 @@ pub(super) fn generated_module_files(
     (output_dir, files)
 }
 
+/// Append one exception module for each core error type. The native layer returns
+/// `{:error, %Module{}}` with these modules for a typed core error.
+pub(super) fn append_error_exceptions(content: &mut String, api: &ApiSurface, app_module: &str) {
+    let errors = crate::codegen::error_gen::rustler_typed_errors(&api.errors);
+    for &error in &errors {
+        let exception_module = format!(
+            "{app_module}.{}",
+            crate::codegen::error_gen::rustler_error_module_name(error, app_module, &errors)
+        );
+        let rendered = template_env::render(
+            "elixir_error_exception.jinja",
+            crate::alef_context! {
+                exception_module => &exception_module,
+                error_name => &error.name,
+            },
+        );
+        content.push('\n');
+        content.push_str(&rendered);
+    }
+}
+
 pub(super) fn append_stream_error_exception(content: &mut String, config: &ResolvedCrateConfig, app_module: &str) {
     let streaming_adapters: Vec<_> = config
         .adapters

@@ -104,7 +104,7 @@ fn untagged_enum_struct_variant_getter_serializes_the_whole_value() {
     def.serde_untagged = true;
     let generated = gen_pyo3_data_enum(&def, "core");
 
-    let body = generated_method_body(&generated, "named").replace(' ', "");
+    let body = generated_method_body(&generated, "named_payload").replace(' ', "");
     assert!(body.contains("crate::Shape::Named{..}=>{"), "{body}");
     assert!(body.contains("serde_json::to_value(&self.inner)"), "{body}");
     assert!(!body.contains("values.get("), "{body}");
@@ -141,7 +141,7 @@ fn untagged_enum_single_field_struct_variant_getter_matches_the_struct_pattern()
     def.serde_untagged = true;
     let generated = gen_pyo3_data_enum(&def, "core");
 
-    let body = generated_method_body(&generated, "object").replace(' ', "");
+    let body = generated_method_body(&generated, "object_payload").replace(' ', "");
     assert!(body.contains("crate::Document::Object{..}=>{"), "{body}");
     assert!(!body.contains("Object(data)"), "{body}");
     assert!(body.contains("serde_json::to_value(&self.inner)"), "{body}");
@@ -153,7 +153,7 @@ fn per_variant_untagged_single_field_struct_getter_matches_the_struct_pattern() 
     object.serde_untagged = true;
     let generated = gen_pyo3_data_enum(&enum_def("Document", vec![object]), "core");
 
-    let body = generated_method_body(&generated, "object").replace(' ', "");
+    let body = generated_method_body(&generated, "object_payload").replace(' ', "");
     assert!(body.contains("crate::Document::Object{..}=>{"), "{body}");
     assert!(!body.contains("Object(data)"), "{body}");
     assert!(body.contains("serde_json::to_value(&self.inner)"), "{body}");

@@ -259,6 +259,8 @@ fn gen_data_enum_typeddicts(
 /// A dict-shaped variant (unit, multi-field tuple, struct, or non-`Named` payload) also gets a
 /// runtime `#[getter]` via `write_pyo3_variant_accessors` that returns an untyped
 /// `dict[str, Any] | None`; it is declared as `Any | None` so every runtime getter is declared.
+/// A struct variant's getter is named `<variant>_payload` (`dict_getter_py_name`), because the bare
+/// name belongs to the variant's `@staticmethod` constructor.
 ///
 /// Bare annotation (not `@property`) matches the precedent `gen_type_stub`
 /// (`backends::pyo3::gen_stubs::classes`) already sets for `#[pyo3(get)]` struct fields.
@@ -286,7 +288,7 @@ fn gen_data_enum_variant_accessor_stubs(lines: &mut Vec<String>, enum_def: &Enum
         // reading `content.text` or `content.parts` must find it declared. A name Python
         // reserves cannot be spelled in a stub, and one already declared (the tag attribute
         // or a sibling variant) must not be redefined. ~keep
-        let name = crate::codegen::naming::pascal_to_snake(&variant.name);
+        let name = crate::codegen::generators::dict_getter_py_name(enum_def, variant);
         if python_safe_name(&name) != name || enum_def.serde_tag.as_deref() == Some(name.as_str()) {
             continue;
         }

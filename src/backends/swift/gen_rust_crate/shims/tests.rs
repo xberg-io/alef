@@ -167,8 +167,11 @@ fn infallible_async_extern_and_shim_signatures_agree_for_string_returns() {
         };
         let shim = emit_function_shim(&f, &context).expect("emit async shim");
 
-        assert!(extern_block.contains("-> Result<String, String>"), "{extern_block}");
-        assert!(shim.contains("-> Result<String, String>"), "{shim}");
+        assert!(
+            extern_block.contains("-> Result<String, AlefBridgeError>"),
+            "{extern_block}"
+        );
+        assert!(shim.contains("-> Result<String, AlefBridgeError>"), "{shim}");
     }
 }
 
@@ -277,7 +280,7 @@ fn infallible_function_with_direct_enum_param_gets_forced_result_return_and_no_p
     };
     let shim = emit_function_shim(&f, &context).expect("emit_function_shim");
     assert!(
-        shim.contains("-> Result<(), String>"),
+        shim.contains("-> Result<(), AlefBridgeError>"),
         "an infallible function with a fallible enum param conversion must have its shim \
          return type forced to Result so the conversion error can propagate, got:\n{shim}"
     );
@@ -327,7 +330,7 @@ fn infallible_function_with_vec_enum_param_gets_forced_result_return_and_no_pani
         opaque_types: &ahash::AHashSet::default(),
     };
     let shim = emit_function_shim(&f, &context).expect("emit_function_shim");
-    assert!(shim.contains("-> Result<(), String>"), "got:\n{shim}");
+    assert!(shim.contains("-> Result<(), AlefBridgeError>"), "got:\n{shim}");
     assert!(
         shim.contains("collect::<Result<Vec<_>, String>>()?"),
         "expected the per-element conversion to collect into a Result and `?`-propagate, got:\n{shim}"
@@ -696,7 +699,7 @@ fn fallible_function_returning_u64_bridges_through_json_not_a_bare_u64() {
     let shim = emit_function_shim(&f, &context).expect("emit_function_shim");
 
     assert!(
-        shim.contains("Result<String, String>"),
+        shim.contains("Result<String, AlefBridgeError>"),
         "u64 Ok type must be bridged through JSON to dodge swift-bridge-ir's todo!() on \
          u64/i64, got:\n{shim}"
     );
@@ -737,7 +740,7 @@ fn fallible_function_returning_i64_bridges_through_json_not_a_bare_i64() {
     let shim = emit_function_shim(&f, &context).expect("emit_function_shim");
 
     assert!(
-        shim.contains("Result<String, String>"),
+        shim.contains("Result<String, AlefBridgeError>"),
         "i64 Ok type must be bridged through JSON to dodge swift-bridge-ir's todo!() on \
          u64/i64, got:\n{shim}"
     );
@@ -825,10 +828,10 @@ fn async_shim_is_an_async_fn_that_spawns_the_future_and_awaits_only_the_join_han
         "the shim must only await the spawned task's `JoinHandle`, got:\n{shim}"
     );
     // Unwinding across the FFI boundary is undefined behavior. A panicked or cancelled task's
-    // `JoinError` must become an ordinary `Err(String)`, never re-raised as a panic.
+    // `JoinError` must become an ordinary `Err(AlefBridgeError)`, never re-raised as a panic.
     assert!(
-        shim.contains("unwrap_or_else(|__alef_join_error|") && shim.contains("Err(format!("),
-        "a task panic or cancellation must surface as `Err(String)`, not unwind across the FFI \
+        shim.contains("unwrap_or_else(|__alef_join_error|") && shim.contains("Err(AlefBridgeError::from(format!("),
+        "a task panic or cancellation must surface as `Err(AlefBridgeError)`, not unwind across the FFI \
          boundary, got:\n{shim}"
     );
     assert!(
@@ -919,7 +922,7 @@ fn async_capsule_shim_preserves_core_errors_and_wraps_infallible_success() {
     let fallible_shim = emit_function_shim(&fallible, &context).expect("emit fallible capsule shim");
     assert!(
         fallible_shim.contains(
-            "sample_crawler::interact().await.map_err(|e| e.to_string()).map(|__cap| __cap.into_raw() as usize)"
+            "sample_crawler::interact().await.map_err(alef_bridge_error).map(|__cap| __cap.into_raw() as usize)"
         ),
         "a fallible async capsule must preserve the core error in the bridge Result, got:\n{fallible_shim}"
     );

@@ -39,16 +39,111 @@ fn jni_call_string_method(env: &mut Env<'_>, obj: JObject, method_name: &str, me
     jstring_to_string(env, jstring)
 }
 
-fn throw_jni_error(env: &mut Env<'_>, msg: &str) {
+/// Kind, HTTP status and retry delay read from a core error. `status` and `retry_after_ms`
+/// are -1 when the error carries none.
+struct JniErrorParts {
+    kind: Option<&'static str>,
+    status: i32,
+    retry_after_ms: i64,
+}
+
+impl JniErrorParts {
+    const NONE: JniErrorParts = JniErrorParts { kind: None, status: -1, retry_after_ms: -1 };
+}
+
+{% for error in errors %}
+fn jni_error_parts_{{ error.snake }}(e: &{{ error.rust_path }}) -> JniErrorParts {
+    #[allow(unreachable_patterns)]
+    let kind = match e {
+{% for variant in error.variants %}
+        {{ variant.pattern }} => Some("{{ variant.name }}"),
+{% endfor %}
+        _ => None,
+    };
+    JniErrorParts {
+        kind,
+        status: {{ error.status_expr }},
+        retry_after_ms: {{ error.retry_after_expr }},
+    }
+}
+
+{% endfor %}
+/// Read the parts of `error` when it is, or boxes, one of the core error types.
+fn jni_error_parts(error: &dyn std::any::Any) -> JniErrorParts {
+    let boxed = error.downcast_ref::<Box<dyn std::error::Error + Send + Sync + 'static>>();
+{% for error in errors %}
+    if let Some(e) = error.downcast_ref::<{{ error.rust_path }}>() {
+        return jni_error_parts_{{ error.snake }}(e);
+    }
+    if let Some(e) = boxed.and_then(|b| b.downcast_ref::<{{ error.rust_path }}>()) {
+        return jni_error_parts_{{ error.snake }}(e);
+    }
+{% endfor %}
+    let _ = boxed;
+    JniErrorParts::NONE
+}
+
+/// Build the declared exception through its `(message, kind, status, retryAfterMs)`
+/// constructor and make it the pending exception.
+fn throw_typed_jni_exception(
+    env: &mut Env<'_>,
+    msg: &str,
+    kind: &str,
+    status: i32,
+    retry_after_ms: i64,
+) -> std::result::Result<(), jni::errors::Error> {
+    use std::str::FromStr;
+    let message_j = env.new_string(msg)?;
+    let kind_j = env.new_string(kind)?;
+    let class_jni = jni::strings::JNIString::from(ERROR_CLASS);
+    let sig_runtime = jni::signature::RuntimeMethodSignature::from_str("(Ljava/lang/String;Ljava/lang/String;IJ)V")?;
+    let exception = env.new_object(
+        &class_jni,
+        sig_runtime.method_signature(),
+        &[
+            jni::objects::JValue::Object(&message_j),
+            jni::objects::JValue::Object(&kind_j),
+            jni::objects::JValue::Int(status),
+            jni::objects::JValue::Long(retry_after_ms),
+        ],
+    )?;
+    let throwable = env.cast_local::<jni::objects::JThrowable>(exception)?;
+    env.throw(&throwable)
+}
+
+/// `Env::throw` and `Env::throw_new` report a thrown exception as `Err(JavaException)`, so that
+/// error means the exception is pending and is the success case here.
+fn jni_throw_succeeded(result: std::result::Result<(), jni::errors::Error>) -> bool {
+    matches!(result, Ok(()) | Err(jni::errors::Error::JavaException))
+}
+
+fn throw_jni_error_with_parts(env: &mut Env<'_>, msg: &str, parts: &JniErrorParts) {
+    if let Some(kind) = parts.kind {
+        if jni_throw_succeeded(throw_typed_jni_exception(env, msg, kind, parts.status, parts.retry_after_ms)) {
+            return;
+        }
+        // A failed lookup or constructor call leaves its own exception pending.
+        env.exception_clear();
+    }
     // If the error class cannot be found (misconfigured AAR), fall back to a
     // generic RuntimeException so the caller always gets *some* exception rather
     // than a silent null/zero return that looks like a valid result.
     let class_jni = jni::strings::JNIString::from(ERROR_CLASS);
     let msg_jni = jni::strings::JNIString::from(msg);
-    if env.throw_new(&class_jni, &msg_jni).is_err() {
+    if !jni_throw_succeeded(env.throw_new(&class_jni, &msg_jni)) {
+        env.exception_clear();
         let fallback = jni::strings::JNIString::from("java/lang/RuntimeException");
         let _ = env.throw_new(&fallback, &msg_jni);
     }
+}
+
+fn throw_jni_error(env: &mut Env<'_>, msg: &str) {
+    throw_jni_error_with_parts(env, msg, &JniErrorParts::NONE);
+}
+
+/// Throw a core error with its kind, HTTP status and retry delay.
+fn throw_jni_error_from<E: std::fmt::Display + 'static>(env: &mut Env<'_>, e: &E) {
+    throw_jni_error_with_parts(env, &e.to_string(), &jni_error_parts(e));
 }
 
 fn run_or_throw<T, F>(env: &mut Env<'_>, f: F) -> Option<T>

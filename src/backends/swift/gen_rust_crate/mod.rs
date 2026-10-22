@@ -5,6 +5,7 @@
 //! - `src/lib.rs` — `#[swift_bridge::bridge] mod ffi { … }` plus wrapper newtypes and shims
 //! - `build.rs` — calls `swift_bridge_build::parse_bridges` to run codegen at build time
 
+pub(crate) mod bridge_error;
 mod callback_files;
 pub(crate) mod cargo;
 #[cfg(test)]
@@ -633,6 +634,7 @@ fn emit_lib_rs(
     if let Some(component_externs) = components::extern_block(config) {
         out.push_str(&component_externs);
     }
+    out.push_str(&bridge_error::extern_block());
     for block in &extern_blocks {
         out.push_str(block);
     }
@@ -689,6 +691,8 @@ fn emit_lib_rs(
     }
 
     out.push_str("}\n\n");
+    out.push_str(&bridge_error::definition(api, &source_crate));
+    out.push('\n');
     if let Some(component_implementation) = components::implementation(config) {
         out.push_str(&component_implementation);
         out.push_str("\n\n");

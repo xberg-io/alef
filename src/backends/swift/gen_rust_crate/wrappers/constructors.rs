@@ -7,6 +7,7 @@
 //!
 //! Enum wrappers live in `enums.rs`.
 
+use crate::backends::swift::gen_rust_crate::bridge_error::result_type;
 use crate::backends::swift::gen_rust_crate::default_construction::{
     EnumKinds, emit_default_construction_body, emit_direct_field_inits,
 };
@@ -236,7 +237,7 @@ fn constructor_initialization(
     out
 }
 
-/// Emit a `pub fn create_<type_name>(api_key: String, base_url: Option<String>) -> Result<TypeName, String>`
+/// Emit a `pub fn create_<type_name>(api_key: String, base_url: Option<String>) -> Result<TypeName, AlefBridgeError>`
 /// constructor shim for an opaque type that exposes methods.
 ///
 /// The source crate must provide `<TypeName>::new(api_key, base_url)` or a compatible constructor.
@@ -264,26 +265,35 @@ pub(crate) fn emit_type_constructor_shim(
         let interpolated = body
             .replace("{type_name}", type_name)
             .replace("{source_path}", &source_path);
+        // The configured body returns the constructor's own `Result`. It is wrapped in an inner
+        // function so a body that already maps its error to a `String` still compiles, and the
+        // error type of the inner function is whatever the body returns. ~keep
         return format!(
             concat!(
                 "{cfg_prefix}pub fn {fn_name}(api_key: String, base_url: Option<String>)",
-                " -> Result<{type_name}, String> {{\n",
+                " -> {result_ty} {{\n",
+                "    fn build(api_key: String, base_url: Option<String>)",
+                " -> Result<{type_name}, impl std::fmt::Display + 'static> {{\n",
                 "{interpolated}\n",
+                "    }}\n",
+                "    build(api_key, base_url).map_err(alef_bridge_error)\n",
                 "}}\n"
             ),
             cfg_prefix = cfg_prefix,
             fn_name = fn_name,
+            result_ty = result_type(type_name),
             type_name = type_name,
             interpolated = interpolated,
         );
     }
 
     format!(
-        "{cfg_prefix}pub fn {fn_name}(api_key: String, base_url: Option<String>) -> Result<{type_name}, String> {{\n    \
+        "{cfg_prefix}pub fn {fn_name}(api_key: String, base_url: Option<String>) -> {result_ty} {{\n    \
          {source_path}::new(api_key, base_url)\n        \
-         .map_err(|e| e.to_string())\n        \
+         .map_err(alef_bridge_error)\n        \
          .map({type_name})\n}}\n",
         cfg_prefix = cfg_prefix,
+        result_ty = result_type(type_name),
     )
 }
 

@@ -1,4 +1,4 @@
 {{ php_attrs }}
-#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Default, serde::Serialize{% if derive_deserialize %}, serde::Deserialize{% endif %})]
 #[serde(default)]
 pub struct {{ enum_name }} {

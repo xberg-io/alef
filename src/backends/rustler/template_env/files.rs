@@ -208,6 +208,10 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/elixir_streaming_unfold_wrapper.jinja"),
     ),
     (
+        "elixir_error_exception.jinja",
+        include_str!("../templates/elixir_error_exception.jinja"),
+    ),
+    (
         "elixir_stream_error_exception.jinja",
         include_str!("../templates/elixir_stream_error_exception.jinja"),
     ),

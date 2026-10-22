@@ -1,5 +1,6 @@
 # ruff: noqa: S101 ~keep Assertions belong to this generated-code regression fixture.
 import ast
+import importlib
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -28,6 +29,10 @@ def verify_conformance(native: ModuleType, raised: BaseException, package_root: 
     assert callable(check)
     check()
     verify_mutations(stub, check)
+    forwarded = scope["test_public_dataclasses_forward_native_methods"]
+    assert callable(forwarded)
+    forwarded()
+    verify_forwarded_mutation(forwarded)
 
 
 def verify_mutations(stub: Path, check: object) -> None:
@@ -58,3 +63,21 @@ def verify_mutations(stub: Path, check: object) -> None:
     finally:
         stub.write_text(original, encoding="utf-8")
     assert observed == len(mutations) == 3
+
+
+def verify_forwarded_mutation(check: object) -> None:
+    """Prove the check fails when a forwarded method is missing from the public class."""
+    assert callable(check)
+    cls = importlib.import_module("sample.options").ContentConfig
+    original = cls.__dict__["describe"]
+    delattr(cls, "describe")
+    failure = ""
+    try:
+        check()
+    except AssertionError as error:
+        failure = str(error)
+    finally:
+        setattr(cls, "describe", original)  # noqa: B010 ~keep The attribute name is fixed.
+    if "ContentConfig.describe" not in failure:
+        raise AssertionError(f"conformance did not name the missing method: {failure!r}")
+    check()

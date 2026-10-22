@@ -12,7 +12,7 @@
                 .build()
                 .map_err(|e| e.to_string())?;
             let result = rt.block_on(async { {{ core_call }}.await });
-            Ok::<_, String>({{ result_wrap }})
+            Ok::<_, AlefNifError>({{ result_wrap }})
         })
         .map_err(|e| e.to_string())?
         .join()

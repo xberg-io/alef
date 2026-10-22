@@ -168,19 +168,20 @@ pub(super) fn emit_client_class(
 
         emit_doc_comment(&method.doc, "    ", &mut methods_body);
         let mut method_body = String::new();
+        // An async bridge function is always fallible, see `needs_throws` above. ~keep
+        let bridge_call = super::bridged_call::bridged_call(
+            &format!("RustBridge.{bridge_fn_camel}(self.inner{args_str})"),
+            method.error_type.is_some() || method.is_async,
+            method.is_async,
+        );
         if matches!(method.return_type, TypeRef::Unit) {
             method_body.push_str(&crate::backends::swift::template_env::render(
                 "swift_client_method_unit_body.swift.jinja",
                 crate::alef_context! {
-                    throws_kw => if needs_throws { "try " } else { "" },
-                    await_kw => if method.is_async { "await " } else { "" },
-                    bridge_function => &bridge_fn_camel,
-                    args => &args_str,
+                    bridge_call => &bridge_call,
                 },
             ));
         } else {
-            let await_kw = if method.is_async { "await " } else { "" };
-            let try_kw = if needs_throws { "try " } else { "" };
             let bytes_suffix = if matches!(method.return_type, TypeRef::Bytes) {
                 ".map { Data($0.map { $0 }) }"
             } else {
@@ -192,20 +193,14 @@ pub(super) fn emit_client_class(
                         "swift_client_method_dto_return_body.swift.jinja",
                         crate::alef_context! {
                             return_type => &return_ty,
-                            try_kw => try_kw,
-                            await_kw => await_kw,
-                            bridge_function => &bridge_fn_camel,
-                            args => &args_str,
+                            bridge_call => &bridge_call,
                         },
                     ));
                 } else {
                     method_body.push_str(&crate::backends::swift::template_env::render(
                         "swift_client_method_return_body.swift.jinja",
                         crate::alef_context! {
-                            try_kw => try_kw,
-                            await_kw => await_kw,
-                            bridge_function => &bridge_fn_camel,
-                            args => &args_str,
+                            bridge_call => &bridge_call,
                         },
                     ));
                 }
@@ -213,10 +208,7 @@ pub(super) fn emit_client_class(
                 method_body.push_str(&crate::backends::swift::template_env::render(
                     "swift_client_method_bytes_body.swift.jinja",
                     crate::alef_context! {
-                        try_kw => try_kw,
-                        await_kw => await_kw,
-                        bridge_function => &bridge_fn_camel,
-                        args => &args_str,
+                        bridge_call => &bridge_call,
                     },
                 ));
             }
@@ -522,7 +514,7 @@ mod tests {
             "got:\n{out}"
         );
         assert!(
-            out.contains("return try await RustBridge.clientFetch(self.inner, id)"),
+            out.contains("return try await alefBridgedCallAsync { try await RustBridge.clientFetch(self.inner, id) }"),
             "got:\n{out}"
         );
         assert!(
@@ -530,7 +522,9 @@ mod tests {
             "an infallible async bridge function is forced fallible, so its facade must throw; got:\n{out}"
         );
         assert!(
-            out.contains("        try await RustBridge.clientRemove(self.inner, id)"),
+            out.contains(
+                "        try await alefBridgedCallAsync { try await RustBridge.clientRemove(self.inner, id) }"
+            ),
             "a unit-returning async method must await the bridge call too; got:\n{out}"
         );
         assert!(!out.contains("Task.detached"), "got:\n{out}");
@@ -545,7 +539,7 @@ mod tests {
             "got:\n{out}"
         );
         assert!(
-            out.contains("return try RustBridge.clientFetch(self.inner, id)"),
+            out.contains("return try alefBridgedCall { try RustBridge.clientFetch(self.inner, id) }"),
             "got:\n{out}"
         );
         assert!(!out.contains("await"), "got:\n{out}");
@@ -583,11 +577,11 @@ mod tests {
         emit_streaming_client_method(&streaming_adapter(), "client", &HashSet::new(), &mut out);
 
         assert!(
-            out.contains("let handle = try await RustBridge.clientChatStreamStart(self.inner, req)"),
+            out.contains("let handle = try await alefBridgedCallAsync { try await RustBridge.clientChatStreamStart(self.inner, req) }"),
             "got:\n{out}"
         );
         assert!(
-            out.contains("let json = try await handle.next().toString()"),
+            out.contains("let json = try await alefBridgedCallAsync { try await handle.next() }.toString()"),
             "got:\n{out}"
         );
         assert!(
@@ -606,11 +600,11 @@ mod tests {
         emit_streaming_free_functions(&config, &HashSet::new(), &mut HashSet::new(), &mut out);
 
         assert!(
-            out.contains("let handle = try await RustBridge.clientChatStreamStart(client, req)"),
+            out.contains("let handle = try await alefBridgedCallAsync { try await RustBridge.clientChatStreamStart(client, req) }"),
             "got:\n{out}"
         );
         assert!(
-            out.contains("let json = try await handle.next().toString()"),
+            out.contains("let json = try await alefBridgedCallAsync { try await handle.next() }.toString()"),
             "got:\n{out}"
         );
     }

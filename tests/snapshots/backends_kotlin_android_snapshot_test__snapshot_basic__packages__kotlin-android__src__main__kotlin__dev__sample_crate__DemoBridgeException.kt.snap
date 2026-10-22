@@ -7,6 +7,28 @@ expression: "&file.content"
 
 package dev.sample_crate
 
-class DemoBridgeException(message: String?, cause: Throwable?) : RuntimeException(message, cause) {
+/**
+ * Thrown by the native layer. `kind` names the core error variant, `status` is its HTTP
+ * status and `retryAfterMs` is the delay the server asked for. Each is `null` when the
+ * error carries none.
+ */
+class DemoBridgeException private constructor(
+    message: String?,
+    cause: Throwable?,
+    val kind: String?,
+    val status: Int?,
+    val retryAfterMs: Long?,
+) : RuntimeException(message, cause) {
+    constructor(message: String?, cause: Throwable?) : this(message, cause, null, null, null)
+
     constructor(message: String?) : this(message, null)
+
+    /** Called by the native layer. A negative `status` or `retryAfterMs` means absent. */
+    constructor(message: String?, kind: String?, status: Int, retryAfterMs: Long) : this(
+        message,
+        null,
+        kind,
+        if (status >= 0) status else null,
+        if (retryAfterMs >= 0) retryAfterMs else null,
+    )
 }

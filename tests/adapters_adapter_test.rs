@@ -98,8 +98,8 @@ fn test_sync_function_node() {
     let body = &bodies["validate"];
 
     assert!(
-        body.contains("napi::Error"),
-        "Node body should contain napi::Error conversion. Got: {}",
+        body.contains(".map_err(alef_napi_err)"),
+        "Node body should convert errors through the shared napi converter. Got: {}",
         body
     );
     assert!(body.contains("my_crate::validate"), "Body should reference core path");
@@ -188,8 +188,8 @@ fn test_async_method_node() {
     let body = &bodies["HttpClient.fetch"];
     assert!(body.contains(".await"), "Node async body should contain .await");
     assert!(
-        body.contains("napi::Error"),
-        "Node async body should handle napi::Error"
+        body.contains(".map_err(alef_napi_err)"),
+        "Node async body should convert errors through the shared napi converter"
     );
 }
 
@@ -432,6 +432,53 @@ fn test_streaming_node() {
         body.contains("drop(stream);"),
         "Node streaming forwarder must drop the core stream once the forward loop exits. Got: {}",
         body
+    );
+}
+
+/// Regression for #622: a stream that fails to open must reject the call. The open is awaited
+/// with `?` before the forwarding task is spawned; a failed open must not go through the channel.
+#[test]
+fn test_streaming_node_open_error_rejects_call() {
+    let mut config = make_config(vec![Language::Node]);
+    config.adapters = vec![AdapterConfig {
+        name: "list_items".to_string(),
+        pattern: AdapterPattern::Streaming,
+        core_path: "list_items".to_string(),
+        params: vec![],
+        returns: None,
+        error_type: None,
+        owner_type: Some("Client".to_string()),
+        item_type: Some("Item".to_string()),
+        gil_release: false,
+        trait_name: None,
+        trait_method: None,
+        detect_async: false,
+        request_type: None,
+
+        skip_languages: vec![],
+    }];
+
+    let bodies = build_adapter_bodies(&config, Language::Node).expect("build failed");
+    let body = &bodies["Client.list_items"];
+
+    let open = body
+        .find("let mut stream = inner.list_items(")
+        .unwrap_or_else(|| panic!("the stream must be opened before the task starts. Got: {body}"));
+    let spawn = body.find("tokio::spawn").expect("forwarding task");
+    assert!(open < spawn, "the open must come before tokio::spawn. Got: {body}");
+    let open_stmt = &body[open..spawn];
+    assert!(
+        open_stmt.contains(".await") && open_stmt.contains("?;"),
+        "the open error must propagate with `?`. Got: {body}"
+    );
+    // Positive twin: errors after the first chunk still go through the channel.
+    assert!(
+        body.contains("tx.send(Err(alef_napi_err(e)))"),
+        "mid-stream errors must still reach the reader. Got: {body}"
+    );
+    assert!(
+        !body.contains("match inner.list_items("),
+        "the open result must not be matched inside the task. Got: {body}"
     );
 }
 

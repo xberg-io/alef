@@ -197,7 +197,7 @@ fn gen_php_streaming_method_wrapper(
     let params_sig = params_vec.join(", ");
 
     format!(
-        "    public function {method_name}({params_sig}): \\Generator\n    {{\n        \
+        "    /**\n     * Yields each chunk as JSON text while the reply arrives. A failure of the stream throws\n     * from the generator, after the chunks that came before it.\n     *\n     * @return \\Generator<int, string>\n     */\n    public function {method_name}({params_sig}): \\Generator\n    {{\n        \
          throw new \\RuntimeException('Not implemented — provided by the native extension.');\n    \
          }}\n",
         method_name = method_name,

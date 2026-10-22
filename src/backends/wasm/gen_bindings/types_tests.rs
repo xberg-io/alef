@@ -357,7 +357,7 @@ fn opaque_static_async_methods_await_core_calls_and_preserve_fallibility() {
         "{out}"
     );
     assert!(out.contains("pub async fn static_fallible_secret"), "{out}");
-    assert!(out.contains(".await.map_err(|e| JsValue::from_str"), "{out}");
+    assert!(out.contains(".await.map_err(alef_wasm_err)"), "{out}");
     assert!(out.contains("pub async fn refresh(&self"), "{out}");
     assert!(out.contains("let result = self.inner.refresh().await;"), "{out}");
     assert!(

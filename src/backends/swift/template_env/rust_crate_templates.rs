@@ -243,6 +243,10 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/rust_trait_use.rs.jinja"),
     ),
     (
+        "rust_bridge_error.rs.jinja",
+        include_str!("../templates/rust_bridge_error.rs.jinja"),
+    ),
+    (
         "rust_stream_handle_struct.rs.jinja",
         include_str!("../templates/rust_stream_handle_struct.rs.jinja"),
     ),

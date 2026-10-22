@@ -68,7 +68,7 @@ pub const DemoError = error{
 pub const Config = struct {
     value: i32,
     label: []const u8,
-    tag: ?[]const u8,
+    tag: ?[]const u8 = null,
 };
 
 /// Processing status.

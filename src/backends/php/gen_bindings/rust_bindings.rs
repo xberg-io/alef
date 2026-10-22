@@ -13,7 +13,7 @@ use crate::backends::php::gen_bindings::types::{
     gen_php_struct, is_tagged_data_enum, is_untagged_data_enum,
 };
 use crate::backends::php::layout::php_class_output_dir;
-use crate::backends::php::naming::{php_autoload_namespace, php_ext_api_class_name};
+use crate::backends::php::naming::{php_autoload_namespace, php_ext_api_class_name, php_root_exception_name};
 use crate::backends::php::type_map::PhpMapper;
 use crate::codegen::builder::RustFileBuilder;
 use crate::codegen::conversions::ConversionConfig;
@@ -302,8 +302,12 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         builder.add_item(&super::components::generate(config));
     }
 
-    let has_async =
-        api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
+    let has_async = api.functions.iter().any(|f| f.is_async)
+        || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async))
+        || config
+            .adapters
+            .iter()
+            .any(|a| matches!(a.pattern, crate::core::config::AdapterPattern::Streaming));
 
     if has_async {
         builder.add_item(&gen_tokio_runtime());
@@ -818,7 +822,13 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         }
     }
 
-    builder.add_item(&crate::codegen::error_gen::gen_php_error_types(api, &php_namespace)?);
+    let root_exception = php_root_exception_name(&extension_name);
+    builder.add_item(&crate::codegen::error_gen::gen_php_error_types(
+        api,
+        &php_namespace,
+        Some(&root_exception),
+    )?);
+    builder.add_item(&crate::codegen::error_gen::gen_php_error_dispatch(api, &core_import));
     for error in &api.errors {
         builder.add_item(&crate::codegen::error_gen::gen_php_error_converter(error, &core_import));
         // Emit #[php_class] + #[php_impl] block for errors with introspection methods.
@@ -867,10 +877,19 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             crate::alef_context! { class_name => &enum_def.name },
         ));
     }
-    for class_name in crate::codegen::error_gen::php_error_class_names(api)? {
+    for class_name in crate::codegen::error_gen::php_error_class_names(api, Some(&root_exception))? {
         class_registrations.push_str(&crate::backends::php::template_env::render(
             "php_class_registration.jinja",
             crate::alef_context! { class_name => class_name },
+        ));
+    }
+    for adapter in config.adapters.iter().filter(|a| {
+        matches!(a.pattern, crate::core::config::AdapterPattern::Streaming)
+            && !a.skip_languages.iter().any(|l| l == "php")
+    }) {
+        class_registrations.push_str(&crate::backends::php::template_env::render(
+            "php_class_registration.jinja",
+            crate::alef_context! { class_name => crate::adapters::streaming::php_stream_handle_name(adapter) },
         ));
     }
     for error in api.errors.iter().filter(|e| !e.methods.is_empty()) {

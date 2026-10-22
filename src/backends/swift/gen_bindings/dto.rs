@@ -1077,11 +1077,11 @@ fn emit_instance_method_for_first_class_struct(
 
     if matches!(method.return_type, TypeRef::Unit) {
         out.push_str(&format!(
-            "        _ = try RustBridge.{extern_swift_name}({call_args})\n"
+            "        _ = try alefBridgedCall {{ try RustBridge.{extern_swift_name}({call_args}) }}\n"
         ));
     } else {
         out.push_str(&format!(
-            "        let resultJson = try RustBridge.{extern_swift_name}({call_args}).toString()\n"
+            "        let resultJson = try alefBridgedCall {{ try RustBridge.{extern_swift_name}({call_args}) }}.toString()\n"
         ));
         out.push_str("        let data = resultJson.data(using: .utf8) ?? Data()\n");
         out.push_str(&format!(

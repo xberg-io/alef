@@ -355,6 +355,11 @@ pub(crate) fn gen_flat_data_enum(enum_def: &EnumDef, mapper: &PhpMapper, php_nam
     // hand-written impls from `gen_external_enum_serde_impls` instead, which also means the
     // field-level `#[serde(..)]` attributes must go -- they do not compile without a derive. ~keep
     let external = is_labeled_string_enum(enum_def);
+    // An internally tagged enum whose data variants are newtypes over a struct writes the payload's
+    // fields next to the tag (`{"role":"user","content":"Hi"}`). The derived impl looks for the
+    // payload under the variant's own key instead, finds nothing, and leaves the payload empty, so
+    // the request text is lost. Those enums get a hand-written `Deserialize` below. ~keep
+    let inline_payload = !external && has_inline_newtype_payloads(enum_def);
     let (start_template, tag_template, field_template) = if external {
         (
             "php_external_enum_struct_start.jinja",
@@ -375,6 +380,7 @@ pub(crate) fn gen_flat_data_enum(enum_def: &EnumDef, mapper: &PhpMapper, php_nam
         crate::alef_context! {
             php_attrs => &php_attrs,
             enum_name => &enum_def.name,
+            derive_deserialize => !inline_payload,
         },
     ));
     out.push_str(&crate::backends::php::template_env::render(
@@ -408,7 +414,61 @@ pub(crate) fn gen_flat_data_enum(enum_def: &EnumDef, mapper: &PhpMapper, php_nam
     if external {
         out.push_str(&gen_external_enum_serde_impls(enum_def));
     }
+    if inline_payload {
+        out.push_str(&gen_inline_payload_deserialize(enum_def));
+    }
     out
+}
+
+/// True when `enum_def` is internally tagged (`#[serde(tag = "..")]`, no `content`, not untagged)
+/// and every data-carrying variant is a single-field tuple variant over a named struct. serde
+/// writes such a payload's fields in the same object as the tag.
+pub(crate) fn has_inline_newtype_payloads(enum_def: &EnumDef) -> bool {
+    if enum_def.serde_tag.is_none() || enum_def.serde_content.is_some() || enum_def.serde_untagged {
+        return false;
+    }
+    let mut has_payload = false;
+    for variant in &enum_def.variants {
+        if variant.fields.is_empty() {
+            continue;
+        }
+        let is_newtype_struct = variant.fields.len() == 1
+            && crate::codegen::conversions::is_tuple_variant(&variant.fields)
+            && matches!(variant.fields[0].ty, TypeRef::Named(_));
+        if !is_newtype_struct {
+            return false;
+        }
+        has_payload = true;
+    }
+    has_payload
+}
+
+/// Hand-written `Deserialize` for a flat class that [`has_inline_newtype_payloads`] accepts.
+///
+/// The tag is read from the object, and the rest of the object becomes the payload of the variant
+/// the tag names. A payload nested under the variant's own key (the shape the derived `Serialize`
+/// writes) is still accepted, so a value the class wrote keeps parsing. ~keep
+pub(crate) fn gen_inline_payload_deserialize(enum_def: &EnumDef) -> String {
+    let tag_field = crate::codegen::serde_enum_repr::tagged_object_tag_key(enum_def);
+    let mut arms = String::new();
+    for variant in &enum_def.variants {
+        if variant.fields.is_empty() {
+            continue;
+        }
+        let tag = variant_tag_value(variant, enum_def);
+        let flat = flat_field_name(variant, 0);
+        arms.push_str(&format!(
+            "            {tag:?} => value.{flat} = Some(Self::payload(object, {flat:?}).map_err(D::Error::custom)?),\n"
+        ));
+    }
+    crate::backends::php::template_env::render(
+        "php_flat_enum_inline_deserialize.jinja",
+        crate::alef_context! {
+            enum_name => &enum_def.name,
+            tag_field => tag_field,
+            arms => &arms,
+        },
+    )
 }
 
 /// Hand-written `Serialize`/`Deserialize` for an [`is_labeled_string_enum`] flat class, matching

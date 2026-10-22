@@ -37,7 +37,9 @@ pub(crate) use go::scaffold_go;
 pub(crate) use java::{migrate_java_checkstyle_line_length, scaffold_java};
 pub(crate) use jni::scaffold_jni;
 pub(crate) use kotlin::{migrate_kotlin_build_gradle, scaffold_kotlin};
-pub(crate) use node::{migrate_node_package_json_service_export, scaffold_node, scaffold_node_cargo};
+pub(crate) use node::{
+    migrate_node_error_shim, migrate_node_package_json_service_export, scaffold_node, scaffold_node_cargo,
+};
 pub(crate) use php::{migrate_php_composer_phpunit_constraint, scaffold_php, scaffold_php_cargo};
 pub(crate) use poly::scaffold_poly_config;
 pub(crate) use poly_migrations::{

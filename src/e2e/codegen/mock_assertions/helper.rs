@@ -75,6 +75,23 @@ mod tests {
         }
     }
 
+    /// The body endpoint answers a sentence, not a number, when it could not read a stored body.
+    /// The C and R helpers must stop with that sentence: `strtol` and `as.integer` would turn it
+    /// into 0 and NA and lose the reason.
+    #[test]
+    fn the_c_and_r_helpers_stop_on_a_non_integer_answer() {
+        let c = render_helper("c").expect("c helper");
+        assert!(
+            c.contains("if (body_end == body) {") && c.contains("non-integer response body: %s"),
+            "C helper must stop on a non-integer body, got:\n{c}"
+        );
+        let r = render_helper("r").expect("r helper");
+        assert!(
+            r.contains("if (is.na(count)) {") && r.contains("non-integer response body: %s"),
+            "R helper must stop on a non-integer body, got:\n{r}"
+        );
+    }
+
     /// The endpoint path constants are documentation for the caller that builds
     /// `path_and_query` (see the module doc's context contract) -- the helper's own body never
     /// references them, so this pins that they at least reach the template context unmangled,
