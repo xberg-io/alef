@@ -2,7 +2,11 @@
 //!
 //! Provides utilities for FFI introspection and documentation emission.
 
+use crate::backends::zig::type_map::ZigMapper;
 use crate::codegen::c_consumer;
+use crate::codegen::error_gen::{LastErrorField, LastErrorFieldKind};
+use crate::codegen::type_mapper::TypeMapper;
+use crate::core::ir::PrimitiveType;
 use crate::core::config::Language;
 use crate::core::ir::ErrorDef;
 use crate::docs::clean_doc;
@@ -64,6 +68,22 @@ pub(crate) fn emit_helpers(prefix: &str, declared_errors: &[ErrorDef], out: &mut
     out.push_str("    return _captured_error;\n");
     out.push_str("}\n\n");
 
+    let details = crate::codegen::error_gen::last_error_fields(declared_errors);
+    let mut capture_details = String::new();
+    if !details.is_empty() {
+        out.push_str(&details_type(&details));
+        out.push_str("/// Introspection values of the last captured error, copied from the FFI layer with the\n");
+        out.push_str("/// message. Durations are whole milliseconds. Text is binding-owned and valid until the\n");
+        out.push_str("/// next captured error replaces it.\n");
+        out.push_str("threadlocal var _captured_details: LastErrorDetails = .{};\n\n");
+        out.push_str("/// Retrieve the introspection values (HTTP status, retry delay, ...) of the last error\n");
+        out.push_str("/// captured by `_error_with_message`.\n");
+        out.push_str("pub fn _last_error_details() LastErrorDetails {\n");
+        out.push_str("    return _captured_details;\n");
+        out.push_str("}\n\n");
+        capture_details = capture_details_statements(prefix, &details);
+    }
+
     out.push_str("/// Copy the FFI layer's current error message into binding-owned storage.\n");
     out.push_str(&format!(
         "/// Must run before any deferred `_free` call: every `{prefix}_*` FFI entry point\n"
@@ -79,6 +99,7 @@ pub(crate) fn emit_helpers(prefix: &str, declared_errors: &[ErrorDef], out: &mut
         },
     ));
     out.push_str("    if (_code == 0) return;\n");
+    out.push_str(&capture_details);
     out.push_str(&crate::backends::zig::template_env::render(
         "helper_last_error_ctx.jinja",
         crate::alef_context! {
@@ -135,6 +156,60 @@ pub(crate) fn emit_helpers(prefix: &str, declared_errors: &[ErrorDef], out: &mut
     }
     out.push_str("    return error.UnknownFfiError;\n");
     out.push_str("}\n");
+}
+
+fn details_type(details: &[LastErrorField]) -> String {
+    let mut out = String::from("/// Introspection values of an FFI error, one member for each capturable error method.\n");
+    out.push_str("pub const LastErrorDetails = struct {\n");
+    for field in details {
+        let (zig_type, default) = match &field.kind {
+            LastErrorFieldKind::Scalar(primitive) => {
+                let zig_type = ZigMapper.primitive(primitive).into_owned();
+                let default = if matches!(primitive, PrimitiveType::Bool) {
+                    "false"
+                } else if matches!(primitive, PrimitiveType::F32 | PrimitiveType::F64) {
+                    "0.0"
+                } else {
+                    "0"
+                };
+                (zig_type, default)
+            }
+            LastErrorFieldKind::Text => ("?[]const u8".to_string(), "null"),
+            LastErrorFieldKind::DurationMillis => ("?u64".to_string(), "null"),
+        };
+        out.push_str(&format!("    {}: {zig_type} = {default},\n", field.name));
+    }
+    out.push_str("};\n\n");
+    out
+}
+
+fn capture_details_statements(prefix: &str, details: &[LastErrorField]) -> String {
+    let mut out = String::new();
+    for field in details {
+        let symbol = c_consumer::last_error_field_symbol(prefix, &field.name);
+        let name = &field.name;
+        match &field.kind {
+            LastErrorFieldKind::Scalar(_) => {
+                out.push_str(&format!("    _captured_details.{name} = c.{symbol}();\n"));
+            }
+            LastErrorFieldKind::Text => {
+                out.push_str(&format!(
+                    "    if (_captured_details.{name}) |_old| std.heap.c_allocator.free(_old);\n"
+                ));
+                out.push_str(&format!("    const _{name}_ptr = c.{symbol}();\n"));
+                out.push_str(&format!(
+                    "    _captured_details.{name} = if (_{name}_ptr == null) null else std.heap.c_allocator.dupe(u8, std.mem.sliceTo(_{name}_ptr, 0)) catch null;\n"
+                ));
+            }
+            LastErrorFieldKind::DurationMillis => {
+                out.push_str(&format!("    const _{name}_ms = c.{symbol}();\n"));
+                out.push_str(&format!(
+                    "    _captured_details.{name} = if (_{name}_ms >= 0) @as(u64, @intCast(_{name}_ms)) else null;\n"
+                ));
+            }
+        }
+    }
+    out
 }
 
 /// Emit cleaned Zig documentation for a declaration.

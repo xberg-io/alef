@@ -43,7 +43,8 @@ pub(crate) fn emit_type(
             })?;
             format!(" = {value}")
         } else {
-            zig_field_default(field, enums)
+            let default = zig_field_default(field, enums);
+            if default.is_empty() { zig_null_default(&ty_str) } else { default }
         };
         out.push_str(&crate::backends::zig::template_env::render(
             "type_field.jinja",
@@ -73,6 +74,19 @@ pub(super) fn zig_enum_default(enum_def: &EnumDef, variant_ref: &str) -> Option<
         ".{}",
         public_host_identifier(Language::Zig, PublicIdentifierKind::EnumVariant, &wire_value)
     ))
+}
+
+/// ` = null` for an optional member, empty otherwise.
+///
+/// `std.json` reports `error.MissingField` for an absent key even when the member is `?T`,
+/// unless the member has a default. Serde omits `None` keys on the wire, so every optional
+/// member needs the default for a strict parse of that JSON to succeed.
+fn zig_null_default(field_type: &str) -> String {
+    if field_type.starts_with('?') {
+        " = null".to_string()
+    } else {
+        String::new()
+    }
 }
 
 fn zig_field_default(field: &crate::core::ir::FieldDef, enums: &[EnumDef]) -> String {
@@ -175,6 +189,7 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
                         "enum_variant_struct_field.jinja",
                         crate::alef_context! {
                             field_name => name,
+                            field_default => zig_null_default(&ty_str),
                             field_type => ty_str,
                         },
                     ));
