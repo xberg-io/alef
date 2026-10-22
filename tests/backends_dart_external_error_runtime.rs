@@ -103,10 +103,14 @@ fn external_non_exhaustive_errors_preserve_borrowed_fields_and_unknown_failures(
 fn optional_string_error_fields_pass_clippy_without_an_identity_map() {
     let root = tempfile::tempdir().unwrap();
     let generated = emitted_bridge_with_error_method(root.path(), false, "ConsumerError", true);
-    assert_eq!(
-        generated.matches("reason: f_reason.clone()").count(),
-        2,
-        "the owned and the optional owned string field are both cloned by the conversion back to the core error:\n{generated}"
+    let arm = generated
+        .split("ConsumerError::OptionalOwned { reason: f_reason } =>")
+        .nth(1)
+        .expect("the conversion back to the core error has an arm for the optional string field");
+    let arm = arm.lines().take(4).collect::<Vec<_>>().join("\n");
+    assert!(
+        arm.contains("reason: f_reason.clone()"),
+        "the optional string field is cloned directly by the conversion back to the core error:\n{arm}"
     );
     assert!(
         !generated.contains("as_ref().map(|v| v.clone())"),
