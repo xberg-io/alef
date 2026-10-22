@@ -107,7 +107,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_method(
             opaque_types,
             default_types,
         );
-    let return_annotation = mapper.wrap_return(
+    let return_annotation = mapper.wrap_nif_return(
         &return_type,
         method.error_type.is_some() || deserialization_introduces_result,
     );

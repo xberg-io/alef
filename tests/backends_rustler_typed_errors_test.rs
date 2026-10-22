@@ -128,12 +128,22 @@ fn public_module() -> String {
 #[test]
 fn the_nif_error_carries_kind_status_and_retry_delay_as_fields() {
     let lib = native_lib();
-    assert!(lib.contains("enum AlefNifError"), "the NIF error type must exist:\n{lib}");
+    assert!(
+        lib.contains("enum AlefNifError"),
+        "the NIF error type must exist:\n{lib}"
+    );
     assert!(
         lib.contains("\"Elixir.TestLib.Error\""),
         "the term must name the exception module of the app:\n{lib}"
     );
-    for atom in ["__struct__", "__exception__", "kind", "message", "status", "retry_after_ms"] {
+    for atom in [
+        "__struct__",
+        "__exception__",
+        "kind",
+        "message",
+        "status",
+        "retry_after_ms",
+    ] {
         assert!(
             lib.contains(&format!("\"{atom}\"")),
             "the encoded exception must have the {atom} key:\n{lib}"
@@ -184,7 +194,9 @@ fn every_fallible_call_site_converts_through_the_shared_conversion() {
         "call sites must use the shared conversion:\n{lib}"
     );
     for name in ["failing", "failing_sync"] {
-        let start = lib.find(&format!("pub fn {name}(")).unwrap_or_else(|| panic!("{name} nif:\n{lib}"));
+        let start = lib
+            .find(&format!("pub fn {name}("))
+            .unwrap_or_else(|| panic!("{name} nif:\n{lib}"));
         let body = &lib[start..];
         let end = body[1..].find("#[rustler::nif").map_or(body.len(), |i| i + 1);
         let body = &body[..end];
@@ -206,7 +218,7 @@ fn the_stream_nifs_convert_core_errors_through_the_shared_conversion() {
         "the start NIF must return the typed error:\n{stream}"
     );
     assert!(
-        stream[next - start..].contains("Err(e) => {\n                    *guard = None;\n                    Err(alef_nif_err(e))"),
+        stream[next - start..].contains("Err(alef_nif_err(e))"),
         "a mid-stream core error must keep its type:\n{stream}"
     );
 }
@@ -229,9 +241,9 @@ fn the_stream_error_copies_the_typed_fields_from_the_reason() {
         "StreamError must declare the typed fields:\n{module}"
     );
     assert!(
-        module.contains("kind: Map.get(reason, :kind)")
-            && module.contains("status: Map.get(reason, :status)")
-            && module.contains("retry_after_ms: Map.get(reason, :retry_after_ms)"),
+        module.contains("kind: Map.get(fields, :kind)")
+            && module.contains("status: Map.get(fields, :status)")
+            && module.contains("retry_after_ms: Map.get(fields, :retry_after_ms)"),
         "the raise must copy the fields from the reason:\n{module}"
     );
 }

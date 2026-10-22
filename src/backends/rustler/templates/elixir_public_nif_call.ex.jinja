@@ -4,6 +4,7 @@
 {% else %}{{ indent }}case {{ native_mod }}.{{ func_name }}({{ args }}) do
 {% endif %}
 {{ indent }}  {:ok, value} -> value
+{{ indent }}  {:error, %{__exception__: true} = error} -> raise error
 {{ indent }}  {:error, error} -> raise ArgumentError, error
 {{ indent }}end
 {% elif multiline %}{{ indent }}{{ native_mod }}.{{ func_name }}(

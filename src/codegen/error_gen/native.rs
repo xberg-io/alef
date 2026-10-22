@@ -251,30 +251,6 @@ pub fn magnus_converter_fn_name(error: &ErrorDef) -> String {
     format!("{}_to_magnus_err", to_snake_case(&error.name))
 }
 
-/// Generate a converter function that maps a core error to a Rustler error tuple `{:error, reason}`.
-pub fn gen_rustler_error_converter(error: &ErrorDef, core_import: &str) -> String {
-    let rust_path = if error.rust_path.is_empty() {
-        format!("{core_import}::{}", error.name)
-    } else {
-        error.rust_path.replace('-', "_")
-    };
-
-    let fn_name = format!("{}_to_rustler_err", to_snake_case(&error.name));
-
-    crate::codegen::template_env::render(
-        "error_gen/rustler_error_converter.jinja",
-        crate::alef_context! {
-            rust_path => rust_path.as_str(),
-            fn_name => fn_name.as_str(),
-        },
-    )
-}
-
-/// Return the Rustler converter function name for a given error type.
-pub fn rustler_converter_fn_name(error: &ErrorDef) -> String {
-    format!("{}_to_rustler_err", to_snake_case(&error.name))
-}
-
 /// Generate a C enum of error codes plus an error-message function declaration.
 ///
 /// Produces a `typedef enum` with `PREFIX_ERROR_NONE = 0` followed by one entry

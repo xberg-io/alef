@@ -547,12 +547,23 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     let mut errors_for_emission: Vec<_> = api.errors.iter().collect();
     errors_for_emission.sort_by(|a, b| a.name.cmp(&b.name));
 
-    for &error in &errors_for_emission {
+    let app_module = heck::ToPascalCase::to_pascal_case(config.elixir_app_name().as_str());
+    let typed_errors = crate::codegen::error_gen::rustler_typed_errors(&api.errors);
+    for &error in &typed_errors {
+        let module = format!(
+            "{app_module}.{}",
+            crate::codegen::error_gen::rustler_error_module_name(error, &app_module, &typed_errors)
+        );
         builder.add_item(&crate::codegen::error_gen::gen_rustler_error_converter(
             error,
             &core_import,
+            &module,
         ));
     }
+    builder.add_item(&crate::codegen::error_gen::gen_rustler_error_support(
+        &typed_errors,
+        &core_import,
+    ));
 
     for &error in &errors_for_emission {
         for method in error.methods.iter().filter(|m| !m.sanitized) {

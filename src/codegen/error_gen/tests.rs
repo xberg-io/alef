@@ -541,15 +541,6 @@ fn test_gen_magnus_error_converter() {
 }
 
 #[test]
-fn test_gen_rustler_error_converter() {
-    let error = sample_error();
-    let output = gen_rustler_error_converter(&error, "sample_markup_rs");
-    assert!(output.contains("fn conversion_error_to_rustler_err(e: sample_markup_rs::ConversionError) -> String {"));
-    assert!(output.contains("e.to_string()"));
-    assert!(output.contains("#[allow(dead_code)]"));
-}
-
-#[test]
 fn test_gen_go_error_struct_with_methods() {
     let error = error_with_methods();
     let output = gen_go_error_struct(&error, "sampleapp", false);

@@ -455,7 +455,7 @@ fn gen_elixir_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (St
          pub fn {start_fn}(\n    \
              resource: rustler::ResourceArc<{owner_type}>,\n    \
              {req_param_name}: {req_param_type},\n\
-         ) -> std::result::Result<rustler::ResourceArc<{handle_struct}>, String> {{\n    \
+         ) -> std::result::Result<rustler::ResourceArc<{handle_struct}>, AlefNifError> {{\n    \
              {bindings_block}\
              // 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep\n    \
              // extraction future (a nested archive member, a multi-stage OCR pipeline), and a\n    \
@@ -471,7 +471,7 @@ fn gen_elixir_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (St
              let inner = resource.inner.read().unwrap_or_else(|e| e.into_inner()).clone();\n    \
              let stream = runtime\n        \
                  .block_on(async move {{ inner.{core_path}({call_str}).await }})\n        \
-                 .map_err(|e| e.to_string())?;\n    \
+                 .map_err(alef_nif_err)?;\n    \
              let handle = {handle_struct} {{\n        \
                  runtime,\n        \
                  stream: std::sync::Mutex::new(Some(stream)),\n    \
@@ -485,7 +485,7 @@ fn gen_elixir_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (St
          #[rustler::nif(schedule = \"DirtyCpu\")]\n\
          pub fn {next_fn}(\n    \
              handle: rustler::ResourceArc<{handle_struct}>,\n\
-         ) -> std::result::Result<Option<String>, String> {{\n    \
+         ) -> std::result::Result<Option<String>, AlefNifError> {{\n    \
              use futures_util::StreamExt;\n    \
              let runtime = handle.runtime.clone();\n    \
              let mut guard = handle.stream.lock().map_err(|e| e.to_string())?;\n    \
@@ -500,7 +500,7 @@ fn gen_elixir_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (St
                  }}\n        \
                  Some(Err(e)) => {{\n            \
                      *guard = None;\n            \
-                     Err(e.to_string())\n        \
+                     Err(alef_nif_err(e))\n        \
                  }}\n        \
                  None => {{\n            \
                      *guard = None;\n            \

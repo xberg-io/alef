@@ -64,7 +64,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_function(
 
     let return_type =
         crate::backends::rustler::gen_bindings::helpers::map_return_type(&func.return_type, mapper, opaque_types);
-    let return_annotation = mapper.wrap_return(&return_type, true);
+    let return_annotation = mapper.wrap_nif_return(&return_type, true);
 
     let has_default_params = func
         .params

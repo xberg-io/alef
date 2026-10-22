@@ -258,10 +258,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/error_gen/magnus_error_converter.jinja"),
     ),
     (
-        "error_gen/rustler_error_converter.jinja",
-        include_str!("templates/error_gen/rustler_error_converter.jinja"),
-    ),
-    (
         "error_gen/ffi_error_codes.jinja",
         include_str!("templates/error_gen/ffi_error_codes.jinja"),
     ),

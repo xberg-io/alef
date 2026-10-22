@@ -7,6 +7,7 @@
 {% elif unwrap_result %}    ref =
       case Native.{{ nif_fn }}({{ call_args }}) do
         {:ok, value} -> value
+        {:error, %{__exception__: true} = error} -> raise error
         {:error, error} -> raise ArgumentError, error
       end
 {% else %}    ref = Native.{{ nif_fn }}({{ call_args }})
@@ -15,6 +16,7 @@
 {% endif %}
 {% elif unwrap_result %}    case Native.{{ nif_fn }}({{ call_args }}) do
       {:ok, value} -> value
+      {:error, %{__exception__: true} = error} -> raise error
       {:error, error} -> raise ArgumentError, error
     end
 {% else %}    Native.{{ nif_fn }}({{ call_args }})
