@@ -623,7 +623,10 @@ fn metadata_enum() -> EnumDef {
                 vec![field("_0", TypeRef::Named("FictionBookMetadata".to_string()))],
             ),
             variant("Empty", vec![]),
-            variant("Pair", vec![field("_0", TypeRef::String), field("_1", TypeRef::String)]),
+            EnumVariant {
+                is_tuple: true,
+                ..variant("Pair", vec![field("_0", TypeRef::String), field("_1", TypeRef::String)])
+            },
         ],
     )
 }

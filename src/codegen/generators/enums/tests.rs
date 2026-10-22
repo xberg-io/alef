@@ -161,7 +161,9 @@ fn sensitive_variant_redacts_the_entire_data_enum_repr() {
 fn pyo3_variant_getters_do_not_emit_rejected_rust_raw_identifiers() {
     let mut payload = field("_0");
     payload.ty = TypeRef::Named("Payload".to_string());
-    let generated = gen_pyo3_data_enum(&enum_def("OutputFormat", vec![variant("Self", vec![payload])]), "core");
+    let mut self_variant = variant("Self", vec![payload]);
+    self_variant.is_tuple = true;
+    let generated = gen_pyo3_data_enum(&enum_def("OutputFormat", vec![self_variant]), "core");
 
     assert!(generated.contains("fn self_(&self)"), "{generated}");
     assert!(!generated.contains("fn r#self(&self)"), "{generated}");
@@ -319,7 +321,10 @@ fn python_visible_member_names(generated: &str) -> Vec<String> {
     let lines: Vec<&str> = generated.lines().map(str::trim).collect();
     let mut names = Vec::new();
     for (index, line) in lines.iter().enumerate() {
-        if let Some(name) = line.strip_prefix("#[pyo3(name = \"").and_then(|rest| rest.strip_suffix("\")]")) {
+        if let Some(name) = line
+            .strip_prefix("#[pyo3(name = \"")
+            .and_then(|rest| rest.strip_suffix("\")]"))
+        {
             names.push(name.to_string());
         }
         if *line == "#[getter]" {
