@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Return Elixir core errors as exception structs with the error kind, the HTTP status and the `Retry-After` delay. The generated NIFs returned `{:error, "message"}`, so a caller could read a rate limit only from the message text. They now return `{:error, %App.Error{kind, message, status, retry_after_ms}}`, and `App.Error` is a new generated exception module. `StreamError` gains the `kind`, `status` and `retry_after_ms` fields. Raising wrappers raise the struct as it is. (GH#647)
 - Serve a newline-delimited JSON stream when a streaming fixture sets a `content-type` that contains `ndjson`. The mock server wrote each chunk as `data: <chunk>`, added a `data: [DONE]` line, and sent two content-type headers. It now writes each chunk followed by one newline, with no `data:` prefix, no `[DONE]` line and one content-type header.
 
 ## [0.112.0] - 2026-10-21
