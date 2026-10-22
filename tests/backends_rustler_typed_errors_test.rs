@@ -87,7 +87,21 @@ fn api() -> ApiSurface {
             }],
             ..Default::default()
         }],
-        functions: vec![function("failing", true), function("failing_sync", false)],
+        functions: vec![
+            function("failing", true),
+            function("failing_sync", false),
+            FunctionDef {
+                name: "configure".to_string(),
+                rust_path: "test_lib::configure".to_string(),
+                return_type: TypeRef::String,
+                params: vec![ParamDef {
+                    name: "settings".to_string(),
+                    ty: TypeRef::Json,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        ],
         errors: vec![ErrorDef {
             exception_base: None,
             name: "TestLibError".to_string(),
@@ -193,7 +207,7 @@ fn every_fallible_call_site_converts_through_the_shared_conversion() {
         lib.contains(".map_err(alef_nif_err)"),
         "call sites must use the shared conversion:\n{lib}"
     );
-    for name in ["failing", "failing_sync"] {
+    for name in ["failing_async", "failing_sync"] {
         let start = lib
             .find(&format!("pub fn {name}("))
             .unwrap_or_else(|| panic!("{name} nif:\n{lib}"));
