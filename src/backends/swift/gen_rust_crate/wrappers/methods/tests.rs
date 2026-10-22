@@ -43,7 +43,7 @@ fn async_method(name: &str, receiver: ReceiverKind, error_type: Option<&str>) ->
 /// An async method must be a real `async fn` (the matching extern declaration is `async fn`,
 /// which is what makes the Swift side suspend instead of parking a thread). Its work is spawned
 /// onto the process-wide runtime with a `'static` receiver, only the `JoinHandle` is awaited,
-/// and a failed join becomes `Err(String)` rather than unwinding.
+/// and a failed join becomes `Err(AlefBridgeError)` rather than unwinding.
 #[test]
 fn async_method_shim_is_an_async_fn_that_spawns_and_awaits_the_join_handle() {
     let ty = opaque_type(
@@ -66,7 +66,7 @@ fn async_method_shim_is_an_async_fn_that_spawns_and_awaits_the_join_handle() {
     for name in ["client_chat", "client_infallible"] {
         assert!(
             out.contains(&format!(
-                "pub async fn {name}(client: &Client, req: Request) -> Result<Response, String>"
+                "pub async fn {name}(client: &Client, req: Request) -> Result<Response, AlefBridgeError>"
             )),
             "`{name}` must be an `async fn` with a Result return (even when infallible, so a \
                  JoinError has somewhere to land), got:\n{out}"
@@ -86,7 +86,7 @@ fn async_method_shim_is_an_async_fn_that_spawns_and_awaits_the_join_handle() {
     );
     assert!(
         out.contains("__alef_task.await.unwrap_or_else(|__alef_join_error|"),
-        "a join failure must surface as Err(String), got:\n{out}"
+        "a join failure must surface as Err(AlefBridgeError), got:\n{out}"
     );
 }
 
@@ -262,7 +262,7 @@ fn infallible_method_with_enum_param_gets_forced_result_return_and_no_panic() {
     );
 
     assert!(
-        out.contains("-> Result<(), String>"),
+        out.contains("-> Result<(), AlefBridgeError>"),
         "an infallible method with a fallible enum param conversion must have its wrapper \
              return type forced to Result so the conversion error can propagate, got:\n{out}"
     );
@@ -312,7 +312,7 @@ fn fallible_method_with_enum_param_still_propagates_conversion_error() {
         &unit_enum_names,
     );
 
-    assert!(out.contains("-> Result<(), String>"), "got:\n{out}");
+    assert!(out.contains("-> Result<(), AlefBridgeError>"), "got:\n{out}");
     assert!(
         out.contains(&format!("{}(&mode)?", enum_from_string_fn_name("Mode"))),
         "got:\n{out}"
@@ -353,7 +353,7 @@ fn fallible_method_returning_u64_bridges_through_json_not_a_bare_u64() {
     );
 
     assert!(
-        out.contains("-> Result<String, String>"),
+        out.contains("-> Result<String, AlefBridgeError>"),
         "u64 Ok type must be bridged through JSON to dodge swift-bridge-ir's todo!() on \
              u64/i64, got:\n{out}"
     );

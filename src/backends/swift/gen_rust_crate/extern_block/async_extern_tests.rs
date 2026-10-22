@@ -65,7 +65,7 @@ fn method_block(m: MethodDef) -> String {
 fn async_function_is_declared_async_fn() {
     let block = function_block(&function(true));
     assert!(
-        block.contains("async fn fetch_status(id: String) -> Result<String, String>;"),
+        block.contains("async fn fetch_status(id: String) -> Result<String, AlefBridgeError>;"),
         "got:\n{block}"
     );
 }
@@ -81,13 +81,13 @@ fn sync_function_is_not_declared_async() {
 fn async_method_is_declared_async_fn_with_a_result_even_when_infallible() {
     let fallible = method_block(method(true, Some("SampleError")));
     assert!(
-        fallible.contains("async fn client_chat(client: &Client) -> Result<String, String>;"),
+        fallible.contains("async fn client_chat(client: &Client) -> Result<String, AlefBridgeError>;"),
         "got:\n{fallible}"
     );
 
     let infallible = method_block(method(true, None));
     assert!(
-        infallible.contains("async fn client_chat(client: &Client) -> Result<String, String>;"),
+        infallible.contains("async fn client_chat(client: &Client) -> Result<String, AlefBridgeError>;"),
         "the shim is forced fallible for the JoinError, so the declaration must agree; got:\n{infallible}"
     );
 }

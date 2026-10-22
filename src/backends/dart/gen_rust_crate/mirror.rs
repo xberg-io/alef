@@ -202,6 +202,18 @@ pub(crate) fn emit_mirror_enum(
     out.push_str("}\n");
 }
 
+/// Map the value inside the `Option` bound to `field_expr` (a `&Option<T>`) through
+/// `inner_expr`, which names the value as `v`. When `inner_expr` only clones it, the whole
+/// mapping is `Option::clone`; the `as_ref().map(|v| v.clone())` form fails
+/// `clippy::useless_asref`. ~keep
+fn map_option(field_expr: &str, inner_expr: &str) -> String {
+    if inner_expr == "v.clone()" {
+        format!("{field_expr}.clone()")
+    } else {
+        format!("{field_expr}.as_ref().map(|v| {inner_expr})")
+    }
+}
+
 /// Return the conversion expression to reconstruct a real-type field value from a
 /// mirror field binding.
 ///
@@ -219,7 +231,7 @@ fn field_from_expr(field: &FieldDef, field_expr: &str) -> String {
             ..field.clone()
         };
         let inner_expr = field_from_expr(&inner_field, "v");
-        return format!("{field_expr}.as_ref().map(|v| {inner_expr})");
+        return map_option(field_expr, &inner_expr);
     }
     match &field.ty {
         TypeRef::Primitive(prim) => {
@@ -244,7 +256,7 @@ fn field_from_expr(field: &FieldDef, field_expr: &str) -> String {
                 ..field.clone()
             };
             let inner_expr = field_from_expr(&inner_field, "v");
-            format!("{field_expr}.as_ref().map(|v| {inner_expr})")
+            map_option(field_expr, &inner_expr)
         }
         TypeRef::Vec(inner) => {
             let inner_field = FieldDef {
@@ -770,7 +782,7 @@ mod tests {
             "message: String,",
             "status: i64,",
             "retry_after: f_retry_after.as_ref().map(|v| std::time::Duration::from_millis(*v as u64))",
-            "model: f_model.as_ref().map(|v| v.clone())",
+            "model: f_model.clone()",
             "message: f_message.clone()",
             "status: *f_status as u16",
         ] {

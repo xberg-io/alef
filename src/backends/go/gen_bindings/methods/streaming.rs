@@ -92,6 +92,7 @@ fn render_stream_header(out: &mut String, method: &MethodDef, names: &StreamName
             params => method_params.join(", "),
             param_args => &param_args,
             item_type => &names.item_go_type,
+            stream_type_name => &names.stream_type_name,
         },
     ));
 

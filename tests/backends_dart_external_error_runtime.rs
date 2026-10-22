@@ -1,13 +1,24 @@
 use alef::backends::dart::DartBackend;
 use alef::core::backend::Backend;
 use alef::core::config::NewAlefConfig;
-use alef::core::ir::TypeRef;
+use alef::core::ir::{MethodDef, PrimitiveType, ReceiverKind, TypeRef};
 use std::path::Path;
 use std::process::Command;
 
 const CORE: &str = include_str!("fixtures/dart_external_error_core.rs");
 
 fn emitted_bridge(root: &Path, hidden_payloads: bool, error_name: &str) -> String {
+    emitted_bridge_with_error_method(root, hidden_payloads, error_name, false)
+}
+
+/// The generator writes the conversion from the Dart mirror back to the core error only for an
+/// error that has a bridged method, so `with_error_method` adds one to the extracted error.
+fn emitted_bridge_with_error_method(
+    root: &Path,
+    hidden_payloads: bool,
+    error_name: &str,
+    with_error_method: bool,
+) -> String {
     let extracted = CORE.replace("ConsumerError", error_name);
     let extracted = extracted
         .lines()
@@ -21,6 +32,19 @@ fn emitted_bridge(root: &Path, hidden_payloads: bool, error_name: &str) -> Strin
     assert_eq!(api.errors[0].variants.len(), 5);
     assert_eq!(api.errors[0].variants[0].fields[0].ty, TypeRef::String);
     assert_eq!(api.errors[0].variants[0].fields[0].original_type, None);
+    if with_error_method {
+        // The conversion back to the core error cannot build a variant with a borrowed string field,
+        // so this fixture keeps the variants with owned fields.
+        api.errors[0]
+            .variants
+            .retain(|variant| !matches!(variant.name.as_str(), "Denied" | "OptionalBorrowed"));
+        api.errors[0].methods.push(MethodDef {
+            name: "is_retryable".into(),
+            receiver: Some(ReceiverKind::Ref),
+            return_type: TypeRef::Primitive(PrimitiveType::Bool),
+            ..Default::default()
+        });
+    }
     if hidden_payloads {
         for variant in &mut api.errors[0].variants {
             for field in &mut variant.fields {
@@ -48,6 +72,9 @@ fn without_frb_attributes(source: &str) -> String {
         .lines()
         .filter(|line| {
             let line = line.trim();
+            if line == "#[frb]" {
+                return false;
+            }
             if line.starts_with("#[frb(") {
                 attribute = !line.ends_with(")]");
                 return false;
@@ -78,6 +105,39 @@ fn external_non_exhaustive_errors_preserve_borrowed_fields_and_unknown_failures(
     let generated = emitted_bridge(root.path(), false, "ConsumerError");
     compile_consumer(root.path(), &generated, DRIVER, CORE);
     verify_dart_codec(root.path(), &generated, "ConsumerError");
+}
+
+#[test]
+fn optional_string_error_fields_pass_clippy_without_an_identity_map() {
+    let root = tempfile::tempdir().unwrap();
+    let generated = emitted_bridge_with_error_method(root.path(), false, "ConsumerError", true);
+    let arm = generated
+        .split("ConsumerError::OptionalOwned { reason: f_reason } =>")
+        .nth(1)
+        .expect("the conversion back to the core error has an arm for the optional string field");
+    let arm = arm.lines().take(4).collect::<Vec<_>>().join("\n");
+    assert!(
+        arm.contains("reason: f_reason.clone()"),
+        "the optional string field is cloned directly by the conversion back to the core error:\n{arm}"
+    );
+    assert!(
+        !generated.contains("as_ref().map(|v| v.clone())"),
+        "an optional string field is cloned directly:\n{generated}"
+    );
+    compile_consumer(root.path(), &generated, "fn main() {}", CORE);
+    let library = root.path().join("libconsumer_core.rlib");
+    let consumer = root.path().join("consumer.rs");
+    successful(
+        Command::new("clippy-driver")
+            .arg("--edition=2024")
+            .arg(&consumer)
+            .arg("--extern")
+            .arg(format!("consumer_core={}", library.display()))
+            .arg("--emit=metadata")
+            .arg("--out-dir")
+            .arg(root.path())
+            .args(["-D", "warnings"]),
+    );
 }
 
 #[test]

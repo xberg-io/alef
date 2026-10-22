@@ -6,8 +6,11 @@ fn {{ fn_name }}(e: {{ rust_path }}) -> ext_php_rs::exception::PhpException {
     let value = match &e {
 {% for variant in variants %}        {{ variant.pattern }} => ext_php_rs::convert::IntoZval::into_zval({{ variant.class_name }} {
 {% for field in variant.fields %}            {{ field.name }}: {{ field.value }},
+{% endfor %}{% for field in variant.info %}            info_{{ field.name }}: {{ field.value }},
 {% endfor %}        }, false),
-{% endfor %}        _ => ext_php_rs::convert::IntoZval::into_zval({{ base_class }}::default(), false),
+{% endfor %}        _ => ext_php_rs::convert::IntoZval::into_zval({% if info %}{{ base_class }} {
+{% for field in info %}            info_{{ field.name }}: {{ field.value }},
+{% endfor %}        }{% else %}{{ base_class }}::default(){% endif %}, false),
     };
     let exception = ext_php_rs::exception::PhpException::from_class::<{{ base_class }}>(msg.clone());
     match value {

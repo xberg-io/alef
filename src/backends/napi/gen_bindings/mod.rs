@@ -803,6 +803,13 @@ impl Backend for NapiBackend {
             }
         }
 
+        // Every generated call site converts its error through this one function, so each
+        // thrown error carries the properties of its typed converter (kind, status, retry delay).
+        builder.add_item(&crate::codegen::error_gen::gen_napi_error_dispatch(
+            &api.errors,
+            &core_import,
+        ));
+
         let mut content = builder.build();
 
         for bridge in &active_trait_bridges {

@@ -1,7 +1,7 @@
 public final class {{ type_name }} {
     private let inner: RustBridge.{{ type_name }}
     public init(apiKey: String, baseUrl: String? = nil) throws {
-        self.inner = try RustBridge.{{ constructor_fn }}(apiKey, baseUrl)
+        self.inner = try alefBridgedCall { try RustBridge.{{ constructor_fn }}(apiKey, baseUrl) }
     }
     internal init(_ inner: RustBridge.{{ type_name }}) {
         self.inner = inner

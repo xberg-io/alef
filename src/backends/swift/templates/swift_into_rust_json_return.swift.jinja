@@ -1,1 +1,1 @@
-        return try RustBridge.{{ from_json_fn }}(json)
+        return try alefBridgedCall { try RustBridge.{{ from_json_fn }}(json) }

@@ -1,0 +1,22 @@
+extension {{ name }} {
+    /// Converts the error that the Rust bridge throws. The kind, the HTTP status and the retry
+    /// delay are the values of the Rust error.
+    init(bridgeError error: RustBridge.AlefBridgeError) {
+        let message = error.message().toString()
+        let status = error.status()
+        let retryAfterMs = error.retryAfterMs()
+        _ = (status, retryAfterMs)
+        switch error.kind().toString() {
+{{ cases }}        default:
+            self = {{ fallback }}
+        }
+    }
+{% if not has_kind_method %}
+
+    /// The variant name of the Rust error, for example `RateLimited`.
+    public var kind: String {
+        switch self {
+{{ kinds }}        }
+    }
+{% endif %}
+}

@@ -365,7 +365,7 @@ pub(super) fn gen_static_method(
     } else {
         let core_call = format!("{core_type_path}::{}({call_args})", method.name);
         if method.error_type.is_some() {
-            let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
+            let err_conv = ".map_err(alef_napi_err)";
             let value = apply_return_newtype_unwrap("val", &method.return_newtype_wrapper);
             let wrapped = napi_wrap_return(
                 &value,
@@ -545,7 +545,7 @@ pub(super) fn gen_dto_method_fns(
                 format!("{core_type_path}::{}({call_args_str})", method.name)
             };
             if method.error_type.is_some() {
-                let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
+                let err_conv = ".map_err(alef_napi_err)";
                 let value = apply_return_newtype_unwrap("val", &method.return_newtype_wrapper);
                 let wrapped = napi_wrap_return(
                     &value,
@@ -576,7 +576,7 @@ pub(super) fn gen_dto_method_fns(
                 )
             }
         } else {
-            let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
+            let err_conv = ".map_err(alef_napi_err)";
             if cfg.has_serde {
                 crate::backends::napi::template_env::render(
                     "struct_wither_serde_body.jinja",

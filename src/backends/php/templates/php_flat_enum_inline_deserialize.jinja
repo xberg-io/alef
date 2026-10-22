@@ -1,0 +1,41 @@
+
+impl<'de> serde::Deserialize<'de> for {{ enum_name }} {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        let mut object = match <serde_json::Value as serde::Deserialize>::deserialize(deserializer)? {
+            serde_json::Value::Object(object) => object,
+            serde_json::Value::Null => serde_json::Map::new(),
+            _ => return Err(D::Error::custom("expected an object for {{ enum_name }}")),
+        };
+        let tag = match object.remove("{{ tag_field }}") {
+            Some(serde_json::Value::String(tag)) => tag,
+            Some(_) => return Err(D::Error::custom("the {{ tag_field }} of {{ enum_name }} must be a string")),
+            None => String::new(),
+        };
+        let mut value = Self {
+            {{ tag_field }}_tag: tag.clone(),
+            ..Default::default()
+        };
+        match tag.as_str() {
+{{ arms }}            _ => {}
+        }
+        Ok(value)
+    }
+}
+
+impl {{ enum_name }} {
+    /// The payload of a variant: the object nested under `key` when it is the only entry, else the
+    /// whole object (serde writes the payload fields next to the tag).
+    fn payload<T: serde::de::DeserializeOwned>(
+        mut object: serde_json::Map<String, serde_json::Value>,
+        key: &str,
+    ) -> Result<T, serde_json::Error> {
+        let nested = object.len() == 1 && object.get(key).is_some_and(serde_json::Value::is_object);
+        let source = if nested {
+            object.remove(key).unwrap_or_default()
+        } else {
+            serde_json::Value::Object(object)
+        };
+        serde_json::from_value(source)
+    }
+}

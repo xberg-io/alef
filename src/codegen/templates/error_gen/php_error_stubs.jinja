@@ -1,6 +1,8 @@
-{% for class in classes %}
+{% for class in classes %}{% if not class.root %}
 class {{ class.name }} extends {{ class.parent or '\\Exception' }}
 {
 {% for field in class.fields %}    public {{ field.php_type }} ${{ field.php_name }};
+{% endfor %}{% for field in class.info %}    /** {{ field.doc }} */
+    public function {{ field.php_name }}(): {{ field.php_type }} { throw new \RuntimeException('Not implemented.'); }
 {% endfor %}}
-{% endfor %}
+{% endif %}{% endfor %}

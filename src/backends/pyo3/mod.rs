@@ -4,6 +4,8 @@
 // from_json eligibility gate. ~keep
 #[cfg(test)]
 mod adapter_return_type_tests;
+#[cfg(test)]
+mod forwarded_method_tests;
 pub(crate) mod gen_bindings;
 mod gen_stubs;
 #[cfg(test)]

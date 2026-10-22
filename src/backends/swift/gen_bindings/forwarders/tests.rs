@@ -530,7 +530,7 @@ fn async_forwarder_void_return_emits_no_result_binding_or_return() {
         "void async return must not emit `return result` -- there is nothing to return. Got:\n{out}"
     );
     assert!(
-        out.contains("try await RustBridge.deleteCatalog(_rb_catalogId)"),
+        out.contains("try await alefBridgedCallAsync { try await RustBridge.deleteCatalog(_rb_catalogId) }"),
         "void async body must call the bridge directly with no binding. Got:\n{out}"
     );
 }
@@ -567,7 +567,7 @@ fn async_forwarder_string_return_converts_via_to_string() {
     );
 
     assert!(
-        out.contains("let result = try await RustBridge.fetchStatus(_rb_catalogId)"),
+        out.contains("let result = try await alefBridgedCallAsync { try await RustBridge.fetchStatus(_rb_catalogId) }"),
         "String async return must bind the bridge's RustString result. Got:\n{out}"
     );
     assert!(
@@ -622,7 +622,9 @@ fn infallible_async_forwarders_always_try_the_result_bridge() {
             "the facade must await the async bridge directly, not park a pool thread, got:\n{out}"
         );
         assert!(
-            out.contains(&format!("try await RustBridge.{swift_name}()")),
+            out.contains(&format!(
+                "try await alefBridgedCallAsync {{ try await RustBridge.{swift_name}() }}"
+            )),
             "the Result-returning bridge call must be awaited with try, got:\n{out}"
         );
     }
@@ -653,7 +655,7 @@ fn async_capsule_forwarders_are_throwing_for_infallible_and_fallible_core_functi
             "the capsule facade must await the async bridge directly, got:\n{out}"
         );
         assert!(
-            out.contains("let addr = try await RustBridge.getLanguage(name)"),
+            out.contains("let addr = try await alefBridgedCallAsync { try await RustBridge.getLanguage(name) }"),
             "the Result-returning capsule bridge call must be awaited with try, got:\n{out}"
         );
         assert!(
@@ -727,13 +729,18 @@ fn infallible_async_json_result_payloads_agree_across_all_generated_surfaces() {
             &mut swift,
         );
 
-        assert!(extern_block.contains("-> Result<String, String>"), "{extern_block}");
+        assert!(
+            extern_block.contains("-> Result<String, AlefBridgeError>"),
+            "{extern_block}"
+        );
         assert!(
             shim.contains("serde_json::to_string"),
             "the Result Ok payload must be serialized to match the extern String, got:\n{shim}"
         );
         assert!(
-            swift.contains(&format!("try await RustBridge.{swift_name}().toString()")),
+            swift.contains(&format!(
+                "try await alefBridgedCallAsync {{ try await RustBridge.{swift_name}() }}.toString()"
+            )),
             "the Swift facade must read the Result Ok String payload, got:\n{swift}"
         );
         assert!(
@@ -796,11 +803,14 @@ fn async_optional_handle_result_remains_native_in_all_generated_surfaces() {
     );
 
     assert!(
-        extern_block.contains("-> Result<Option<OpaqueThing>, String>"),
+        extern_block.contains("-> Result<Option<OpaqueThing>, AlefBridgeError>"),
         "{extern_block}"
     );
     assert!(!shim.contains("serde_json::to_string"), "{shim}");
-    assert!(swift.contains("try await RustBridge.optionalHandle()"), "{swift}");
+    assert!(
+        swift.contains("try await alefBridgedCallAsync { try await RustBridge.optionalHandle() }"),
+        "{swift}"
+    );
     assert!(!swift.contains("JSONDecoder"), "{swift}");
     assert!(!swift.contains(".toString()"), "{swift}");
 }

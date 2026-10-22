@@ -89,7 +89,7 @@ pub fn gen_async_body_with_error_type(
             let result_handling = if has_error {
                 format!(
                     "let result = {core_call}.await\n        \
-                     .map_err(|e| JsValue::from_str(&e.to_string()))?;"
+                     .map_err(alef_wasm_err)?;"
                 )
             } else if is_unit_return {
                 format!("{core_call}.await;")
@@ -113,7 +113,7 @@ pub fn gen_async_body_with_error_type(
             let result_handling = if has_error {
                 format!(
                     "let result = {core_call}.await\n            \
-                     .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;"
+                     .map_err(alef_napi_err)?;"
                 )
             } else if is_unit_return {
                 format!("{core_call}.await;")

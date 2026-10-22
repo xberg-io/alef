@@ -42,8 +42,8 @@ fn test_gen_method_error_type_napi_async_pattern() {
 
     assert!(result.contains("pub fn validate"), "should have method name");
     assert!(
-        result.contains("napi::Error"),
-        "napi pattern should use napi::Error for error conversion"
+        result.contains(".map_err(alef_napi_err)"),
+        "napi pattern should convert errors through the typed converter alef_napi_err"
     );
 }
 

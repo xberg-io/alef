@@ -12,3 +12,10 @@ def native_defaults() -> native.ContentConfig:
 def public_constructor() -> ContentConfig:
     """Construct the public dataclass through its own typed surface."""
     return ContentConfig(label="public")
+
+
+def public_forwarded() -> str:
+    """Call the instance methods that the public dataclass forwards to the native class."""
+    config = ContentConfig(label="public")
+    config.validate()
+    return config.describe()

@@ -1,11 +1,27 @@
-{% for class in classes %}
+{% for class in classes %}{% if loop.first and class.root %}
+/// The class entry of PHP's `RuntimeException`, the parent of the project-level exception.
+fn php_runtime_exception_ce() -> &'static ext_php_rs::zend::ClassEntry {
+    ext_php_rs::zend::ClassEntry::try_find("RuntimeException").unwrap_or_else(ext_php_rs::zend::ce::exception)
+}
+{% endif %}
 #[php_class]
 #[php(name = {{ class.php_name_literal }})]
-{% if class.parent %}#[php(extends(Php{{ class.parent }}))]
+{% if class.root %}#[php(extends(ce = php_runtime_exception_ce, stub = "\\RuntimeException"))]
+{% elif class.parent %}#[php(extends(Php{{ class.parent }}))]
 {% else %}#[php(extends(ce = ext_php_rs::zend::ce::exception, stub = "\\Exception"))]
 {% endif %}#[derive(Default)]
 pub struct {{ class.rust_name }} {
 {% for field in class.fields %}    #[php(prop, name = "{{ field.php_name }}")]
     pub {{ field.name }}: {{ field.rust_type }},
+{% endfor %}{% for field in class.info %}    info_{{ field.name }}: {{ field.rust_type }},
 {% endfor %}}
-{% endfor %}
+{% if class.info %}
+#[php_impl]
+impl {{ class.rust_name }} {
+{% for field in class.info %}    /// {{ field.doc }}
+    #[php(name = "{{ field.php_name }}")]
+    pub fn {{ field.name }}(&self) -> {{ field.rust_type }} {
+        self.info_{{ field.name }}{% if field.clone %}.clone(){% endif %}
+    }
+{% endfor %}}
+{% endif %}{% endfor %}

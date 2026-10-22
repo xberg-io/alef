@@ -162,7 +162,7 @@ fn emit_jni_lib_header(api: &ApiSurface, config: &ResolvedCrateConfig, package: 
     for trait_path in collect_trait_imports(api) {
         out.push_str(&format!("use {trait_path};\n"));
     }
-    emit_runtime_helpers(&mut out);
+    emit_runtime_helpers(&mut out, api, &core_use_path(config));
     out
 }
 

@@ -64,6 +64,17 @@ static __ALEF_KEEP_FFI_LINKED: unsafe extern "C" fn() -> *const ::std::ffi::c_ch
 #[swift_bridge::bridge]
 mod ffi {
     extern "Rust" {
+        type AlefBridgeError;
+
+        fn message(self: &AlefBridgeError) -> String;
+        fn error_type(self: &AlefBridgeError) -> String;
+        fn kind(self: &AlefBridgeError) -> String;
+        fn status(self: &AlefBridgeError) -> i32;
+        #[swift_bridge(swift_name = "retryAfterMs")]
+        fn retry_after_ms(self: &AlefBridgeError) -> i64;
+    }
+
+    extern "Rust" {
         type Diagnostic;
         #[swift_bridge(init)]
         fn new(message: String, span: Span) -> Diagnostic;
@@ -92,13 +103,13 @@ mod ffi {
 
     extern "Rust" {
         #[swift_bridge(swift_name = "diagnosticFromJson")]
-        fn diagnostic_from_json(json: String) -> Result<Diagnostic, String>;
+        fn diagnostic_from_json(json: String) -> Result<Diagnostic, AlefBridgeError>;
         #[swift_bridge(swift_name = "spanFromJson")]
-        fn span_from_json(json: String) -> Result<Span, String>;
+        fn span_from_json(json: String) -> Result<Span, AlefBridgeError>;
     }
     extern "Rust" {
         #[swift_bridge(swift_name = "processResultFromJson")]
-        fn process_result_from_json(json: String) -> Result<ProcessResult, String>;
+        fn process_result_from_json(json: String) -> Result<ProcessResult, AlefBridgeError>;
     }
     extern "Rust" {
         // Phantom Vec<T> functions: swift-bridge-build must emit the full Vec support
@@ -115,6 +126,70 @@ mod ffi {
         fn __alef_phantom_vec_span() -> Vec<Span>;
     }
 
+}
+
+/// Error returned by every fallible bridge call. Swift receives it as a thrown value and
+/// converts it into the typed Swift error. `kind` is the variant name of the core error,
+/// `status` its HTTP status and `retry_after_ms` its retry delay. A text field is empty and a number
+/// is `-1` when the error does not carry it, for example an error that does not come from the
+/// core crate.
+pub struct AlefBridgeError {
+    message: String,
+    error_type: String,
+    kind: String,
+    status: i32,
+    retry_after_ms: i64,
+}
+
+impl AlefBridgeError {
+    pub fn message(&self) -> String {
+        self.message.clone()
+    }
+
+    pub fn error_type(&self) -> String {
+        self.error_type.clone()
+    }
+
+    pub fn kind(&self) -> String {
+        self.kind.clone()
+    }
+
+    pub fn status(&self) -> i32 {
+        self.status
+    }
+
+    pub fn retry_after_ms(&self) -> i64 {
+        self.retry_after_ms
+    }
+}
+
+impl From<String> for AlefBridgeError {
+    fn from(message: String) -> Self {
+        AlefBridgeError {
+            message,
+            error_type: String::new(),
+            kind: String::new(),
+            status: -1,
+            retry_after_ms: -1,
+        }
+    }
+}
+
+impl From<&str> for AlefBridgeError {
+    fn from(message: &str) -> Self {
+        AlefBridgeError::from(message.to_string())
+    }
+}
+
+/// Build the bridge error for `error`. The core error types give their kind, status and retry
+/// delay, also when a stream or a boxed error holds them; any other error gives its message only.
+pub fn alef_bridge_error<E: std::fmt::Display + 'static>(error: E) -> AlefBridgeError {
+    let message = error.to_string();
+    let any: &dyn std::any::Any = &error;
+    let boxed_sync = any.downcast_ref::<Box<dyn std::error::Error + Send + Sync + 'static>>();
+    let boxed = any.downcast_ref::<Box<dyn std::error::Error + 'static>>();
+    let _ = (boxed_sync, boxed);
+    AlefBridgeError::from(message)
 }
 
 #[doc(hidden)]
@@ -196,18 +271,18 @@ impl Span {
     }
 }
 
-pub fn diagnostic_from_json(json: String) -> Result<Diagnostic, String> {
+pub fn diagnostic_from_json(json: String) -> Result<Diagnostic, AlefBridgeError> {
     serde_json::from_str::<demo::Diagnostic>(&json)
         .map(Diagnostic)
-        .map_err(|e| e.to_string())
+        .map_err(alef_bridge_error)
 }
-pub fn span_from_json(json: String) -> Result<Span, String> {
+pub fn span_from_json(json: String) -> Result<Span, AlefBridgeError> {
     serde_json::from_str::<demo::Span>(&json)
         .map(Span)
-        .map_err(|e| e.to_string())
+        .map_err(alef_bridge_error)
 }
-pub fn process_result_from_json(json: String) -> Result<ProcessResult, String> {
+pub fn process_result_from_json(json: String) -> Result<ProcessResult, AlefBridgeError> {
     serde_json::from_str::<demo::ProcessResult>(&json)
         .map(ProcessResult)
-        .map_err(|e| e.to_string())
+        .map_err(alef_bridge_error)
 }
