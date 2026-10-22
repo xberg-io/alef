@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Serve a newline-delimited JSON stream when a streaming fixture sets a `content-type` that contains `ndjson`. The mock server wrote each chunk as `data: <chunk>`, added a `data: [DONE]` line, and sent two content-type headers. It now writes each chunk followed by one newline, with no `data:` prefix, no `[DONE]` line and one content-type header.
+- Fix the Kotlin `AssistantContent.text()` for a reply made of parts. The generated code tested each part with `is JsonNode` and cast it, so kotlinc rejected the file and `text()` returned an empty string. The code now reads the parts through a JSON tree. (GH#642)
+- Fix the Swift `AssistantMessage.content()` getter. It returned the content as JSON text, with quote characters around a text reply. It now returns the reply text, and the joined text for a reply made of parts. (GH#645)
+- Fix the Dart package for the quick start. The barrel file exports `RustLib`, so `await RustLib.init()` works from `package:<name>`, and the scaffold README and example call it. (GH#646)
+- Reject an invalid JSON string in a JSON-typed parameter of a fallible Dart bridge function. The call dropped the text and passed `null`. It now returns an error that names the parameter.
 
 ## [0.112.0] - 2026-10-21
 
