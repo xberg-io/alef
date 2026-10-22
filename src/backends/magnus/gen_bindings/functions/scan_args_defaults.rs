@@ -65,7 +65,8 @@ fn param_scan_args_type(
 }
 
 /// Extended version that accepts treat_as_optional for default-struct config params.
-/// For optional String types, use Option<magnus::Value> to handle nil properly via scan_args.
+/// Optional String and primitive types are scanned as `Option<magnus::Value>`, so an explicit nil
+/// reads as absent; magnus would otherwise raise a TypeError converting nil to the primitive.
 fn param_scan_args_type_extended(
     p: &crate::core::ir::ParamDef,
     promoted: bool,
@@ -79,7 +80,7 @@ fn param_scan_args_type_extended(
         } else {
             mapper.map_type(&p.ty)
         }
-    } else if matches!(p.ty, TypeRef::String) && (p.optional || promoted || treat_as_optional) {
+    } else if matches!(p.ty, TypeRef::String | TypeRef::Primitive(_)) && (p.optional || promoted || treat_as_optional) {
         "magnus::Value".to_string()
     } else {
         mapper.map_type(&p.ty)
@@ -193,11 +194,12 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn gen_scan_args_prolog
         let is_last = idx == params.len() - 1;
         let treat_as_optional = (p.optional || promoted) || (is_last && last_is_default_config);
 
-        if treat_as_optional && matches!(p.ty, TypeRef::String) {
+        if treat_as_optional && matches!(p.ty, TypeRef::String | TypeRef::Primitive(_)) {
             lines.push(crate::backends::magnus::template_env::render(
                 "function_optional_string_scan_arg.rs.jinja",
                 crate::alef_context! {
                     name => &p.name,
+                    ty => mapper.map_type(&p.ty),
                 },
             ));
         }

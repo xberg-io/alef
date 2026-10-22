@@ -13,7 +13,7 @@ fn {{ fn_name }}(e: {{ rust_path }}) -> magnus::Error {
         let module = ruby.define_module("{{ module_name }}")?;
         let class: magnus::ExceptionClass = module.const_get(class_name)?;
         let exception = class.new_instance((message.as_str(),))?;
-{% for field in info %}        exception.ivar_set("@{{ field.name }}", {{ field.value }})?;
+{% for field in info %}        exception.funcall::<_, _, magnus::Value>("instance_variable_set", ("@{{ field.name }}", {{ field.value }}))?;
 {% endfor %}        Ok(magnus::Error::from(exception))
     };
     build().unwrap_or_else(|_| magnus::Error::new(ruby.exception_runtime_error(), message))

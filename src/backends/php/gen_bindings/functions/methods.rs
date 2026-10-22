@@ -11,7 +11,8 @@ use heck::ToLowerCamelCase;
 
 use super::super::helpers::{
     gen_php_call_args, gen_php_call_args_with_let_bindings, gen_php_function_params,
-    gen_php_lossy_binding_to_core_fields, gen_php_named_let_bindings, param_conversion_is_fallible, php_wrap_return,
+    gen_php_lossy_binding_to_core_fields, gen_php_named_let_bindings, has_json_param, param_conversion_is_fallible,
+    php_wrap_return, wrap_body_in_ok,
 };
 use super::params::{
     PhpEnumReturnSets, PhpFunctionTarget, PhpParamTypeSets, apply_bridge_none_substitutions,
@@ -39,7 +40,11 @@ pub(crate) fn gen_instance_method(
     let empty_bridges = AHashSet::new();
     let params = gen_php_function_params(&method.params, mapper, opaque_types, &empty_bridges);
     let return_type = mapper.map_type(&method.return_type);
-    let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
+    let adapter_key = format!("{type_name}.{}", method.name);
+    // A `Json` parameter is decoded in the call arguments with `?`, so the wrapper returns a result.
+    let json_wrap =
+        method.error_type.is_none() && has_json_param(&method.params) && !adapter_bodies.contains_key(&adapter_key);
+    let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some() || json_wrap);
 
     let can_delegate = shared::can_auto_delegate(method, opaque_types);
 
@@ -49,7 +54,6 @@ pub(crate) fn gen_instance_method(
         method.returns_ref && matches!(&method.return_type, TypeRef::Named(n) if n.as_str() == type_name);
     const PHP_ERR_CONV: &str = ".map_err(alef_php_err)";
 
-    let adapter_key = format!("{type_name}.{}", method.name);
     let body = if let Some(body) = adapter_bodies.get(&adapter_key) {
         body.clone()
     } else if can_delegate && is_opaque {
@@ -174,6 +178,7 @@ pub(crate) fn gen_instance_method(
     } else {
         return String::new();
     };
+    let body = if json_wrap { wrap_body_in_ok(&body) } else { body };
 
     let mut out = String::new();
     // The `#[php_impl]` facade is Rust source, so doc text must be emitted as Rust line
@@ -235,7 +240,8 @@ pub(crate) fn gen_instance_method_non_opaque(
     let json_string_enum_names = &mapper.json_string_enum_names;
     let params = gen_php_function_params(&method.params, mapper, opaque_types, bridge_type_aliases);
     let return_type = mapper.map_type(&method.return_type);
-    let mut return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
+    let json_wrap = method.error_type.is_none() && has_json_param(&method.params);
+    let mut return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some() || json_wrap);
     if matches!(&method.return_type, TypeRef::Bytes) {
         return_annotation = override_bytes_return_type(&return_annotation);
     }
@@ -330,6 +336,7 @@ pub(crate) fn gen_instance_method_non_opaque(
     } else {
         return String::new();
     };
+    let body = if json_wrap { wrap_body_in_ok(&body) } else { body };
 
     let trait_allow = if generators::is_trait_method_name(&method.name) {
         "#[allow(clippy::should_implement_trait)]\n"
@@ -400,7 +407,8 @@ pub(crate) fn gen_static_method(
     let empty_bridges = AHashSet::new();
     let params = gen_php_function_params(&method.params, mapper, opaque_types, &empty_bridges);
     let return_type = mapper.map_type(&method.return_type);
-    let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
+    let json_wrap = method.error_type.is_none() && has_json_param(&method.params);
+    let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some() || json_wrap);
 
     let can_delegate = shared::can_auto_delegate(method, opaque_types);
     let core_type_path = typ.rust_path.replace('-', "_");
@@ -450,6 +458,7 @@ pub(crate) fn gen_static_method(
     } else {
         return String::new();
     };
+    let body = if json_wrap { wrap_body_in_ok(&body) } else { body };
 
     let mut out = String::new();
     doc_emission::emit_rustdoc(&mut out, &method.doc, "    ");

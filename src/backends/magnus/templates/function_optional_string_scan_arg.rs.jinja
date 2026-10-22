@@ -1,1 +1,1 @@
-let {{ name }}: Option<String> = match {{ name }} { Some(v) if !v.is_nil() => Some(String::try_convert(v)?), _ => None };
+let {{ name }}: Option<{{ ty }}> = match {{ name }} { Some(v) if !v.is_nil() => Some({{ ty }}::try_convert(v)?), _ => None };

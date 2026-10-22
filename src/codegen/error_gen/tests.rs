@@ -536,7 +536,7 @@ fn test_gen_magnus_error_converter() {
     );
     assert!(output.contains("let class: magnus::ExceptionClass = module.const_get(class_name)?;"));
     assert!(output.contains("define_module(\"SampleMarkup\")"));
-    assert!(output.contains("exception.ivar_set(\"@status_code\""));
+    assert!(output.contains("exception.funcall::<_, _, magnus::Value>(\"instance_variable_set\", (\"@status_code\""));
     assert!(output.contains("#[allow(dead_code)]"));
 }
 

@@ -441,14 +441,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/php_let_binding_sanitized_vec_string_optional.jinja"),
     ),
     (
-        "php_json_let_binding.jinja",
-        include_str!("templates/php_json_let_binding.jinja"),
-    ),
-    (
-        "php_json_let_binding_optional.jinja",
-        include_str!("templates/php_json_let_binding_optional.jinja"),
-    ),
-    (
         "php_let_binding_string_refs.jinja",
         include_str!("templates/php_let_binding_string_refs.jinja"),
     ),

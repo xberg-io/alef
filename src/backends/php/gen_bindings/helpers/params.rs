@@ -49,6 +49,30 @@ pub(crate) fn param_conversion_is_fallible(
     matches!(p.ty, TypeRef::Json)
 }
 
+/// Decode the JSON text a PHP caller passes for a `Json` parameter. Text that does not parse is
+/// refused with an error that names the parameter; it never reaches the core call as a default
+/// value. The `?` needs a wrapper that returns `PhpResult`: see [`has_json_param`].
+pub(crate) fn php_json_decode_expr(php_name: &str, param: &str, optional: bool) -> String {
+    let refuse = format!(
+        "map_err(|e| PhpException::from_message(format!(\"invalid JSON in `{param}`: {{e}}\")))?"
+    );
+    if optional {
+        format!("{php_name}.as_deref().map(serde_json::from_str).transpose().{refuse}")
+    } else {
+        format!("serde_json::from_str(&{php_name}).{refuse}")
+    }
+}
+
+/// True when a parameter is decoded from JSON text, so its wrapper must return `PhpResult`.
+pub(crate) fn has_json_param(params: &[crate::core::ir::ParamDef]) -> bool {
+    params.iter().any(|p| matches!(p.ty, TypeRef::Json))
+}
+
+/// Wrap a body that cannot fail so far in `Ok`, for a wrapper whose JSON decoding can fail.
+pub(crate) fn wrap_body_in_ok(body: &str) -> String {
+    format!("Ok({{\n    {body}\n    }})")
+}
+
 pub(crate) fn has_enum_named_field(typ: &crate::core::ir::TypeDef, enum_names: &AHashSet<String>) -> bool {
     fn type_ref_has_enum_named(ty: &crate::core::ir::TypeRef, enum_names: &AHashSet<String>) -> bool {
         use crate::core::ir::TypeRef;
@@ -327,13 +351,7 @@ pub(crate) fn gen_php_call_args_vec(
                         format!("std::time::Duration::from_millis({php_name}.max(0) as u64)")
                     }
                 }
-                TypeRef::Json => {
-                    if p.optional {
-                        format!("{php_name}.as_deref().and_then(|s| serde_json::from_str(s).ok())")
-                    } else {
-                        format!("serde_json::from_str(&{php_name}).unwrap_or_default()")
-                    }
-                }
+                TypeRef::Json => php_json_decode_expr(&php_name, &p.name, p.optional),
                 _ => php_name,
             }
         })
@@ -628,13 +646,7 @@ pub(crate) fn gen_php_call_args_with_let_bindings_vec(
                         format!("std::time::Duration::from_millis({php_name}.max(0) as u64)")
                     }
                 }
-                TypeRef::Json => {
-                    if p.optional {
-                        format!("{php_name}.as_deref().and_then(|s| serde_json::from_str(s).ok())")
-                    } else {
-                        format!("serde_json::from_str(&{php_name}).unwrap_or_default()")
-                    }
-                }
+                TypeRef::Json => php_json_decode_expr(&php_name, &p.name, p.optional),
                 _ => php_name,
             }
         })

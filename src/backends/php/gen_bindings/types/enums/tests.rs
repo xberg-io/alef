@@ -159,17 +159,9 @@ mod variant_constructor_tests {
             ..Default::default()
         };
         let code = run(&def, &mapper());
-        // `param_conversion_is_fallible` (`helpers/params.rs`) now answers `true` for a bare
-        // `Json` param -- the SAME predicate the struct-constructor path
-        // (`gen_struct_methods_impl` in `types/structs.rs`) uses to decide `PhpResult<Self>`
-        // wrapping for its OWN honest, `?`-propagating JSON decode -- so this variant factory
-        // wraps in `PhpResult<Self>` too, even though its body (below) still silently defaults
-        // on malformed input via the shared `gen_php_call_args_with_let_bindings_vec` this
-        // function deliberately does not touch (that helper is used broadly across every
-        // function/method call site in this backend, not just constructors, so changing its
-        // error handling is a separate, much larger change than this widening). The wrapping is
-        // harmless here (an infallible body inside `Ok(..)` still compiles) and consistent with
-        // how the same predicate already governs the `Vec<Named>` case just below. ~keep
+        // `param_conversion_is_fallible` (`helpers/params.rs`) answers `true` for a bare `Json`
+        // param, so the variant factory returns `PhpResult<Self>`. The body decodes the JSON text
+        // with `?` and an error that names the field, so malformed input is refused. ~keep
         assert!(
             code.contains("pub fn _factory_doc(body: String) -> PhpResult<Self>"),
             "{code}"
@@ -179,7 +171,7 @@ mod variant_constructor_tests {
         // old behaviour that produced `cannot find value` errors — E0425). ~keep
         assert!(
             code.contains(
-                "Ok(test_lib::Payload::Doc { body: serde_json::from_str(&body).unwrap_or_default() }.into())"
+                "Ok(test_lib::Payload::Doc { body: serde_json::from_str(&body).map_err(|e| PhpException::from_message(format!(\"invalid JSON in `body`: {e}\")))? }.into())"
             ),
             "{code}"
         );
