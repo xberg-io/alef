@@ -6,9 +6,9 @@ use crate::backends::zig::type_map::ZigMapper;
 use crate::codegen::c_consumer;
 use crate::codegen::error_gen::{LastErrorField, LastErrorFieldKind};
 use crate::codegen::type_mapper::TypeMapper;
-use crate::core::ir::PrimitiveType;
 use crate::core::config::Language;
 use crate::core::ir::ErrorDef;
+use crate::core::ir::PrimitiveType;
 use crate::docs::clean_doc;
 
 /// Emit the two standard helpers every generated file needs:
@@ -159,7 +159,8 @@ pub(crate) fn emit_helpers(prefix: &str, declared_errors: &[ErrorDef], out: &mut
 }
 
 fn details_type(details: &[LastErrorField]) -> String {
-    let mut out = String::from("/// Introspection values of an FFI error, one member for each capturable error method.\n");
+    let mut out =
+        String::from("/// Introspection values of an FFI error, one member for each capturable error method.\n");
     out.push_str("pub const LastErrorDetails = struct {\n");
     for field in details {
         let (zig_type, default) = match &field.kind {
@@ -285,7 +286,10 @@ mod tests {
             out.contains("pub fn _last_error_details() LastErrorDetails {\n    return _captured_details;\n}"),
             "{out}"
         );
-        let capture = out.split("fn _capture_error_message() void {").nth(1).expect("capture fn");
+        let capture = out
+            .split("fn _capture_error_message() void {")
+            .nth(1)
+            .expect("capture fn");
         let capture = capture.split("\n}\n").next().unwrap();
         for read in [
             "_captured_details.status_code = c.example_pack_last_error_status_code();",

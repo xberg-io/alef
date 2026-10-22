@@ -44,7 +44,11 @@ pub(crate) fn emit_type(
             format!(" = {value}")
         } else {
             let default = zig_field_default(field, enums);
-            if default.is_empty() { zig_null_default(&ty_str) } else { default }
+            if default.is_empty() {
+                zig_null_default(&ty_str)
+            } else {
+                default
+            }
         };
         out.push_str(&crate::backends::zig::template_env::render(
             "type_field.jinja",

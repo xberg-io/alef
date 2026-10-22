@@ -681,7 +681,10 @@ fn optional_field_uses_zig_optional_syntax() {
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
-    assert!(content.contains("value: ?[]const u8 = null,"), "missing optional: {content}");
+    assert!(
+        content.contains("value: ?[]const u8 = null,"),
+        "missing optional: {content}"
+    );
 }
 
 #[test]
@@ -2181,7 +2184,10 @@ fn generated_bindings_expose_the_status_and_retry_delay_of_the_last_error() {
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
-    assert!(content.contains("pub fn _last_error_details() LastErrorDetails"), "{content}");
+    assert!(
+        content.contains("pub fn _last_error_details() LastErrorDetails"),
+        "{content}"
+    );
     assert!(content.contains("status_code: u16 = 0,"), "{content}");
     assert!(content.contains("retry_after: ?u64 = null,"), "{content}");
 }
