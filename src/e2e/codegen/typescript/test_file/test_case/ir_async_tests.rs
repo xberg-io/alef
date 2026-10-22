@@ -28,6 +28,7 @@ fn ir_async_function_gets_await_even_when_config_omits_async() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
         assertions: vec![Assertion {
             assertion_type: "not_error".to_string(),
@@ -107,6 +108,7 @@ fn explicit_async_override_wins_over_a_sync_ir_signature() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
         assertions: vec![Assertion {
             assertion_type: "not_error".to_string(),

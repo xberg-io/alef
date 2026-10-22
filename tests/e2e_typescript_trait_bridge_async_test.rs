@@ -80,6 +80,7 @@ fn trait_bridge_tests_are_async_and_await_calls() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
         assertions: vec![Assertion {
             skip: None,

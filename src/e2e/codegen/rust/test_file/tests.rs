@@ -81,6 +81,7 @@ fn fields_array_binding_emitted_before_count_min_assertion_for_non_streaming_fix
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
         category: None,
     };
@@ -179,6 +180,7 @@ fn dropped_field_assertion_carries_the_marker_that_arms_the_strict_mode() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
         category: None,
     };
@@ -269,6 +271,7 @@ fn enum_typed_field_stringifies_via_debug_with_no_fields_enum_config_at_all() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
         category: None,
     };
@@ -464,6 +467,7 @@ fn result_is_simple_count_assertion_binds_to_result_variable() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
         category: None,
     };
@@ -559,6 +563,7 @@ fn handle_config_import_uses_resolved_options_type() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
         category: Some("sessions".to_string()),
     };
@@ -636,6 +641,8 @@ mod client_factory_construction {
                 body: Some(serde_json::json!({"ok": true})),
                 stream_chunks: None,
                 headers: Default::default(),
+                delay_ms: None,
+                stream_chunk_delay_ms: None,
             }),
             ..Fixture::default()
         }
@@ -807,6 +814,8 @@ mod mock_capture_gate {
                 body: Some(serde_json::json!({"ok": true})),
                 stream_chunks: None,
                 headers: Default::default(),
+                delay_ms: None,
+                stream_chunk_delay_ms: None,
             }),
             assertions,
             ..Fixture::default()

@@ -135,6 +135,7 @@ fn fixture(id: &str, assertion: Assertion) -> Fixture {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
         assertions: vec![assertion],
         visitor: None,

@@ -36,7 +36,7 @@ mod cross_backend_matrix_tests;
 mod tests;
 
 pub(crate) use helper::render_helper;
-pub(crate) use model::{MOCK_RECIPE, is_mock_virtual_field, parse_mock_field};
+pub(crate) use model::{MOCK_RECIPE, is_mock_virtual_field, normalize_body_assertion, parse_mock_field};
 pub(crate) use query::build_path_and_query;
 pub(crate) use snippets::mock_capture;
 

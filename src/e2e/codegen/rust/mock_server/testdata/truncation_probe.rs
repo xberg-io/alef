@@ -16,6 +16,7 @@ mod truncation_probe {
                 .map(|value| vec![("Content-Length".to_string(), value.to_string())])
                 .unwrap_or_default(),
             delay_ms: None,
+            stream_chunk_delay_ms: None,
         }
     }
 
@@ -55,6 +56,7 @@ mod truncation_probe {
             stream_chunks: Vec::new(),
             headers: route(length).headers,
             delay_ms: None,
+            stream_chunk_delay_ms: None,
         })
         .collect();
         let server = per_test::MockServer::start(routes).await;

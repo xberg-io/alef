@@ -177,6 +177,63 @@ pub fn js_client_construction(
     }
 }
 
+/// The languages whose executable generator applies a fixture's `client_options`.
+///
+/// ~keep Every other language excludes such a fixture ([`client_options_exclusion`]); listing a
+/// language here means its test function reads `Fixture::client_options` and passes them to the
+/// client it builds. `rust` builds the client through the call's `client_factory_from_json`
+/// with the options in the JSON; `python` passes each option as a keyword argument of the
+/// `client_factory`.
+const CLIENT_OPTIONS_LANGUAGES: [&str; 2] = ["rust", "python"];
+
+/// Python's reserved words. A keyword argument cannot carry one of these names.
+const PYTHON_KEYWORDS: [&str; 35] = [
+    "False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del",
+    "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal",
+    "not", "or", "pass", "raise", "return", "try", "while", "with", "yield",
+];
+
+/// Why the executable suite for `language` cannot run `fixture`, when the fixture declares
+/// `client_options` the language has no way to apply.
+///
+/// Running the fixture with a default client would test the default options and report it as
+/// a pass for the options the fixture names, so the fixture is excluded, and the returned reason says why.
+pub fn client_options_exclusion(fixture: &Fixture, e2e_config: &E2eConfig, language: &str) -> Option<&'static str> {
+    let options = fixture.client_options.as_ref()?;
+    let is_identifier = |name: &str| {
+        name.chars()
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
+    if !options.keys().all(|name| is_identifier(name)) {
+        return Some("client option names must be plain identifiers");
+    }
+    // ~keep Python passes each option as a keyword argument, so a name that is a Python keyword
+    // (`class`) would make the generated module a syntax error. Rust writes the names as JSON
+    // keys, where no keyword is reserved, and every other language is excluded below.
+    if language == "python" && options.keys().any(|name| PYTHON_KEYWORDS.contains(&name.as_str())) {
+        return Some("client option names must not be Python keywords");
+    }
+    if !CLIENT_OPTIONS_LANGUAGES.contains(&language) {
+        return Some("client options are not applied by this language's e2e generator");
+    }
+    let call_config = e2e_config.resolve_call_for_fixture(
+        fixture.call.as_deref(),
+        &fixture.id,
+        &fixture.resolved_category(),
+        &fixture.tags,
+        &fixture.input,
+    );
+    if call_client_factory(e2e_config, call_config, language).is_none() {
+        return Some("client options need a client_factory for this call");
+    }
+    if language == "rust" && from_json_factory(e2e_config, call_config, language).is_none() {
+        return Some("client options need client_factory_from_json for rust");
+    }
+    None
+}
+
 /// Why a documentation snippet for `fixture` cannot be rendered for `language`, when the
 /// fixture declares a `docs.client.config` the language has no way to apply.
 ///
@@ -516,5 +573,104 @@ mod tests {
             ensure_client_config_applied(&Fixture::default(), &e2e_config, "go", "pkg.CreateClient()").is_ok(),
             "a fixture without client_config has nothing to apply"
         );
+    }
+
+    fn options_fixture() -> Fixture {
+        serde_json::from_value(serde_json::json!({
+            "id": "timeout_options",
+            "description": "a client with a short timeout",
+            "client_options": {"timeout_secs": 1, "max_retries": 0},
+        }))
+        .expect("fixture parses")
+    }
+
+    fn config_with_factory_for(language: &str, plain: Option<&str>, from_json: Option<&str>) -> E2eConfig {
+        let mut call = CallConfig::default();
+        call.overrides.insert(
+            language.into(),
+            CallOverride {
+                client_factory: plain.map(str::to_string),
+                client_factory_from_json: from_json.map(str::to_string),
+                ..CallOverride::default()
+            },
+        );
+        E2eConfig {
+            call,
+            ..E2eConfig::default()
+        }
+    }
+
+    #[test]
+    fn a_fixture_without_client_options_is_never_excluded_for_them() {
+        let config = config_with_factory_for("go", Some("CreateClient"), None);
+        assert_eq!(client_options_exclusion(&Fixture::default(), &config, "go"), None);
+    }
+
+    #[test]
+    fn a_language_that_cannot_apply_client_options_excludes_the_fixture_with_a_reason() {
+        let config = config_with_factory_for("go", Some("CreateClient"), Some("CreateClientFromJSON"));
+        let reason = client_options_exclusion(&options_fixture(), &config, "go").expect("go is excluded");
+        assert!(reason.contains("client options"), "{reason}");
+    }
+
+    #[test]
+    fn python_applies_client_options_when_the_call_has_a_client_factory() {
+        let config = config_with_factory_for("python", Some("create_client"), None);
+        assert_eq!(client_options_exclusion(&options_fixture(), &config, "python"), None);
+        let bare = config_with_factory_for("python", None, None);
+        assert!(client_options_exclusion(&options_fixture(), &bare, "python").is_some());
+    }
+
+    #[test]
+    fn rust_applies_client_options_only_through_the_json_factory() {
+        let with_json = config_with_factory_for("rust", Some("create_client"), Some("create_client_from_json"));
+        assert_eq!(client_options_exclusion(&options_fixture(), &with_json, "rust"), None);
+        let without_json = config_with_factory_for("rust", Some("create_client"), None);
+        let reason = client_options_exclusion(&options_fixture(), &without_json, "rust").expect("excluded");
+        assert!(reason.contains("client_factory_from_json"), "{reason}");
+    }
+
+    #[test]
+    fn python_refuses_a_client_option_named_like_a_python_keyword() {
+        let config = config_with_factory_for("python", Some("create_client"), None);
+        for keyword in PYTHON_KEYWORDS {
+            let mut fixture = options_fixture();
+            fixture
+                .client_options
+                .as_mut()
+                .expect("options")
+                .insert(keyword.to_string(), serde_json::json!(1));
+            let reason = client_options_exclusion(&fixture, &config, "python")
+                .unwrap_or_else(|| panic!("`{keyword}` must be refused"));
+            assert!(reason.contains("Python keywords"), "{reason}");
+        }
+    }
+
+    #[test]
+    fn rust_accepts_a_client_option_named_like_a_python_keyword() {
+        let config = config_with_factory_for("rust", Some("create_client"), Some("create_client_from_json"));
+        let mut fixture = options_fixture();
+        fixture
+            .client_options
+            .as_mut()
+            .expect("options")
+            .insert("class".to_string(), serde_json::json!(1));
+        assert_eq!(
+            client_options_exclusion(&fixture, &config, "rust"),
+            None,
+            "the Rust suite writes option names as JSON keys"
+        );
+    }
+
+    #[test]
+    fn client_option_names_must_be_plain_identifiers() {
+        let mut fixture = options_fixture();
+        fixture
+            .client_options
+            .as_mut()
+            .expect("options")
+            .insert("timeout secs".to_string(), serde_json::json!(1));
+        let config = config_with_factory_for("python", Some("create_client"), None);
+        assert!(client_options_exclusion(&fixture, &config, "python").is_some());
     }
 }

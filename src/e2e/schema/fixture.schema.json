@@ -94,6 +94,11 @@
           "description": "Optional fixture-level config mirrored into input.config before code generation"
         },
         "mock_response": { "$ref": "#/$defs/mock_response" },
+        "client_options": {
+          "type": "object",
+          "description": "Options the generated test sets on the client it builds, keyed by option name, for example `timeout_secs` and `max_retries`. The Rust and Python generators apply them. Every other language leaves the fixture out, so the fixture never runs there with default options. The Python generator also leaves out a fixture with an option name that is a Python keyword.",
+          "additionalProperties": { "type": ["string", "number", "boolean"] }
+        },
         "visitor": {
           "type": "object",
           "description": "Visitor callback specification for visitor-pattern tests"
@@ -233,6 +238,16 @@
           "type": "array",
           "items": {}
         },
+        "delay_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Milliseconds the mock server waits before it sends the response."
+        },
+        "stream_chunk_delay_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Milliseconds the mock server waits before each stream chunk. It applies only when `stream_chunks` is set. Every language shares the one mock server, so every language honours it."
+        },
         "headers": {
           "type": "object",
           "additionalProperties": { "type": "string" }
@@ -306,7 +321,7 @@
         },
         "field": {
           "type": "string",
-          "description": "Dot-separated field path on the result object. Also accepts the `mock.*` request-count virtual-field namespace (alef issue #433), which asserts against the generated mock HTTP server's own request log rather than a field of any result type: `mock.requests.total` (every request the mock server has recorded) or `mock.requests[\"<key>\"]`, where `<key>` is either `\"<METHOD> <path>\"` (e.g. `\"POST /v1/chat\"`) or `\"<path>\"` alone (any method, e.g. `\"/v1/chat\"`). Every existing assertion type that operates on an integer (`equals`, `greater_than_or_equal`, `count_min`, ...) works against it unchanged. Requires the `mock_requests` recipe in `assertion_recipes` -- see that property's description."
+          "description": "Dot-separated field path on the result object. Also accepts the `mock.*` request-count virtual-field namespace (alef issue #433), which asserts against the generated mock HTTP server's own request log rather than a field of any result type: `mock.requests.total` (every request the mock server has recorded) or `mock.requests[\"<key>\"]`, where `<key>` is either `\"<METHOD> <path>\"` (e.g. `\"POST /v1/chat\"`) or `\"<path>\"` alone (any method, e.g. `\"/v1/chat\"`). Every existing assertion type that operates on an integer (`equals`, `greater_than_or_equal`, `count_min`, ...) works against it unchanged. Also accepts `mock.requests[\"<key>\"].body.<path>`, which reads the JSON body of the requests the mock server received for `<key>` (for example `mock.requests[\"POST /api/chat\"].body.options.num_ctx`). Only `equals` and `not_equals` apply to it, with any JSON value. `equals` passes when at least one request matched `<key>` and every one of them has that value at `<path>`; `not_equals` passes when at least one request matched and none has it. Requires the `mock_requests` recipe in `assertion_recipes` -- see that property's description."
         },
         "value": { "description": "Expected value (type depends on assertion type)" },
         "values": {

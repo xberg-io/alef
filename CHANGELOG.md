@@ -7,8 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add `delay_ms` and `stream_chunk_delay_ms` to the fixture `mock_response`. The mock server waits `delay_ms` before it sends a response, and waits `stream_chunk_delay_ms` before each stream chunk, so a fixture can model a slow or paused stream. Every language shares the one mock server, so every language gets the stream pause. (GH#589)
+- Add `client_options` to a fixture. The Rust and Python generated tests set these options on the client they build: Rust writes them into the JSON for `client_factory_from_json`, and Python passes them as keyword arguments of `client_factory`. Every other language leaves the fixture out, so a fixture never runs there with default options. The Python suite also leaves out a fixture with an option name that is a Python keyword. (GH#589)
+- Add the `mock.requests["<key>"].body.<path>` assertion field. It checks the JSON body of the requests the mock server received, with `equals` and `not_equals`. (GH#590)
+
 ### Fixed
 
+- Serve a newline-delimited JSON stream when a streaming fixture sets a `content-type` that contains `ndjson`. The mock server wrote each chunk as `data: <chunk>`, added a `data: [DONE]` line, and sent two content-type headers. It now writes each chunk followed by one newline, with no `data:` prefix, no `[DONE]` line and one content-type header.
 - Add the instance methods of a native Python class (for example `text()` and `output_images()` on a reply message) to the public `options.py` dataclass that shadows it. Each method converts `self` to the native object and calls it. Static helpers stay on the native class.
 - Generate a plain `.clone()` for an optional string field of a Dart error mirror, so clippy no longer reports `useless_asref`.
 - Generated Swift tests for a mid-stream error now read the stream inside the `do` block, so the throw of the loop reaches the `catch`.

@@ -110,6 +110,7 @@ fn build_function_call_fixture(id: &str) -> FixtureGroup {
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         }],
     }
@@ -207,6 +208,7 @@ result_is_simple = true
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         }],
     }];
@@ -301,6 +303,7 @@ result_is_simple = true
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         }],
     }];
@@ -393,6 +396,7 @@ result_is_simple = true
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         }],
     }];
@@ -520,6 +524,7 @@ function = "process"
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         }],
     };
@@ -651,6 +656,7 @@ result_is_simple = true
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         }],
     };
@@ -871,6 +877,7 @@ args = [{{ name = "engine", field = "config", type = "handle" }}]
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         }],
     };

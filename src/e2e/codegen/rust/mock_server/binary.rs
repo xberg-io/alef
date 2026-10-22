@@ -54,6 +54,9 @@ struct MockResponse {
     /// Used by timeout-error fixtures to force the client request to time out.
     #[serde(default)]
     delay_ms: Option<u64>,
+    /// Optional pause (milliseconds) before each stream chunk of a streaming response.
+    #[serde(default)]
+    stream_chunk_delay_ms: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -102,6 +105,7 @@ impl Fixture {
                 stream_chunks: mock.stream_chunks.clone(),
                 headers: mock.headers.clone(),
                 delay_ms: mock.delay_ms,
+                stream_chunk_delay_ms: mock.stream_chunk_delay_ms,
             });
         }
         if let Some(http) = &self.http {
@@ -111,6 +115,7 @@ impl Fixture {
                 stream_chunks: None,
                 headers: http.expected_response.headers.clone(),
                 delay_ms: None,
+                stream_chunk_delay_ms: None,
             });
         }
         None
@@ -225,6 +230,7 @@ impl Fixture {
                             stream_chunks: None,
                             headers,
                             delay_ms,
+                            stream_chunk_delay_ms: None,
                         },
                         body_bytes,
                     });

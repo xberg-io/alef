@@ -19,6 +19,7 @@ fn fixture() -> Fixture {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
         assertions: Vec::new(),
         visitor: None,
@@ -523,6 +524,8 @@ fn client_factory_snippet_never_points_the_reader_at_the_mock_server() {
         body: None,
         stream_chunks: None,
         headers: Default::default(),
+        delay_ms: None,
+        stream_chunk_delay_ms: None,
     });
     let mut e2e = E2eConfig::default();
     e2e.call.function = "chat".into();

@@ -81,6 +81,8 @@ fn build_fixture_with_http() -> FixtureGroup {
                 body: Some(serde_json::json!({ "content": "hi there" })),
                 stream_chunks: None,
                 headers: BTreeMap::new(),
+                delay_ms: None,
+                stream_chunk_delay_ms: None,
             }),
             visitor: None,
             args: Vec::new(),
@@ -125,6 +127,7 @@ fn build_fixture_with_http() -> FixtureGroup {
             }),
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         }],
     }
@@ -263,6 +266,7 @@ prefix = "htm"
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         }],
     }];
