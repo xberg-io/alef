@@ -711,10 +711,8 @@ pub(super) fn gen_stream_handle_functions(
         "stream_error_map.rs.jinja",
         crate::alef_context! { error_type => error_type.as_str() },
     );
-    let error_capture = crate::backends::ffi::template_env::render(
-        "stream_error_capture.rs.jinja",
-        crate::alef_context! { function_name => fn_next.as_str() },
-    );
+    let error_capture =
+        crate::backends::ffi::template_env::render("stream_error_capture.rs.jinja", crate::alef_context! {});
 
     format!(
         r#"{error_carrier}
@@ -834,7 +832,7 @@ unsafe fn {fn_start}_open(
     let raw_stream = match stream_result {{
         Ok(s) => s,
         Err(e) => {{
-            set_last_error_from(&e, &format!("{fn_start}: failed to open stream: {{e}}"));
+            set_last_error_from(&e, &e.to_string());
             return 0;
         }}
     }};

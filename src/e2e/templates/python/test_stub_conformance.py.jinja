@@ -4,6 +4,8 @@
    - header: file header comment
    - import_name: public Python package that ships the native module and its stub
    - native_module: name of the native extension module inside that package
+   - forwarded_methods: (class name, method names) pairs the package forwards from each public
+     dataclass in `options` to the native class
 #}
 {{ header }}"""Check native class members while respecting exception instance annotations."""
 
@@ -60,3 +62,23 @@ def test_stub_declares_only_members_present_at_runtime() -> None:
                 missing.append(f"{class_name}.{name}")
     assert checked > 0, "the stub declares no class members to check"
     assert not missing, f"declared in the stub but absent at runtime: {missing}"
+{% if forwarded_methods %}
+
+
+FORWARDED_METHODS = {
+{% for class_name, names in forwarded_methods %}
+    "{{ class_name }}": [{% for name in names %}"{{ name }}"{% if not loop.last %}, {% endif %}{% endfor %}],
+{% endfor %}
+}
+
+
+def test_public_dataclasses_forward_native_methods() -> None:
+    options = importlib.import_module("{{ import_name }}.options")
+    missing = [
+        f"{class_name}.{name}"
+        for class_name, names in FORWARDED_METHODS.items()
+        for name in names
+        if not callable(getattr(getattr(options, class_name, None), name, None))
+    ]
+    assert not missing, f"forwarded by the package generator but absent at runtime: {missing}"
+{% endif %}

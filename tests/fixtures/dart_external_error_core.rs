@@ -36,6 +36,12 @@ impl std::fmt::Display for ConsumerError {
     }
 }
 
+impl ConsumerError {
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, Self::OptionalOwned { .. })
+    }
+}
+
 pub fn request(case: u8) -> Result<(), ConsumerError> {
     Err(match case {
         0 => ConsumerError::Denied {

@@ -78,10 +78,16 @@ pub(crate) fn php_variant_wrapper_constructor_method(
     } else {
         format!("Self {{ inner: std::sync::Arc::new({core_path}::new({call_args})) }}")
     };
-    let fn_sig = if sig_params.is_empty() {
-        "pub fn new() -> Self".to_string()
+    // A `Json` parameter is decoded in the call arguments with `?`, so the constructor returns a result.
+    let (ret, body) = if crate::backends::php::gen_bindings::helpers::has_json_param(&ctor.params) {
+        ("PhpResult<Self>", format!("Ok({body})"))
     } else {
-        format!("pub fn new({sig_params}) -> Self")
+        ("Self", body)
+    };
+    let fn_sig = if sig_params.is_empty() {
+        format!("pub fn new() -> {ret}")
+    } else {
+        format!("pub fn new({sig_params}) -> {ret}")
     };
     Some(format!("#[php(constructor)]\n{fn_sig} {{\n    {body}\n}}"))
 }

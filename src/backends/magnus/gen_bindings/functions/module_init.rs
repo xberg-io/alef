@@ -410,6 +410,11 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         ));
     }
 
+    match crate::codegen::error_gen::gen_magnus_error_class_registrations(api) {
+        Ok(error_classes) => lines.extend(error_classes),
+        Err(error) => lines.push(format!("    compile_error!({:?});", error.to_string())),
+    }
+
     for error in &api.errors {
         let regs = crate::codegen::error_gen::magnus_error_methods_registrations(error);
         for reg_line in regs {

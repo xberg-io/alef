@@ -18,7 +18,7 @@ public typealias SwiftImageProcessorBridge = RustBridge.SwiftImageProcessorBridg
 // MARK: - Unregister name: label overloads
 
 public func unregisterImageProcessor(name: String) throws {
-    try RustBridge.unregisterImageProcessor(name)
+    try alefBridgedCall { try RustBridge.unregisterImageProcessor(name) }
 }
 // MARK: - Bridge → Box register overloads
 

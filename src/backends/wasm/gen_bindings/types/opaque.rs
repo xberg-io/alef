@@ -185,7 +185,12 @@ fn gen_opaque_method(
         String::new()
     };
 
-    let async_kw = if method.is_async { "async " } else { "" };
+    // A streaming call awaits the core call that opens the stream, so it is always `async`.
+    let async_kw = if method.is_async || stream_item.is_some() {
+        "async "
+    } else {
+        ""
+    };
 
     let needs_clone = matches!(method.receiver, Some(ReceiverKind::Owned));
 
@@ -224,7 +229,7 @@ fn gen_opaque_method(
             if method.error_type.is_some() {
                 format!(
                     "{let_bindings}let result = {core_call}.await\n        \
-                     .map_err(|e| JsValue::from_str(&e.to_string()))?;\n    \
+                     .map_err(alef_wasm_err)?;\n    \
                      Ok({result_wrap})"
                 )
             } else {
@@ -232,7 +237,7 @@ fn gen_opaque_method(
             }
         } else if method.error_type.is_some() {
             if matches!(method.return_type, TypeRef::Unit) {
-                format!("{let_bindings}{core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok(())")
+                format!("{let_bindings}{core_call}.map_err(alef_wasm_err)?;\n    Ok(())")
             } else {
                 let result = apply_return_newtype_unwrap("result", &method.return_newtype_wrapper);
                 let wrap = wrap_jsvalue_mapped_return(&result, &return_type).unwrap_or_else(|| {
@@ -248,9 +253,7 @@ fn gen_opaque_method(
                         mutex_types,
                     )
                 });
-                format!(
-                    "{let_bindings}let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})"
-                )
+                format!("{let_bindings}let result = {core_call}.map_err(alef_wasm_err)?;\n    Ok({wrap})")
             }
         } else {
             let result = apply_return_newtype_unwrap(&core_call, &method.return_newtype_wrapper);
@@ -373,10 +376,7 @@ fn gen_opaque_static_method(method: &MethodDef, context: OpaqueStaticMethodConte
                 )
             });
             let await_suffix = if method.is_async { ".await" } else { "" };
-            format!(
-                "{let_bindings}let result = {core_call}{await_suffix}.map_err(|e| \
-                 JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})"
-            )
+            format!("{let_bindings}let result = {core_call}{await_suffix}.map_err(alef_wasm_err)?;\n    Ok({wrap})")
         } else if method.is_async {
             let result = apply_return_newtype_unwrap("result", &method.return_newtype_wrapper);
             let wrapped = wrap_jsvalue_mapped_return(&result, &return_type).unwrap_or_else(|| {

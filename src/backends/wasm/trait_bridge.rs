@@ -642,7 +642,7 @@ pub fn gen_bridge_function(
     let return_type = mapper.map_type(&func.return_type);
     let ret = mapper.wrap_return(&return_type, func.error_type.is_some());
 
-    let err_conv = ".map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))";
+    let err_conv = ".map_err(alef_wasm_err)";
 
     let bridge_wrap = if is_optional {
         format!(

@@ -234,7 +234,9 @@ fn streaming_method_signature_override(
                  func (s *{stream_type}) Err() error\n\
                  \n\
                  func (o *{go_receiver_type}) {name}({}) (<-chan {item}, error)\n\
+                 func (o *{go_receiver_type}) {name}WithErr({}) (*{stream_type}, error)\n\
                  func (o *{go_receiver_type}) {method_with_context_name}({}) (*{stream_type}, error)",
+                method_params.join(", "),
                 method_params.join(", "),
                 context_params.join(", ")
             ))
@@ -776,6 +778,8 @@ mod tests {
                          func (s *DefaultClientChatStreamStream) Err() error\n\
                          \n\
                          func (o *DefaultClient) ChatStream(req StreamRequest) (<-chan ChatChunk, error)\n\
+                         func (o *DefaultClient) ChatStreamWithErr(req StreamRequest) \
+                         (*DefaultClientChatStreamStream, error)\n\
                          func (o *DefaultClient) ChatStreamWithContext(ctx context.Context, req StreamRequest) \
                          (*DefaultClientChatStreamStream, error)";
         assert_eq!(override_.signature.as_deref(), Some(expected));

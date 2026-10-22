@@ -227,25 +227,6 @@ pub fn gen_php_error_methods_impl(error: &ErrorDef, core_import: &str) -> String
     format!("{struct_def}\n\n{from_fn}\n\n{impl_block}")
 }
 
-/// Generate a converter function that maps a core error to `magnus::Error`.
-pub fn gen_magnus_error_converter(error: &ErrorDef, core_import: &str) -> String {
-    let rust_path = if error.rust_path.is_empty() {
-        format!("{core_import}::{}", error.name)
-    } else {
-        error.rust_path.replace('-', "_")
-    };
-
-    let fn_name = format!("{}_to_magnus_err", to_snake_case(&error.name));
-
-    crate::codegen::template_env::render(
-        "error_gen/magnus_error_converter.jinja",
-        crate::alef_context! {
-            rust_path => rust_path.as_str(),
-            fn_name => fn_name.as_str(),
-        },
-    )
-}
-
 /// Return the Magnus converter function name for a given error type.
 pub fn magnus_converter_fn_name(error: &ErrorDef) -> String {
     format!("{}_to_magnus_err", to_snake_case(&error.name))

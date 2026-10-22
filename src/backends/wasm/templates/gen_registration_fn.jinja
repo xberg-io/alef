@@ -21,5 +21,5 @@ pub fn {{ register_fn }}(backend: wasm_bindgen::JsValue) -> Result<(), wasm_bind
     let registry = {{ registry_getter }}();
     let mut registry = registry.write();
     registry.register(arc{{ extra }})
-        .map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))
+        .map_err(alef_wasm_err)
 }

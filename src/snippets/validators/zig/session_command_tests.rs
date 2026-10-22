@@ -111,7 +111,8 @@ fn session_include_paths_are_not_forwarded_to_the_build_system_command() {
     if !super::zig_is_runnable() {
         return;
     }
-    let (_directory, session) = build_system_project();
+    let (_directory, session) = super::tests::on_shared_global_cache(build_system_project());
+    super::tests::assert_on_warm_shared_global_cache(&session);
     let snippet = build_system_snippet();
 
     let (status, output) = ZigValidator

@@ -16,12 +16,16 @@ const REQUEST_COUNTER_SOURCE: &str = r####"// ----------------------------------
 //   GET  /__alef/requests/total?prefix=<p>       -> decimal count, text/plain
 //   GET  /__alef/requests/one?key=<METHOD>%20<p> -> decimal count, text/plain
 //   GET  /__alef/requests/body?key=<k>&field=<path>&op=<equals|not_equals>&value=<json>
-//                                                -> "1" or "0", text/plain
+//                                                -> "1" or "0", text/plain; or a sentence
+//                                                   naming why the bodies cannot be checked
 //   POST /__alef/requests/reset?prefix=<p>       -> 204, no body
 //
 // The body endpoint answers whether the JSON bodies of the requests recorded for `<k>`
 // (`<METHOD> <path>`, or a bare `<path>` for any method) hold `<json>` at the dotted
-// `<path>`. It answers 1 only when at least one request matched `<k>`.
+// `<path>`. It answers 1 only when at least one request matched `<k>`. When any matching
+// request has a body that is not valid JSON, or one the server did not store, no value can
+// be checked: the answer is a sentence that says so, never 1 and never 0. Every language
+// reads the answer as an integer, so the sentence fails the assertion with that reason.
 
 // Control requests are matched and answered BEFORE route lookup, and are never
 // counted themselves.
@@ -41,26 +45,29 @@ fn request_counts() -> &'static std::sync::Mutex<std::collections::HashMap<(Stri
 /// but not stored, so a suite that sends big files does not hold them in memory.
 const MAX_RECORDED_BODY_BYTES: usize = 1024 * 1024;
 
-/// Request bodies in arrival order, as `(method, path, body)`. A request whose body is empty,
-/// too large or unreadable is stored with an empty body.
-static REQUEST_BODIES: std::sync::OnceLock<std::sync::Mutex<Vec<(String, String, Vec<u8>)>>> =
+/// A request body as the server stored it, or the reason it stored none.
+type RecordedBody = Result<Vec<u8>, &'static str>;
+
+/// Request bodies in arrival order, as `(method, path, body)`.
+static REQUEST_BODIES: std::sync::OnceLock<std::sync::Mutex<Vec<(String, String, RecordedBody)>>> =
     std::sync::OnceLock::new();
 
-fn request_bodies() -> &'static std::sync::Mutex<Vec<(String, String, Vec<u8>)>> {
+fn request_bodies() -> &'static std::sync::Mutex<Vec<(String, String, RecordedBody)>> {
     REQUEST_BODIES.get_or_init(|| std::sync::Mutex::new(Vec::new()))
 }
 
-/// Read a request body up to `MAX_RECORDED_BODY_BYTES`. A longer or unreadable body reads as empty.
-async fn read_request_body(body: Body) -> Vec<u8> {
+/// Read a request body up to `MAX_RECORDED_BODY_BYTES`. A longer or unreadable body is not
+/// stored: the result holds the reason instead.
+async fn read_request_body(body: Body) -> RecordedBody {
     axum::body::to_bytes(body, MAX_RECORDED_BODY_BYTES)
         .await
         .map(|bytes| bytes.to_vec())
-        .unwrap_or_default()
+        .map_err(|_| "request body was not checked: it is larger than 1048576 bytes or could not be read")
 }
 
 /// Record one request for `(method, path)`. Callers must invoke this for every
 /// non-control request, before route lookup, so redirects and 404s are counted too.
-fn record_request(method: &str, path: &str, body: Vec<u8>) {
+fn record_request(method: &str, path: &str, body: RecordedBody) {
     let mut counts = request_counts().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     *counts.entry((method.to_string(), path.to_string())).or_insert(0) += 1;
     drop(counts);
@@ -144,11 +151,15 @@ fn json_values_equal(actual: &serde_json::Value, expected: &serde_json::Value) -
 ///
 /// `equals` needs at least one matching request and every one of them to hold the value.
 /// `not_equals` needs at least one matching request and none of them to hold it; a body that
-/// is not JSON, or lacks the field, does not hold it. An unknown `op` or unparsable
-/// `expected_json` answers false.
-fn request_bodies_match(key: &str, field: &str, op: &str, expected_json: &str) -> bool {
+/// lacks the field does not hold it. An unknown `op` or unparsable `expected_json` answers
+/// false.
+///
+/// A matching request whose body is not valid JSON (plain text, empty, compressed), or whose
+/// body the server did not store, cannot be checked. The answer is then `Err` with the reason,
+/// for `equals` and `not_equals` alike: a body that was not read never satisfies an assertion.
+fn request_bodies_match(key: &str, field: &str, op: &str, expected_json: &str) -> Result<bool, String> {
     let Ok(expected) = serde_json::from_str::<serde_json::Value>(expected_json) else {
-        return false;
+        return Ok(false);
     };
     let (method, path) = match key.split_once(' ') {
         Some((method, path)) => (Some(method), path),
@@ -162,18 +173,22 @@ fn request_bodies_match(key: &str, field: &str, op: &str, expected_json: &str) -
             continue;
         }
         matched += 1;
-        let holds = serde_json::from_slice::<serde_json::Value>(body)
-            .ok()
-            .is_some_and(|json| json_at_path(&json, field).is_some_and(|actual| json_values_equal(actual, &expected)));
-        if holds {
+        let bytes = body.as_ref().map_err(|reason| (*reason).to_string())?;
+        let Ok(json) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+            return Err(format!(
+                "request body was not valid JSON: {request_method} {request_path} sent {} bytes that do not parse",
+                bytes.len()
+            ));
+        };
+        if json_at_path(&json, field).is_some_and(|actual| json_values_equal(actual, &expected)) {
             holding += 1;
         }
     }
-    match op {
+    Ok(match op {
         "equals" => matched > 0 && holding == matched,
         "not_equals" => matched > 0 && holding == 0,
         _ => false,
-    }
+    })
 }
 
 /// Minimal `application/x-www-form-urlencoded`-style percent-decoder for query values.
@@ -254,8 +269,11 @@ fn handle_request_counter_control(method: &str, path: &str, query: Option<&str>)
             let field = query_param(query, "field").unwrap_or_default();
             let op = query_param(query, "op").unwrap_or_default();
             let value = query_param(query, "value").unwrap_or_default();
-            let holds = request_bodies_match(&key, &field, &op, &value);
-            Some(plain_text_response(StatusCode::OK, u8::from(holds).to_string()))
+            let answer = match request_bodies_match(&key, &field, &op, &value) {
+                Ok(holds) => u8::from(holds).to_string(),
+                Err(reason) => reason,
+            };
+            Some(plain_text_response(StatusCode::OK, answer))
         }
         ("POST", "/__alef/requests/reset") => {
             let prefix = query_param(query, "prefix").unwrap_or_default();

@@ -24,6 +24,61 @@ public enum DemoError: Swift.Error {
     case validation(message: String, source: String)
 }
 
+extension DemoError {
+    /// Converts the error that the Rust bridge throws. The kind, the HTTP status and the retry
+    /// delay are the values of the Rust error.
+    init(bridgeError error: RustBridge.AlefBridgeError) {
+        let message = error.message().toString()
+        let status = error.status()
+        let retryAfterMs = error.retryAfterMs()
+        _ = (status, retryAfterMs)
+        switch error.kind().toString() {
+        case "InvalidInput":
+            self = .invalidInput
+        case "ProcessingFailed":
+            self = .processingFailed
+        default:
+            self = .validation(message: message, source: "")
+        }
+    }
+
+    /// The variant name of the Rust error, for example `RateLimited`.
+    public var kind: String {
+        switch self {
+        case .invalidInput: return "InvalidInput"
+        case .processingFailed: return "ProcessingFailed"
+        case .validation: return "Validation"
+        }
+    }
+}
+
+/// Converts an error that the Rust bridge throws into the typed Swift error. Any other error
+/// passes through unchanged.
+func alefTypedError(_ error: Error) -> Error {
+    guard let bridgeError = error as? RustBridge.AlefBridgeError else { return error }
+    switch bridgeError.errorType().toString() {
+    default: return DemoError(bridgeError: bridgeError)
+    }
+}
+
+/// Runs a call into the Rust bridge and throws the typed Swift error when the call fails.
+func alefBridgedCall<T>(_ body: () throws -> T) throws -> T {
+    do {
+        return try body()
+    } catch {
+        throw alefTypedError(error)
+    }
+}
+
+/// Runs an `async` call into the Rust bridge and throws the typed Swift error when the call fails.
+func alefBridgedCallAsync<T>(_ body: () async throws -> T) async throws -> T {
+    do {
+        return try await body()
+    } catch {
+        throw alefTypedError(error)
+    }
+}
+
 // MARK: - Free-function Forwarders
 // Re-export every public free function on the source Rust crate as a
 // top-level `public func` on the host module so consumers do not need to
@@ -33,7 +88,7 @@ public enum DemoError: Swift.Error {
 /// Process input and return a result.
 public func process(input: String, count: UInt32) throws -> String {
         let _rb_input = RustString(input)
-    return try RustBridge.process(_rb_input, count).toString()
+    return try alefBridgedCall { try RustBridge.process(_rb_input, count) }.toString()
 }
 // swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.
 extension RustBridge.Config: @unchecked Sendable {}

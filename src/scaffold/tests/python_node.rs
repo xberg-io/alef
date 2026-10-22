@@ -740,8 +740,8 @@ fn test_scaffold_node_index_js_re_exports_service_api() {
     assert!(
         index_js
             .content
-            .contains("module.exports = { ...nativeBinding, ..._service };"),
-        "index.js must spread both nativeBinding and _service so wrapper methods override native, got:\n{}",
+            .contains(r#"module.exports = { ...require("./binding.cjs")(nativeBinding), ..._service };"#),
+        "index.js must spread both the shimmed nativeBinding and _service so wrapper methods override native, got:\n{}",
         index_js.content
     );
 
@@ -750,7 +750,7 @@ fn test_scaffold_node_index_js_re_exports_service_api() {
             .content
             .lines()
             .any(|line| line.trim() == "module.exports = nativeBinding;"),
-        "index.js must not have bare nativeBinding export when services are defined, got:\n{}",
+        "index.js must not export the bare nativeBinding when services are defined, got:\n{}",
         index_js.content
     );
 }
@@ -777,8 +777,8 @@ fn test_scaffold_node_index_js_single_export_without_services() {
         index_js
             .content
             .lines()
-            .any(|line| line.trim() == "module.exports = nativeBinding;"),
-        "index.js must have bare nativeBinding export when no services are defined, got:\n{}",
+            .any(|line| line.trim() == r#"module.exports = require("./binding.cjs")(nativeBinding);"#),
+        "index.js must export the nativeBinding through binding.cjs when no services are defined, got:\n{}",
         index_js.content
     );
 }

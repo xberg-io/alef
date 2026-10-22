@@ -118,7 +118,7 @@ impl {iter_name} {{
                 let binding: {item_binding} = chunk.into();
                 Ok(binding.into_value_with(&ruby))
             }}
-            Some(Err(e)) => Err(Error::new(ruby.exception_runtime_error(), e.to_string())),
+            Some(Err(e)) => Err(alef_magnus_err(e)),
             None => {{
                 // Drop the stream to release any resources.
                 let inner = self.inner.clone();
@@ -188,7 +188,7 @@ pub(super) fn gen_streaming_method_body(adapter: &StreamingAdapter<'_>) -> Strin
                 magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string())
             }})?);
         let stream = runtime.block_on(async {{ inner.{core_method}(core_req).await }})
-            .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;
+            .map_err(alef_magnus_err)?;
         let iterator = {iter_name} {{
             inner: Arc::new(tokio::sync::Mutex::new(Some(stream))),
             runtime,
