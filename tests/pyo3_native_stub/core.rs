@@ -3,6 +3,12 @@ pub struct ContentConfig {
     pub label: String,
 }
 
+#[derive(Clone, Default)]
+pub struct RequestConfig {
+    pub extra_body: serde_json::Value,
+    pub prediction: Option<serde_json::Value>,
+}
+
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum CoreError {

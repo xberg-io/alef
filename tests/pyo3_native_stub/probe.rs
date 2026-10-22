@@ -30,6 +30,12 @@ mod native_stub_runtime {
                 .unwrap()
                 .call1((&module, package_root))
                 .unwrap();
+            globals
+                .get_item("verify_invalid_json")
+                .unwrap()
+                .unwrap()
+                .call1((&module,))
+                .unwrap();
             let conformance_script = std::ffi::CString::new(include_str!("conformance_probe.py")).unwrap();
             py.run(&conformance_script, Some(&globals), None).unwrap();
             globals

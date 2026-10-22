@@ -59,38 +59,60 @@ fn surface() -> (ApiSurface, ResolvedCrateConfig) {
     ).unwrap().resolve().unwrap().remove(0);
     let api = ApiSurface {
         crate_name: "sample-core".into(),
-        types: vec![TypeDef {
-            name: "ContentConfig".into(),
-            rust_path: "sample_core::ContentConfig".into(),
-            has_default: true,
-            is_clone: true,
-            fields: vec![FieldDef {
-                name: "label".into(),
-                ty: TypeRef::String,
+        types: vec![
+            TypeDef {
+                name: "RequestConfig".into(),
+                rust_path: "sample_core::RequestConfig".into(),
+                has_default: true,
+                is_clone: true,
+                fields: vec![
+                    FieldDef {
+                        name: "extra_body".into(),
+                        ty: TypeRef::Json,
+                        ..Default::default()
+                    },
+                    FieldDef {
+                        name: "prediction".into(),
+                        ty: TypeRef::Json,
+                        optional: true,
+                        ..Default::default()
+                    },
+                ],
                 ..Default::default()
-            }],
-            methods: vec![
-                MethodDef {
-                    name: "default".into(),
-                    is_static: true,
-                    return_type: TypeRef::Named("ContentConfig".into()),
+            },
+            TypeDef {
+                name: "ContentConfig".into(),
+                rust_path: "sample_core::ContentConfig".into(),
+                has_default: true,
+                is_clone: true,
+                fields: vec![FieldDef {
+                    name: "label".into(),
+                    ty: TypeRef::String,
                     ..Default::default()
-                },
-                MethodDef {
-                    name: "validate".into(),
-                    receiver: Some(ReceiverKind::Ref),
-                    return_type: TypeRef::Unit,
-                    ..Default::default()
-                },
-                MethodDef {
-                    name: "describe".into(),
-                    receiver: Some(ReceiverKind::Ref),
-                    return_type: TypeRef::String,
-                    ..Default::default()
-                },
-            ],
-            ..Default::default()
-        }],
+                }],
+                methods: vec![
+                    MethodDef {
+                        name: "default".into(),
+                        is_static: true,
+                        return_type: TypeRef::Named("ContentConfig".into()),
+                        ..Default::default()
+                    },
+                    MethodDef {
+                        name: "validate".into(),
+                        receiver: Some(ReceiverKind::Ref),
+                        return_type: TypeRef::Unit,
+                        ..Default::default()
+                    },
+                    MethodDef {
+                        name: "describe".into(),
+                        receiver: Some(ReceiverKind::Ref),
+                        return_type: TypeRef::String,
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
+        ],
         errors: vec![ErrorDef {
             name: "CoreError".into(),
             rust_path: "sample_core::CoreError".into(),
@@ -161,7 +183,7 @@ fn run_native(root: &Path, api: &ApiSurface, config: &ResolvedCrateConfig) {
     write(
         root,
         "sample-core/Cargo.toml",
-        "[package]\nname='sample-core'\nversion='0.0.0'\nedition='2024'\n",
+        "[package]\nname='sample-core'\nversion='0.0.0'\nedition='2024'\n[dependencies]\nserde_json='1'\n",
     );
     write(root, "sample-core/src/lib.rs", include_str!("pyo3_native_stub/core.rs"));
     write(

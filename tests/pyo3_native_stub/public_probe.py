@@ -20,3 +20,19 @@ def verify_public(native: ModuleType, package_root: str) -> None:
     assert config.validate() is None
     assert config.describe() == "config:public"
     assert config.describe() == native.ContentConfig(label="public").describe()
+
+
+def verify_invalid_json(native: ModuleType) -> None:
+    """Check that a JSON-typed field rejects a string that is not valid JSON, and names the field."""
+    assert native.RequestConfig(extra_body='{"key": 1}', prediction='[1]') is not None
+    assert native.RequestConfig(extra_body="{}") is not None
+    for field, arguments in (
+        ("extra_body", {"extra_body": "{not json"}),
+        ("prediction", {"extra_body": "{}", "prediction": "{not json"}),
+    ):
+        try:
+            native.RequestConfig(**arguments)
+        except ValueError as error:
+            assert f"invalid JSON in `{field}`" in str(error), str(error)
+        else:
+            raise AssertionError(f"RequestConfig accepted invalid JSON in {field}")
