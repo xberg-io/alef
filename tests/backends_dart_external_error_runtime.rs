@@ -33,11 +33,6 @@ fn emitted_bridge_with_error_method(
     assert_eq!(api.errors[0].variants[0].fields[0].ty, TypeRef::String);
     assert_eq!(api.errors[0].variants[0].fields[0].original_type, None);
     if with_error_method {
-        // The conversion back to the core error cannot build a variant with a borrowed string field,
-        // so this fixture keeps the variants with owned fields.
-        api.errors[0]
-            .variants
-            .retain(|variant| !matches!(variant.name.as_str(), "Denied" | "OptionalBorrowed"));
         api.errors[0].methods.push(MethodDef {
             name: "is_retryable".into(),
             receiver: Some(ReceiverKind::Ref),
@@ -138,6 +133,13 @@ fn optional_string_error_fields_pass_clippy_without_an_identity_map() {
             .arg(root.path())
             .args(["-D", "warnings"]),
     );
+}
+
+#[test]
+fn conversion_back_to_the_core_error_keeps_variant_and_text_of_borrowed_fields() {
+    let root = tempfile::tempdir().unwrap();
+    let generated = emitted_bridge_with_error_method(root.path(), false, "ConsumerError", true);
+    compile_consumer(root.path(), &generated, ROUND_TRIP_DRIVER, CORE);
 }
 
 #[test]
@@ -311,6 +313,33 @@ fn main() {
     match request(-1) {
         Err(AlefBridgeError(AlefBridgeErrorWire::InvalidInput { message })) => assert!(message.contains("u8::MAX")),
         _ => panic!("invalid input must retain its own error"),
+    }
+}
+"#;
+
+const ROUND_TRIP_DRIVER: &str = r#"
+fn main() {
+    let denied: consumer_core::ConsumerError = (&ConsumerError::Denied { reason: "private_network".into() }).into();
+    match denied {
+        consumer_core::ConsumerError::Denied { reason } => assert_eq!(reason, "private_network"),
+        other => panic!("borrowed field changed variant: {other:?}"),
+    }
+    let again: consumer_core::ConsumerError = (&ConsumerError::Denied { reason: "private_network".into() }).into();
+    match again {
+        consumer_core::ConsumerError::Denied { reason } => assert_eq!(reason, "private_network"),
+        other => panic!("borrowed field changed variant on the second conversion: {other:?}"),
+    }
+    for expected in [None, Some("borrowed payload")] {
+        let mirror = ConsumerError::OptionalBorrowed { reason: expected.map(String::from) };
+        match consumer_core::ConsumerError::from(&mirror) {
+            consumer_core::ConsumerError::OptionalBorrowed { reason } => assert_eq!(reason, expected),
+            other => panic!("optional borrowed field changed variant: {other:?}"),
+        }
+    }
+    let owned: consumer_core::ConsumerError = (&ConsumerError::Owned { reason: "owned payload".into() }).into();
+    match owned {
+        consumer_core::ConsumerError::Owned { reason } => assert_eq!(reason, "owned payload"),
+        other => panic!("owned field changed variant: {other:?}"),
     }
 }
 "#;
