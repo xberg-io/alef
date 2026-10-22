@@ -1,7 +1,7 @@
 use crate::codegen::cfg::is_host_owned_rust_path;
 use crate::codegen::conversions::{VariantDeclaration, enum_variant_declaration};
 use crate::codegen::shared::binding_fields;
-use crate::core::ir::{EnumDef, ErrorDef, FieldDef, PrimitiveType, TypeDef, TypeRef};
+use crate::core::ir::{CoreWrapper, EnumDef, ErrorDef, FieldDef, PrimitiveType, TypeDef, TypeRef};
 
 use super::conversions::{frb_rust_type, frb_rust_type_inner, primitive_name};
 
@@ -246,6 +246,9 @@ fn field_from_expr(field: &FieldDef, field_expr: &str) -> String {
         TypeRef::Duration => {
             format!("std::time::Duration::from_millis(*{field_expr} as u64)")
         }
+        TypeRef::String if field.core_wrapper == CoreWrapper::StaticStr => {
+            format!("intern_static_str({field_expr})")
+        }
         TypeRef::String | TypeRef::Bytes => format!("{field_expr}.clone()"),
         TypeRef::Char => format!("{field_expr}.chars().next().unwrap_or('\\0')"),
         TypeRef::Optional(inner) => {
@@ -298,12 +301,18 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str, error_cfg
         !v.is_unit && !visible_fields.is_empty() && !variant_is_reconstructible(&visible_fields)
     });
 
+    let borrows_static_str = error.variants.iter().any(|v| {
+        let visible_fields: Vec<&FieldDef> = v.fields.iter().filter(|f| !f.binding_excluded).collect();
+        variant_is_reconstructible(&visible_fields)
+            && visible_fields.iter().any(|f| f.core_wrapper == CoreWrapper::StaticStr)
+    });
     out.push_str(&template_env::render(
         "rust_mirror_error_from_impl_open.rs.jinja",
         crate::alef_context! {
             name => error.name.as_str(),
             core_path => core_path,
             source_cfg => error_cfg,
+            borrows_static_str => borrows_static_str,
         },
     ));
     for variant in &error.variants {
@@ -872,5 +881,59 @@ mod tests {
             !out.contains("#[cfg("),
             "ungated opaque type must not emit #[cfg(...)], got:\n{out}"
         );
+    }
+
+    fn error_with_text_field(wrapper: crate::core::ir::CoreWrapper, optional: bool) -> ErrorDef {
+        use crate::core::ir::{ErrorVariant, FieldDef};
+
+        let mut error = duration_error(TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool));
+        error.variants.push(ErrorVariant {
+            name: "Denied".into(),
+            fields: vec![FieldDef {
+                name: "reason".into(),
+                ty: TypeRef::String,
+                optional,
+                core_wrapper: wrapper,
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        error
+    }
+
+    /// A core field of type `&'static str` cannot take the owned `String` the mirror holds, so
+    /// the conversion back to the core error borrows an interned copy. An owned field keeps the
+    /// plain clone and gets no helper. ~keep
+    #[test]
+    fn borrowed_error_fields_convert_through_an_interned_static_str() {
+        use crate::core::ir::CoreWrapper;
+
+        for optional in [false, true] {
+            let mut generated = String::new();
+            emit_mirror_error(
+                &mut generated,
+                &error_with_text_field(CoreWrapper::StaticStr, optional),
+                "demo",
+            );
+            let expected = if optional {
+                "reason: f_reason.as_ref().map(|v| intern_static_str(v))"
+            } else {
+                "reason: intern_static_str(f_reason)"
+            };
+            assert!(generated.contains(expected), "optional={optional}: {generated}");
+            assert_eq!(
+                generated.matches("fn intern_static_str").count(),
+                1,
+                "optional={optional}: {generated}"
+            );
+
+            let mut owned = String::new();
+            emit_mirror_error(&mut owned, &error_with_text_field(CoreWrapper::None, optional), "demo");
+            assert!(!owned.contains("intern_static_str"), "optional={optional}: {owned}");
+            assert!(
+                owned.contains("reason: f_reason.clone()"),
+                "optional={optional}: {owned}"
+            );
+        }
     }
 }
