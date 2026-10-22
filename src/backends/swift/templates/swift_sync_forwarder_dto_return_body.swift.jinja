@@ -1,2 +1,2 @@
-    let _rb = {{ bridge_call_try }}RustBridge.{{ function_name }}({{ args }})
+    let _rb = {{ bridge_call }}
     return try {{ dto_name }}(_rb)

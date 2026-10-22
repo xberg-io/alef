@@ -1,17 +1,17 @@
     public func {{ method_name }}({{ params }}) async throws -> AsyncThrowingStream<{{ item_type }}, Error> {
-        let handle = try await RustBridge.{{ start_fn }}(self.inner{{ call_args }})
+        let handle = try await alefBridgedCallAsync { try await RustBridge.{{ start_fn }}(self.inner{{ call_args }}) }
 
         return AsyncThrowingStream<{{ item_type }}, Error> { continuation in
             let task = Task.detached(priority: .userInitiated) {
                 do {
                     while !Task.isCancelled {
-                        let json = try await handle.next().toString()
+                        let json = try await alefBridgedCallAsync { try await handle.next() }.toString()
                         if json.isEmpty { break }
 {{ chunk_decode }}                        continuation.yield(chunk)
                     }
                     continuation.finish()
                 } catch {
-                    continuation.finish(throwing: error)
+                    continuation.finish(throwing: alefTypedError(error))
                 }
             }
             continuation.onTermination = { _ in task.cancel() }

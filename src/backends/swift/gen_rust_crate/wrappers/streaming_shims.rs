@@ -6,12 +6,12 @@ use crate::core::keywords::swift_ident;
 /// For each streaming adapter, emits three free functions + one handle struct:
 ///
 /// - `pub struct {Owner}{Adapter}StreamHandle` — owns a tokio runtime + boxed
-///   stream, exposes `next_json(&mut self) -> Result<String, String>` to advance.
-/// - `pub async fn {owner_snake}_{name}_start(client: &OwnerType, ...params...) -> Result<Handle, String>`
+///   stream, exposes `next_json(&mut self) -> Result<String, AlefBridgeError>` to advance.
+/// - `pub async fn {owner_snake}_{name}_start(client: &OwnerType, ...params...) -> Result<Handle, AlefBridgeError>`
 ///   — kicks the request (HTTP errors propagate before any chunks arrive).
-/// - `pub async fn next(&self) -> Result<String, String>` on the handle
+/// - `pub async fn next(&self) -> Result<String, AlefBridgeError>` on the handle
 ///   — awaits the next chunk; returns the JSON-encoded chunk, or an empty
-///   string `""` to signal clean end-of-stream. Errors propagate as `Err(String)`.
+///   string `""` to signal clean end-of-stream. Errors propagate as `Err(AlefBridgeError)`.
 /// - `pub fn {owner_snake}_{name}_free(handle: *mut Handle)` — drops the handle.
 ///
 /// ### Why JSON-string at the bridge boundary
@@ -164,7 +164,7 @@ mod tests {
             "start must be an `async fn`, got:\n{out}"
         );
         assert!(
-            out.contains("pub async fn next(&self) -> Result<String, String>"),
+            out.contains("pub async fn next(&self) -> Result<String, AlefBridgeError>"),
             "next must be an `async fn` over `&self`, got:\n{out}"
         );
         assert!(

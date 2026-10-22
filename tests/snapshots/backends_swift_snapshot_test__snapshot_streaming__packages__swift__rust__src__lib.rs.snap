@@ -64,12 +64,23 @@ static __ALEF_KEEP_FFI_LINKED: unsafe extern "C" fn() -> *const ::std::ffi::c_ch
 #[swift_bridge::bridge]
 mod ffi {
     extern "Rust" {
+        type AlefBridgeError;
+
+        fn message(self: &AlefBridgeError) -> String;
+        fn error_type(self: &AlefBridgeError) -> String;
+        fn kind(self: &AlefBridgeError) -> String;
+        fn status(self: &AlefBridgeError) -> i32;
+        #[swift_bridge(swift_name = "retryAfterMs")]
+        fn retry_after_ms(self: &AlefBridgeError) -> i64;
+    }
+
+    extern "Rust" {
         type DefaultClient;
     }
 
     extern "Rust" {
         #[swift_bridge(swift_name = "createDefaultClient")]
-        fn create_default_client(api_key: String, base_url: Option<String>) -> Result<DefaultClient, String>;
+        fn create_default_client(api_key: String, base_url: Option<String>) -> Result<DefaultClient, AlefBridgeError>;
     }
 
     extern "Rust" {
@@ -81,17 +92,84 @@ mod ffi {
         type DefaultClientChatStreamStreamHandle;
 
         #[swift_bridge(swift_name = "defaultClientChatStreamStart")]
-        async fn default_client_chat_stream_start(client: &DefaultClient, req: &ChatRequest) -> Result<DefaultClientChatStreamStreamHandle, String>;
-        async fn next(self: &DefaultClientChatStreamStreamHandle) -> Result<String, String>;
+        async fn default_client_chat_stream_start(client: &DefaultClient, req: &ChatRequest) -> Result<DefaultClientChatStreamStreamHandle, AlefBridgeError>;
+        async fn next(self: &DefaultClientChatStreamStreamHandle) -> Result<String, AlefBridgeError>;
     }
 
+}
+
+/// Error returned by every fallible bridge call. Swift receives it as a thrown value and
+/// converts it into the typed Swift error. `kind` is the variant name of the core error,
+/// `status` its HTTP status and `retry_after_ms` its retry delay. A text field is empty and a number
+/// is `-1` when the error does not carry it, for example an error that does not come from the
+/// core crate.
+pub struct AlefBridgeError {
+    message: String,
+    error_type: String,
+    kind: String,
+    status: i32,
+    retry_after_ms: i64,
+}
+
+impl AlefBridgeError {
+    pub fn message(&self) -> String {
+        self.message.clone()
+    }
+
+    pub fn error_type(&self) -> String {
+        self.error_type.clone()
+    }
+
+    pub fn kind(&self) -> String {
+        self.kind.clone()
+    }
+
+    pub fn status(&self) -> i32 {
+        self.status
+    }
+
+    pub fn retry_after_ms(&self) -> i64 {
+        self.retry_after_ms
+    }
+}
+
+impl From<String> for AlefBridgeError {
+    fn from(message: String) -> Self {
+        AlefBridgeError {
+            message,
+            error_type: String::new(),
+            kind: String::new(),
+            status: -1,
+            retry_after_ms: -1,
+        }
+    }
+}
+
+impl From<&str> for AlefBridgeError {
+    fn from(message: &str) -> Self {
+        AlefBridgeError::from(message.to_string())
+    }
+}
+
+/// Build the bridge error for `error`. The core error types give their kind, status and retry
+/// delay, also when a stream or a boxed error holds them; any other error gives its message only.
+pub fn alef_bridge_error<E: std::fmt::Display + 'static>(error: E) -> AlefBridgeError {
+    let message = error.to_string();
+    let any: &dyn std::any::Any = &error;
+    let boxed_sync = any.downcast_ref::<Box<dyn std::error::Error + Send + Sync + 'static>>();
+    let boxed = any.downcast_ref::<Box<dyn std::error::Error + 'static>>();
+    let _ = (boxed_sync, boxed);
+    AlefBridgeError::from(message)
 }
 
 
 pub struct DefaultClient(pub demo::DefaultClient);
 
-pub fn create_default_client(api_key: String, base_url: Option<String>) -> Result<DefaultClient, String> {
+pub fn create_default_client(api_key: String, base_url: Option<String>) -> Result<DefaultClient, AlefBridgeError> {
+    fn build(api_key: String, base_url: Option<String>) -> Result<DefaultClient, impl std::fmt::Display + 'static> {
 Self { inner: ::demo::DefaultClient::new(api_key, base_url) }
+    }
+    build(api_key, base_url).map_err(alef_bridge_error)
 }
 
 pub fn default_client_ping(client: &DefaultClient) -> String {
@@ -127,7 +205,7 @@ pub struct DefaultClientChatStreamStreamHandle {
 /// Swift caller (swift-bridge boxes the handle internally). Declared `async fn`
 /// in the bridge module, so the Swift caller suspends while the request opens
 /// instead of parking a thread.
-pub async fn default_client_chat_stream_start(client: &DefaultClient, req: &ChatRequest) -> Result<DefaultClientChatStreamStreamHandle, String> {
+pub async fn default_client_chat_stream_start(client: &DefaultClient, req: &ChatRequest) -> Result<DefaultClientChatStreamStreamHandle, AlefBridgeError> {
     use ::futures_util::StreamExt;
     let __alef_req = req.0.clone();
     // SAFETY: Swift keeps the owner alive until this future's task completes.
@@ -136,11 +214,11 @@ pub async fn default_client_chat_stream_start(client: &DefaultClient, req: &Chat
     let __alef_task = rt.spawn(async move {
         demo::chat_stream(&client.0, __alef_req)
             .await
-            .map_err(|e| e.to_string())
+            .map_err(alef_bridge_error)
     });
     let raw = __alef_task
         .await
-        .unwrap_or_else(|__alef_join_error| Err(format!("alef: spawned async task failed: {__alef_join_error}")))?;
+        .unwrap_or_else(|__alef_join_error| Err(AlefBridgeError::from(format!("alef: spawned async task failed: {__alef_join_error}"))))?;
     let erased: ::futures_util::stream::BoxStream<
         'static,
         Result<demo::ChatChunk, Box<dyn ::std::error::Error + Send + Sync + 'static>>,
@@ -160,7 +238,7 @@ impl DefaultClientChatStreamStreamHandle {
     /// Declared `async fn` in the bridge module: the Swift caller suspends until a chunk
     /// arrives instead of parking a thread per open stream. The lock is an async mutex
     /// because the guard is held across the `.await`.
-    pub async fn next(&self) -> Result<String, String> {
+    pub async fn next(&self) -> Result<String, AlefBridgeError> {
         let mut guard = self.stream.lock().await;
         let stream = match guard.as_mut() {
             Some(s) => s,
@@ -168,10 +246,10 @@ impl DefaultClientChatStreamStreamHandle {
         };
         use ::futures_util::StreamExt;
         match stream.next().await {
-            Some(Ok(item)) => ::serde_json::to_string(&item).map_err(|e| e.to_string()),
+            Some(Ok(item)) => ::serde_json::to_string(&item).map_err(alef_bridge_error),
             Some(Err(e)) => {
                 *guard = None;
-                Err(e.to_string())
+                Err(alef_bridge_error(e))
             }
             None => {
                 *guard = None;

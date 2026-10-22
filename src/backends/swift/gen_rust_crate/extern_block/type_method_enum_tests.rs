@@ -3,7 +3,7 @@
 //!
 //! `emit_type_method_shims` (`wrappers/methods.rs`) reconstructs a unit-enum parameter from its
 //! wire `String` via a fallible helper and, when the method itself has no `error_type`, forces
-//! the SHIM's return type to `Result<_, String>` purely so the reconstruction's `?` has
+//! the SHIM's return type to `Result<_, AlefBridgeError>` purely so the reconstruction's `?` has
 //! somewhere to propagate -- see `has_fallible_enum_param`/`forced_fallible` there.
 //! `emit_extern_block_for_type_methods` (`extern_block.rs`) builds the separate
 //! `#[swift_bridge::bridge]` extern declaration for the same method; before this fix it computed
@@ -51,7 +51,7 @@ fn render(ty: &TypeDef, enum_names: &HashSet<&str>, unit_enum_names: &HashSet<&s
 
 /// The exact shape that fails to compile today: a unit enum used as the parameter of an
 /// otherwise-infallible instance method (no `error_type`). The declared return type must become
-/// `Result<{Enum}, String>` -- Result-wrapped only because the parameter reconstruction can fail,
+/// `Result<{Enum}, AlefBridgeError>` -- Result-wrapped only because the parameter reconstruction can fail,
 /// exactly mirroring `foreign_unit_enum_param_and_return_forces_a_result_wrapped_declaration` in
 /// `foreign_enum_tests.rs` for the free-function path.
 ///
@@ -80,13 +80,13 @@ fn foreign_unit_enum_param_forces_a_result_wrapped_method_declaration() {
     let block = render(&ty, &enum_names, &unit_enum_names);
 
     assert!(
-        block.contains("fn mixer_retint(client: &Mixer, tag: String) -> Result<PaletteTag, String>;"),
+        block.contains("fn mixer_retint(client: &Mixer, tag: String) -> Result<PaletteTag, AlefBridgeError>;"),
         "expected block to declare a Result-wrapped return, got:\n{block}"
     );
 }
 
 /// Positive control: an already-fallible method (`error_type` set) was always declared
-/// `Result<_, String>` -- `forced_fallible` must be additive, not a behavior change for the
+/// `Result<_, AlefBridgeError>` -- `forced_fallible` must be additive, not a behavior change for the
 /// already-correct case.
 #[test]
 fn already_fallible_method_is_unaffected() {
@@ -108,7 +108,7 @@ fn already_fallible_method_is_unaffected() {
     let block = render(&ty, &enum_names, &unit_enum_names);
 
     assert!(
-        block.contains("fn mixer_retint(client: &Mixer, tag: String) -> Result<PaletteTag, String>;"),
+        block.contains("fn mixer_retint(client: &Mixer, tag: String) -> Result<PaletteTag, AlefBridgeError>;"),
         "an already-fallible method's declaration must be unchanged, got:\n{block}"
     );
 }
@@ -170,7 +170,7 @@ fn vec_of_foreign_unit_enum_param_also_forces_a_result_wrapped_method_declaratio
     let block = render(&ty, &enum_names, &unit_enum_names);
 
     assert!(
-        block.contains("fn mixer_retint_many(client: &Mixer, tags: Vec<String>) -> Result<(), String>;"),
+        block.contains("fn mixer_retint_many(client: &Mixer, tags: Vec<String>) -> Result<(), AlefBridgeError>;"),
         "a Vec<enum> parameter must also force a Result-wrapped unit return, got:\n{block}"
     );
 }
