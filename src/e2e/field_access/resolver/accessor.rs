@@ -95,6 +95,11 @@ impl FieldResolver {
             &self.python_map_value_edges,
         );
 
+        // ~keep An element of a list that sits below a dict-shaped variant getter is itself a
+        // dict, so the element path starts inside JSON. The container's own segments decide it.
+        let array_segments = self.inject_array_indexing(array_segments);
+        let element_in_json = !self.python_json_crossings(&array_segments).is_empty();
+
         let effective = self.resolve(element_path);
         let segments = parse_path(effective);
         let segments = self.inject_array_indexing(segments);
@@ -105,6 +110,7 @@ impl FieldResolver {
             &self.python_typeddict_map,
             &self.python_map_value_edges,
             owner_type,
+            element_in_json,
         )
     }
 
@@ -460,6 +466,7 @@ impl FieldResolver {
                 &self.optional_fields,
                 &self.method_calls,
                 &self.result_fields,
+                &self.rust_variant_matches(&segments),
             ),
             "csharp" => render_csharp_with_optionals(
                 &segments,
@@ -498,6 +505,7 @@ impl FieldResolver {
                 &self.optional_fields,
                 &self.python_typeddict_map,
                 &self.python_map_value_edges,
+                &self.python_json_crossings(&segments),
             ),
             _ => render_accessor(&segments, language, result_var),
         }
@@ -532,6 +540,7 @@ impl FieldResolver {
                 &self.optional_fields,
                 &self.method_calls,
                 &self.result_fields,
+                &HashMap::new(),
             ),
             _ => render_accessor(&segments, language, err_var),
         }
@@ -650,6 +659,7 @@ impl FieldResolver {
             &self.optional_fields,
             &self.method_calls,
             &self.result_fields,
+            &self.rust_variant_matches(&segments),
         );
         let has_map_access = segments.iter().any(|s| {
             if let PathSegment::MapAccess { key, .. } = s {

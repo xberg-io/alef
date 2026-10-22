@@ -420,6 +420,24 @@ pub(super) fn render_kotlin_android(segments: &[PathSegment], result_var: &str) 
     out
 }
 
+/// Append one struct field to a Rust accessor, or the `match` that reads an enum variant when
+/// `variant_matches` has an entry for `path_so_far`. A Rust enum has no fields, so a segment
+/// that names a variant or a variant field cannot be spelled `.name`. ~keep
+fn push_rust_field_or_variant(
+    out: &mut String,
+    name: &str,
+    path_so_far: &str,
+    variant_matches: &HashMap<String, String>,
+) {
+    if let Some(arms) = variant_matches.get(path_so_far) {
+        let inner = std::mem::take(out);
+        *out = format!("(match &{inner} {{ {arms} }})");
+    } else {
+        out.push('.');
+        out.push_str(&name.to_snake_case());
+    }
+}
+
 /// Rust accessor with Option unwrapping for intermediate fields.
 ///
 /// When an intermediate field is in the `optional_fields` set, `.as_ref().unwrap()`
@@ -435,6 +453,7 @@ pub(super) fn render_rust_with_optionals(
     optional_fields: &HashSet<String>,
     method_calls: &HashSet<String>,
     result_fields: &HashSet<String>,
+    variant_matches: &HashMap<String, String>,
 ) -> String {
     let mut out = result_var.to_string();
     let mut path_so_far = String::new();
@@ -443,8 +462,7 @@ pub(super) fn render_rust_with_optionals(
         match seg {
             PathSegment::Field(f) => {
                 push_key_field_name(&mut path_so_far, seg);
-                out.push('.');
-                out.push_str(&f.to_snake_case());
+                push_rust_field_or_variant(&mut out, f, &path_so_far, variant_matches);
                 let is_method = method_calls.contains(&path_so_far) && !result_fields.contains(&path_so_far);
                 if is_method {
                     out.push_str("()");
@@ -458,8 +476,7 @@ pub(super) fn render_rust_with_optionals(
             PathSegment::ArrayField { name, index } => {
                 push_key_field_name(&mut path_so_far, seg);
                 if !name.is_empty() {
-                    out.push('.');
-                    out.push_str(&name.to_snake_case());
+                    push_rust_field_or_variant(&mut out, name, &path_so_far, variant_matches);
                 }
                 // Option<Vec<T>>: must unwrap the Option before indexing.
                 // Check both "name" (bare) and "name[0]" (indexed) forms since the

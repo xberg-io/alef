@@ -98,6 +98,7 @@ impl FieldResolver {
             ir_known_excluded_fields: HashSet::new(),
             wire_optional_fields: HashSet::new(),
             ir_enum_map: IrEnumMap::default(),
+            rust_enum_module: None,
             wasm_untagged_enum_names: HashSet::new(),
             napi_tagged_object_enums: HashMap::new(),
             napi_flattened_newtype_variants: HashMap::new(),
@@ -143,6 +144,7 @@ impl FieldResolver {
             ir_known_excluded_fields: HashSet::new(),
             wire_optional_fields: HashSet::new(),
             ir_enum_map: IrEnumMap::default(),
+            rust_enum_module: None,
             wasm_untagged_enum_names: HashSet::new(),
             napi_tagged_object_enums: HashMap::new(),
             napi_flattened_newtype_variants: HashMap::new(),
@@ -251,6 +253,13 @@ impl FieldResolver {
     pub fn with_ir_enum_map(mut self, mut map: IrEnumMap, root_type: Option<String>) -> Self {
         map.root_type = root_type;
         self.ir_enum_map = map;
+        self
+    }
+
+    /// Name the Rust module the e2e test imports the binding's types from, so a `match` on an
+    /// enum variant spells the enum with a path that resolves in the test file.
+    pub fn with_rust_enum_module(mut self, module: impl Into<String>) -> Self {
+        self.rust_enum_module = Some(module.into());
         self
     }
 

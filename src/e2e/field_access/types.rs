@@ -104,6 +104,11 @@ pub struct FieldResolver {
     /// entirely to the hand-maintained `fields_enum` config. See [`IrEnumMap`] for why this
     /// is keyed by `(type, field)` rather than by bare field name.
     pub(super) ir_enum_map: IrEnumMap,
+    /// The Rust module (crate identifier) the e2e test imports the binding's types from. A
+    /// `match` on an enum variant names the enum, and the test file imports only the symbols the
+    /// call itself needs, so the pattern spells the enum with this path. `None` leaves the enum
+    /// name bare. ~keep
+    pub(super) rust_enum_module: Option<String>,
     /// Enum names whose serde wire representation has no discriminator at all.
     pub(super) wasm_untagged_enum_names: HashSet<String>,
     /// Names of IR enum types for which the Java binding backend does NOT emit a plain
@@ -390,7 +395,28 @@ pub struct IrEnumMap {
     /// so a lookup miss means "no rename to reconcile" and the caller keeps its prior behaviour.
     /// ~keep
     pub enum_wire_variants: HashMap<String, HashMap<String, String>>,
+    /// `variant_shapes[enum_name]` -- the shape of every variant of every IR enum: whether it is
+    /// a tuple variant, the name and (when it resolves to a declared type) the declared type of
+    /// each field, and whether the pyo3 binding exposes the variant through a typed getter or
+    /// through the dict-shaped getter that returns `json.loads` output. A path that steps
+    /// through an enum can only be rendered once the generator knows which variant the segment
+    /// names and what that variant holds. ~keep
+    pub variant_shapes: HashMap<String, Vec<VariantShape>>,
     pub root_type: Option<String>,
+}
+
+/// One variant of an IR enum, as [`IrEnumMap::variant_shapes`] records it.
+#[derive(Debug, Clone, Default)]
+pub struct VariantShape {
+    pub name: String,
+    pub is_tuple: bool,
+    /// `(field name, declared named type)` for each field, in declaration order. The type is
+    /// `None` when the field is a primitive or a type the IR did not resolve.
+    pub fields: Vec<(String, Option<String>)>,
+    /// `true` when the pyo3 binding gives this variant the dict-shaped getter, whose value is
+    /// `json.loads` output (a `dict` or a `list`), rather than a typed getter that returns a
+    /// binding class. Read from the predicate the pyo3 backend itself uses to pick the getter.
+    pub python_json_getter: bool,
 }
 
 #[derive(Debug, Clone)]

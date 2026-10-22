@@ -21,7 +21,7 @@ use crate::e2e::codegen::call_ir::named_type;
 
 use super::parse::{parse_path, segment_name};
 use super::types::PathSegment;
-use super::types::{IrEnumMap, TaggedEnumWire};
+use super::types::{IrEnumMap, TaggedEnumWire, VariantShape};
 
 /// Build the `(type, field) -> is-enum` / `(type, field) -> next type` maps [`IrEnumMap`]
 /// needs, by inspecting every field of every `TypeDef` this crate declares.
@@ -80,8 +80,38 @@ pub(super) fn build_ir_enum_map(type_defs: &[TypeDef], enums: &[EnumDef]) -> IrE
         tagged_enum_wire: build_tagged_enum_wire(enums),
         data_carrying_enum_names: data_carrying_enum_names(enums),
         enum_wire_variants: build_enum_wire_variants(enums),
+        variant_shapes: build_variant_shapes(enums),
         root_type: None,
     }
+}
+
+/// `variant_shapes[enum] -> every variant's shape` -- see [`IrEnumMap::variant_shapes`].
+///
+/// `python_json_getter` is the negation of `codegen::generators::enums::variant_accessor`, the
+/// predicate `write_pyo3_variant_accessors` branches on to choose between the typed getter and
+/// the dict-shaped one, so the e2e generator and the binding cannot disagree about which
+/// variants return JSON. ~keep
+fn build_variant_shapes(enums: &[EnumDef]) -> HashMap<String, Vec<VariantShape>> {
+    enums
+        .iter()
+        .map(|enum_def| {
+            let shapes = enum_def
+                .variants
+                .iter()
+                .map(|variant| VariantShape {
+                    name: variant.name.clone(),
+                    is_tuple: variant.is_tuple,
+                    fields: variant
+                        .fields
+                        .iter()
+                        .map(|field| (field.name.clone(), named_type(&field.ty).map(str::to_string)))
+                        .collect(),
+                    python_json_getter: crate::codegen::generators::enums::variant_accessor(variant).is_none(),
+                })
+                .collect();
+            (enum_def.name.clone(), shapes)
+        })
+        .collect()
 }
 
 /// The enums with at least one data-carrying variant, keyed by IR name.

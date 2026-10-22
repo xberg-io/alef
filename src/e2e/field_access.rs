@@ -16,13 +16,14 @@ mod python_typeddict;
 mod renderers;
 mod resolver;
 mod types;
+mod variant_crossings;
 
 pub(crate) use internally_tagged_variants::push_owner_segment;
 pub use leaf_anchor::LeafAnchor;
 pub(crate) use types::WasmEnumRepresentation;
 pub use types::{
     DartFirstClassMap, FieldResolver, IrCollectionMap, IrEnumMap, IrResultFieldMap, JsonNavStep, PhpGetterMap,
-    PythonTypedDictMap, StringyField, StringyFieldKind, SwiftFirstClassMap, VariantAccessorMap,
+    PythonTypedDictMap, StringyField, StringyFieldKind, SwiftFirstClassMap, VariantAccessorMap, VariantShape,
 };
 
 #[cfg(test)]

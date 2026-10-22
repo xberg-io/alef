@@ -64,6 +64,7 @@ pub(super) fn render_python_with_optionals(
     optional_fields: &HashSet<String>,
     typeddict_map: &PythonTypedDictMap,
     map_value_edges: &PythonMapValueEdges,
+    json_crossings: &HashSet<String>,
 ) -> String {
     render_python_with_optionals_from_owner(
         segments,
@@ -72,6 +73,8 @@ pub(super) fn render_python_with_optionals(
         typeddict_map,
         map_value_edges,
         typeddict_map.root_type.clone(),
+        json_crossings,
+        false,
     )
 }
 
@@ -87,6 +90,7 @@ pub(super) fn render_python_element_with_optionals(
     typeddict_map: &PythonTypedDictMap,
     map_value_edges: &PythonMapValueEdges,
     owner_type: Option<String>,
+    start_in_json: bool,
 ) -> String {
     render_python_with_optionals_from_owner(
         segments,
@@ -95,6 +99,8 @@ pub(super) fn render_python_element_with_optionals(
         typeddict_map,
         map_value_edges,
         owner_type,
+        &HashSet::new(),
+        start_in_json,
     )
 }
 
@@ -105,6 +111,8 @@ fn render_python_with_optionals_from_owner(
     typeddict_map: &PythonTypedDictMap,
     map_value_edges: &PythonMapValueEdges,
     owner_type: Option<String>,
+    json_crossings: &HashSet<String>,
+    start_in_json: bool,
 ) -> String {
     let last_index = segments.len().saturating_sub(1);
     let mut crossings: Vec<usize> = Vec::new();
@@ -117,8 +125,15 @@ fn render_python_with_optionals_from_owner(
         push_key_index_suffix(&mut path_so_far, segment);
     }
 
-    let mut expression =
-        render_python_accessor_from_owner(segments, result_var, typeddict_map, map_value_edges, owner_type.clone());
+    let mut expression = render_python_accessor_from_owner(
+        segments,
+        result_var,
+        typeddict_map,
+        map_value_edges,
+        owner_type.clone(),
+        json_crossings,
+        start_in_json,
+    );
     for &index in crossings.iter().rev() {
         let condition = render_python_accessor_from_owner(
             &field_only_prefix(segments, index),
@@ -126,6 +141,8 @@ fn render_python_with_optionals_from_owner(
             typeddict_map,
             map_value_edges,
             owner_type.clone(),
+            json_crossings,
+            start_in_json,
         );
         expression = format!("({expression} if {condition} else None)");
     }
@@ -205,7 +222,15 @@ pub(super) fn render_python_accessor(
     map: &PythonTypedDictMap,
     map_value_edges: &PythonMapValueEdges,
 ) -> String {
-    render_python_accessor_from_owner(segments, result_var, map, map_value_edges, map.root_type.clone())
+    render_python_accessor_from_owner(
+        segments,
+        result_var,
+        map,
+        map_value_edges,
+        map.root_type.clone(),
+        &HashSet::new(),
+        false,
+    )
 }
 
 /// `render_python_accessor`, but starting the owner-type cursor at `owner_type` instead of
@@ -217,24 +242,32 @@ fn render_python_accessor_from_owner(
     map: &PythonTypedDictMap,
     map_value_edges: &PythonMapValueEdges,
     owner_type: Option<String>,
+    json_crossings: &HashSet<String>,
+    start_in_json: bool,
 ) -> String {
     let mut out = result_var.to_string();
     let mut current_type = owner_type;
+    // ~keep Below a dict-shaped variant getter the value is `json.loads` output, so every field
+    // is a dict lookup whatever the IR says about the type that owns it. `json_crossings` holds
+    // the tracked path keys of those getters; the getter itself is still read as an attribute.
+    let mut in_json = start_in_json;
+    let mut path_so_far = String::new();
     for seg in segments {
+        push_key_field_name(&mut path_so_far, seg);
         match seg {
             PathSegment::Field(f) => {
-                push_field_access(&mut out, f, current_type.as_deref(), map);
+                push_segment_field(&mut out, f, in_json, current_type.as_deref(), map);
                 current_type = map.advance(current_type.as_deref(), f);
             }
             PathSegment::ArrayField { name, index } => {
                 if !name.is_empty() {
-                    push_field_access(&mut out, name, current_type.as_deref(), map);
+                    push_segment_field(&mut out, name, in_json, current_type.as_deref(), map);
                     current_type = map.advance(current_type.as_deref(), name);
                 }
                 out.push_str(&format!("[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
-                push_field_access(&mut out, field, current_type.as_deref(), map);
+                push_segment_field(&mut out, field, in_json, current_type.as_deref(), map);
                 // ~keep The key/index suffix itself is unaffected by `TypedDict`-ness (the map is
                 // a plain `dict` whatever the owning struct's DTO style), mirroring
                 // `render_dot_access`. The owner cursor, however, MUST advance to the map's VALUE
@@ -254,8 +287,28 @@ fn render_python_accessor_from_owner(
                 out = format!("len({current})");
             }
         }
+        if json_crossings.contains(&path_so_far) {
+            in_json = true;
+        }
+        push_key_index_suffix(&mut path_so_far, seg);
     }
     out
+}
+
+/// Append the access for one segment's field: a dict lookup below a dict-shaped variant getter,
+/// otherwise the `TypedDict`-aware access of [`push_field_access`].
+fn push_segment_field(
+    out: &mut String,
+    field: &str,
+    in_json: bool,
+    owner_type: Option<&str>,
+    map: &PythonTypedDictMap,
+) {
+    if in_json {
+        out.push_str(&format!("[{}]", quoted_key_literal(field)));
+    } else {
+        push_field_access(out, field, owner_type, map);
+    }
 }
 
 /// Append one field access (`.field` or `["field"]`) to `out`, per whether `owner_type` is
@@ -340,7 +393,14 @@ mod tests {
         let optional: HashSet<String> = ["markdown".to_string()].into_iter().collect();
         let segments = parse_path("markdown");
         assert_eq!(
-            render_python_with_optionals(&segments, "result", &optional, &map, &PythonMapValueEdges::new()),
+            render_python_with_optionals(
+                &segments,
+                "result",
+                &optional,
+                &map,
+                &PythonMapValueEdges::new(),
+                &HashSet::new(),
+            ),
             r#"result["markdown"]"#,
             "a crossing at the LAST segment needs no ternary guard"
         );
@@ -359,7 +419,14 @@ mod tests {
         let optional: HashSet<String> = ["markdown".to_string()].into_iter().collect();
         let segments = parse_path("markdown.content");
         assert_eq!(
-            render_python_with_optionals(&segments, "result", &optional, &map, &PythonMapValueEdges::new()),
+            render_python_with_optionals(
+                &segments,
+                "result",
+                &optional,
+                &map,
+                &PythonMapValueEdges::new(),
+                &HashSet::new(),
+            ),
             r#"(result["markdown"]["content"] if result["markdown"] else None)"#
         );
     }
@@ -398,7 +465,14 @@ mod tests {
         let optional: HashSet<String> = ["choices[0].message.tool_calls".to_string()].into_iter().collect();
         let segments = parse_path("choices[0].message.tool_calls[0].function.name");
         assert_eq!(
-            render_python_with_optionals(&segments, "result", &optional, &map, &PythonMapValueEdges::new()),
+            render_python_with_optionals(
+                &segments,
+                "result",
+                &optional,
+                &map,
+                &PythonMapValueEdges::new(),
+                &HashSet::new(),
+            ),
             "(result.choices[0].message.tool_calls[0].function.name if result.choices[0].message.tool_calls else None)"
         );
     }
