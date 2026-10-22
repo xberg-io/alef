@@ -508,12 +508,23 @@ fn test_scaffold_dart() {
     assert_eq!(files[6].path, PathBuf::from("packages/dart/README.md"));
     assert!(files[6].content.contains("dart pub get"));
     assert!(files[6].content.contains("flutter_rust_bridge_codegen generate"));
+    // The first call fails with a StateError until `RustLib.init()` ran, so the README names it.
+    assert!(
+        files[6].content.contains("await RustLib.init();"),
+        "README must show the native library init; got: {}",
+        files[6].content
+    );
 
     assert_eq!(
         files[7].path,
         PathBuf::from("packages/dart/example/my_lib_example.dart")
     );
     assert!(files[7].content.contains("void main"));
+    assert!(
+        files[7].content.contains("await my_lib.RustLib.init();"),
+        "example must init the native library before its first call; got: {}",
+        files[7].content
+    );
     // `package:my_lib' (no path segment) is an invalid `package:` URI and fails `dart analyze`.
     assert!(
         files[7].content.contains("import 'package:my_lib/my_lib.dart'"),
