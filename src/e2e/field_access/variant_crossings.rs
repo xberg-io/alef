@@ -38,6 +38,11 @@ pub(super) struct VariantCrossing {
     only_variant: bool,
     /// The segment names a variant that the pyo3 binding exposes through its dict-shaped getter.
     pub(super) python_json: bool,
+    /// Index of the segment in the path.
+    segment_index: usize,
+    /// The segment names a newtype variant of an untagged enum, whose napi and wasm value is the
+    /// enum value itself.
+    bare_value: bool,
 }
 
 impl VariantCrossing {
@@ -117,7 +122,7 @@ impl FieldResolver {
         let mut crossings = Vec::new();
         let mut cursor = map.root_type.clone();
         let mut key = String::new();
-        for segment in segments {
+        for (segment_index, segment) in segments.iter().enumerate() {
             let Some(name) = segment_name(segment) else {
                 continue;
             };
@@ -142,6 +147,8 @@ impl FieldResolver {
                     bind,
                     only_variant: shapes.len() == 1,
                     python_json: by_name && shape.python_json_getter,
+                    segment_index,
+                    bare_value: by_name && shape.untagged_newtype,
                 });
                 next
             } else {
@@ -179,5 +186,41 @@ impl FieldResolver {
             .filter(|crossing| crossing.python_json)
             .map(|crossing| crossing.key)
             .collect()
+    }
+
+    /// `segments` with each newtype-variant segment of an untagged enum folded into the segment
+    /// before it, for the napi and wasm bindings, where that variant's value is the enum value
+    /// itself: `content.parts[0].text` reads as `content[0].text`. A segment with no previous
+    /// field segment to fold into is kept.
+    pub(super) fn bare_variant_segments(&self, segments: &[PathSegment]) -> Vec<PathSegment> {
+        let bare: HashSet<usize> = self
+            .variant_crossings(segments)
+            .into_iter()
+            .filter(|crossing| crossing.bare_value)
+            .map(|crossing| crossing.segment_index)
+            .collect();
+        let mut out: Vec<PathSegment> = Vec::with_capacity(segments.len());
+        for (index, segment) in segments.iter().enumerate() {
+            if bare.contains(&index)
+                && let Some(PathSegment::Field(owner)) = out.last()
+            {
+                let folded = match segment {
+                    PathSegment::Field(_) => PathSegment::Field(owner.clone()),
+                    PathSegment::ArrayField { index, .. } => PathSegment::ArrayField {
+                        name: owner.clone(),
+                        index: *index,
+                    },
+                    other => {
+                        out.push(other.clone());
+                        continue;
+                    }
+                };
+                out.pop();
+                out.push(folded);
+                continue;
+            }
+            out.push(segment.clone());
+        }
+        out
     }
 }

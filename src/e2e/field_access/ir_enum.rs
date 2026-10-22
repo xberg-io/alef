@@ -107,6 +107,7 @@ fn build_variant_shapes(enums: &[EnumDef]) -> HashMap<String, Vec<VariantShape>>
                         .map(|field| (field.name.clone(), named_type(&field.ty).map(str::to_string)))
                         .collect(),
                     python_json_getter: crate::codegen::generators::enums::variant_accessor(variant).is_none(),
+                    untagged_newtype: enum_def.serde_untagged && variant.is_tuple && variant.fields.len() == 1,
                 })
                 .collect();
             (enum_def.name.clone(), shapes)

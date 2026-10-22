@@ -417,6 +417,10 @@ pub struct VariantShape {
     /// `json.loads` output (a `dict` or a `list`), rather than a typed getter that returns a
     /// binding class. Read from the predicate the pyo3 backend itself uses to pick the getter.
     pub python_json_getter: bool,
+    /// `true` for the single-field tuple variant of a `#[serde(untagged)]` enum. The napi and wasm
+    /// bindings carry such an enum as the bare union of its payloads, so the variant's value is
+    /// the enum value itself and the variant name is not a property.
+    pub untagged_newtype: bool,
 }
 
 #[derive(Debug, Clone)]

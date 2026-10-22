@@ -116,6 +116,22 @@ fn python_should_subscript_below_a_variant_getter_that_returns_json() {
     );
 }
 
+#[test]
+fn node_and_wasm_should_read_the_bare_payload_of_an_untagged_newtype_variant() {
+    for language in ["node", "wasm"] {
+        let list = resolver().accessor("choices[0].message.content.parts", language, "result");
+        assert!(
+            !list.contains("parts") && list.ends_with("message.content"),
+            "{language}: the untagged `Body` is the bare list, so `parts` is not a property; got: {list}"
+        );
+        let text = resolver().accessor("choices[0].message.content.parts[0].text", language, "result");
+        assert!(
+            !text.contains("parts") && text.ends_with("[0].text"),
+            "{language}: the part is the element of the bare list; got: {text}"
+        );
+    }
+}
+
 /// The per-language rendering of both paths, printed so a measuring job can read the lines.
 #[test]
 fn measure_every_language() {

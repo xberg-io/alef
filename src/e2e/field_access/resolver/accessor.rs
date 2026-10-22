@@ -444,13 +444,13 @@ impl FieldResolver {
             // `Option<T>` field got `result.document?.nodes` for node and the `TS18048`
             // `result.document.nodes` for wasm. Only the map lowering differs. ~keep
             "typescript" | "node" => render_typescript_with_optionals(
-                &segments,
+                &self.bare_variant_segments(&segments),
                 result_var,
                 &self.optional_fields,
                 TypescriptMapAccess::Index,
             ),
             "wasm" => render_typescript_with_optionals(
-                &segments,
+                &self.bare_variant_segments(&segments),
                 result_var,
                 &self.optional_fields,
                 TypescriptMapAccess::MapGet,
