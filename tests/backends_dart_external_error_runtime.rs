@@ -1,13 +1,24 @@
 use alef::backends::dart::DartBackend;
 use alef::core::backend::Backend;
 use alef::core::config::NewAlefConfig;
-use alef::core::ir::TypeRef;
+use alef::core::ir::{MethodDef, PrimitiveType, ReceiverKind, TypeRef};
 use std::path::Path;
 use std::process::Command;
 
 const CORE: &str = include_str!("fixtures/dart_external_error_core.rs");
 
 fn emitted_bridge(root: &Path, hidden_payloads: bool, error_name: &str) -> String {
+    emitted_bridge_with_error_method(root, hidden_payloads, error_name, false)
+}
+
+/// The generator writes the conversion from the Dart mirror back to the core error only for an
+/// error that has a bridged method, so `with_error_method` adds one to the extracted error.
+fn emitted_bridge_with_error_method(
+    root: &Path,
+    hidden_payloads: bool,
+    error_name: &str,
+    with_error_method: bool,
+) -> String {
     let extracted = CORE.replace("ConsumerError", error_name);
     let extracted = extracted
         .lines()
@@ -21,6 +32,14 @@ fn emitted_bridge(root: &Path, hidden_payloads: bool, error_name: &str) -> Strin
     assert_eq!(api.errors[0].variants.len(), 5);
     assert_eq!(api.errors[0].variants[0].fields[0].ty, TypeRef::String);
     assert_eq!(api.errors[0].variants[0].fields[0].original_type, None);
+    if with_error_method {
+        api.errors[0].methods.push(MethodDef {
+            name: "is_retryable".into(),
+            receiver: Some(ReceiverKind::Ref),
+            return_type: TypeRef::Primitive(PrimitiveType::Bool),
+            ..Default::default()
+        });
+    }
     if hidden_payloads {
         for variant in &mut api.errors[0].variants {
             for field in &mut variant.fields {
@@ -83,7 +102,12 @@ fn external_non_exhaustive_errors_preserve_borrowed_fields_and_unknown_failures(
 #[test]
 fn optional_string_error_fields_pass_clippy_without_an_identity_map() {
     let root = tempfile::tempdir().unwrap();
-    let generated = emitted_bridge(root.path(), false, "ConsumerError");
+    let generated = emitted_bridge_with_error_method(root.path(), false, "ConsumerError", true);
+    assert_eq!(
+        generated.matches("reason: f_reason.clone()").count(),
+        2,
+        "the owned and the optional owned string field are both cloned by the conversion back to the core error:\n{generated}"
+    );
     assert!(
         !generated.contains("as_ref().map(|v| v.clone())"),
         "an optional string field is cloned directly:\n{generated}"
