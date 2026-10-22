@@ -300,3 +300,52 @@ fn should_list_the_forwarded_methods_for_the_generated_end_to_end_suite() {
         )]
     );
 }
+
+#[test]
+fn should_pass_the_forwarded_methods_into_the_stub_conformance_test() {
+    use crate::e2e::codegen::{E2eCodegen, python::PythonE2eCodegen};
+    use crate::e2e::config::E2eConfig;
+
+    let api = reply_surface();
+    let config = typed_dict_config();
+    let mut e2e_config = E2eConfig::default();
+    e2e_config.call.module = "test_lib".into();
+
+    let files = PythonE2eCodegen
+        .generate(
+            &[],
+            &e2e_config,
+            &config,
+            &api.types,
+            &api.enums,
+            &api.functions,
+            &api.errors,
+        )
+        .expect("the python end-to-end suite renders");
+    let conformance = files
+        .iter()
+        .find(|file| file.path.ends_with("test_stub_conformance.py"))
+        .expect("a package with stubs gets a stub conformance test");
+
+    assert!(
+        conformance
+            .content
+            .contains("def test_stub_declares_only_members_present_at_runtime"),
+        "the conformance test is the file under inspection:\n{}",
+        conformance.content
+    );
+    assert!(
+        conformance
+            .content
+            .contains(r#""Message": ["describe", "output_images", "refusal_text", "usage", "validate"],"#),
+        "the methods forwarded to the public dataclass must reach the conformance test:\n{}",
+        conformance.content
+    );
+    assert!(
+        conformance
+            .content
+            .contains("def test_public_dataclasses_forward_native_methods"),
+        "{}",
+        conformance.content
+    );
+}
