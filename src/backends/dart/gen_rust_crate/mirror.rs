@@ -937,6 +937,16 @@ mod tests {
                 owned.contains("reason: f_reason.clone()"),
                 "optional={optional}: {owned}"
             );
+
+            let mut cow = String::new();
+            emit_mirror_error(&mut cow, &error_with_text_field(CoreWrapper::Cow, optional), "demo");
+            let expected = if optional {
+                "reason: f_reason.as_ref().map(|v| std::borrow::Cow::Owned(v.clone()))"
+            } else {
+                "reason: std::borrow::Cow::Owned(f_reason.clone())"
+            };
+            assert!(cow.contains(expected), "optional={optional}: {cow}");
+            assert!(!cow.contains("intern_static_str"), "optional={optional}: {cow}");
         }
     }
 }
