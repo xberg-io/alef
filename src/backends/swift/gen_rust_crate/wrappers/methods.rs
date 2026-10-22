@@ -622,7 +622,9 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
                 out.push_str("    let __value = __result.map_err(alef_bridge_error)?;\n");
                 let value = apply_return_newtype_unwrap("__value", &method.return_newtype_wrapper);
                 out.push_str(&format!("    serde_json::to_string(&({value}))\n"));
-                out.push_str("        .map_err(|e| AlefBridgeError::from(format!(\"Failed to serialize result: {}\", e)))\n");
+                out.push_str(
+                    "        .map_err(|e| AlefBridgeError::from(format!(\"Failed to serialize result: {}\", e)))\n",
+                );
             }
         } else if matches!(method.return_type, TypeRef::Unit) {
             // value to `let __result` would trip clippy::let_unit_value).
@@ -632,7 +634,9 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
             out.push_str(&format!("    let __result = {__call};\n"));
             let result = apply_return_newtype_unwrap("__result", &method.return_newtype_wrapper);
             out.push_str(&format!("    serde_json::to_string(&({result}))\n"));
-            out.push_str("        .map_err(|e| AlefBridgeError::from(format!(\"Failed to serialize result: {}\", e)))\n");
+            out.push_str(
+                "        .map_err(|e| AlefBridgeError::from(format!(\"Failed to serialize result: {}\", e)))\n",
+            );
         }
 
         out.push_str("}\n\n");

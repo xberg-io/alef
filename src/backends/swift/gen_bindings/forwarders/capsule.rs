@@ -62,7 +62,11 @@ pub(super) fn emit_capsule_free_function_forwarder(
     };
 
     let c_call = if is_fallible {
-        super::super::bridged_call::bridged_call(&format!("RustBridge.{swift_name}({})", c_args.join(", ")), true, false)
+        super::super::bridged_call::bridged_call(
+            &format!("RustBridge.{swift_name}({})", c_args.join(", ")),
+            true,
+            false,
+        )
     } else {
         format!("RustBridge.{swift_name}({})", c_args.join(", "))
     };

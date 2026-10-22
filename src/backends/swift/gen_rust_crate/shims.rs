@@ -7,12 +7,12 @@
 //!   - converts the return value back to a bridge type
 //!   - for async fns, emits an `async fn` that spawns the work onto the process-wide Tokio runtime
 
+use crate::backends::swift::gen_rust_crate::bridge_error::result_type;
 use crate::backends::swift::gen_rust_crate::type_bridge::{
     bridge_result_ok_type_with_handles, bridge_type_enum_aware_ref, bridge_type_with_handles, enum_from_string_fn_name,
     forces_fallible_enum_bridge, needs_json_bridge, needs_json_bridge_with_handles,
     result_ok_needs_json_bridge_with_handles, swift_bridge_rust_type,
 };
-use crate::backends::swift::gen_rust_crate::bridge_error::result_type;
 use crate::backends::swift::naming::swift_rust_shim_ident as swift_ident;
 use crate::codegen::conversions::helpers::{apply_param_newtype_to_core, is_explicit_newtype};
 use crate::codegen::generators::binding_helpers::apply_return_newtype_unwrap;

@@ -32,8 +32,8 @@ pub use pyo3::{
     gen_pyo3_error_types, gen_pyo3_error_types_with_parent, pyo3_error_attribute_fields, pyo3_error_has_methods,
     pyo3_error_info_field_specs, pyo3_error_info_fn_name, pyo3_error_info_struct_name,
 };
-pub use shared::{acronym_aware_snake_phrase, python_exception_name, strip_thiserror_placeholders};
 pub(crate) use shared::error_variant_wildcard_pattern;
+pub use shared::{acronym_aware_snake_phrase, python_exception_name, strip_thiserror_placeholders};
 
 #[cfg(test)]
 #[path = "error_gen/tests.rs"]

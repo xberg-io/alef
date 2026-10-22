@@ -30,7 +30,8 @@ pub(super) fn emit_free_function_forwarder(
     }
 
     if func.is_async {
-        let bridge_call = super::super::bridged_call::bridged_call(&format!("RustBridge.{swift_name}({args})"), true, true);
+        let bridge_call =
+            super::super::bridged_call::bridged_call(&format!("RustBridge.{swift_name}({args})"), true, true);
         let return_stmt = format!("        return try {struct_name}(_rb_obj)");
         let body = crate::backends::swift::template_env::render(
             "swift_forwarder_dto_return_body.swift.jinja",

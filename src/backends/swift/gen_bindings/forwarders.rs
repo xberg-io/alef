@@ -411,10 +411,11 @@ pub(super) fn emit_single_free_function_forwarder(
         ""
     };
     let sync_call = format!("RustBridge.{swift_name}({args})");
-    let bridge_call = if func.error_type.is_some() {
-        bridged_call(&sync_call, true, false)
+    let (bridge_call, result_call) = if func.error_type.is_some() {
+        let call = bridged_call(&sync_call, true, false);
+        (call.clone(), call)
     } else {
-        format!("{effective_try}{sync_call}")
+        (sync_call.clone(), format!("{effective_try}{sync_call}"))
     };
 
     let body = if func.error_type.is_some() && return_uses_json_bridge(&func.return_type) {
@@ -475,7 +476,7 @@ pub(super) fn emit_single_free_function_forwarder(
         crate::backends::swift::template_env::render(
             "swift_sync_forwarder_result_return_body.swift.jinja",
             crate::alef_context! {
-                bridge_call => &bridge_call,
+                bridge_call => &result_call,
                 return_suffix => &return_suffix,
             },
         )
@@ -571,7 +572,10 @@ pub(super) fn emit_async_free_function_forwarder(
         _ if result_ok_uses_json_bridge => {
             let decode_ty = forwarder_return_type(&func.return_type);
             (
-                format!("{}.toString()", bridged_call(&format!("RustBridge.{swift_name}({args})"), true, true)),
+                format!(
+                    "{}.toString()",
+                    bridged_call(&format!("RustBridge.{swift_name}({args})"), true, true)
+                ),
                 format!(
                     "        let _rb_data = _rb_result.data(using: .utf8) ?? Data()\n        return try JSONDecoder().decode({decode_ty}.self, from: _rb_data)"
                 ),

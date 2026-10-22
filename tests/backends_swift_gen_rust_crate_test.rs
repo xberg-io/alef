@@ -580,13 +580,14 @@ fn lib_rs_async_function_spawns_on_shared_tokio_runtime() {
         lib.content
     );
     assert!(
-        lib.content.contains("async fn load_async() -> Result<String, String>;"),
+        lib.content
+            .contains("async fn load_async() -> Result<String, AlefBridgeError>;"),
         "bridge module should declare the function as a swift-bridge `async fn`: {}",
         lib.content
     );
     assert!(
         lib.content
-            .contains("pub async fn load_async() -> Result<String, String> {"),
+            .contains("pub async fn load_async() -> Result<String, AlefBridgeError> {"),
         "wrapper should be an async fn the Swift caller suspends on: {}",
         lib.content
     );
@@ -646,7 +647,8 @@ fn lib_rs_result_function_has_map_err_chain() {
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
     assert!(
-        lib.content.contains(".map_err(|e| e.to_string())"),
+        lib.content
+            .contains("demo::parse_input(raw).map_err(alef_bridge_error)"),
         "lib.rs missing map_err chain: {}",
         lib.content
     );
@@ -1528,7 +1530,7 @@ fn trait_bridge_unregister_and_clear_fns_emitted_when_both_configured() {
 
     assert!(
         lib.content
-            .contains("pub fn unregister_analyzer(name: String) -> Result<(), String>"),
+            .contains("pub fn unregister_analyzer(name: String) -> Result<(), AlefBridgeError>"),
         "lib.rs must contain unregister_analyzer signature; got:\n{}",
         lib.content
     );
@@ -1539,12 +1541,14 @@ fn trait_bridge_unregister_and_clear_fns_emitted_when_both_configured() {
     );
 
     assert!(
-        lib.content.contains("pub fn clear_analyzers() -> Result<(), String>"),
+        lib.content
+            .contains("pub fn clear_analyzers() -> Result<(), AlefBridgeError>"),
         "lib.rs must contain clear_analyzers signature; got:\n{}",
         lib.content
     );
     assert!(
-        lib.content.contains("pub fn clear_analyzers() -> Result<(), String>"),
+        lib.content
+            .contains("pub fn clear_analyzers() -> Result<(), AlefBridgeError>"),
         "clear_analyzers body must be emitted; got:\n{}",
         lib.content
     );
@@ -1562,12 +1566,13 @@ fn trait_bridge_unregister_and_clear_fns_emitted_when_both_configured() {
 
     assert!(
         lib.content
-            .contains("fn unregister_analyzer(name: String) -> Result<(), String>;"),
+            .contains("fn unregister_analyzer(name: String) -> Result<(), AlefBridgeError>;"),
         "extern Rust block must declare unregister_analyzer; got:\n{}",
         lib.content
     );
     assert!(
-        lib.content.contains("fn clear_analyzers() -> Result<(), String>;"),
+        lib.content
+            .contains("fn clear_analyzers() -> Result<(), AlefBridgeError>;"),
         "extern Rust block must declare clear_analyzers; got:\n{}",
         lib.content
     );
@@ -1721,8 +1726,8 @@ type = "ChatCompletionRequest"
     );
     assert!(
         lib.content
-            .contains("Result<DefaultClientChatStreamStreamHandle, String>"),
-        "_start must return Result<Handle, String>; got:\n{}",
+            .contains("Result<DefaultClientChatStreamStreamHandle, AlefBridgeError>"),
+        "_start must return Result<Handle, AlefBridgeError>; got:\n{}",
         lib.content
     );
     assert!(
@@ -1733,8 +1738,8 @@ type = "ChatCompletionRequest"
     );
     assert!(
         lib.content
-            .contains("async fn next(self: &DefaultClientChatStreamStreamHandle) -> Result<String, String>"),
-        "extern block must declare `async fn next(self: &Handle) -> Result<String, String>`; got:\n{}",
+            .contains("async fn next(self: &DefaultClientChatStreamStreamHandle) -> Result<String, AlefBridgeError>"),
+        "extern block must declare `async fn next(self: &Handle) -> Result<String, AlefBridgeError>`; got:\n{}",
         lib.content
     );
     assert!(
