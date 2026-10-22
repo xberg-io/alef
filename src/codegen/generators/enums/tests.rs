@@ -313,6 +313,64 @@ fn static_method(name: &str) -> MethodDef {
     }
 }
 
+/// The Python-visible names a generated data-enum `#[pyclass]` registers: each `#[getter]` fn
+/// (PyO3 names the attribute after the fn) and each `#[pyo3(name = "..")]` override.
+fn python_visible_member_names(generated: &str) -> Vec<String> {
+    let lines: Vec<&str> = generated.lines().map(str::trim).collect();
+    let mut names = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        if let Some(name) = line.strip_prefix("#[pyo3(name = \"").and_then(|rest| rest.strip_suffix("\")]")) {
+            names.push(name.to_string());
+        }
+        if *line == "#[getter]" {
+            let signature = lines[index + 1];
+            let name = signature
+                .strip_prefix("fn ")
+                .and_then(|rest| rest.split('(').next())
+                .unwrap_or_else(|| panic!("a getter is followed by its fn: {signature}"));
+            names.push(name.trim_start_matches("r#").to_string());
+        }
+    }
+    names
+}
+
+#[test]
+fn struct_variant_payload_getter_does_not_share_its_name_with_the_constructor() {
+    use crate::codegen::type_mapper::IdentityMapper;
+    for untagged in [false, true] {
+        let mut def = enum_def(
+            "AssistantPart",
+            vec![
+                variant("Text", vec![typed_field("text", TypeRef::String)]),
+                variant("Empty", vec![]),
+            ],
+        );
+        def.serde_tag = (!untagged).then(|| "type".to_string());
+        def.serde_untagged = untagged;
+
+        let generated = gen_pyo3_data_enum_with_mapper(&def, "core", Some(&IdentityMapper));
+
+        assert!(
+            generated.contains(r#"#[pyo3(name = "text")]"#),
+            "the constructor keeps the bare name: {generated}"
+        );
+        assert!(
+            generated.contains("fn text_payload(&self, py: Python<'_>)"),
+            "the payload getter takes a name the constructor does not: {generated}"
+        );
+        assert!(!generated.contains("fn text(&self"), "{generated}");
+        assert!(
+            generated.contains("fn empty(&self, py: Python<'_>)"),
+            "a variant without a constructor keeps its bare getter name: {generated}"
+        );
+        let names = python_visible_member_names(&generated);
+        let mut unique = names.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), names.len(), "one object per Python name: {names:?}");
+    }
+}
+
 #[test]
 fn variant_constructors_emit_factory_per_struct_variant() {
     use crate::codegen::type_mapper::IdentityMapper;

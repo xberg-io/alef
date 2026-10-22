@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Serve a newline-delimited JSON stream when a streaming fixture sets a `content-type` that contains `ndjson`. The mock server wrote each chunk as `data: <chunk>`, added a `data: [DONE]` line, and sent two content-type headers. It now writes each chunk followed by one newline, with no `data:` prefix, no `[DONE]` line and one content-type header.
+- Name the payload getter of a Python data-enum struct variant `<variant>_payload` (for example `AssistantPart.text_payload`). The bare name (`AssistantPart.text`) belongs to the static constructor of the variant. The constructor was registered under the same name as the getter and replaced it, so `AssistantPart.text('hi').text` returned the constructor and the `.pyi` stub declared an attribute that did not exist. The stub now declares the getter under the new name. Tuple variants and variants without a constructor keep the bare getter name. (GH#628)
 
 ## [0.112.0] - 2026-10-21
 
