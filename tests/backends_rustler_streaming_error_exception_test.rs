@@ -100,7 +100,7 @@ fn streaming_emits_typed_stream_error_exception_module() {
         "StreamError exception module must be defined; content:\n{content}"
     );
     assert!(
-        content.contains("defexception [:message, :reason, :adapter]"),
+        content.contains("defexception [:message, :reason, :adapter, :kind, :status, :retry_after_ms]"),
         "StreamError must declare :message, :reason, :adapter fields; content:\n{content}"
     );
     assert!(

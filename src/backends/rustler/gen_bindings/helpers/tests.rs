@@ -842,7 +842,7 @@ fn gen_rustler_unimplemented_body_unit_return_stays_void() {
 fn gen_rustler_unimplemented_body_with_error_type_raises_runtime_error() {
     let body = gen_rustler_unimplemented_body(&TypeRef::String, "extract_text", true);
     assert_eq!(
-        body, "Err(String::from(\"Not implemented: extract_text\"))",
+        body, "Err(AlefNifError::from(String::from(\"Not implemented: extract_text\")))",
         "fallible functions must keep raising a real runtime error: {body}"
     );
     assert!(

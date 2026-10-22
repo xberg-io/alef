@@ -2595,7 +2595,14 @@ fn test_capsule_types_dts_generation() {
         .generate_type_stubs(&api, &config)
         .expect("generate_type_stubs with capsule_types should succeed");
 
-    assert_eq!(files.len(), 1, "expected exactly index.d.ts");
+    assert_eq!(
+        files
+            .iter()
+            .map(|f| f.path.file_name().unwrap().to_string_lossy().to_string())
+            .collect::<Vec<_>>(),
+        ["index.d.ts", "binding.cjs", "index.mjs"],
+        "expected the declarations, the error shim and the ESM wrapper"
+    );
     let content = &files[0].content;
 
     assert!(
@@ -3111,7 +3118,7 @@ fn test_dts_dto_fields_are_readonly() {
     let stubs = backend
         .generate_type_stubs(&api, &config)
         .expect("generate_type_stubs should succeed");
-    assert_eq!(stubs.len(), 1);
+    assert_eq!(stubs.len(), 3, "index.d.ts, binding.cjs and index.mjs");
     let content = &stubs[0].content;
 
     assert!(
@@ -3203,7 +3210,7 @@ fn test_optional_return_types_emit_null_not_undefined() {
         .generate_type_stubs(&api, &config)
         .expect("generate_type_stubs should succeed");
 
-    assert_eq!(files.len(), 1);
+    assert_eq!(files.len(), 3, "index.d.ts, binding.cjs and index.mjs");
     let content = &files[0].content;
 
     assert!(

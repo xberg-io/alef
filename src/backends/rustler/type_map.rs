@@ -5,6 +5,18 @@ use std::borrow::Cow;
 /// TypeMapper for Rustler/Elixir NIFs — default Rust types with String for Json and Map.
 pub struct RustlerMapper;
 
+impl RustlerMapper {
+    /// Return type of a NIF generated from a core call: a fallible NIF returns `AlefNifError`,
+    /// which Elixir receives as an exception struct for a typed core error.
+    pub fn wrap_nif_return(&self, base: &str, has_error: bool) -> String {
+        if has_error {
+            format!("Result<{base}, AlefNifError>")
+        } else {
+            base.to_string()
+        }
+    }
+}
+
 impl TypeMapper for RustlerMapper {
     fn json(&self) -> Cow<'static, str> {
         Cow::Borrowed("String")

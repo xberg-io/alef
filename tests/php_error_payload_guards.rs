@@ -44,9 +44,9 @@ fn should_reject_incompatible_shared_variant_fields_at_every_class_entrypoint() 
         error("ErrorB", vec![field("status", TypeRef::Primitive(PrimitiveType::U16))]),
     ]);
     let results = [
-        gen_php_error_types(&api, "Sample").map(|_| ()),
-        gen_php_error_stubs(&api).map(|_| ()),
-        php_error_class_names(&api).map(|_| ()),
+        gen_php_error_types(&api, "Sample", None).map(|_| ()),
+        gen_php_error_stubs(&api, None).map(|_| ()),
+        php_error_class_names(&api, None).map(|_| ()),
     ];
     for result in results {
         let message = result.unwrap_err().to_string();
@@ -72,7 +72,7 @@ fn should_reject_shared_payload_fields_with_different_types_or_optionality() {
             error("ErrorA", vec![field("value", TypeRef::String)]),
             error("ErrorB", vec![field("value", ty)]),
         ]);
-        assert!(gen_php_error_types(&api, "Sample").is_err());
+        assert!(gen_php_error_types(&api, "Sample", None).is_err());
     }
 }
 
@@ -92,7 +92,7 @@ fn should_keep_compatible_shared_payloads_when_field_order_differs() {
             field("vendor", TypeRef::String),
         ],
     );
-    let types = gen_php_error_types(&surface(vec![a, b]), "Sample").unwrap();
+    let types = gen_php_error_types(&surface(vec![a, b]), "Sample", None).unwrap();
     assert_eq!(types.matches("pub struct PhpRejectedError").count(), 1);
     assert_eq!(types.matches("pub vendor: String").count(), 1);
     assert_eq!(types.matches("pub status: u16").count(), 1);
@@ -104,7 +104,7 @@ fn should_validate_original_payloads_before_hierarchy_variant_ownership_filters_
     let a = error("ErrorA", vec![field("vendor", TypeRef::String)]);
     let mut b = error("ErrorB", vec![field("status", TypeRef::Primitive(PrimitiveType::U16))]);
     b.exception_base = Some("ErrorA".into());
-    let message = gen_php_error_types(&surface(vec![a, b]), "Sample")
+    let message = gen_php_error_types(&surface(vec![a, b]), "Sample", None)
         .unwrap_err()
         .to_string();
     assert!(
@@ -120,7 +120,7 @@ fn should_keep_compatible_unit_classes_with_an_explicit_hierarchy() {
     let mut b = error("ErrorB", vec![]);
     b.variants[0].is_unit = true;
     b.exception_base = Some("ErrorA".into());
-    let types = gen_php_error_types(&surface(vec![a, b]), "Sample").unwrap();
+    let types = gen_php_error_types(&surface(vec![a, b]), "Sample", None).unwrap();
     assert_eq!(types.matches("pub struct PhpRejectedError").count(), 1);
     assert!(types.contains("#[php(extends(PhpErrorB))]"));
 }
@@ -131,7 +131,7 @@ fn should_reject_variant_payloads_that_collide_with_a_base_exception_class() {
     let mut b = error("RejectedError", vec![]);
     b.variants[0].name = "Other".into();
     b.variants[0].is_unit = true;
-    let message = gen_php_error_types(&surface(vec![a, b]), "Sample")
+    let message = gen_php_error_types(&surface(vec![a, b]), "Sample", None)
         .unwrap_err()
         .to_string();
     assert!(
@@ -145,7 +145,7 @@ fn should_reject_unit_and_payload_variants_sharing_one_exception_class() {
     let a = error("ErrorA", vec![field("vendor", TypeRef::String)]);
     let mut b = error("ErrorB", vec![]);
     b.variants[0].is_unit = true;
-    assert!(gen_php_error_types(&surface(vec![a, b]), "Sample").is_err());
+    assert!(gen_php_error_types(&surface(vec![a, b]), "Sample", None).is_err());
 }
 
 #[test]
@@ -154,8 +154,8 @@ fn should_omit_cfg_gated_fields_from_native_classes_stubs_and_converter_patterns
     status.cfg = Some("feature = \"http\"".into());
     let error = error("ConversionError", vec![field("reason", TypeRef::String), status]);
     let api = surface(vec![error.clone()]);
-    let types = gen_php_error_types(&api, "Sample").unwrap();
-    let stubs = gen_php_error_stubs(&api).unwrap();
+    let types = gen_php_error_types(&api, "Sample", None).unwrap();
+    let stubs = gen_php_error_stubs(&api, None).unwrap();
     let converter = gen_php_error_converter(&error, "sample");
     assert!(types.contains("pub reason: String"));
     assert!(!types.contains("pub status:"), "{types}");

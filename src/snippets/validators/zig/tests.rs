@@ -8,6 +8,86 @@ use std::path::PathBuf;
 // ~keep
 pub(super) const TOOLCHAIN_TEST_TIMEOUT_SECS: u64 = 300;
 
+// Budget for filling the shared Zig global cache once per test process. A cold cache makes the
+// first `zig build` compile the build runner, the standard library, and libc translation, which
+// is roughly 190 s on a 4-core runner and about 300 s on a slower host. ~keep
+const WARM_UP_TIMEOUT_SECS: u64 = 900;
+
+type Fixture = (tempfile::TempDir, ValidationSession);
+
+/// The cache directory the warm-up build used, set once per test process by the warm-up itself.
+///
+/// It holds the `ZIG_GLOBAL_CACHE_DIR` of the warm-up session, or `None` when that session had
+/// none. It does not depend on what is already in the cache, so a test can tell on a warm cache,
+/// too, that the warm-up ran and that it filled the shared cache. ~keep
+static WARM_UP_CACHE: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+
+/// Builds one C-importing package into the shared Zig global cache, once per test process.
+///
+/// Without this, the test that starts first pays the cold compile of the build runner, the
+/// standard library and libc translation inside its own 300 s budget, so a slow host fails it for
+/// time spent on the toolchain, not on the build it checks. The warm-up pays that cost once,
+/// outside any single test's budget. Each test still runs its own real `zig build` with the full
+/// budget. ~keep
+fn warm_shared_global_cache() {
+    WARM_UP_CACHE.get_or_init(|| {
+        let (package, mut session) = sample_package(true);
+        session.env.extend(shared_test_cache_env());
+        let snippet = zig_snippet(
+            "const sample_package = @import(\"sample_package\");\n\npub fn main() void {\n    _ = sample_package.value();\n}\n",
+        );
+        let (status, output) = ZigValidator
+            .validate_in_session(&snippet, ValidationLevel::Compile, WARM_UP_TIMEOUT_SECS, Some(&session))
+            .expect("the warm-up session validates");
+        assert_eq!(status, SnippetStatus::Pass, "the cache warm-up build must pass: {output:?}");
+        drop(package);
+        session.env.get("ZIG_GLOBAL_CACHE_DIR").map(PathBuf::from)
+    });
+}
+
+/// Moves a fixture session onto the shared Zig global cache, after the cache is warm.
+///
+/// The fixtures themselves keep a cache of their own, because the ignored Windows diagnostics in
+/// `diagnostic_tests` measure a cold per-session cache. Only the tests that check a build opt in. ~keep
+pub(super) fn on_shared_global_cache((root, mut session): Fixture) -> Fixture {
+    warm_shared_global_cache();
+    session.env.extend(shared_test_cache_env());
+    (root, session)
+}
+
+/// Fails the calling test when its session does not use the shared cache, or when the warm-up did
+/// not build into that same cache. Each test that calls [`on_shared_global_cache`] also calls this.
+/// The warm-up check reads what the warm-up recorded, not the cache contents, so dropping the
+/// warm-up or pointing it at a private cache turns the test red on a cold and on a warm cache. ~keep
+pub(super) fn assert_on_warm_shared_global_cache(session: &ValidationSession) {
+    let shared = shared_test_global_cache();
+    let target_profile = test_profile_directory();
+    assert!(
+        shared.starts_with(&target_profile),
+        "the shared cache must live under {}, not in a directory other users or checkouts share: {}",
+        target_profile.display(),
+        shared.display()
+    );
+    assert_eq!(
+        session.env.get("ZIG_GLOBAL_CACHE_DIR").map(PathBuf::from),
+        Some(shared.clone()),
+        "the session must point zig at the shared global cache"
+    );
+    assert_eq!(
+        WARM_UP_CACHE.get(),
+        Some(&Some(shared.clone())),
+        "the warm-up build must run, and must build into the shared global cache"
+    );
+    assert!(
+        shared
+            .join("o")
+            .read_dir()
+            .is_ok_and(|mut entries| entries.next().is_some()),
+        "the warm-up build must leave compiled artifacts in {}",
+        shared.display()
+    );
+}
+
 #[test]
 fn compiles_a_snippet_under_the_sanitized_environment() {
     if !zig_is_runnable() {
@@ -259,6 +339,7 @@ fn snippet_build_zon_parses_under_real_zig() {
         .args(["build", "--summary", "none", "--build-file"])
         .arg(&build_file);
     apply_cache_dirs(&mut command, &scratch, None);
+    command.env("ZIG_GLOBAL_CACHE_DIR", shared_test_global_cache());
     let output = command.output().expect("zig must be installed to verify this test");
 
     assert!(
@@ -276,8 +357,10 @@ fn a_snippet_compiles_against_the_include_path_its_manifest_declares() {
         return;
     }
 
-    let (declaring, declaring_session) = sample_project(true);
-    let (omitting, omitting_session) = sample_project(false);
+    let (declaring, declaring_session) = on_shared_global_cache(sample_project(true));
+    let (omitting, omitting_session) = on_shared_global_cache(sample_project(false));
+    assert_on_warm_shared_global_cache(&declaring_session);
+    assert_on_warm_shared_global_cache(&omitting_session);
     let snippet = zig_snippet(
         "const sample_binding = @import(\"sample_binding\");\n\npub fn main() void {\n    _ = sample_binding.value();\n}\n",
     );
@@ -328,8 +411,10 @@ fn a_snippet_compiles_when_the_package_is_built_from_an_unrelated_working_direct
         return;
     }
 
-    let (rebased, rebased_session) = sample_package(true);
-    let (raw, raw_session) = sample_package(false);
+    let (rebased, rebased_session) = on_shared_global_cache(sample_package(true));
+    let (raw, raw_session) = on_shared_global_cache(sample_package(false));
+    assert_on_warm_shared_global_cache(&rebased_session);
+    assert_on_warm_shared_global_cache(&raw_session);
     let snippet = zig_snippet(
         "const sample_package = @import(\"sample_package\");\n\npub fn main() void {\n    _ = sample_package.value();\n}\n",
     );
@@ -504,6 +589,7 @@ fn debug_only_ffi_project() -> (tempfile::TempDir, ValidationSession) {
         .arg(&lib_source)
         .arg(format!("-femit-bin={}", lib_path.display()));
     apply_cache_dirs(&mut lib_command, directory.path(), None);
+    lib_command.env("ZIG_GLOBAL_CACHE_DIR", shared_test_global_cache());
     let lib_output = lib_command
         .output()
         .expect("zig must be installed to build the fixture library");
@@ -562,7 +648,8 @@ fn a_snippet_links_against_the_debug_profile_when_release_is_missing() {
         return;
     }
 
-    let (project, session) = debug_only_ffi_project();
+    let (project, session) = on_shared_global_cache(debug_only_ffi_project());
+    assert_on_warm_shared_global_cache(&session);
     let snippet = zig_snippet(
         "const sample_binding = @import(\"sample_binding\");\n\npub fn main() void {\n    _ = sample_binding.value();\n}\n",
     );

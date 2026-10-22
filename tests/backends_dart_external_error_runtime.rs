@@ -1,14 +1,35 @@
 use alef::backends::dart::DartBackend;
 use alef::core::backend::Backend;
 use alef::core::config::NewAlefConfig;
-use alef::core::ir::TypeRef;
+use alef::core::ir::{MethodDef, PrimitiveType, ReceiverKind, TypeRef};
 use std::path::Path;
 use std::process::Command;
 
 const CORE: &str = include_str!("fixtures/dart_external_error_core.rs");
 
 fn emitted_bridge(root: &Path, hidden_payloads: bool, error_name: &str) -> String {
-    let extracted = CORE.replace("ConsumerError", error_name);
+    emitted_bridge_with_error_method(root, hidden_payloads, error_name, false)
+}
+
+/// The generator writes the conversion from the Dart mirror back to the core error only for an
+/// error that has a bridged method, so `with_error_method` adds one to the extracted error.
+fn emitted_bridge_with_error_method(
+    root: &Path,
+    hidden_payloads: bool,
+    error_name: &str,
+    with_error_method: bool,
+) -> String {
+    emitted_bridge_from_source(root, CORE, hidden_payloads, error_name, with_error_method)
+}
+
+fn emitted_bridge_from_source(
+    root: &Path,
+    core: &str,
+    hidden_payloads: bool,
+    error_name: &str,
+    with_error_method: bool,
+) -> String {
+    let extracted = core.replace("ConsumerError", error_name);
     let extracted = extracted
         .lines()
         .filter(|line| !line.contains("UNLISTED_FUTURE"))
@@ -18,9 +39,19 @@ fn emitted_bridge(root: &Path, hidden_payloads: bool, error_name: &str) -> Strin
     std::fs::write(&path, extracted).unwrap();
     let mut api = alef::extract::extractor::extract(&[&path], "consumer-core", "1.0.0", None).unwrap();
     assert_eq!(api.errors.len(), 1);
-    assert_eq!(api.errors[0].variants.len(), 5);
+    if core == CORE {
+        assert_eq!(api.errors[0].variants.len(), 5);
+    }
     assert_eq!(api.errors[0].variants[0].fields[0].ty, TypeRef::String);
     assert_eq!(api.errors[0].variants[0].fields[0].original_type, None);
+    if with_error_method {
+        api.errors[0].methods.push(MethodDef {
+            name: "is_retryable".into(),
+            receiver: Some(ReceiverKind::Ref),
+            return_type: TypeRef::Primitive(PrimitiveType::Bool),
+            ..Default::default()
+        });
+    }
     if hidden_payloads {
         for variant in &mut api.errors[0].variants {
             for field in &mut variant.fields {
@@ -48,6 +79,9 @@ fn without_frb_attributes(source: &str) -> String {
         .lines()
         .filter(|line| {
             let line = line.trim();
+            if line == "#[frb]" {
+                return false;
+            }
             if line.starts_with("#[frb(") {
                 attribute = !line.ends_with(")]");
                 return false;
@@ -78,6 +112,57 @@ fn external_non_exhaustive_errors_preserve_borrowed_fields_and_unknown_failures(
     let generated = emitted_bridge(root.path(), false, "ConsumerError");
     compile_consumer(root.path(), &generated, DRIVER, CORE);
     verify_dart_codec(root.path(), &generated, "ConsumerError");
+}
+
+#[test]
+fn optional_string_error_fields_pass_clippy_without_an_identity_map() {
+    let root = tempfile::tempdir().unwrap();
+    let generated = emitted_bridge_with_error_method(root.path(), false, "ConsumerError", true);
+    let arm = generated
+        .split("ConsumerError::OptionalOwned { reason: f_reason } =>")
+        .nth(1)
+        .expect("the conversion back to the core error has an arm for the optional string field");
+    let arm = arm.lines().take(4).collect::<Vec<_>>().join("\n");
+    assert!(
+        arm.contains("reason: f_reason.clone()"),
+        "the optional string field is cloned directly by the conversion back to the core error:\n{arm}"
+    );
+    assert!(
+        !generated.contains("as_ref().map(|v| v.clone())"),
+        "an optional string field is cloned directly:\n{generated}"
+    );
+    compile_consumer(root.path(), &generated, "fn main() {}", CORE);
+    let library = root.path().join("libconsumer_core.rlib");
+    let consumer = root.path().join("consumer.rs");
+    successful(
+        Command::new("clippy-driver")
+            .arg("--edition=2024")
+            .arg(&consumer)
+            .arg("--extern")
+            .arg(format!("consumer_core={}", library.display()))
+            .arg("--emit=metadata")
+            .arg("--out-dir")
+            .arg(root.path())
+            .args(["-D", "warnings"]),
+    );
+}
+
+#[test]
+fn conversion_back_to_the_core_error_keeps_variant_and_text_of_borrowed_fields() {
+    let root = tempfile::tempdir().unwrap();
+    let generated = emitted_bridge_with_error_method(root.path(), false, "ConsumerError", true);
+    compile_consumer(root.path(), &generated, ROUND_TRIP_DRIVER, CORE);
+}
+
+#[test]
+fn conversion_back_to_the_core_error_owns_the_text_of_cow_fields() {
+    let root = tempfile::tempdir().unwrap();
+    let generated = emitted_bridge_from_source(root.path(), COW_CORE, false, "ConsumerError", true);
+    assert!(
+        generated.contains("std::borrow::Cow::Owned("),
+        "the conversion builds the Cow fields from the owned text:\n{generated}"
+    );
+    compile_consumer(root.path(), &generated, COW_DRIVER, COW_CORE);
 }
 
 #[test]
@@ -251,6 +336,82 @@ fn main() {
     match request(-1) {
         Err(AlefBridgeError(AlefBridgeErrorWire::InvalidInput { message })) => assert!(message.contains("u8::MAX")),
         _ => panic!("invalid input must retain its own error"),
+    }
+}
+"#;
+
+const ROUND_TRIP_DRIVER: &str = r#"
+fn main() {
+    let denied: consumer_core::ConsumerError = (&ConsumerError::Denied { reason: "private_network".into() }).into();
+    match denied {
+        consumer_core::ConsumerError::Denied { reason } => assert_eq!(reason, "private_network"),
+        other => panic!("borrowed field changed variant: {other:?}"),
+    }
+    let again: consumer_core::ConsumerError = (&ConsumerError::Denied { reason: "private_network".into() }).into();
+    match again {
+        consumer_core::ConsumerError::Denied { reason } => assert_eq!(reason, "private_network"),
+        other => panic!("borrowed field changed variant on the second conversion: {other:?}"),
+    }
+    for expected in [None, Some("borrowed payload")] {
+        let mirror = ConsumerError::OptionalBorrowed { reason: expected.map(String::from) };
+        match consumer_core::ConsumerError::from(&mirror) {
+            consumer_core::ConsumerError::OptionalBorrowed { reason } => assert_eq!(reason, expected),
+            other => panic!("optional borrowed field changed variant: {other:?}"),
+        }
+    }
+    let owned: consumer_core::ConsumerError = (&ConsumerError::Owned { reason: "owned payload".into() }).into();
+    match owned {
+        consumer_core::ConsumerError::Owned { reason } => assert_eq!(reason, "owned payload"),
+        other => panic!("owned field changed variant: {other:?}"),
+    }
+}
+"#;
+
+const COW_CORE: &str = r#"
+use std::borrow::Cow;
+
+#[derive(Debug)]
+#[cfg_attr(alef, derive(thiserror::Error))]
+pub enum ConsumerError {
+    #[cfg_attr(alef, error("named: {reason}"))]
+    Named { reason: Cow<'static, str> },
+    #[cfg_attr(alef, error("optional: {reason:?}"))]
+    Optional { reason: Option<Cow<'static, str>> },
+    #[cfg_attr(alef, error("tuple: {0}"))]
+    Tuple(Cow<'static, str>),
+}
+
+impl std::fmt::Display for ConsumerError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+impl ConsumerError {
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, Self::Tuple(_))
+    }
+}
+"#;
+
+const COW_DRIVER: &str = r#"
+fn main() {
+    let named: consumer_core::ConsumerError = (&ConsumerError::Named { reason: "named text".into() }).into();
+    match named {
+        consumer_core::ConsumerError::Named { reason } => assert_eq!(reason, "named text"),
+        other => panic!("named Cow field changed variant: {other:?}"),
+    }
+    for expected in [None, Some("optional text")] {
+        let mirror = ConsumerError::Optional { reason: expected.map(String::from) };
+        match consumer_core::ConsumerError::from(&mirror) {
+            consumer_core::ConsumerError::Optional { reason } => assert_eq!(reason.as_deref(), expected),
+            other => panic!("optional Cow field changed variant: {other:?}"),
+        }
+    }
+    let tuple: consumer_core::ConsumerError = (&ConsumerError::Tuple { field0: "tuple text".into() }).into();
+    match tuple {
+        consumer_core::ConsumerError::Tuple(text) => assert_eq!(text, "tuple text"),
+        other => panic!("tuple Cow field changed variant: {other:?}"),
     }
 }
 "#;

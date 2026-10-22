@@ -126,7 +126,7 @@ fn struct_with_primitive_fields_emits_public_struct() {
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
-    assert_eq!(files.len(), 6);
+    assert_eq!(files.len(), 7);
     let rust_bridge_c_header = std::path::Path::new("Sources")
         .join("RustBridgeC")
         .join("RustBridgeC.h");
@@ -877,7 +877,7 @@ fn data_variant_serde_enum_with_opaque_field_falls_back_to_rust_bridge_from_json
         "fromJson forwarder must still be emitted for typealiased serde enums:\n{content}"
     );
     assert!(
-        content.contains("return try RustBridge.taggedPayloadFromJson(json)"),
+        content.contains("return try alefBridgedCall { try RustBridge.taggedPayloadFromJson(json) }"),
         "fromJson forwarder must forward to RustBridge.*FromJson for typealiased enums:\n{content}"
     );
     assert!(
@@ -1527,7 +1527,7 @@ fn bytes_overload_with_string_return_appends_to_string_for_throws() {
     );
 
     assert!(
-        content.contains("return try RustBridge.detectMimeSync(_rb_content).toString()"),
+        content.contains("return try alefBridgedCall { try RustBridge.detectMimeSync(_rb_content) }.toString()"),
         "must append .toString() to coerce RustString to Swift String: {content}"
     );
 }
@@ -1701,7 +1701,9 @@ fn async_bytes_function_emits_async_forwarder() {
         "async bytes forwarder should convert byte parameters: {content}"
     );
     assert!(
-        content.contains("let result = try await RustBridge.fetchBytes(_rb_content, config)"),
+        content.contains(
+            "let result = try await alefBridgedCallAsync { try await RustBridge.fetchBytes(_rb_content, config) }"
+        ),
         "async bytes forwarder should await the swift-bridge async fn directly: {content}"
     );
     assert!(
@@ -1728,7 +1730,7 @@ fn output_path_uses_pascal_case_module_name() {
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
-    assert_eq!(files.len(), 6);
+    assert_eq!(files.len(), 7);
 
     let swift_file = files
         .iter()
@@ -1854,14 +1856,16 @@ fn streaming_adapter_emits_async_throwing_stream_wrapper() {
         swift.content
     );
     assert!(
-        swift
-            .content
-            .contains("try await RustBridge.defaultClientChatStreamStart(self.inner, req)"),
+        swift.content.contains(
+            "try await alefBridgedCallAsync { try await RustBridge.defaultClientChatStreamStart(self.inner, req) }"
+        ),
         "streaming wrapper must await defaultClientChatStreamStart with the owner handle; got:\n{}",
         swift.content
     );
     assert!(
-        swift.content.contains("try await handle.next().toString()"),
+        swift
+            .content
+            .contains("try await alefBridgedCallAsync { try await handle.next() }.toString()"),
         "streaming wrapper must await handle.next() rather than block on it; got:\n{}",
         swift.content
     );

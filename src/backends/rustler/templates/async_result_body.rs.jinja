@@ -12,8 +12,8 @@
                     .thread_stack_size(NIF_RUNTIME_STACK_SIZE_BYTES)
                     .build()
                     .map_err(|e| e.to_string())?;
-                let result = rt.block_on(async { {{ core_call }}.await }).map_err(|e| e.to_string())?;
-                Ok({{ result_wrap }})
+                let result = rt.block_on(async { {{ core_call }}.await }).map_err(alef_nif_err)?;
+                Ok::<_, AlefNifError>({{ result_wrap }})
             })
             .map_err(|e| e.to_string())?
             .join()
@@ -21,5 +21,5 @@
     }));
     match result {
         Ok(inner_result) => inner_result?,
-        Err(_) => Err("thread panic during async operation".to_string()),
+        Err(_) => Err(AlefNifError::from("thread panic during async operation".to_string())),
     }

@@ -26,8 +26,10 @@
         }
         if (streamHandle == 0)
         {
+            // Build the exception first: freeing the request handle clears the native last-error state.
+            var startError = {{ exception_name }}.FromLastError("Unknown error");
             NativeMethods.{{ request_free }}({{ request_param }}Handle);
-            throw {{ exception_name }}.FromLastError("Unknown error");
+            throw startError;
         }
         try
         {

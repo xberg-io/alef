@@ -12,7 +12,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_rustler_unimplemented_body
 ) -> String {
     let err_msg = format!("Not implemented: {fn_name}");
     if has_error {
-        format!("Err(String::from(\"{err_msg}\"))")
+        format!("Err(AlefNifError::from(String::from(\"{err_msg}\")))")
     } else {
         match return_type {
             TypeRef::Unit => "()".to_string(),

@@ -225,7 +225,7 @@ pub(in crate::backends::napi::gen_bindings) fn gen_opaque_instance_method(
             && method.error_type.is_some()
             && crate::codegen::shared::is_opaque_delegatable_type(&method.return_type)
         {
-            let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
+            let err_conv = ".map_err(alef_napi_err)";
             let mut serde_bindings =
                 generators::gen_serde_let_bindings(&method.params, opaque_types, cfg.core_import, err_conv, "        ");
             serde_bindings.push_str(&napi_newtype_param_bindings(&method.params));
@@ -319,7 +319,7 @@ pub(in crate::backends::napi::gen_bindings) fn gen_opaque_instance_method(
             format!("self.inner.{}({})", method.name, call_args_for_call)
         };
         if method.error_type.is_some() {
-            let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
+            let err_conv = ".map_err(alef_napi_err)";
             if matches!(method.return_type, TypeRef::Unit) {
                 format!("{let_bindings}{core_call}{err_conv}?;\n    Ok(())")
             } else if self_ref_return {

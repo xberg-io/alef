@@ -22,7 +22,7 @@ pub fn apply_core_wrapper_to_core(
     }
 
     match core_wrapper {
-        CoreWrapper::None => conversion.to_string(),
+        CoreWrapper::None | CoreWrapper::StaticStr => conversion.to_string(),
         CoreWrapper::Cow | CoreWrapper::Box => {
             if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
                 if optional {

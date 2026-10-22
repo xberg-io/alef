@@ -620,3 +620,30 @@ fn container_serde_default_absent_returns_false() {
     let attrs = parse_attrs(r#"#[serde(rename_all = "snake_case")]"#);
     assert!(!has_container_serde_default(&attrs));
 }
+
+#[test]
+fn is_static_str_ref_matches_only_a_static_borrow_of_str() {
+    use super::is_static_str_ref;
+
+    for borrowed in ["&'static str", "Option<&'static str>"] {
+        assert!(
+            is_static_str_ref(&parse_type(borrowed)),
+            "{borrowed} is a static borrow"
+        );
+    }
+    for other in [
+        "&str",
+        "&'a str",
+        "String",
+        "Option<String>",
+        "&'static [u8]",
+        "&'static String",
+        "Cow<'static, str>",
+        "Vec<&'static str>",
+    ] {
+        assert!(
+            !is_static_str_ref(&parse_type(other)),
+            "{other} is not a static str borrow"
+        );
+    }
+}

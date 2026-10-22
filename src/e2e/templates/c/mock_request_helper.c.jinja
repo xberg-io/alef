@@ -138,5 +138,11 @@ static int {{ helper_name }}(const char *base_url, const char *path_and_query) {
         exit(1);
     }
     body += 4;
-    return (int)strtol(body, NULL, 10);
+    char *body_end = NULL;
+    long count = strtol(body, &body_end, 10);
+    if (body_end == body) {
+        fprintf(stderr, "{{ helper_name }}: non-integer response body: %s\n", body);
+        exit(1);
+    }
+    return (int)count;
 }

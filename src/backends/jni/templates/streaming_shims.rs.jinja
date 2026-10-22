@@ -29,7 +29,7 @@ pub unsafe extern "system" fn {{ start_sym }}(
     };
 {{ request_unmarshal }}{{ stream_call_block }}    let stream = match stream_result {
         Ok(s) => s,
-        Err(e) => { throw_jni_error(env, &e.to_string()); return 0; }
+        Err(e) => { throw_jni_error_from(env, &e); return 0; }
     };
     // Map the concrete error type to Box<dyn Error> so the handle type is
     // independent of the stream's error associated type.
@@ -70,7 +70,7 @@ pub unsafe extern "system" fn {{ next_sym }}(
     match next {
         None => std::ptr::null_mut(),
         Some(Err(e)) => {
-            throw_jni_error(env, &e.to_string());
+            throw_jni_error_from(env, &e);
             std::ptr::null_mut()
         }
         Some(Ok(chunk)) => {

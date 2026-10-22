@@ -7,6 +7,7 @@
 //!   - converts the return value back to a bridge type
 //!   - for async fns, emits an `async fn` that spawns the work onto the process-wide Tokio runtime
 
+use crate::backends::swift::gen_rust_crate::bridge_error::result_type;
 use crate::backends::swift::gen_rust_crate::type_bridge::{
     bridge_result_ok_type_with_handles, bridge_type_enum_aware_ref, bridge_type_with_handles, enum_from_string_fn_name,
     forces_fallible_enum_bridge, needs_json_bridge, needs_json_bridge_with_handles,
@@ -496,23 +497,23 @@ pub(crate) fn emit_function_shim(f: &FunctionDef, context: &FunctionShimContext<
 
     let (return_ty, has_explicit_return) = if is_capsule_return {
         if forced_fallible {
-            ("Result<usize, String>".to_string(), true)
+            (result_type("usize"), true)
         } else {
             ("usize".to_string(), true)
         }
     } else if f.error_type.is_some() {
         let ok_ty = bridge_result_ok_type_with_handles(&effective_return_type, handle_returned_types);
         if matches!(effective_return_type, TypeRef::Unit) {
-            ("Result<(), String>".to_string(), true)
+            (result_type("()"), true)
         } else {
-            (format!("Result<{ok_ty}, String>"), true)
+            (result_type(&ok_ty), true)
         }
     } else if forced_fallible {
         let ok_ty = bridge_result_ok_type_with_handles(&effective_return_type, handle_returned_types);
         if matches!(effective_return_type, TypeRef::Unit) {
-            ("Result<(), String>".to_string(), true)
+            (result_type("()"), true)
         } else {
-            (format!("Result<{ok_ty}, String>"), true)
+            (result_type(&ok_ty), true)
         }
     } else if matches!(effective_return_type, TypeRef::Unit) {
         (String::new(), false)
@@ -722,7 +723,7 @@ pub(crate) fn emit_function_shim(f: &FunctionDef, context: &FunctionShimContext<
     } else if is_capsule_return {
         if f.is_async {
             if f.error_type.is_some() {
-                format!("{source_call}.await.map_err(|e| e.to_string()).map(|__cap| __cap.into_raw() as usize)")
+                format!("{source_call}.await.map_err(alef_bridge_error).map(|__cap| __cap.into_raw() as usize)")
             } else {
                 format!("Ok({source_call}.await.into_raw() as usize)")
             }
@@ -736,7 +737,7 @@ pub(crate) fn emit_function_shim(f: &FunctionDef, context: &FunctionShimContext<
     } else if f.is_async {
         let mut chain = format!("{source_call}.await");
         if f.error_type.is_some() {
-            chain = format!("{chain}.map_err(|e| e.to_string()){value_map}");
+            chain = format!("{chain}.map_err(alef_bridge_error){value_map}");
         } else if forced_fallible {
             chain = format!("Ok({})", direct_wrap(chain));
         } else {
@@ -744,7 +745,7 @@ pub(crate) fn emit_function_shim(f: &FunctionDef, context: &FunctionShimContext<
         }
         chain
     } else if f.error_type.is_some() {
-        format!("{source_call}.map_err(|e| e.to_string()){value_map}")
+        format!("{source_call}.map_err(alef_bridge_error){value_map}")
     } else if forced_fallible {
         if matches!(f.return_type, TypeRef::Unit) {
             format!("{source_call};\n    Ok(())")
@@ -795,7 +796,7 @@ pub(crate) fn emit_function_shim(f: &FunctionDef, context: &FunctionShimContext<
             "{cfg_prefix}pub async fn {fn_name}({params_str}){return_annotation} {{\n    \
             {bindings_str}let __alef_task = {ALEF_TOKIO_RUNTIME_ACCESSOR}.spawn(async move {{ {body} }});\n    \
             __alef_task.await.unwrap_or_else(|__alef_join_error| {{\n        \
-            Err(format!(\"alef: spawned async task failed: {{__alef_join_error}}\"))\n    }})\n}}\n"
+            Err(AlefBridgeError::from(format!(\"alef: spawned async task failed: {{__alef_join_error}}\")))\n    }})\n}}\n"
         ))
     } else {
         Ok(format!(

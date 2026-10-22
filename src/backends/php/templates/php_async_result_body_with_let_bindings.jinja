@@ -1,4 +1,4 @@
 {{ let_bindings }}WORKER_RUNTIME.block_on(async {
-        let result = {{ core_call }}.await.map_err({% if error_converter %}{{ error_converter }}{% else %}|e| ext_php_rs::exception::PhpException::from_message(e.to_string()){% endif %})?;
+        let result = {{ core_call }}.await.map_err({% if error_converter %}{{ error_converter }}{% else %}alef_php_err{% endif %})?;
         Ok({{ result_wrap }})
     })

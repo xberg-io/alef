@@ -2,9 +2,13 @@
 //!
 //! Provides utilities for FFI introspection and documentation emission.
 
+use crate::backends::zig::type_map::ZigMapper;
 use crate::codegen::c_consumer;
+use crate::codegen::error_gen::{LastErrorField, LastErrorFieldKind};
+use crate::codegen::type_mapper::TypeMapper;
 use crate::core::config::Language;
 use crate::core::ir::ErrorDef;
+use crate::core::ir::PrimitiveType;
 use crate::docs::clean_doc;
 
 /// Emit the two standard helpers every generated file needs:
@@ -64,6 +68,22 @@ pub(crate) fn emit_helpers(prefix: &str, declared_errors: &[ErrorDef], out: &mut
     out.push_str("    return _captured_error;\n");
     out.push_str("}\n\n");
 
+    let details = crate::codegen::error_gen::last_error_fields(declared_errors);
+    let mut capture_details = String::new();
+    if !details.is_empty() {
+        out.push_str(&details_type(&details));
+        out.push_str("/// Introspection values of the last captured error, copied from the FFI layer with the\n");
+        out.push_str("/// message. Durations are whole milliseconds. Text is binding-owned and valid until the\n");
+        out.push_str("/// next captured error replaces it.\n");
+        out.push_str("threadlocal var _captured_details: LastErrorDetails = .{};\n\n");
+        out.push_str("/// Retrieve the introspection values (HTTP status, retry delay, ...) of the last error\n");
+        out.push_str("/// captured by `_error_with_message`.\n");
+        out.push_str("pub fn _last_error_details() LastErrorDetails {\n");
+        out.push_str("    return _captured_details;\n");
+        out.push_str("}\n\n");
+        capture_details = capture_details_statements(prefix, &details);
+    }
+
     out.push_str("/// Copy the FFI layer's current error message into binding-owned storage.\n");
     out.push_str(&format!(
         "/// Must run before any deferred `_free` call: every `{prefix}_*` FFI entry point\n"
@@ -79,6 +99,7 @@ pub(crate) fn emit_helpers(prefix: &str, declared_errors: &[ErrorDef], out: &mut
         },
     ));
     out.push_str("    if (_code == 0) return;\n");
+    out.push_str(&capture_details);
     out.push_str(&crate::backends::zig::template_env::render(
         "helper_last_error_ctx.jinja",
         crate::alef_context! {
@@ -137,6 +158,61 @@ pub(crate) fn emit_helpers(prefix: &str, declared_errors: &[ErrorDef], out: &mut
     out.push_str("}\n");
 }
 
+fn details_type(details: &[LastErrorField]) -> String {
+    let mut out =
+        String::from("/// Introspection values of an FFI error, one member for each capturable error method.\n");
+    out.push_str("pub const LastErrorDetails = struct {\n");
+    for field in details {
+        let (zig_type, default) = match &field.kind {
+            LastErrorFieldKind::Scalar(primitive) => {
+                let zig_type = ZigMapper.primitive(primitive).into_owned();
+                let default = if matches!(primitive, PrimitiveType::Bool) {
+                    "false"
+                } else if matches!(primitive, PrimitiveType::F32 | PrimitiveType::F64) {
+                    "0.0"
+                } else {
+                    "0"
+                };
+                (zig_type, default)
+            }
+            LastErrorFieldKind::Text => ("?[]const u8".to_string(), "null"),
+            LastErrorFieldKind::DurationMillis => ("?u64".to_string(), "null"),
+        };
+        out.push_str(&format!("    {}: {zig_type} = {default},\n", field.name));
+    }
+    out.push_str("};\n\n");
+    out
+}
+
+fn capture_details_statements(prefix: &str, details: &[LastErrorField]) -> String {
+    let mut out = String::new();
+    for field in details {
+        let symbol = c_consumer::last_error_field_symbol(prefix, &field.name);
+        let name = &field.name;
+        match &field.kind {
+            LastErrorFieldKind::Scalar(_) => {
+                out.push_str(&format!("    _captured_details.{name} = c.{symbol}();\n"));
+            }
+            LastErrorFieldKind::Text => {
+                out.push_str(&format!(
+                    "    if (_captured_details.{name}) |_old| std.heap.c_allocator.free(_old);\n"
+                ));
+                out.push_str(&format!("    const _{name}_ptr = c.{symbol}();\n"));
+                out.push_str(&format!(
+                    "    _captured_details.{name} = if (_{name}_ptr == null) null else std.heap.c_allocator.dupe(u8, std.mem.sliceTo(_{name}_ptr, 0)) catch null;\n"
+                ));
+            }
+            LastErrorFieldKind::DurationMillis => {
+                out.push_str(&format!("    const _{name}_ms = c.{symbol}();\n"));
+                out.push_str(&format!(
+                    "    _captured_details.{name} = if (_{name}_ms >= 0) @as(u64, @intCast(_{name}_ms)) else null;\n"
+                ));
+            }
+        }
+    }
+    out
+}
+
 /// Emit cleaned Zig documentation for a declaration.
 ///
 /// Cleans Rust-specific doc strings and formats as Zig doc comments (/// ...).
@@ -170,6 +246,69 @@ mod tests {
             binding_exclusion_reason: None,
             version: Default::default(),
         }
+    }
+
+    fn introspective_error() -> ErrorDef {
+        use crate::core::ir::{MethodDef, PrimitiveType, TypeRef};
+        let method = |name: &str, return_type: TypeRef| MethodDef {
+            name: name.to_string(),
+            return_type,
+            ..MethodDef::default()
+        };
+        let mut error = request_error(Some(100));
+        error.methods = vec![
+            method("status_code", TypeRef::Primitive(PrimitiveType::U16)),
+            method("is_transient", TypeRef::Primitive(PrimitiveType::Bool)),
+            method("error_type", TypeRef::String),
+            method("retry_after", TypeRef::Optional(Box::new(TypeRef::Duration))),
+        ];
+        error
+    }
+
+    /// The FFI layer captures `status_code`, `retry_after` and the other introspection methods
+    /// with the failing call; the deferred `_free` calls then clear that state. The helper must
+    /// copy every getter into binding-owned storage before returning the error. ~keep
+    #[test]
+    fn capture_copies_every_error_introspection_getter_before_the_deferred_frees_run() {
+        let mut out = String::new();
+        emit_helpers("example_pack", &[introspective_error()], &mut out);
+
+        assert!(out.contains("pub const LastErrorDetails = struct {"), "{out}");
+        for declaration in [
+            "    status_code: u16 = 0,\n",
+            "    is_transient: bool = false,\n",
+            "    error_type: ?[]const u8 = null,\n",
+            "    retry_after: ?u64 = null,\n",
+        ] {
+            assert!(out.contains(declaration), "missing {declaration:?}:\n{out}");
+        }
+        assert!(
+            out.contains("pub fn _last_error_details() LastErrorDetails {\n    return _captured_details;\n}"),
+            "{out}"
+        );
+        let capture = out
+            .split("fn _capture_error_message() void {")
+            .nth(1)
+            .expect("capture fn");
+        let capture = capture.split("\n}\n").next().unwrap();
+        for read in [
+            "_captured_details.status_code = c.example_pack_last_error_status_code();",
+            "_captured_details.is_transient = c.example_pack_last_error_is_transient();",
+            "c.example_pack_last_error_error_type()",
+            "const _retry_after_ms = c.example_pack_last_error_retry_after();",
+            "_captured_details.retry_after = if (_retry_after_ms >= 0) @as(u64, @intCast(_retry_after_ms)) else null;",
+        ] {
+            assert!(capture.contains(read), "capture must read {read:?}:\n{capture}");
+        }
+    }
+
+    /// An error with no capturable method has nothing to copy, so no details type is emitted.
+    #[test]
+    fn no_introspection_method_means_no_details_type() {
+        let mut out = String::new();
+        emit_helpers("example_pack", &[request_error(Some(100))], &mut out);
+        assert!(!out.contains("LastErrorDetails"), "{out}");
+        assert!(!out.contains("_captured_details"), "{out}");
     }
 
     #[test]

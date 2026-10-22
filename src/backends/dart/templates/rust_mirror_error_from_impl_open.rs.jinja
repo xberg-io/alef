@@ -3,4 +3,23 @@
 #[allow(unreachable_patterns)]
 impl From<&{{ name }}> for {{ core_path }} {
     fn from(m: &{{ name }}) -> Self {
+{% if borrows_static_str %}
+        // A core field of type `&'static str` needs text that lives for the whole program. Each
+        // distinct text is leaked once and reused, so repeated conversions of the same error do
+        // not grow memory.
+        fn intern_static_str(text: &str) -> &'static str {
+            static POOL: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<&'static str>>> =
+                std::sync::OnceLock::new();
+            let mut pool = POOL
+                .get_or_init(Default::default)
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(known) = pool.get(text) {
+                return known;
+            }
+            let leaked: &'static str = Box::leak(text.to_owned().into_boxed_str());
+            pool.insert(leaked);
+            leaked
+        }
+{% endif %}
         match m {

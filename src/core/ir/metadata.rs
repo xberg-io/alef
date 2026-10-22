@@ -297,6 +297,9 @@ pub enum CoreWrapper {
     /// `Box<str>` — binding uses String, core needs `.into()` (same shape as Cow
     /// but distinct so backends can keep wrapper-specific behavior addressable). ~keep
     Box,
+    /// `&'static str` on an error variant field — binding uses String, so a conversion back
+    /// to the core error needs a `'static` borrow of the text. ~keep
+    StaticStr,
 }
 
 /// Typed default value for a field, enabling backends to emit language-native defaults.

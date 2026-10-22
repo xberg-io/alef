@@ -1,0 +1,14 @@
+/// Convert the error a core call returned into the typed PHP exception of its family. An error
+/// of a type with no converter becomes a plain exception with the message.
+#[allow(dead_code)]
+fn alef_php_err<E: std::fmt::Display + 'static>(e: E) -> ext_php_rs::exception::PhpException {
+    let message = e.to_string();
+    #[allow(unused_variables)]
+    let any: Box<dyn std::any::Any> = Box::new(e);
+{% for arm in arms %}    let any = match any.downcast::<{{ arm.rust_path }}>() {
+        Ok(typed) => return {{ arm.fn_name }}(*typed),
+        Err(any) => any,
+    };
+{% endfor %}    let _ = any;
+    ext_php_rs::exception::PhpException::from_message(message)
+}

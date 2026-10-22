@@ -9,12 +9,12 @@ use super::helpers::extract_binding_exclusion_reason;
 use crate::extract::type_resolver;
 
 use super::helpers::{
-    build_rust_path, extract_alef_error_code, extract_alef_transparent_string, extract_cfg_condition,
-    extract_doc_comments, extract_enum_variant, extract_error_message_template, extract_field,
+    build_rust_path, detect_core_wrapper, extract_alef_error_code, extract_alef_transparent_string,
+    extract_cfg_condition, extract_doc_comments, extract_enum_variant, extract_error_message_template, extract_field,
     extract_field_binding_exclusion_reason, extract_field_type_rust_path, extract_serde_container_conversion,
     extract_serde_rename_all, extract_serde_rename_all_fields, extract_serde_skip, extract_serde_skip_serializing_if,
     extract_version_annotation, has_alef_sensitive, has_cfg_attribute, has_container_serde_default, has_derive,
-    has_field_attr, has_serde_untagged, is_pub, parse_alef_transparent_string, syn_type_is_boxed,
+    has_field_attr, has_serde_untagged, is_pub, is_static_str_ref, parse_alef_transparent_string, syn_type_is_boxed,
 };
 
 pub(crate) fn validate_transparent_string_struct(item: &syn::ItemStruct) -> Result<Option<(String, String)>, String> {
@@ -305,7 +305,11 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
                             }
                             // Error-enum fields carry no `impl Default` of their own; the serde
                             // default half of `extract_field`'s return is discarded. ~keep
-                            extract_field(f, Some(crate_name)).0
+                            let mut field = extract_field(f, Some(crate_name)).0;
+                            if is_static_str_ref(&f.ty) {
+                                field.core_wrapper = CoreWrapper::StaticStr;
+                            }
+                            field
                         })
                         .collect();
                     (fields, source, from, false, false)
@@ -340,7 +344,13 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
                                 type_rust_path: extract_field_type_rust_path(&f.ty, Some(crate_name)),
                                 cfg: None,
                                 typed_default: None,
-                                core_wrapper: CoreWrapper::None,
+                                core_wrapper: if is_static_str_ref(&f.ty) {
+                                    CoreWrapper::StaticStr
+                                } else if detect_core_wrapper(&f.ty) == CoreWrapper::Cow {
+                                    CoreWrapper::Cow
+                                } else {
+                                    CoreWrapper::None
+                                },
                                 vec_inner_core_wrapper: CoreWrapper::None,
                                 newtype_wrapper: None,
                                 serde_rename: None,

@@ -138,6 +138,30 @@ fn outermost_ident(ty: &syn::Type) -> Option<String> {
     None
 }
 
+/// Detect a `&'static str` field, or an `Option` of one (before resolution).
+///
+/// The resolved type is a plain `String` either way, so this is the only place the IR learns that
+/// the core field borrows its text. A conversion back to the core type needs a `'static` borrow,
+/// not an owned `String`. ~keep
+pub(crate) fn is_static_str_ref(ty: &syn::Type) -> bool {
+    let inner = match ty {
+        syn::Type::Path(p) => p
+            .path
+            .segments
+            .last()
+            .filter(|seg| seg.ident == "Option")
+            .and_then(type_resolver::extract_single_generic_arg_syn),
+        _ => None,
+    };
+    let probe: &syn::Type = inner.as_deref().unwrap_or(ty);
+    matches!(
+        probe,
+        syn::Type::Reference(r)
+            if r.lifetime.as_ref().is_some_and(|l| l.ident == "static")
+                && matches!(&*r.elem, syn::Type::Path(e) if e.path.is_ident("str"))
+    )
+}
+
 /// Detect if a syn::Type is wrapped in Cow, Arc, Arc<Mutex<T>>, Arc<RwLock<T>>, or Bytes
 /// (before resolution).
 ///

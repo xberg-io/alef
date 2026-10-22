@@ -480,7 +480,7 @@ pub use dto_coercion::{
     pyo3_wire_schema_const_name,
 };
 pub(crate) use enums::{
-    collect_all_variant_constructors, collect_pyo3_variant_constructors, variant_accessor,
+    collect_all_variant_constructors, collect_pyo3_variant_constructors, dict_getter_py_name, variant_accessor,
     variant_constructor_is_reachable, variant_field_init,
 };
 pub use enums::{

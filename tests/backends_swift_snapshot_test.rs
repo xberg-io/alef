@@ -1689,14 +1689,14 @@ fn snapshot_intorust_json_fallback_shim_present_for_map_dto() {
     assert!(
         lib_rs
             .content
-            .contains("fn metadata_from_json(json: String) -> Result<Metadata, String>"),
+            .contains("fn metadata_from_json(json: String) -> Result<Metadata, AlefBridgeError>"),
         "JSON-fallback DTO must have a matching Rust *_from_json extern declared:\n{}",
         lib_rs.content
     );
     assert!(
         lib_rs
             .content
-            .contains("pub fn metadata_from_json(json: String) -> Result<Metadata, String>"),
+            .contains("pub fn metadata_from_json(json: String) -> Result<Metadata, AlefBridgeError>"),
         "JSON-fallback DTO must have a matching pub fn *_from_json implementation:\n{}",
         lib_rs.content
     );

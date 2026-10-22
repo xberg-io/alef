@@ -301,9 +301,8 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_test_case(
     // from the raw value would let regex metacharacters in the fixture's declared string (e.g.
     // `.`, `(`, `)`) change what the pattern matches, so the value is escaped to match itself
     // literally. A value naming a real `ErrorVariant` this backend cannot substantiate renders
-    // the registered skip instead (`error_skip_line`, spliced verbatim by the template): every
-    // NAPI throw site is `napi::Error::new(Status::GenericFailure, e.to_string())` — generic
-    // status, generic `.name`, message only.
+    // the registered skip instead (`error_skip_line`, spliced verbatim by the template): the
+    // thrown error's `.name` stays generic, and this assertion does not read its `kind`.
     let (error_value_regex, error_skip_line) = if expects_error {
         match crate::e2e::codegen::declared_error_variant::classify(lang, fixture, errors) {
             crate::e2e::codegen::declared_error_variant::DeclaredErrorAssertion::Undeclared => (None, None),

@@ -794,6 +794,7 @@ pub(super) fn generate_public_api(
     let trimmed = content.trim_end_matches('\n');
     content = format!("{trimmed}\nend\n");
 
+    public_files::append_error_exceptions(&mut content, api, &app_module);
     public_files::append_stream_error_exception(&mut content, config, &app_module);
 
     content = content.replace(

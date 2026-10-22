@@ -1,0 +1,92 @@
+/// Error returned by every fallible bridge call. Swift receives it as a thrown value and
+/// converts it into the typed Swift error. `kind` is the variant name of the core error,
+/// `status` its HTTP status and `retry_after_ms` its retry delay. A text field is empty and a number
+/// is `-1` when the error does not carry it, for example an error that does not come from the
+/// core crate.
+pub struct AlefBridgeError {
+    message: String,
+    error_type: String,
+    kind: String,
+    status: i32,
+    retry_after_ms: i64,
+}
+
+impl AlefBridgeError {
+    pub fn message(&self) -> String {
+        self.message.clone()
+    }
+
+    pub fn error_type(&self) -> String {
+        self.error_type.clone()
+    }
+
+    pub fn kind(&self) -> String {
+        self.kind.clone()
+    }
+
+    pub fn status(&self) -> i32 {
+        self.status
+    }
+
+    pub fn retry_after_ms(&self) -> i64 {
+        self.retry_after_ms
+    }
+}
+
+impl From<String> for AlefBridgeError {
+    fn from(message: String) -> Self {
+        AlefBridgeError {
+            message,
+            error_type: String::new(),
+            kind: String::new(),
+            status: -1,
+            retry_after_ms: -1,
+        }
+    }
+}
+
+impl From<&str> for AlefBridgeError {
+    fn from(message: &str) -> Self {
+        AlefBridgeError::from(message.to_string())
+    }
+}
+{% for error in errors %}
+
+fn alef_bridge_error_{{ error.snake }}(message: String, e: &{{ error.rust_path }}) -> AlefBridgeError {
+    let kind = match e {
+{% for variant in error.variants %}
+        {{ variant.pattern }} => "{{ variant.name }}",
+{% endfor %}
+        _ => "",
+    };
+    AlefBridgeError {
+        message,
+        error_type: "{{ error.name }}".to_string(),
+        kind: kind.to_string(),
+        status: {{ error.status_expr }},
+        retry_after_ms: {{ error.retry_after_expr }},
+    }
+}
+{% endfor %}
+
+/// Build the bridge error for `error`. The core error types give their kind, status and retry
+/// delay, also when a stream or a boxed error holds them; any other error gives its message only.
+pub fn alef_bridge_error<E: std::fmt::Display + 'static>(error: E) -> AlefBridgeError {
+    let message = error.to_string();
+    let any: &dyn std::any::Any = &error;
+    let boxed_sync = any.downcast_ref::<Box<dyn std::error::Error + Send + Sync + 'static>>();
+    let boxed = any.downcast_ref::<Box<dyn std::error::Error + 'static>>();
+{% for error in errors %}
+    if let Some(e) = any.downcast_ref::<{{ error.rust_path }}>() {
+        return alef_bridge_error_{{ error.snake }}(message, e);
+    }
+    if let Some(e) = boxed_sync.and_then(|b| b.downcast_ref::<{{ error.rust_path }}>()) {
+        return alef_bridge_error_{{ error.snake }}(message, e);
+    }
+    if let Some(e) = boxed.and_then(|b| b.downcast_ref::<{{ error.rust_path }}>()) {
+        return alef_bridge_error_{{ error.snake }}(message, e);
+    }
+{% endfor %}
+    let _ = (boxed_sync, boxed);
+    AlefBridgeError::from(message)
+}

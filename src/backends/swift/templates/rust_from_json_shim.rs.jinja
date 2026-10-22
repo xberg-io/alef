@@ -1,5 +1,5 @@
-pub fn {{ fn_name }}(json: String) -> Result<{{ wrapper_name }}, String> {
+pub fn {{ fn_name }}(json: String) -> Result<{{ wrapper_name }}, AlefBridgeError> {
     serde_json::from_str::<{{ source_path }}>(&json)
         .map({{ map_expr }})
-        .map_err(|e| e.to_string())
+        .map_err(alef_bridge_error)
 }

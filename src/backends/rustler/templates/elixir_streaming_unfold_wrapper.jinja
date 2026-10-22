@@ -19,10 +19,16 @@
                 {Jason.decode!(chunk_json, keys: :atoms), h}
 
               {:error, reason} ->
+                fields = if is_map(reason), do: reason, else: %{}
+                detail = if is_exception(reason), do: Exception.message(reason), else: inspect(reason)
+
                 raise {{ exception_module }},
-                  message: "{{ stream_fn }} stream failed: #{inspect(reason)}",
+                  message: "{{ stream_fn }} stream failed: #{detail}",
                   reason: reason,
-                  adapter: :{{ stream_fn }}
+                  adapter: :{{ stream_fn }},
+                  kind: Map.get(fields, :kind),
+                  status: Map.get(fields, :status),
+                  retry_after_ms: Map.get(fields, :retry_after_ms)
             end
           end)
 

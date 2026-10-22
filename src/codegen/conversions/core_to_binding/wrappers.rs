@@ -20,7 +20,7 @@ pub(super) fn apply_core_wrapper_from_core(
     }
 
     match core_wrapper {
-        CoreWrapper::None => conversion.to_string(),
+        CoreWrapper::None | CoreWrapper::StaticStr => conversion.to_string(),
         CoreWrapper::Cow | CoreWrapper::Box => {
             let prefix = format!("{name}: ");
             let already_some_wrapped = conversion

@@ -461,8 +461,8 @@ namespace = "dev.sample_crate"
             "throw_jni_error must not discard the throw_new result: {content}"
         );
         assert!(
-            content.contains("if env.throw_new(&class_jni, &msg_jni).is_err()"),
-            "throw_jni_error must check throw_new result: {content}"
+            content.contains("if !jni_throw_succeeded(env.throw_new(&class_jni, &msg_jni))"),
+            "throw_jni_error must check throw_new result through jni_throw_succeeded: {content}"
         );
         assert!(
             content.contains("jni::strings::JNIString::from(ERROR_CLASS)"),
@@ -472,6 +472,151 @@ namespace = "dev.sample_crate"
             content.contains("java/lang/RuntimeException"),
             "throw_jni_error must fall back to RuntimeException: {content}"
         );
+    }
+
+    /// `Env::throw_new` and `Env::throw` return `Err(JavaException)` when the exception was thrown,
+    /// so a bare `.is_err()` check always took the `RuntimeException` fallback and the declared
+    /// class never reached the caller.
+    #[test]
+    fn a_thrown_exception_is_not_mistaken_for_a_failed_throw() {
+        let (api, config) = typed_error_api_and_config();
+        let content = emit_lib_rs(&api, &config);
+        assert!(
+            content.contains("matches!(result, Ok(()) | Err(jni::errors::Error::JavaException))"),
+            "a pending exception is the success case of a throw: {content}"
+        );
+        assert!(
+            !content.contains(".is_err() {\n        let fallback"),
+            "the fallback must not run after a successful throw: {content}"
+        );
+    }
+
+    /// The call sites throw through the typed path, so the kind, the status and the retry delay
+    /// reach the declared exception class.
+    #[test]
+    fn core_errors_are_thrown_with_kind_status_and_retry_delay() {
+        let (api, config) = typed_error_api_and_config();
+        let content = emit_lib_rs(&api, &config);
+        assert!(
+            content.contains("fn jni_error_parts_sample_error(e: &sample::SampleError) -> JniErrorParts"),
+            "one parts reader per core error: {content}"
+        );
+        assert!(
+            content.contains("sample::SampleError::RateLimited => Some(\"RateLimited\")"),
+            "the kind of a unit variant is its name: {content}"
+        );
+        assert!(
+            content.contains("sample::SampleError::Timeout { .. } => Some(\"Timeout\")"),
+            "the kind of a struct variant is its name: {content}"
+        );
+        assert!(
+            content.contains("match e.status_code() { 0 => -1, status => i32::from(status) }"),
+            "a status of 0 means no HTTP status: {content}"
+        );
+        assert!(
+            content.contains("e.retry_after().map_or(-1, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))"),
+            "the retry delay travels as whole milliseconds: {content}"
+        );
+        assert!(
+            content.contains("\"(Ljava/lang/String;Ljava/lang/String;IJ)V\""),
+            "the exception is built through its (message, kind, status, retryAfterMs) constructor: {content}"
+        );
+        assert!(
+            content.contains("throw_jni_error_from(env, &e);"),
+            "call sites must throw the core error, not its message: {content}"
+        );
+        assert!(
+            !content.contains("throw_jni_error(env, &e.to_string());"),
+            "no call site may drop the typed error: {content}"
+        );
+    }
+
+    /// A stream error arrives boxed, so the reader must look inside the box.
+    #[test]
+    fn boxed_stream_errors_are_read_through_the_box() {
+        let (api, config) = typed_error_api_and_config();
+        let content = emit_lib_rs(&api, &config);
+        assert!(
+            content.contains("boxed.and_then(|b| b.downcast_ref::<sample::SampleError>())"),
+            "stream errors are Box<dyn Error>: {content}"
+        );
+    }
+
+    fn typed_error_api_and_config() -> (crate::core::ir::ApiSurface, crate::core::config::ResolvedCrateConfig) {
+        use crate::core::config::NewAlefConfig;
+        use crate::core::ir::{ErrorDef, ErrorVariant, MethodDef};
+        let raw: NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["kotlin_android", "jni"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.kotlin_android]
+package = "dev.sample_crate"
+namespace = "dev.sample_crate"
+"#,
+        )
+        .unwrap();
+        let config = raw.resolve().unwrap().remove(0);
+        let method = |name: &str, return_type: TypeRef| MethodDef {
+            name: name.to_string(),
+            return_type,
+            ..MethodDef::default()
+        };
+        let variant = |name: &str| ErrorVariant {
+            name: name.to_string(),
+            is_unit: true,
+            ..ErrorVariant::default()
+        };
+        let error = ErrorDef {
+            exception_base: None,
+            name: "SampleError".to_string(),
+            rust_path: "sample::SampleError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                variant("RateLimited"),
+                ErrorVariant {
+                    name: "Timeout".to_string(),
+                    fields: vec![crate::core::ir::FieldDef {
+                        name: "after".to_string(),
+                        ..Default::default()
+                    }],
+                    ..ErrorVariant::default()
+                },
+            ],
+            doc: String::new(),
+            methods: vec![
+                method("status_code", TypeRef::Primitive(PrimitiveType::U16)),
+                method("retry_after", TypeRef::Optional(Box::new(TypeRef::Duration))),
+            ],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        };
+        let function = crate::core::ir::FunctionDef {
+            name: "ping".to_string(),
+            error_type: Some("SampleError".to_string()),
+            return_type: TypeRef::String,
+            ..Default::default()
+        };
+        let api = crate::core::ir::ApiSurface {
+            unresolved_modules: Vec::new(),
+            crate_name: "demo".into(),
+            version: "0.1.0".into(),
+            types: vec![],
+            functions: vec![function],
+            enums: vec![],
+            errors: vec![error],
+            excluded_type_paths: Default::default(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
+            unsupported_public_items: Vec::new(),
+        };
+        (api, config)
     }
 
     /// Build an `ApiSurface` whose single opaque client type carries `methods`,

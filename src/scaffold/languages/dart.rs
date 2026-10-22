@@ -226,6 +226,28 @@ dart test"#
         .map(|license| format!("\n## License\n\n{license}\n"))
         .unwrap_or_default();
 
+    // The bridge loads its native library in `RustLib.init()`; every call before it throws a
+    // `StateError`. The barrel exports `RustLib`, so the package import is enough. ~keep
+    let usage_section = match style {
+        DartStyle::Frb => format!(
+            r#"
+## Usage
+
+Load the native library once, before the first call:
+
+```dart
+import 'package:{package_import_path}';
+
+Future<void> main() async {{
+  await RustLib.init();
+  // Call the generated API here.
+}}
+```
+"#
+        ),
+        DartStyle::Ffi => String::new(),
+    };
+
     let readme = format!(
         r#"# {pubspec_name}
 
@@ -245,7 +267,7 @@ Then run:
 ```sh
 dart pub get
 ```
-
+{usage_section}
 ## Building
 
 From the repository root:
@@ -257,6 +279,7 @@ From the repository root:
         pubspec_name = pubspec_name,
         description = meta.description,
         version = version,
+        usage_section = usage_section,
     ) + &license_section;
 
     let editorconfig = "[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\n\n[*.dart]\nindent_style = space\nindent_size = 2\n";
@@ -266,17 +289,24 @@ From the repository root:
         version = version,
     );
 
+    let example_init = match style {
+        DartStyle::Frb => format!(
+            "  // Load the native library once, before the first call.\n  await {module_name}.RustLib.init();\n"
+        ),
+        DartStyle::Ffi => String::new(),
+    };
     let example_dart = format!(
         r#"import 'package:{package_import_path}' as {module_name};
 
-void main() {{
-  print('Example: {pubspec_name} loaded successfully');
+Future<void> main() async {{
+{example_init}  print('Example: {pubspec_name} loaded successfully');
   // Add your API calls here after code generation
 }}
 "#,
         package_import_path = package_import_path,
         pubspec_name = pubspec_name,
         module_name = module_name,
+        example_init = example_init,
     );
 
     let mut files = vec![

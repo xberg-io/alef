@@ -1,0 +1,18 @@
+defmodule {{ exception_module }} do
+  @moduledoc """
+  Error returned by `{{ error_name }}`.
+
+  `kind` is the error variant as a snake_case atom. `status` is the HTTP status, or 0 when the
+  error has none. `retry_after_ms` is the delay in milliseconds before a retry, or `nil`.
+  Match on these fields, not on the message text.
+  """
+
+  defexception [:kind, :message, :status, :retry_after_ms]
+
+  @type t :: %__MODULE__{
+          kind: atom(),
+          message: String.t(),
+          status: non_neg_integer(),
+          retry_after_ms: non_neg_integer() | nil
+        }
+end

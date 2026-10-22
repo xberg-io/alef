@@ -290,12 +290,12 @@ fn build_ep_call_napi(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef
         format!(
             "    {bind}owner.{ep_method}({args_str})\n        \
              .await\n        \
-             .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n"
+             .map_err(alef_napi_err)?;\n"
         )
     } else if ep.error_type.is_some() {
         format!(
             "    {bind}owner.{ep_method}({args_str})\n        \
-             .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n"
+             .map_err(alef_napi_err)?;\n"
         )
     } else {
         format!("    {bind}owner.{ep_method}({args_str});\n")
@@ -433,7 +433,7 @@ fn gen_base_registration_napi_method(
     }
 
     if reg.error_type.is_some() {
-        out.push_str("        .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n");
+        out.push_str("        .map_err(alef_napi_err)?;\n");
     } else {
         out.push_str("        ;\n");
     }
@@ -596,7 +596,7 @@ fn gen_variant_napi_method(
     }
 
     if reg.error_type.is_some() {
-        out.push_str("        .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n");
+        out.push_str("        .map_err(alef_napi_err)?;\n");
     } else {
         out.push_str("        ;\n");
     }
@@ -824,7 +824,7 @@ fn gen_entrypoint_napi_method(
     }
 
     if ep.error_type.is_some() {
-        out.push_str("        .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n");
+        out.push_str("        .map_err(alef_napi_err)?;\n");
     } else {
         out.push_str("        ;\n");
     }

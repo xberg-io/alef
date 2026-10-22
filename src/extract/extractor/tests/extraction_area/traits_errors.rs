@@ -350,3 +350,59 @@ fn test_thiserror_enum_with_inherent_impl_does_not_create_opaque_type() {
     assert_eq!(err.name, "ApiError");
     assert_eq!(err.variants.len(), 2);
 }
+
+#[test]
+fn test_error_variant_fields_record_which_text_the_core_borrows() {
+    use crate::core::ir::CoreWrapper;
+
+    let source = r#"
+        #[derive(Debug, thiserror::Error)]
+        pub enum BorrowError {
+            #[error("named borrowed: {reason}")]
+            NamedBorrowed { reason: &'static str },
+            #[error("named optional borrowed")]
+            NamedOptionalBorrowed { reason: Option<&'static str> },
+            #[error("tuple borrowed: {0}")]
+            TupleBorrowed(&'static str),
+            #[error("tuple optional borrowed")]
+            TupleOptionalBorrowed(Option<&'static str>),
+            #[error("named owned: {reason}")]
+            NamedOwned { reason: String },
+            #[error("tuple owned: {0}")]
+            TupleOwned(String),
+            #[error("named optional owned")]
+            NamedOptionalOwned { reason: Option<String> },
+            #[error("named cow: {reason}")]
+            NamedCow { reason: Cow<'static, str> },
+            #[error("tuple cow: {0}")]
+            TupleCow(Cow<'static, str>),
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let error = &surface.errors[0];
+    let wrapper = |variant: &str| {
+        let variant = error.variants.iter().find(|v| v.name == variant).unwrap();
+        assert_eq!(variant.fields.len(), 1, "{} has one field", variant.name);
+        let text = match &variant.fields[0].ty {
+            TypeRef::Optional(inner) => inner.as_ref(),
+            other => other,
+        };
+        assert_eq!(text, &TypeRef::String, "{} resolves to String", variant.name);
+        variant.fields[0].core_wrapper.clone()
+    };
+    for borrowed in [
+        "NamedBorrowed",
+        "NamedOptionalBorrowed",
+        "TupleBorrowed",
+        "TupleOptionalBorrowed",
+    ] {
+        assert_eq!(wrapper(borrowed), CoreWrapper::StaticStr, "{borrowed} borrows its text");
+    }
+    for cow in ["NamedCow", "TupleCow"] {
+        assert_eq!(wrapper(cow), CoreWrapper::Cow, "{cow} holds a Cow");
+    }
+    for owned in ["NamedOwned", "TupleOwned", "NamedOptionalOwned"] {
+        assert_eq!(wrapper(owned), CoreWrapper::None, "{owned} owns its text");
+    }
+}
