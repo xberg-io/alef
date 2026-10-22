@@ -502,8 +502,12 @@ namespace = "dev.sample_crate"
             "one parts reader per core error: {content}"
         );
         assert!(
-            content.contains("sample::SampleError::RateLimited { .. } => Some(\"RateLimited\")"),
-            "the kind is the variant name: {content}"
+            content.contains("sample::SampleError::RateLimited => Some(\"RateLimited\")"),
+            "the kind of a unit variant is its name: {content}"
+        );
+        assert!(
+            content.contains("sample::SampleError::Timeout { .. } => Some(\"Timeout\")"),
+            "the kind of a struct variant is its name: {content}"
         );
         assert!(
             content.contains("match e.status_code() { 0 => -1, status => i32::from(status) }"),
@@ -572,7 +576,17 @@ namespace = "dev.sample_crate"
             name: "SampleError".to_string(),
             rust_path: "sample::SampleError".to_string(),
             original_rust_path: String::new(),
-            variants: vec![variant("RateLimited"), variant("Timeout")],
+            variants: vec![
+                variant("RateLimited"),
+                ErrorVariant {
+                    name: "Timeout".to_string(),
+                    fields: vec![crate::core::ir::FieldDef {
+                        name: "after".to_string(),
+                        ..Default::default()
+                    }],
+                    ..ErrorVariant::default()
+                },
+            ],
             doc: String::new(),
             methods: vec![
                 method("status_code", TypeRef::Primitive(PrimitiveType::U16)),
