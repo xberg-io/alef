@@ -115,6 +115,7 @@ fn chunks_count_min_fixture(call: &str) -> Fixture {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     }
 }

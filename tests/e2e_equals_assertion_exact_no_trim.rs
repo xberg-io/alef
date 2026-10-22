@@ -187,6 +187,7 @@ fn build_fixture_with_trailing_newline_equals() -> FixtureGroup {
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         }],
     }

@@ -52,6 +52,7 @@ fn make_extract_bytes_fixture(id: &str, has_config: bool) -> Fixture {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     }
 }

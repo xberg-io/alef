@@ -91,6 +91,8 @@ fn docs_call_fixture_removes_mock_harness_and_uses_an_illustrative_url() {
         body: None,
         stream_chunks: None,
         headers: Default::default(),
+        delay_ms: None,
+        stream_chunk_delay_ms: None,
     });
 
     let docs_fixture = fixture.docs_call_fixture();

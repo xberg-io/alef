@@ -36,6 +36,7 @@ fn void_fixture(id: &str, assertions: Vec<Assertion>) -> Fixture {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
         assertions,
         visitor: None,

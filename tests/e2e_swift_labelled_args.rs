@@ -81,6 +81,7 @@ fn swift_emits_labelled_arguments_on_free_function_calls() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     };
 
@@ -172,6 +173,7 @@ name = "SampleLanguagePack"
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     };
 

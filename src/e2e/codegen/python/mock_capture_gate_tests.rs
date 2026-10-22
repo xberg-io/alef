@@ -23,6 +23,7 @@ fn minimal_fixture(id: &str, assertions: Vec<crate::e2e::fixture::Assertion>) ->
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
         assertions,
         call: None,

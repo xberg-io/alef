@@ -102,6 +102,8 @@ fn mock_response_fixture_blocks_the_shared_runtime_even_when_the_call_is_not_mar
             body: Some(serde_json::json!({"ok": true})),
             stream_chunks: None,
             headers: Default::default(),
+            delay_ms: None,
+            stream_chunk_delay_ms: None,
         }),
         ..Fixture::default()
     };

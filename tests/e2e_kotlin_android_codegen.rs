@@ -35,6 +35,8 @@ fn make_chat_fixture(id: &str) -> Fixture {
             body: Some(serde_json::Value::Null),
             stream_chunks: None,
             headers: BTreeMap::new(),
+            delay_ms: None,
+            stream_chunk_delay_ms: None,
         }),
         visitor: None,
         args: Vec::new(),
@@ -54,6 +56,7 @@ fn make_chat_fixture(id: &str) -> Fixture {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     }
 }
@@ -79,6 +82,8 @@ fn make_chat_fixture_with_field_assertion(id: &str, field: &str, expected: &str)
             body: Some(serde_json::Value::Null),
             stream_chunks: None,
             headers: BTreeMap::new(),
+            delay_ms: None,
+            stream_chunk_delay_ms: None,
         }),
         visitor: None,
         args: Vec::new(),
@@ -98,6 +103,7 @@ fn make_chat_fixture_with_field_assertion(id: &str, field: &str, expected: &str)
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     }
 }
@@ -279,6 +285,8 @@ fn make_streaming_fixture(id: &str) -> Fixture {
                 serde_json::json!({"choices": [{"delta": {}, "finish_reason": "stop"}]}),
             ]),
             headers: BTreeMap::new(),
+            delay_ms: None,
+            stream_chunk_delay_ms: None,
         }),
         visitor: None,
         args: Vec::new(),
@@ -311,6 +319,7 @@ fn make_streaming_fixture(id: &str) -> Fixture {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     }
 }

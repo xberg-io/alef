@@ -5,7 +5,7 @@
 //! structure itself -- see the `codegen-structure` rule ("Rust prepares data ... Jinja emits
 //! structure").
 
-use super::helper::{MOCK_ONE_PATH, MOCK_TOTAL_PATH};
+use super::helper::{MOCK_BODY_PATH, MOCK_ONE_PATH, MOCK_TOTAL_PATH};
 use super::model::MockQuery;
 use crate::e2e::codegen::percent_encode_query;
 
@@ -21,12 +21,53 @@ pub(crate) fn build_path_and_query(query: &MockQuery) -> String {
     match query {
         MockQuery::Total => format!("{MOCK_TOTAL_PATH}?prefix="),
         MockQuery::Count(key) => format!("{MOCK_ONE_PATH}?key={}", percent_encode_query(key)),
+        MockQuery::BodyPredicate {
+            key,
+            path,
+            op,
+            value_json,
+        } => format!(
+            "{MOCK_BODY_PATH}?key={}&field={}&op={}&value={}",
+            percent_encode_query(key),
+            percent_encode_query(path),
+            op.wire_name(),
+            percent_encode_query(value_json)
+        ),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::e2e::codegen::mock_assertions::model::BodyOp;
+
+    #[test]
+    fn body_predicate_percent_encodes_every_parameter() {
+        let query = MockQuery::BodyPredicate {
+            key: "POST /api/chat".to_string(),
+            path: "options.num_ctx".to_string(),
+            op: BodyOp::Equals,
+            value_json: "8192".to_string(),
+        };
+        assert_eq!(
+            build_path_and_query(&query),
+            "/__alef/requests/body?key=POST%20%2Fapi%2Fchat&field=options.num_ctx&op=equals&value=8192"
+        );
+    }
+
+    #[test]
+    fn body_predicate_keeps_a_json_string_value_inert_in_the_url() {
+        let query = MockQuery::BodyPredicate {
+            key: "/api/chat".to_string(),
+            path: "model".to_string(),
+            op: BodyOp::NotEquals,
+            value_json: "\"a&b\"".to_string(),
+        };
+        assert_eq!(
+            build_path_and_query(&query),
+            "/__alef/requests/body?key=%2Fapi%2Fchat&field=model&op=not_equals&value=%22a%26b%22"
+        );
+    }
 
     #[test]
     fn total_queries_the_total_endpoint_with_an_empty_prefix() {

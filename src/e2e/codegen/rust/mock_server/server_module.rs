@@ -59,6 +59,8 @@ pub struct MockRoute {
     /// Optional artificial response delay in milliseconds. Used by timeout-error
     /// fixtures to force a client-side request timeout.
     pub delay_ms: Option<u64>,
+    /// Optional pause before each stream chunk of a streaming response, in milliseconds.
+    pub stream_chunk_delay_ms: Option<u64>,
 }
 
 struct ServerState {
@@ -116,7 +118,7 @@ async fn handle_request(State(state): State<Arc<ServerState>>, req: Request<Body
     if let Some(response) = handle_request_counter_control(&method, &path, query.as_deref()) {
         return response;
     }
-    record_request(&method, &path);
+    record_request(&method, &path, read_request_body(req.into_body()).await);
 
     for route in &state.routes {
         // Match on method and either exact path or path prefix (route.path is a prefix of the
@@ -137,22 +139,34 @@ async fn handle_request(State(state): State<Arc<ServerState>>, req: Request<Body
                 // Build SSE body: data: <chunk>\n\n ... data: [DONE]\n\n
                 // Note: stream_chunks may be empty for an empty-stream fixture; we still
                 // emit `data: [DONE]\n\n` with the correct SSE headers so clients do not hang.
-                let mut sse = String::new();
-                for chunk in &route.stream_chunks {
-                    sse.push_str("data: ");
-                    sse.push_str(&state.origins.substitute_str(chunk));
-                    sse.push_str("\n\n");
-                }
-                sse.push_str("data: [DONE]\n\n");
+                let ndjson = headers_declare_ndjson(&route.headers);
+                let chunks: Vec<String> =
+                    route.stream_chunks.iter().map(|chunk| state.origins.substitute_str(chunk)).collect();
+                let body = match route.stream_chunk_delay_ms {
+                    Some(delay_ms) if delay_ms > 0 => paced_sse_body(chunks, delay_ms, ndjson),
+                    _ => {
+                        let mut sse = String::new();
+                        for chunk in &chunks {
+                            sse.push_str(&frame_stream_event(chunk, ndjson));
+                        }
+                        if !ndjson {
+                            sse.push_str("data: [DONE]\n\n");
+                        }
+                        Body::from(sse)
+                    }
+                };
 
                 let mut builder = Response::builder()
                     .status(status)
-                    .header("content-type", "text/event-stream")
+                    .header("content-type", if ndjson { "application/x-ndjson" } else { "text/event-stream" })
                     .header("cache-control", "no-cache");
                 for (name, value) in &route.headers {
+                    if ndjson && name.eq_ignore_ascii_case("content-type") {
+                        continue;
+                    }
                     builder = builder.header(name, state.origins.substitute_str(value));
                 }
-                return builder.body(Body::from(sse)).unwrap().into_response();
+                return builder.body(body).unwrap().into_response();
             }
 
             let mut builder =
