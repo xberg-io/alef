@@ -6,5 +6,7 @@
 /// `gen_napi_error_class`), never smuggled into human-facing text. (~keep)
 #[allow(dead_code)]
 fn {{ fn_name }}(e: {{ rust_path }}) -> napi::Error {
-    napi::Error::new(napi::Status::GenericFailure, e.to_string())
+    let mut error = napi::Error::new(napi::Status::GenericFailure, e.to_string());
+{{ info_block }}
+    error
 }

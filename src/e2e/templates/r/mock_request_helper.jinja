@@ -17,5 +17,9 @@
   con <- url(paste0(base_url, path_and_query))
   on.exit(close(con), add = TRUE)
   body <- paste(readLines(con, warn = FALSE), collapse = "")
-  as.integer(trimws(body))
+  count <- suppressWarnings(as.integer(trimws(body)))
+  if (is.na(count)) {
+    stop(sprintf("{{ helper_name }}: non-integer response body: %s", body))
+  }
+  count
 }

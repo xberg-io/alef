@@ -10,7 +10,7 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 #[test]
-fn should_keep_native_methods_in_stubs_without_adding_them_to_public_dataclasses() {
+fn should_forward_instance_methods_to_public_dataclasses_and_keep_static_helpers_native() {
     let fixture = tempfile::tempdir().unwrap();
     let (api, config) = surface();
     write_python(fixture.path(), &api, &config);
@@ -32,7 +32,7 @@ fn should_keep_native_methods_in_stubs_without_adding_them_to_public_dataclasses
         .unwrap();
     assert!(
         !rejected.status.success(),
-        "public dataclass acquired native-only methods: {} {}",
+        "public dataclass acquired a native static helper: {} {}",
         String::from_utf8_lossy(&rejected.stdout),
         String::from_utf8_lossy(&rejected.stderr),
     );
@@ -42,12 +42,12 @@ fn should_keep_native_methods_in_stubs_without_adding_them_to_public_dataclasses
         String::from_utf8_lossy(&rejected.stderr)
     );
     assert!(
-        diagnostics.contains("default") && diagnostics.contains("validate"),
-        "{diagnostics}"
+        diagnostics.contains("default") && !diagnostics.contains("validate"),
+        "the static helper stays native-only and the instance method is forwarded: {diagnostics}"
     );
     assert_eq!(
         diagnostics.lines().filter(|line| line.starts_with("ERROR ")).count(),
-        2,
+        1,
         "{diagnostics}"
     );
     run_native(fixture.path(), &api, &config);
@@ -59,32 +59,60 @@ fn surface() -> (ApiSurface, ResolvedCrateConfig) {
     ).unwrap().resolve().unwrap().remove(0);
     let api = ApiSurface {
         crate_name: "sample-core".into(),
-        types: vec![TypeDef {
-            name: "ContentConfig".into(),
-            rust_path: "sample_core::ContentConfig".into(),
-            has_default: true,
-            is_clone: true,
-            fields: vec![FieldDef {
-                name: "label".into(),
-                ty: TypeRef::String,
+        types: vec![
+            TypeDef {
+                name: "RequestConfig".into(),
+                rust_path: "sample_core::RequestConfig".into(),
+                has_default: true,
+                is_clone: true,
+                fields: vec![
+                    FieldDef {
+                        name: "extra_body".into(),
+                        ty: TypeRef::Json,
+                        ..Default::default()
+                    },
+                    FieldDef {
+                        name: "prediction".into(),
+                        ty: TypeRef::Json,
+                        optional: true,
+                        ..Default::default()
+                    },
+                ],
                 ..Default::default()
-            }],
-            methods: vec![
-                MethodDef {
-                    name: "default".into(),
-                    is_static: true,
-                    return_type: TypeRef::Named("ContentConfig".into()),
+            },
+            TypeDef {
+                name: "ContentConfig".into(),
+                rust_path: "sample_core::ContentConfig".into(),
+                has_default: true,
+                is_clone: true,
+                fields: vec![FieldDef {
+                    name: "label".into(),
+                    ty: TypeRef::String,
                     ..Default::default()
-                },
-                MethodDef {
-                    name: "validate".into(),
-                    receiver: Some(ReceiverKind::Ref),
-                    return_type: TypeRef::Unit,
-                    ..Default::default()
-                },
-            ],
-            ..Default::default()
-        }],
+                }],
+                methods: vec![
+                    MethodDef {
+                        name: "default".into(),
+                        is_static: true,
+                        return_type: TypeRef::Named("ContentConfig".into()),
+                        ..Default::default()
+                    },
+                    MethodDef {
+                        name: "validate".into(),
+                        receiver: Some(ReceiverKind::Ref),
+                        return_type: TypeRef::Unit,
+                        ..Default::default()
+                    },
+                    MethodDef {
+                        name: "describe".into(),
+                        receiver: Some(ReceiverKind::Ref),
+                        return_type: TypeRef::String,
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
+        ],
         errors: vec![ErrorDef {
             name: "CoreError".into(),
             rust_path: "sample_core::CoreError".into(),
@@ -124,13 +152,25 @@ fn write_python(root: &Path, api: &ApiSurface, config: &ResolvedCrateConfig) {
     let public = Pyo3Backend.generate_public_api(api, config).unwrap();
     let options = public.iter().find(|file| file.path.ends_with("options.py")).unwrap();
     write(root, "sample/options.py", &options.content);
+    let api_py = public.iter().find(|file| file.path.ends_with("api.py")).unwrap();
+    write(root, "sample/api.py", &api_py.content);
+    let exceptions = public.iter().find(|file| file.path.ends_with("exceptions.py")).unwrap();
+    write(root, "sample/exceptions.py", &exceptions.content);
     write(root, "sample/__init__.py", "");
     write(root, "pyrefly.toml", "project-includes=['*.py']\nsearch-path=['.']\n");
     write(root, "consumer.py", include_str!("pyo3_native_stub/consumer.py"));
     let mut e2e_config = E2eConfig::default();
     e2e_config.call.module = "sample".into();
     let e2e = PythonE2eCodegen
-        .generate(&[], &e2e_config, config, &[], &[], &[], &[])
+        .generate(
+            &[],
+            &e2e_config,
+            config,
+            &api.types,
+            &api.enums,
+            &api.functions,
+            &api.errors,
+        )
         .unwrap();
     let conformance = e2e
         .iter()
@@ -143,7 +183,7 @@ fn run_native(root: &Path, api: &ApiSurface, config: &ResolvedCrateConfig) {
     write(
         root,
         "sample-core/Cargo.toml",
-        "[package]\nname='sample-core'\nversion='0.0.0'\nedition='2024'\n",
+        "[package]\nname='sample-core'\nversion='0.0.0'\nedition='2024'\n[dependencies]\nserde_json='1'\n",
     );
     write(root, "sample-core/src/lib.rs", include_str!("pyo3_native_stub/core.rs"));
     write(
@@ -163,6 +203,11 @@ fn run_native(root: &Path, api: &ApiSurface, config: &ResolvedCrateConfig) {
         root,
         "sample-py/src/conformance_probe.py",
         include_str!("pyo3_native_stub/test_conformance_probe.py"),
+    );
+    write(
+        root,
+        "sample-py/src/public_probe.py",
+        include_str!("pyo3_native_stub/public_probe.py"),
     );
     write(
         root,

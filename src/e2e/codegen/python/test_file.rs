@@ -115,7 +115,7 @@ pub(super) fn render_test_file(
     // Only honor "from_json" when the pyo3 backend actually injects a from_json() staticmethod
     // for this type (gated on per-type has_serde AND crate-level serde availability AND
     // core→binding convertibility) AND the selected import isn't shadowed by options.py's
-    // method-less dataclass mirror — every DTO still has a plain kwargs constructor, so
+    // static-helper-less dataclass mirror — every DTO still has a plain kwargs constructor, so
     // downgrading keeps the emitted call and its import valid. Computed once per file/snippet
     // render; `type_defs`/`enums`/`config` don't change across fixtures in the same category. ~keep
     let convertible_types = helpers::core_to_binding_convertible_types(type_defs, enums);

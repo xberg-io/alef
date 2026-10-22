@@ -7,10 +7,34 @@ expression: "&file.content"
 
 import Foundation
 import RustBridge
+/// Converts an error that the Rust bridge throws into the typed Swift error. Any other error
+/// passes through unchanged.
+func alefTypedError(_ error: Error) -> Error {
+    return error
+}
+
+/// Runs a call into the Rust bridge and throws the typed Swift error when the call fails.
+func alefBridgedCall<T>(_ body: () throws -> T) throws -> T {
+    do {
+        return try body()
+    } catch {
+        throw alefTypedError(error)
+    }
+}
+
+/// Runs an `async` call into the Rust bridge and throws the typed Swift error when the call fails.
+func alefBridgedCallAsync<T>(_ body: () async throws -> T) async throws -> T {
+    do {
+        return try await body()
+    } catch {
+        throw alefTypedError(error)
+    }
+}
+
 public final class DefaultClient {
     private let inner: RustBridge.DefaultClient
     public init(apiKey: String, baseUrl: String? = nil) throws {
-        self.inner = try RustBridge.createDefaultClient(apiKey, baseUrl)
+        self.inner = try alefBridgedCall { try RustBridge.createDefaultClient(apiKey, baseUrl) }
     }
     internal init(_ inner: RustBridge.DefaultClient) {
         self.inner = inner
@@ -19,20 +43,20 @@ public final class DefaultClient {
         return RustBridge.defaultClientPing(self.inner)
     }
     public func chatStream(_ req: ChatRequest) async throws -> AsyncThrowingStream<ChatChunk, Error> {
-        let handle = try await RustBridge.defaultClientChatStreamStart(self.inner, req)
+        let handle = try await alefBridgedCallAsync { try await RustBridge.defaultClientChatStreamStart(self.inner, req) }
 
         return AsyncThrowingStream<ChatChunk, Error> { continuation in
             let task = Task.detached(priority: .userInitiated) {
                 do {
                     while !Task.isCancelled {
-                        let json = try await handle.next().toString()
+                        let json = try await alefBridgedCallAsync { try await handle.next() }.toString()
                         if json.isEmpty { break }
-                        let chunk = try RustBridge.chatChunkFromJson(json)
+                        let chunk = try alefBridgedCall { try RustBridge.chatChunkFromJson(json) }
                         continuation.yield(chunk)
                     }
                     continuation.finish()
                 } catch {
-                    continuation.finish(throwing: error)
+                    continuation.finish(throwing: alefTypedError(error))
                 }
             }
             continuation.onTermination = { _ in task.cancel() }

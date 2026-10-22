@@ -23,3 +23,14 @@ pub(super) fn gen_error_converter(
 pub(super) fn gen_error_methods(error: &crate::core::ir::ErrorDef, core_import: &str, prefix: &str) -> String {
     crate::codegen::error_gen::gen_wasm_error_methods(error, core_import, prefix)
 }
+
+/// Generate `alef_wasm_err`, the one conversion every generated call site rejects through.
+///
+/// Delegates to `crate::codegen::error_gen::gen_wasm_error_dispatch`.
+pub(super) fn gen_error_dispatch(
+    errors: &[&crate::core::ir::ErrorDef],
+    core_import: &str,
+    source_remaps: &[(&str, &str)],
+) -> String {
+    crate::codegen::error_gen::gen_wasm_error_dispatch(errors, core_import, source_remaps)
+}

@@ -6,7 +6,7 @@
 {% endif %}
     match result {
         Err(e) => {
-            throw_jni_error(env, &e.to_string());
+            throw_jni_error_from(env, &e);
             {{ ret_null }}
         }
         Ok(v) => {

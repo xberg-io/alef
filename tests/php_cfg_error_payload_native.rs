@@ -34,7 +34,7 @@ fn should_compile_and_throw_shared_errors_with_cfg_features_disabled_and_enabled
     let source = format!(
         "{}\n{}\n{}\n{}",
         fixture_source(),
-        gen_php_error_types(&api, "Sample").unwrap(),
+        gen_php_error_types(&api, "Sample", None).unwrap(),
         gen_php_error_converter(&first, "sample"),
         gen_php_error_converter(&second, "sample")
     );

@@ -1,2 +1,2 @@
-{{ call }}{% if is_async %}.await{% endif %}{% if has_error %}.map_err(|e| e.to_string()).map(|_| {{ return_expr }}){% else %};
+{{ call }}{% if is_async %}.await{% endif %}{% if has_error %}.map_err(alef_bridge_error).map(|_| {{ return_expr }}){% else %};
     {% if force_ok %}Ok({{ return_expr }}){% else %}{{ return_expr }}{% endif %}{% endif %}

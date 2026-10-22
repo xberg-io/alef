@@ -148,6 +148,18 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/swift_error_property.swift.jinja"),
     ),
     (
+        "swift_bridge_error_conformance.swift.jinja",
+        include_str!("../templates/swift_bridge_error_conformance.swift.jinja"),
+    ),
+    (
+        "swift_error_bridge_conversion.swift.jinja",
+        include_str!("../templates/swift_error_bridge_conversion.swift.jinja"),
+    ),
+    (
+        "swift_error_bridge_helpers.swift.jinja",
+        include_str!("../templates/swift_error_bridge_helpers.swift.jinja"),
+    ),
+    (
         "swift_error_property_case.swift.jinja",
         include_str!("../templates/swift_error_property_case.swift.jinja"),
     ),

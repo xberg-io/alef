@@ -571,6 +571,21 @@ pub(super) fn gen_dts(
         lines.push("}".to_string());
     }
 
+    // The properties the generated `binding.cjs` shim assigns to every error a binding call
+    // throws. The names come from `napi_error_properties`, the same list the Rust converter
+    // serialises, so the declaration and the runtime cannot drift.
+    let mut thrown_errors: Vec<_> = api.errors.iter().collect();
+    thrown_errors.sort_by_key(|e| e.name.as_str());
+    for error in thrown_errors {
+        lines.push(String::new());
+        lines.push(format!("/** The error a binding call throws for `{}`. */", error.name));
+        lines.push(format!("export interface Thrown{} extends Error {{", error.name));
+        for prop in crate::codegen::error_gen::napi_error_properties(error) {
+            lines.push(format!("  {}: {}", prop.js_name, prop.ts_type));
+        }
+        lines.push("}".to_string());
+    }
+
     lines.push(String::new());
     lines.join("\n")
 }

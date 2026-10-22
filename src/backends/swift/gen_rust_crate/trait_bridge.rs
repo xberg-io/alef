@@ -61,7 +61,7 @@ impl TraitBridgeGenerator for SwiftBridgeGenerator {
         String::new()
     }
 
-    /// Emit a `pub fn {name}(name: String) -> Result<(), String>` that unregisters
+    /// Emit a `pub fn {name}(name: String) -> Result<(), AlefBridgeError>` that unregisters
     /// a previously-registered plugin by name.
     ///
     /// The function calls into the configured registry directly — consistent with
@@ -80,15 +80,15 @@ impl TraitBridgeGenerator for SwiftBridgeGenerator {
         let trait_name = &spec.trait_def.name;
         format!(
             "/// Unregister a previously-registered `{trait_name}` plugin by name.\n\
-             pub fn {unregister_fn}(name: String) -> Result<(), String> {{\n\
+             pub fn {unregister_fn}(name: String) -> Result<(), AlefBridgeError> {{\n\
              \x20\x20\x20\x20let registry = {registry_getter}();\n\
              \x20\x20\x20\x20let mut guard = registry.write();\n\
-             \x20\x20\x20\x20guard.remove(&name).map_err(|e| e.to_string())\n\
+             \x20\x20\x20\x20guard.remove(&name).map_err(alef_bridge_error)\n\
              }}\n"
         )
     }
 
-    /// Emit a `pub fn {name}() -> Result<(), String>` that clears all registered
+    /// Emit a `pub fn {name}() -> Result<(), AlefBridgeError>` that clears all registered
     /// plugins of this type. Typically used in test teardown.
     ///
     /// The function calls the configured host clear function so host-managed recovery

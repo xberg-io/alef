@@ -218,8 +218,12 @@ fn mirror_error_from_impl_handles_optional_string_duration_and_sanitized_fields(
     let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
 
     assert!(
-        lib.contains("model: f_model.as_ref().map(|v| v.clone())"),
-        "optional String field must map through the option in From impl: {lib}"
+        lib.contains("model: f_model.clone()"),
+        "optional String field must clone the option in From impl: {lib}"
+    );
+    assert!(
+        !lib.contains("as_ref().map(|v| v.clone())"),
+        "an optional clone must not go through as_ref().map(), which fails clippy::useless_asref: {lib}"
     );
     assert!(
         lib.contains("retry_after: f_retry_after.as_ref().map(|v| std::time::Duration::from_millis(*v as u64))"),

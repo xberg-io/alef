@@ -21,9 +21,11 @@
 //! re-exported the protocol.
 
 use crate::backends::swift::gen_bindings::boxes::emit_function_param_box_files;
+use crate::backends::swift::gen_bindings::errors::emit_bridge_conversions;
 use crate::backends::swift::gen_bindings::trait_bridge::{
     gen_bridge_registration_overloads_file, gen_trait_bridge_files,
 };
+use crate::backends::swift::type_map::SwiftMapper;
 use crate::core::config::{BridgeBinding, ResolvedCrateConfig, TraitBridgeConfig};
 use crate::core::ir::{
     ApiSurface, EnumDef, EnumVariant, FieldDef, MethodDef, ParamDef, PrimitiveType, TypeDef, TypeRef,
@@ -413,6 +415,11 @@ fn materialize_package(root: &Path) -> std::io::Result<()> {
     std::fs::write(client.join("ClientDTOs.swift"), CLIENT_DTOS)?;
     std::fs::write(client.join("FixtureSink.swift"), CLIENT_CONFORMER)?;
     std::fs::write(client.join("ClientBoxForwarderStub.swift"), CLIENT_BOX_FORWARDER_STUB)?;
+    // The facade file defines the bridged-call helpers that the registration overloads call
+    // through; the fixture has no facade file, so it gets the helpers from the generator.
+    let mut error_helpers = String::from("import Foundation\nimport RustBridge\n\n");
+    emit_bridge_conversions(&[], "Client", &mut error_helpers, &SwiftMapper);
+    std::fs::write(client.join("ClientErrorHelpers.swift"), error_helpers)?;
     std::fs::write(docs_snippet.join("DocsSnippetSink.swift"), DOCS_SNIPPET_CONFORMER)?;
 
     let trait_defs: Vec<_> = config

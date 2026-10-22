@@ -42,7 +42,7 @@ use cfg::{
     cfg_condition_enabled, collect_cfg_features, field_references_excluded_type, is_gated_behind_disabled_feature,
 };
 use enums::gen_enum;
-use errors::{gen_error_converter, gen_error_methods};
+use errors::{gen_error_converter, gen_error_dispatch, gen_error_methods};
 use functions::gen_env_shims;
 #[cfg(test)]
 use helpers::function_is_exported;
@@ -768,16 +768,23 @@ impl Backend for WasmBackend {
             }
         }
 
-        for error in &api.errors {
-            if exclude_types.contains(&error.name) {
-                continue;
-            }
+        let emitted_errors: Vec<&crate::core::ir::ErrorDef> = api
+            .errors
+            .iter()
+            .filter(|error| !exclude_types.contains(&error.name))
+            .collect();
+        for error in &emitted_errors {
             builder.add_item(&gen_error_converter(error, &core_import, &source_remaps_borrowed));
             let methods_block = gen_error_methods(error, &core_import, &prefix);
             if !methods_block.is_empty() {
                 builder.add_item(&methods_block);
             }
         }
+        builder.add_item(&gen_error_dispatch(
+            &emitted_errors,
+            &core_import,
+            &source_remaps_borrowed,
+        ));
 
         if let Some(component_api) = components::generate(config) {
             builder.add_item(&component_api);
