@@ -67,6 +67,30 @@ public typealias ProcessingResultRef = RustBridge.ProcessingResultRef
 
 public typealias ProcessingResultRefMut = RustBridge.ProcessingResultRefMut
 
+/// Converts an error that the Rust bridge throws into the typed Swift error. Any other error
+/// passes through unchanged.
+func alefTypedError(_ error: Error) -> Error {
+    return error
+}
+
+/// Runs a call into the Rust bridge and throws the typed Swift error when the call fails.
+func alefBridgedCall<T>(_ body: () throws -> T) throws -> T {
+    do {
+        return try body()
+    } catch {
+        throw alefTypedError(error)
+    }
+}
+
+/// Runs an `async` call into the Rust bridge and throws the typed Swift error when the call fails.
+func alefBridgedCallAsync<T>(_ body: () async throws -> T) async throws -> T {
+    do {
+        return try await body()
+    } catch {
+        throw alefTypedError(error)
+    }
+}
+
 // MARK: - From-JSON Helpers
 // Public helpers that decode JSON into first-class Swift types.
 // First-class struct types (Codable) use JSONDecoder directly.
@@ -90,11 +114,11 @@ public func processingResultFromJson(_ json: String) throws -> ProcessingResult 
 /// (see `Sources/RustBridge/Plugins.swift`); pass the wrapped instance to
 /// register the plugin in the global registry.
 public func registerImageProcessor(_ swiftBox: SwiftImageProcessorBox) throws {
-    try RustBridge.registerImageProcessor(swiftBox)
+    try alefBridgedCall { try RustBridge.registerImageProcessor(swiftBox) }
 }
 /// Unregister a previously-registered `ImageProcessor` plugin by name.
 public func unregisterImageProcessor(_ name: String) throws {
-    try RustBridge.unregisterImageProcessor(name)
+    try alefBridgedCall { try RustBridge.unregisterImageProcessor(name) }
 }
 // swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.
 extension RustBridge.ImageConfig: @unchecked Sendable {}

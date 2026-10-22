@@ -1554,7 +1554,7 @@ fn trait_bridge_unregister_and_clear_fns_emitted_when_both_configured() {
     );
     assert!(
         lib.content
-            .contains("demo::plugins::test::clear_analyzers().map_err(|e| e.to_string())"),
+            .contains("demo::plugins::test::clear_analyzers().map_err(alef_bridge_error)"),
         "clear_analyzers must call the configured public host function; got:\n{}",
         lib.content
     );

@@ -13,6 +13,30 @@ public typealias Output = RustBridge.Output
 /// Wrapper containing a named type.
 public typealias Wrapper = RustBridge.Wrapper
 
+/// Converts an error that the Rust bridge throws into the typed Swift error. Any other error
+/// passes through unchanged.
+func alefTypedError(_ error: Error) -> Error {
+    return error
+}
+
+/// Runs a call into the Rust bridge and throws the typed Swift error when the call fails.
+func alefBridgedCall<T>(_ body: () throws -> T) throws -> T {
+    do {
+        return try body()
+    } catch {
+        throw alefTypedError(error)
+    }
+}
+
+/// Runs an `async` call into the Rust bridge and throws the typed Swift error when the call fails.
+func alefBridgedCallAsync<T>(_ body: () async throws -> T) async throws -> T {
+    do {
+        return try await body()
+    } catch {
+        throw alefTypedError(error)
+    }
+}
+
 // MARK: - Free-function Forwarders
 // Re-export every public free function on the source Rust crate as a
 // top-level `public func` on the host module so consumers do not need to

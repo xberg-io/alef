@@ -21,7 +21,7 @@ mod constructors;
 mod decoder_gate;
 pub(crate) mod dto;
 mod enums;
-mod errors;
+pub(crate) mod errors;
 mod forwarders;
 mod module_imports;
 pub(crate) mod opaque_handles;

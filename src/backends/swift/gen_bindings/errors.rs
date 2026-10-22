@@ -326,7 +326,7 @@ fn bridge_case_expression(variant: &ErrorVariant, mapper: &SwiftMapper) -> Optio
 ///
 /// The conversion reads the kind, the HTTP status and the retry delay from the bridge error.
 /// `alefTypedError` passes an error that is not a bridge error through unchanged.
-pub(super) fn emit_bridge_conversions(errors: &[ErrorDef], module_name: &str, out: &mut String, mapper: &SwiftMapper) {
+pub(crate) fn emit_bridge_conversions(errors: &[ErrorDef], module_name: &str, out: &mut String, mapper: &SwiftMapper) {
     #[derive(serde::Serialize)]
     struct ErrorName {
         rust: String,

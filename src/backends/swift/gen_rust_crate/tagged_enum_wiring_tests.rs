@@ -225,7 +225,7 @@ fn data_carrying_enum_option_uses_reversible_parent_json_bridge() {
         "Options.intoRust() must serialize its complete tagged-enum payload:\n{generated_swift}"
     );
     assert!(
-        generated_swift.contains("return try RustBridge.optionsFromJson(json)"),
+        generated_swift.contains("return try alefBridgedCall { try RustBridge.optionsFromJson(json) }"),
         "Options.intoRust() must use the reversible parent JSON bridge:\n{generated_swift}"
     );
     assert!(

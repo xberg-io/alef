@@ -514,7 +514,7 @@ mod tests {
             "got:\n{out}"
         );
         assert!(
-            out.contains("return try await RustBridge.clientFetch(self.inner, id)"),
+            out.contains("return try await alefBridgedCallAsync { try await RustBridge.clientFetch(self.inner, id) }"),
             "got:\n{out}"
         );
         assert!(
@@ -522,7 +522,9 @@ mod tests {
             "an infallible async bridge function is forced fallible, so its facade must throw; got:\n{out}"
         );
         assert!(
-            out.contains("        try await RustBridge.clientRemove(self.inner, id)"),
+            out.contains(
+                "        try await alefBridgedCallAsync { try await RustBridge.clientRemove(self.inner, id) }"
+            ),
             "a unit-returning async method must await the bridge call too; got:\n{out}"
         );
         assert!(!out.contains("Task.detached"), "got:\n{out}");
@@ -537,7 +539,7 @@ mod tests {
             "got:\n{out}"
         );
         assert!(
-            out.contains("return try RustBridge.clientFetch(self.inner, id)"),
+            out.contains("return try alefBridgedCall { try RustBridge.clientFetch(self.inner, id) }"),
             "got:\n{out}"
         );
         assert!(!out.contains("await"), "got:\n{out}");
@@ -575,11 +577,11 @@ mod tests {
         emit_streaming_client_method(&streaming_adapter(), "client", &HashSet::new(), &mut out);
 
         assert!(
-            out.contains("let handle = try await RustBridge.clientChatStreamStart(self.inner, req)"),
+            out.contains("let handle = try await alefBridgedCallAsync { try await RustBridge.clientChatStreamStart(self.inner, req) }"),
             "got:\n{out}"
         );
         assert!(
-            out.contains("let json = try await handle.next().toString()"),
+            out.contains("let json = try await alefBridgedCallAsync { try await handle.next() }.toString()"),
             "got:\n{out}"
         );
         assert!(
@@ -598,11 +600,11 @@ mod tests {
         emit_streaming_free_functions(&config, &HashSet::new(), &mut HashSet::new(), &mut out);
 
         assert!(
-            out.contains("let handle = try await RustBridge.clientChatStreamStart(client, req)"),
+            out.contains("let handle = try await alefBridgedCallAsync { try await RustBridge.clientChatStreamStart(client, req) }"),
             "got:\n{out}"
         );
         assert!(
-            out.contains("let json = try await handle.next().toString()"),
+            out.contains("let json = try await alefBridgedCallAsync { try await handle.next() }.toString()"),
             "got:\n{out}"
         );
     }

@@ -53,7 +53,6 @@ impl From<&str> for AlefBridgeError {
 {% for error in errors %}
 
 fn alef_bridge_error_{{ error.snake }}(message: String, e: &{{ error.rust_path }}) -> AlefBridgeError {
-    #[allow(unreachable_patterns)]
     let kind = match e {
 {% for variant in error.variants %}
         {{ variant.pattern }} => "{{ variant.name }}",
