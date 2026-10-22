@@ -384,12 +384,11 @@ fn test_error_variant_fields_record_which_text_the_core_borrows() {
     let wrapper = |variant: &str| {
         let variant = error.variants.iter().find(|v| v.name == variant).unwrap();
         assert_eq!(variant.fields.len(), 1, "{} has one field", variant.name);
-        assert_eq!(
-            variant.fields[0].ty,
-            TypeRef::String,
-            "{} resolves to String",
-            variant.name
-        );
+        let text = match &variant.fields[0].ty {
+            TypeRef::Optional(inner) => inner.as_ref(),
+            other => other,
+        };
+        assert_eq!(text, &TypeRef::String, "{} resolves to String", variant.name);
         variant.fields[0].core_wrapper.clone()
     };
     for borrowed in [

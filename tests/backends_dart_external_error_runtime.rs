@@ -408,7 +408,7 @@ fn main() {
             other => panic!("optional Cow field changed variant: {other:?}"),
         }
     }
-    let tuple: consumer_core::ConsumerError = (&ConsumerError::Tuple("tuple text".into())).into();
+    let tuple: consumer_core::ConsumerError = (&ConsumerError::Tuple { field0: "tuple text".into() }).into();
     match tuple {
         consumer_core::ConsumerError::Tuple(text) => assert_eq!(text, "tuple text"),
         other => panic!("tuple Cow field changed variant: {other:?}"),
