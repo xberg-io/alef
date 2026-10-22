@@ -617,7 +617,7 @@ fn gen_wasm_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
         "#[wasm_bindgen]\n\
          pub struct {iter_name} {{\n    \
              // Receiver wrapped in RefCell for interior mutability (WASM is single-threaded)\n    \
-             receiver: std::cell::RefCell<futures::channel::mpsc::Receiver<Result<{item_type}, String>>>,\n\
+             receiver: std::cell::RefCell<futures::channel::mpsc::Receiver<Result<{item_type}, JsValue>>>,\n\
          }}\n\
          \n\
          #[wasm_bindgen]\n\
@@ -628,38 +628,33 @@ fn gen_wasm_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
                  let mut rx = self.receiver.borrow_mut();\n        \
                  match rx.next().await {{\n            \
                      Some(Ok(item)) => Ok(JsValue::from(item)),\n            \
-                     Some(Err(e)) => Err(JsValue::from_str(&e)),\n            \
+                     Some(Err(e)) => Err(e),\n            \
                      None => Ok(JsValue::null()),\n        \
                  }}\n    \
              }}\n\
          }}"
     );
 
+    // The core call is awaited here, in the `async` wasm-bindgen method, so a server that refuses
+    // the stream rejects the call itself. Only the forward loop runs in the spawned task.
     let method_body = format!(
-        "let inner = self.inner.clone();\n    \
-         {bindings_block}\
+        "{bindings_block}\
+         let mut stream = self.inner.{core_path}({call_str}).await.map_err(alef_wasm_err)?;\n    \
          let (tx, rx) = futures::channel::mpsc::channel(32);\n    \
          wasm_bindgen_futures::spawn_local(async move {{\n        \
              use futures_util::StreamExt;\n        \
              use futures::sink::SinkExt;\n        \
              let mut tx = tx;\n        \
-             match inner.{core_path}({call_str}).await {{\n            \
-                 Err(e) => {{\n                \
-                     let _ = tx.send(Err(e.to_string())).await;\n            \
-                 }}\n            \
-                 Ok(mut stream) => {{\n                \
-                     while let Some(chunk) = stream.next().await {{\n                    \
-                         let item = match chunk {{\n                        \
-                             Ok(c) => {item_type}::from(c),\n                        \
-                             Err(e) => {{\n                            \
-                                 let _ = tx.send(Err(e.to_string())).await;\n                            \
-                                 break;\n                        \
-                             }}\n                        \
-                         }};\n                    \
-                         if tx.send(Ok(item)).await.is_err() {{\n                        \
-                             break;\n                    \
-                         }}\n                \
+             while let Some(chunk) = stream.next().await {{\n            \
+                 let item = match chunk {{\n                \
+                     Ok(c) => {item_type}::from(c),\n                \
+                     Err(e) => {{\n                    \
+                         let _ = tx.send(Err(alef_wasm_err(e))).await;\n                    \
+                         break;\n                \
                      }}\n            \
+                 }};\n            \
+                 if tx.send(Ok(item)).await.is_err() {{\n                \
+                     break;\n            \
                  }}\n        \
              }}\n    \
          }});\n    \
