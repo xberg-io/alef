@@ -34,10 +34,17 @@
         final MemorySegment finalStreamHandle = streamHandle;
         final class StreamingIterator implements java.util.Iterator<{{ item_type }}>, AutoCloseable {
             private boolean closed = false;
+            private Throwable deferred = null;
             private {{ item_type }} pending = pull();
 
-            private RuntimeException failure(String message, Throwable cause) {
-                return new RuntimeException(new {{ exception_class }}("{{ method_name }}: " + message, cause));
+            /** Throws a typed error from an iterator method that cannot declare it. */
+            @SuppressWarnings("unchecked")
+            private static <T extends Throwable> RuntimeException rethrow(final Throwable error) throws T {
+                throw (T) error;
+            }
+
+            private {{ exception_class }} failure(String message, Throwable cause) {
+                return new {{ exception_class }}("{{ method_name }}: " + message, cause);
             }
 
             private void cleanup(Throwable primary, MemorySegment jsonPtr, MemorySegment chunkPtr) {
@@ -56,9 +63,9 @@
                 if (cleanupError == null) { return; }
                 if (primary != null) { primary.addSuppressed(cleanupError); }
                 else {
-                    RuntimeException cleanupPrimary = failure("failed to clean stream item", cleanupError);
+                    {{ exception_class }} cleanupPrimary = failure("failed to clean stream item", cleanupError);
                     close(cleanupPrimary);
-                    throw cleanupPrimary;
+                    throw rethrow(cleanupPrimary);
                 }
             }
 
@@ -68,30 +75,30 @@
                 try {
                     chunkPtr = (MemorySegment) NativeLib.{{ next_handle }}.invoke(finalStreamHandle);
                 } catch (Throwable error) {
-                    RuntimeException primary = failure("stream advance failed", error);
+                    {{ exception_class }} primary = failure("stream advance failed", error);
                     close(primary);
-                    throw primary;
+                    throw rethrow(primary);
                 }
                 if (chunkPtr.equals(MemorySegment.NULL)) {
-                    RuntimeException primary = null;
+                    Throwable primary = null;
                     try {
                         int code = (int)(long) NativeLib.{{ prefix_upper }}_LAST_ERROR_CODE.invoke();
                         if (code != 0) {
                             MemorySegment ctxPtr = (MemorySegment) NativeLib.{{ prefix_upper }}_LAST_ERROR_CONTEXT.invoke();
                             String msg = ctxPtr.equals(MemorySegment.NULL)
-                                ? "unknown"
+                                ? "Native call failed with error code " + code
                                 : ctxPtr.reinterpret(Long.MAX_VALUE).getString(0);
-                            primary = new RuntimeException(NativeLib.lastErrorException(code, msg));
+                            primary = NativeLib.lastErrorException(code, msg);
                         }
                     } catch (Throwable error) {
                         primary = failure("failed to read stream status", error);
                     }
                     close(primary);
-                    if (primary != null) { throw primary; }
+                    if (primary != null) { throw rethrow(primary); }
                     return null;
                 }
                 MemorySegment jsonPtr = MemorySegment.NULL;
-                RuntimeException primary = null;
+                Throwable primary = null;
                 try {
                     jsonPtr = (MemorySegment) NativeLib.{{ item_to_json }}.invoke(chunkPtr);
                     if (jsonPtr.equals(MemorySegment.NULL)) {
@@ -100,9 +107,11 @@
                     String json = jsonPtr.reinterpret(Long.MAX_VALUE).getString(0);
                     return STREAM_MAPPER.readValue(json, {{ item_type }}.class);
                 } catch (Throwable error) {
-                    primary = error instanceof RuntimeException runtime ? runtime : failure("failed to deserialize chunk", error);
+                    primary = error instanceof {{ exception_class }} || error instanceof RuntimeException
+                        ? error
+                        : failure("failed to deserialize chunk", error);
                     close(primary);
-                    throw primary;
+                    throw rethrow(primary);
                 } finally {
                     cleanup(primary, jsonPtr, chunkPtr);
                 }
@@ -114,7 +123,7 @@
                 try { NativeLib.{{ free_handle }}.invoke(finalStreamHandle); }
                 catch (Throwable cleanupError) {
                     if (primary != null) { primary.addSuppressed(cleanupError); }
-                    else { throw failure("failed to free stream", cleanupError); }
+                    else { throw rethrow(failure("failed to free stream", cleanupError)); }
                 }
             }
 
@@ -122,13 +131,21 @@
             public void close() { close(null); }
 
             @Override
-            public boolean hasNext() { return pending != null; }
+            public boolean hasNext() { return pending != null || deferred != null; }
 
             @Override
             public {{ item_type }} next() {
-                if (pending == null) { throw new java.util.NoSuchElementException(); }
+                if (pending == null) {
+                    Throwable failed = deferred;
+                    if (failed == null) { throw new java.util.NoSuchElementException(); }
+                    deferred = null;
+                    throw rethrow(failed);
+                }
                 {{ item_type }} current = pending;
-                pending = pull();
+                // The held chunk is already complete: return it now and report a failed read
+                // on the following call.
+                try { pending = pull(); }
+                catch (Exception error) { pending = null; deferred = error; }
                 return current;
             }
         }

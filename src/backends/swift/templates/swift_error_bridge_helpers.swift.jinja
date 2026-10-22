@@ -1,0 +1,35 @@
+/// Converts an error that the Rust bridge throws into the typed Swift error. Any other error
+/// passes through unchanged.
+func alefTypedError(_ error: Error) -> Error {
+{% if errors %}
+    guard let bridgeError = error as? RustBridge.AlefBridgeError else { return error }
+    switch bridgeError.errorType().toString() {
+{% for e in errors %}
+{% if not loop.first %}
+    case "{{ e.rust }}": return {{ e.swift }}(bridgeError: bridgeError)
+{% endif %}
+{% endfor %}
+    default: return {{ errors[0].swift }}(bridgeError: bridgeError)
+    }
+{% else %}
+    return error
+{% endif %}
+}
+
+/// Runs a call into the Rust bridge and throws the typed Swift error when the call fails.
+func alefBridgedCall<T>(_ body: () throws -> T) throws -> T {
+    do {
+        return try body()
+    } catch {
+        throw alefTypedError(error)
+    }
+}
+
+/// Runs an `async` call into the Rust bridge and throws the typed Swift error when the call fails.
+func alefBridgedCallAsync<T>(_ body: () async throws -> T) async throws -> T {
+    do {
+        return try await body()
+    } catch {
+        throw alefTypedError(error)
+    }
+}

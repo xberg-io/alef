@@ -13,7 +13,7 @@ fn should_throw_generated_php_exception_with_message_and_payload() {
     let source = format!(
         "{}\n{}\n{}",
         fixture_source(),
-        gen_php_error_types(&api, "Sample").unwrap(),
+        gen_php_error_types(&api, "Sample", None).unwrap(),
         gen_php_error_converter(&error, "sample")
     );
     let fixture = tempfile::tempdir().unwrap();

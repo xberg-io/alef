@@ -510,4 +510,52 @@ mod stream_error_regressions {
         assert!(after_start[..check].contains("streamHandle.equals(MemorySegment.NULL)"));
         assert!(generated.contains("if (startFailure != null) startFailure.addSuppressed(cleanupFailure)"));
     }
+
+    fn render_iterator() -> String {
+        crate::backends::java::template_env::render(
+            "streaming_iterator_method.jinja",
+            crate::alef_context! {
+                item_type => "Chunk", method_name => "watch", request_type => "Request",
+                request_param => "request", exception_class => "SampleException",
+                req_from_json => "REQUEST_FROM_JSON", start_handle => "STREAM_START",
+                req_free => "REQUEST_FREE", next_handle => "STREAM_NEXT", prefix_upper => "SAMPLE",
+                item_to_json => "CHUNK_TO_JSON", item_free => "CHUNK_FREE", free_handle => "STREAM_FREE",
+            },
+        )
+    }
+
+    /// The iterator reads one chunk ahead. A failed read must not drop the chunk it already holds:
+    /// `next()` returns the held chunk and keeps the failure for the call after it.
+    #[test]
+    fn a_failed_read_ahead_keeps_the_held_chunk_and_reports_the_error_next() {
+        let generated = render_iterator();
+        assert!(
+            generated.contains("try { pending = pull(); }\n                catch (Exception error) { pending = null; deferred = error; }"),
+            "next() must catch the failed read and keep it: {generated}"
+        );
+        assert!(
+            generated.contains("public boolean hasNext() { return pending != null || deferred != null; }"),
+            "hasNext() must stay true while an error waits: {generated}"
+        );
+    }
+
+    /// Every iterator failure is the binding's own exception, thrown without wrapping. The base
+    /// class is checked, so the iterator methods rethrow it through a generic that the compiler
+    /// treats as unchecked.
+    #[test]
+    fn stream_errors_are_thrown_as_the_binding_exception_not_wrapped_in_a_runtime_exception() {
+        let generated = render_iterator();
+        assert!(
+            !generated.contains("new RuntimeException("),
+            "a stream error must not be wrapped: {generated}"
+        );
+        assert!(
+            generated.contains("primary = NativeLib.lastErrorException(code, msg);"),
+            "the native error code must select the typed exception: {generated}"
+        );
+        assert!(
+            generated.contains("throw rethrow(primary);"),
+            "the typed error must be thrown as it is: {generated}"
+        );
+    }
 }

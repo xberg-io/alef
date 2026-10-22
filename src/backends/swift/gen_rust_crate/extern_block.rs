@@ -3,6 +3,7 @@
 //! Covers type declarations, enum declarations, and top-level function declarations.
 //! Trait bridge extern blocks live in `trait_bridge.rs`.
 
+use crate::backends::swift::gen_rust_crate::bridge_error::result_type;
 use crate::backends::swift::gen_rust_crate::default_construction::EnumKinds;
 use crate::backends::swift::gen_rust_crate::type_bridge::{
     bridge_result_ok_type_with_handles, bridge_type, bridge_type_enum_and_serde_struct_aware, bridge_type_enum_aware,
@@ -319,9 +320,9 @@ pub(crate) fn emit_extern_block_for_type_methods(
         let return_ty = if method.error_type.is_some() || forced_fallible {
             let ok_ty = bridge_result_ok_type_with_handles(&method.return_type, handle_returned_types);
             if matches!(method.return_type, TypeRef::Unit) {
-                "Result<(), String>".to_string()
+                result_type("()")
             } else {
-                format!("Result<{ok_ty}, String>")
+                result_type(&ok_ty)
             }
         } else {
             bridge_type_with_handles(&method.return_type, handle_returned_types)
@@ -376,7 +377,7 @@ pub(crate) fn emit_extern_block_for_type_constructor(ty: &TypeDef) -> Option<Str
         crate::alef_context! {
             fn_name => &fn_name,
             params => "api_key: String, base_url: Option<String>",
-            return_type => format!("Result<{}, String>", ty.name),
+            return_type => result_type(&ty.name),
         },
     ));
 
@@ -430,7 +431,7 @@ pub(crate) fn emit_extern_block_for_first_class_dto_methods(
         }
         let params_str = params.join(", ");
 
-        let return_ty = "Result<String, String>";
+        let return_ty = result_type("String");
 
         if swift_name != fn_name {
             block.push_str(&crate::backends::swift::template_env::render(
@@ -525,16 +526,16 @@ pub(crate) fn emit_extern_block_for_functions(
 
         let return_ty = if is_capsule_return {
             if forced_fallible {
-                "Result<usize, String>".to_string()
+                result_type("usize")
             } else {
                 "usize".to_string()
             }
         } else if f.error_type.is_some() || forced_fallible {
             let ok_ty = bridge_result_ok_type_with_handles(&effective_return_type, handle_returned_types);
             if matches!(effective_return_type, TypeRef::Unit) {
-                "Result<(), String>".to_string()
+                result_type("()")
             } else {
-                format!("Result<{ok_ty}, String>")
+                result_type(&ok_ty)
             }
         } else {
             bridge_type_with_handles(&effective_return_type, handle_returned_types)
@@ -747,7 +748,7 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(
             crate::alef_context! {
                 fn_name => &fn_start,
                 params => &start_params_str,
-                return_type => format!("Result<{handle_name}, String>"),
+                return_type => result_type(&handle_name),
                 is_async => true,
             },
         ));
@@ -757,7 +758,7 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(
             crate::alef_context! {
                 fn_name => "next",
                 params => format!("self: &{handle_name}"),
-                return_type => "Result<String, String>",
+                return_type => result_type("String"),
                 is_async => true,
             },
         ));

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Generated Go streaming methods and module functions have a `WithErr` variant, such as `ChatStreamWithErr`. It returns the stream object and takes no context. Range over `stream.Chan()`, then read `stream.Err()` to see a stream error. The plain call keeps its channel return and still drops stream errors, as its doc comment now says (#623).
+
+### Fixed
+
+- Generated Node packages load with a named ESM import such as `import { createClient } from "pkg"`. A generated `index.mjs` re-declares each export by name, and `package.json` maps the `import` condition to it (#620).
+- Generated Node bindings throw errors that carry `kind`, `errorCode`, `statusCode`, `retryAfter` (milliseconds), `isTransient` and `errorType`. A generated `binding.cjs` moves these from the native error onto the thrown error, and the `.d.ts` declares them (#621).
+- Generated Node `chatStream`-style calls reject when the stream fails to open, instead of resolving and failing on the first read (#622).
 - Add `delay_ms` and `stream_chunk_delay_ms` to the fixture `mock_response`. The mock server waits `delay_ms` before it sends a response, and waits `stream_chunk_delay_ms` before each stream chunk, so a fixture can model a slow or paused stream. Every language shares the one mock server, so every language gets the stream pause. (GH#589)
 - Add `client_options` to a fixture. The Rust and Python generated tests set these options on the client they build: Rust writes them into the JSON for `client_factory_from_json`, and Python passes them as keyword arguments of `client_factory`. Every other language leaves the fixture out, so a fixture never runs there with default options. The Python suite also leaves out a fixture with an option name that is a Python keyword. (GH#589)
 - Add the `mock.requests["<key>"].body.<path>` assertion field. It checks the JSON body of the requests the mock server received, with `equals` and `not_equals`. (GH#590)
@@ -18,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Serve a newline-delimited JSON stream when a streaming fixture sets a `content-type` that contains `ndjson`. The mock server wrote each chunk as `data: <chunk>`, added a `data: [DONE]` line, and sent two content-type headers. It now writes each chunk followed by one newline, with no `data:` prefix, no `[DONE]` line and one content-type header.
 - Zig: give every optional struct member, and every optional member of an enum payload struct, a `= null` default. `std.json` reports `MissingField` for an absent key on an optional member without a default, so a stream chunk that omitted `usage`, `system_fingerprint` or `service_tier` failed to parse. The parse stays strict for required members. (GH#650)
 - Zig: keep the HTTP status and the retry delay of a failed call. The deferred `_free` calls clear the FFI error state before the caller sees the error. The capture that copies the message now also copies every error introspection value into `LastErrorDetails`, which `_last_error_details()` returns. The retry delay is in milliseconds, and is `null` when the error has none. (GH#651)
+- Reject a WASM call with an `Error` that carries `kind`, `errorCode`, `statusCode`, `isTransient`, `errorType` and `retryAfter`, the same property names the Node binding uses. Every generated call site rejected with a plain string, so a caller lost the error kind, the HTTP status and the retry delay. `retryAfter` is in whole milliseconds, and `null` when the server sends no delay. (GH#648)
+- Reject a WASM streaming call when the server refuses the stream. The call resolved at once and the refusal (401, 429) surfaced on the first `next()`. The call now opens the stream before it resolves. An error in the middle of a stream rejects `next()` with the same typed error. (GH#649)
+- Add the instance methods of a native Python class (for example `text()` and `output_images()` on a reply message) to the public `options.py` dataclass that shadows it. Each method converts `self` to the native object and calls it. Static helpers stay on the native class.
+- Generate a plain `.clone()` for an optional string field of a Dart error mirror, so clippy no longer reports `useless_asref`.
+- Generated Swift tests for a mid-stream error now read the stream inside the `do` block, so the throw of the loop reaches the `catch`.
+- Generated Elixir tests for a mid-stream error now read the stream. The test accepts `{:error, reason}` from the call, or the exception that the enumeration raises, and fails when the stream ends without an error.
+- The Python constructor of a class with a JSON-typed field now raises `ValueError` that names the field when the string is not valid JSON. Before, the conversion dropped the field and the call went on without it.
 
 ## [0.112.0] - 2026-10-21
 

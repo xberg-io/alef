@@ -146,6 +146,42 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
         }
     }
 
+    // A dataclass that forwards native methods (see `types::delegating_dataclass_names`) converts
+    // `self` with its own `_to_rust_*` converter, and so does every published dataclass its
+    // fields hold. The walk runs before the parameter walks so that a published reply type
+    // reached only through a forwarding dataclass gets a converter, and then joins
+    // `converter_types`, the map `emit_converters` coerces nested fields against. Without a
+    // forwarding dataclass nothing here changes. ~keep
+    let rendered_types: AHashMap<String, &crate::core::ir::TypeDef> = api
+        .types
+        .iter()
+        .filter(|t| {
+            crate::backends::pyo3::gen_bindings::types::renders_dataclass(
+                t,
+                &options_dataclass_types,
+                &options_return_types,
+                reexported_types,
+            )
+        })
+        .map(|t| (t.name.clone(), t))
+        .collect();
+    let mut walk_types = default_types.clone();
+    walk_types.extend(rendered_types.iter().map(|(name, typ)| (name.clone(), *typ)));
+    let mut forwarding: Vec<String> =
+        crate::backends::pyo3::gen_bindings::types::delegating_dataclass_names(api, dto, reexported_types)
+            .into_iter()
+            .collect();
+    forwarding.sort();
+    for name in &forwarding {
+        collect_needed(name, &walk_types, &mut needed_converters, &mut visited);
+    }
+    let mut converter_types = default_types.clone();
+    for name in &needed_converters {
+        if let Some(typ) = walk_types.get(name) {
+            converter_types.insert(name.clone(), *typ);
+        }
+    }
+
     for func in &api.functions {
         for param in &func.params {
             if let Some((name, _)) = classify_param_type(&param.ty) {
@@ -426,7 +462,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
     emit_converters(
         &mut out,
         &needed_converters,
-        &default_types,
+        &converter_types,
         &options_field_bridges,
         &enum_names,
         &data_enum_names,

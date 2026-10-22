@@ -253,17 +253,32 @@ pub(super) fn replace_constructor_with_serde_rename(
         all_assignments.push(format!("{}: {}", field_name, param_name));
     }
 
-    let new_constructor = format!(
-        "    #[allow(clippy::too_many_arguments)]\n    \
-         #[must_use]\n    \
-         #[pyo3(signature = ({}))]#[new]\n    \
-         pub fn new({}) -> Self {{\n        \
-         Self {{ {} }}\n    \
-         }}",
-        all_defaults.join(", "),
-        param_list,
-        all_assignments.join(", ")
-    );
+    let json_checks = json_field_checks(&sorted_fields, config_renames, never_skip_cfg_field_names);
+    let new_constructor = if json_checks.is_empty() {
+        format!(
+            "    #[allow(clippy::too_many_arguments)]\n    \
+             #[must_use]\n    \
+             #[pyo3(signature = ({}))]#[new]\n    \
+             pub fn new({}) -> Self {{\n        \
+             Self {{ {} }}\n    \
+             }}",
+            all_defaults.join(", "),
+            param_list,
+            all_assignments.join(", ")
+        )
+    } else {
+        format!(
+            "    #[allow(clippy::too_many_arguments)]\n    \
+             #[pyo3(signature = ({}))]#[new]\n    \
+             pub fn new({}) -> pyo3::PyResult<Self> {{\n{}        \
+             Ok(Self {{ {} }})\n    \
+             }}",
+            all_defaults.join(", "),
+            param_list,
+            json_checks,
+            all_assignments.join(", ")
+        )
+    };
 
     if let Some(start) = impl_block.find("#[pyo3(signature = (")
         && let Some(new_start) = impl_block[..start].rfind("\n")
@@ -296,6 +311,47 @@ pub(super) fn replace_constructor_with_serde_rename(
     impl_block.to_string()
 }
 
+/// Statements that reject a JSON-typed constructor argument that is not valid JSON.
+///
+/// A JSON field crosses the boundary as a `str`. The conversion to the core type parses it with
+/// `serde_json::from_str(..).ok()`, which turns a bad string into `None` and sends the request
+/// without the field. The constructor is the only way to set the field of a frozen class, so it
+/// parses the string once and raises `ValueError` with the field name. ~keep
+fn json_field_checks(
+    fields: &[&FieldDef],
+    config_renames: Option<&HashMap<String, String>>,
+    never_skip_cfg_field_names: &[String],
+) -> String {
+    let mut out = String::new();
+    for field in fields {
+        let is_json = match &field.ty {
+            TypeRef::Json => true,
+            TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Json),
+            _ => false,
+        };
+        if !is_json || (field.cfg.is_some() && !never_skip_cfg_field_names.contains(&field.name)) {
+            continue;
+        }
+        let ident = resolve_param_ident(&field.name, field.serde_rename.as_ref(), config_renames);
+        let public = crate::core::keywords::python_ident(&field.name);
+        let optional = field.optional || matches!(field.ty, TypeRef::Optional(_));
+        let check = format!(
+            "serde_json::from_str::<serde_json::Value>({{value}}).map_err(|error| \
+             pyo3::exceptions::PyValueError::new_err(format!(\"invalid JSON in `{public}`: {{error}}\")))?;"
+        );
+        if optional {
+            let call = check.replace("{value}", "json");
+            out.push_str(&format!(
+                "        if let Some(json) = &{ident} {{\n            {call}\n        }}\n"
+            ));
+        } else {
+            let call = check.replace("{value}", &format!("&{ident}"));
+            out.push_str(&format!("        {call}\n"));
+        }
+    }
+    out
+}
+
 fn insert_constructor_keyword_only_marker(typ: &TypeDef, fields: &[&FieldDef], defaults: &mut Vec<String>) {
     if let Some(index) = fields.iter().position(|field| typ.is_constructor_extension(field)) {
         defaults.insert(index, "*".to_owned());
@@ -307,6 +363,83 @@ mod tests {
     use super::*;
     use crate::backends::pyo3::gen_bindings::config::binding_config;
     use crate::backends::pyo3::type_map::Pyo3Mapper;
+
+    fn json_constructor(fields: Vec<FieldDef>, has_default: bool) -> String {
+        let typ = TypeDef {
+            name: "ChatRequest".to_string(),
+            has_default,
+            fields,
+            ..Default::default()
+        };
+        replace_constructor_with_serde_rename(
+            "impl ChatRequest {\n    #[pyo3(signature = ())]#[new]\n    pub fn new() -> Self { Self {} }\n}",
+            &typ,
+            &Pyo3Mapper::new(),
+            &binding_config("sample_core", true),
+            None,
+            &[],
+            &[],
+            &ApiSurface::default(),
+        )
+    }
+
+    #[test]
+    fn invalid_json_in_an_optional_json_field_raises_value_error() {
+        let rendered = json_constructor(
+            vec![FieldDef {
+                name: "extra_body".to_string(),
+                ty: TypeRef::Json,
+                optional: true,
+                ..Default::default()
+            }],
+            false,
+        );
+
+        assert!(rendered.contains("-> pyo3::PyResult<Self>"), "{rendered}");
+        assert!(
+            rendered.contains("if let Some(json) = &extra_body {"),
+            "an omitted field is not parsed:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("serde_json::from_str::<serde_json::Value>(json)"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("PyValueError::new_err(format!(\"invalid JSON in `extra_body`: {error}\"))"));
+        assert!(rendered.contains("Ok(Self { extra_body })"), "{rendered}");
+    }
+
+    #[test]
+    fn invalid_json_in_a_required_json_field_raises_value_error() {
+        let rendered = json_constructor(
+            vec![FieldDef {
+                name: "schema".to_string(),
+                ty: TypeRef::Json,
+                ..Default::default()
+            }],
+            false,
+        );
+
+        assert!(
+            rendered.contains("serde_json::from_str::<serde_json::Value>(&schema)"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("invalid JSON in `schema`"), "{rendered}");
+    }
+
+    #[test]
+    fn constructor_without_json_fields_stays_infallible() {
+        let rendered = json_constructor(
+            vec![FieldDef {
+                name: "model".to_string(),
+                ty: TypeRef::String,
+                ..Default::default()
+            }],
+            false,
+        );
+
+        assert!(rendered.contains("pub fn new(model: String) -> Self {"), "{rendered}");
+        assert!(!rendered.contains("PyResult"), "{rendered}");
+    }
 
     #[test]
     fn bare_serde_default_is_omittable_without_optionalizing_required_sibling() {

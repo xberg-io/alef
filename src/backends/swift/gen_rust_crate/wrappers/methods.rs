@@ -7,6 +7,7 @@
 //!
 //! Enum wrappers live in `enums.rs`.
 
+use crate::backends::swift::gen_rust_crate::bridge_error::result_type;
 use crate::backends::swift::gen_rust_crate::type_bridge::{
     bridge_result_ok_type_with_handles, bridge_type_enum_aware_ref, enum_from_string_fn_name,
     forces_fallible_enum_bridge, needs_json_bridge, needs_json_bridge_with_handles, swift_bridge_rust_type,
@@ -104,9 +105,9 @@ pub(crate) fn emit_type_method_shims(
         let return_ty = if method.error_type.is_some() || forced_fallible {
             let ok_ty = bridge_result_ok_type_with_handles(&method.return_type, handle_returned_types);
             if matches!(method.return_type, TypeRef::Unit) {
-                "Result<(), String>".to_string()
+                result_type("()")
             } else {
-                format!("Result<{ok_ty}, String>")
+                result_type(&ok_ty)
             }
         } else {
             crate::backends::swift::gen_rust_crate::type_bridge::bridge_type_with_handles(
@@ -384,7 +385,7 @@ pub(crate) fn emit_type_method_shims(
                         _ => String::new(),
                     }
                 };
-                format!("{method_call}.await.map_err(|e| e.to_string()){ok_wrap}")
+                format!("{method_call}.await.map_err(alef_bridge_error){ok_wrap}")
             } else if forced_fallible {
                 format!("Ok({})", wrap_return(format!("{method_call}.await")))
             } else {
@@ -404,7 +405,7 @@ pub(crate) fn emit_type_method_shims(
                 ),
             };
             format!(
-                "{extend_receiver}    let __alef_task = crate::__alef_tokio_runtime().spawn(async move {{ {chain} }});\n    __alef_task.await.unwrap_or_else(|__alef_join_error| {{\n        Err(format!(\"alef: spawned async task failed: {{__alef_join_error}}\"))\n    }})"
+                "{extend_receiver}    let __alef_task = crate::__alef_tokio_runtime().spawn(async move {{ {chain} }});\n    __alef_task.await.unwrap_or_else(|__alef_join_error| {{\n        Err(AlefBridgeError::from(format!(\"alef: spawned async task failed: {{__alef_join_error}}\")))\n    }})"
             )
         } else if method.error_type.is_some() {
             let ok_wrap = if method.return_newtype_wrapper.is_some() {
@@ -431,7 +432,7 @@ pub(crate) fn emit_type_method_shims(
                     _ => String::new(),
                 }
             };
-            format!("    {method_call}.map_err(|e| e.to_string()){ok_wrap}")
+            format!("    {method_call}.map_err(alef_bridge_error){ok_wrap}")
         } else if forced_fallible {
             format!("    Ok({})", wrap_return(method_call))
         } else {
@@ -522,7 +523,7 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
 
         out.push_str(&format!("pub fn {fn_name}("));
         out.push_str(&params.join(", "));
-        out.push_str(") -> Result<String, String> {\n");
+        out.push_str(&format!(") -> {} {{\n", result_type("String")));
 
         let async_uses_transparent_wrapper = method.return_newtype_wrapper.is_some()
             || method.params.iter().any(|param| param.newtype_wrapper.is_some());
@@ -615,13 +616,15 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
             out.push_str(&format!("    let __result = {__call};\n"));
             if matches!(method.return_type, TypeRef::Unit) {
                 // (`let __value = ...` would trip clippy::let_unit_value).
-                out.push_str("    __result.map_err(|e| e.to_string())?;\n");
+                out.push_str("    __result.map_err(alef_bridge_error)?;\n");
                 out.push_str("    Ok(\"{}\".to_string())\n");
             } else {
-                out.push_str("    let __value = __result.map_err(|e| e.to_string())?;\n");
+                out.push_str("    let __value = __result.map_err(alef_bridge_error)?;\n");
                 let value = apply_return_newtype_unwrap("__value", &method.return_newtype_wrapper);
                 out.push_str(&format!("    serde_json::to_string(&({value}))\n"));
-                out.push_str("        .map_err(|e| format!(\"Failed to serialize result: {}\", e))\n");
+                out.push_str(
+                    "        .map_err(|e| AlefBridgeError::from(format!(\"Failed to serialize result: {}\", e)))\n",
+                );
             }
         } else if matches!(method.return_type, TypeRef::Unit) {
             // value to `let __result` would trip clippy::let_unit_value).
@@ -631,7 +634,9 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
             out.push_str(&format!("    let __result = {__call};\n"));
             let result = apply_return_newtype_unwrap("__result", &method.return_newtype_wrapper);
             out.push_str(&format!("    serde_json::to_string(&({result}))\n"));
-            out.push_str("        .map_err(|e| format!(\"Failed to serialize result: {}\", e))\n");
+            out.push_str(
+                "        .map_err(|e| AlefBridgeError::from(format!(\"Failed to serialize result: {}\", e)))\n",
+            );
         }
 
         out.push_str("}\n\n");

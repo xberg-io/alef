@@ -209,6 +209,10 @@ fn migrate_node_package_json_service_file(files: &[GeneratedFile], base_dir: &Pa
     }) {
         crate::scaffold::migrate_node_package_json_service_export(base_dir, &node_pkg_file.path)
             .context("failed to migrate pre-existing crates/*-node/package.json service export")?;
+        // Runs after the service export repair above: that repair matches the exact stale
+        // `exports` text, which the `import` condition this adds would otherwise break. ~keep
+        crate::scaffold::migrate_node_error_shim(base_dir, &node_pkg_file.path)
+            .context("failed to migrate pre-existing crates/*-node package to the error shim")?;
     }
     Ok(())
 }

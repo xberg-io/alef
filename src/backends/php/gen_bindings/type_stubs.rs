@@ -73,12 +73,10 @@ pub(super) fn generate_type_stubs(
         crate::alef_context! { namespace => &namespace },
     ));
 
-    content.push_str(&crate::codegen::error_gen::gen_php_error_stubs(api)?);
     content.push_str(&crate::backends::php::template_env::render(
         "php_exception_class_declaration.jinja",
         crate::alef_context! { class_name => &class_name },
     ));
-    content.push_str("    public function getErrorCode(): int { throw new \\RuntimeException('Not implemented.'); }\n");
     // These are backed by #[php_method] impls in the generated native extension.
     let has_status_code = api
         .errors
@@ -112,6 +110,10 @@ pub(super) fn generate_type_stubs(
     }
     content.push_str(&error_methods::duration_error_method_stubs(api));
     content.push_str("}\n\n");
+    content.push_str(&crate::codegen::error_gen::gen_php_error_stubs(
+        api,
+        Some(&crate::backends::php::naming::php_root_exception_name(&extension_name)),
+    )?);
 
     // Derived exactly as `rust_bindings.rs` derives them for the real extension, so the stub's
     // constructor-param filter (`php_field_can_be_constructor_param`) sees the same enum/opaque
@@ -297,6 +299,18 @@ pub(super) fn generate_type_stubs(
             if !is_json_getter && matches!(return_inner, TypeRef::Vec(_) | TypeRef::Map(_, _)) {
                 let return_phpdoc = php_phpdoc_type_fq(&field.ty, &namespace);
                 content.push_str(&format!("    /** @return {return_phpdoc} */\n"));
+            }
+            // The runtime registers a readable property for every field that has no `#[php(prop)]`
+            // (`$response->choices`), so the stub declares it too.
+            if !is_php_prop_scalar(&field.ty, &enum_names) {
+                if !is_json_getter && matches!(return_inner, TypeRef::Vec(_) | TypeRef::Map(_, _)) {
+                    let property_phpdoc = php_phpdoc_type_fq(&field.ty, &namespace);
+                    content.push_str(&format!("    /** @var {property_phpdoc} */\n"));
+                }
+                content.push_str(&format!(
+                    "    public readonly {return_type} ${};\n",
+                    to_php_name(&field.name)
+                ));
             }
             if !is_constructor_param(field) {
                 content.push_str(
