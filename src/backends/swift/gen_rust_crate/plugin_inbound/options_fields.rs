@@ -193,7 +193,7 @@ pub(crate) fn emit_options_field_options_helper(
             "\n",
             "         #[swift_bridge(swift_name = \"{swift_name}\")]\n",
             "         fn {fn_name}(json: String, {field}: Option<{type_alias}>)",
-            " -> Result<{options_type}, String>;\n",
+            " -> Result<{options_type}, AlefBridgeError>;\n",
             "\n",
             "    }}\n\n"
         ),
@@ -208,8 +208,8 @@ pub(crate) fn emit_options_field_options_helper(
         "/// Deserialise a `{options_type}` from JSON and attach a visitor handle to its\n\
          /// `{field}` field. Used by Swift e2e tests to thread a `{type_alias}` into the\n\
          /// conversion call without needing a mutable post-construction setter.\n\
-         pub fn {fn_name}(json: String, {field}: Option<{type_alias}>) -> Result<{options_type}, String> {{\n\
-         \x20   let mut __core: {core_options_path} = ::serde_json::from_str(&json).map_err(|e| e.to_string())?;\n\
+         pub fn {fn_name}(json: String, {field}: Option<{type_alias}>) -> Result<{options_type}, AlefBridgeError> {{\n\
+         \x20   let mut __core: {core_options_path} = ::serde_json::from_str(&json).map_err(alef_bridge_error)?;\n\
          \x20   __core.{field} = {field}.map(|h| <{inner_path}>::from(h));\n\
          \x20   Ok({options_type}::from(__core))\n\
          }}\n"

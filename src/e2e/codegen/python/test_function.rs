@@ -151,7 +151,7 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
     // Only honor "from_json" when the pyo3 backend actually injects a from_json()
     // staticmethod for this type (gated on per-type has_serde AND crate-level serde
     // availability AND core→binding convertibility) AND the selected import isn't
-    // shadowed by options.py's method-less dataclass mirror — every DTO still has a plain
+    // shadowed by options.py's static-helper-less dataclass mirror — every DTO still has a plain
     // kwargs constructor, so downgrading keeps the emitted call valid. ~keep
     let native_module = python_override
         .and_then(|value| value.from_json_module.as_deref())
@@ -304,6 +304,16 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
     // the fixture response is served via prefix routing.
     // Fixtures without mock_response (real-API smoke tests) use no base_url override.
     let client_factory = resolve_call_client_factory(e2e_config, call_config);
+    // The fixture's `client_options` become keyword arguments of the client factory, named as the
+    // fixture names them (`timeout_secs=1`). Every branch below passes them, with or without a
+    // mock server, so the client the fixture builds matches the one the Rust suite builds.
+    // `client_options_exclusion` keeps a fixture with options on a client factory. ~keep
+    let client_option_kwargs: String = fixture
+        .client_options
+        .iter()
+        .flatten()
+        .map(|(name, value)| format!(", {name}={}", super::json::json_to_python_literal(value)))
+        .collect();
     let mut client_setup = String::new();
     let call_expr = if let Some(ref factory) = client_factory {
         let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
@@ -325,7 +335,10 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
                 "        sys.stdout.write(\"{fixture_id}: using real API ({api_key_var} is set)\\n\")"
             );
             let _ = writeln!(client_setup, "        sys.stdout.flush()");
-            let _ = writeln!(client_setup, "        client = {factory}(api_key=api_key)");
+            let _ = writeln!(
+                client_setup,
+                "        client = {factory}(api_key=api_key{client_option_kwargs})"
+            );
             let _ = writeln!(client_setup, "    else:");
             let _ = writeln!(
                 client_setup,
@@ -334,7 +347,7 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
             let _ = writeln!(client_setup, "        sys.stdout.flush()");
             let _ = writeln!(
                 client_setup,
-                "        client = {factory}(api_key=\"test-key\", base_url={mock_base_url_expr})"
+                "        client = {factory}(api_key=\"test-key\", base_url={mock_base_url_expr}{client_option_kwargs})"
             );
         } else if has_mock {
             let fixture_id = &fixture.id;
@@ -348,15 +361,21 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
             };
             let _ = writeln!(
                 client_setup,
-                "    client = {factory}(api_key=\"test-key\", base_url={base_url_expr})"
+                "    client = {factory}(api_key=\"test-key\", base_url={base_url_expr}{client_option_kwargs})"
             );
         } else if let Some(api_key_var) = api_key_opt {
             let _ = writeln!(client_setup, "    api_key = os.environ.get(\"{api_key_var}\")");
             let _ = writeln!(client_setup, "    if not api_key:");
             let _ = writeln!(client_setup, "        pytest.skip(\"{api_key_var} not set\")");
-            let _ = writeln!(client_setup, "    client = {factory}(api_key=api_key)");
+            let _ = writeln!(
+                client_setup,
+                "    client = {factory}(api_key=api_key{client_option_kwargs})"
+            );
         } else {
-            let _ = writeln!(client_setup, "    client = {factory}(api_key=\"test-key\")");
+            let _ = writeln!(
+                client_setup,
+                "    client = {factory}(api_key=\"test-key\"{client_option_kwargs})"
+            );
         }
         format!("{await_prefix}client.{function_name}({call_args_str})")
     } else {
@@ -492,6 +511,7 @@ mod tests {
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
             assertions: Vec::new(),
             call: None,
@@ -556,6 +576,7 @@ mod tests {
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
             assertions: Vec::new(),
             call: None,

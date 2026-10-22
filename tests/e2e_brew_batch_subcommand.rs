@@ -110,6 +110,7 @@ fn build_batch_scrape_fixture() -> FixtureGroup {
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         }],
     }
@@ -152,6 +153,7 @@ fn build_batch_crawl_fixture() -> FixtureGroup {
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         }],
     }

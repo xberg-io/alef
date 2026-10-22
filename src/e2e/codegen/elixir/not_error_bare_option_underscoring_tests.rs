@@ -37,6 +37,7 @@ fn not_error_on_a_bare_option_result_binds_underscored_and_emits_no_assertion() 
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
         assertions: vec![Assertion {
             assertion_type: "not_error".to_string(),

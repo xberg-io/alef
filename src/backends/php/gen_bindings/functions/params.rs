@@ -282,26 +282,6 @@ pub(super) fn gen_php_serde_let_bindings(
                     ));
                 }
             }
-            TypeRef::Json => {
-                let bound_name = format!("{php_param_name}_json");
-                if p.optional {
-                    out.push_str(&crate::backends::php::template_env::render(
-                        "php_json_let_binding_optional.jinja",
-                        crate::alef_context! {
-                            php_name => &php_param_name,
-                            bound_name => &bound_name,
-                        },
-                    ));
-                } else {
-                    out.push_str(&crate::backends::php::template_env::render(
-                        "php_json_let_binding.jinja",
-                        crate::alef_context! {
-                            php_name => &php_param_name,
-                            bound_name => &bound_name,
-                        },
-                    ));
-                }
-            }
             _ => {}
         }
     }

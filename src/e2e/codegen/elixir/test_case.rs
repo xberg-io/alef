@@ -60,6 +60,48 @@ fn emit_error_assertion(
     }
 }
 
+/// Emit the error check for a streaming call under `indent`.
+///
+/// A stream reports a failure while it is read: the call returns `{:ok, stream}` and the
+/// enumeration raises. The check therefore accepts an `{:error, reason}` from the call itself
+/// and otherwise reads the stream to its end, taking the exception it raises as the reason.
+/// A stream that ends without a failure leaves no reason, and the test fails. ~keep
+fn emit_stream_error_assertion(
+    out: &mut String,
+    indent: &str,
+    call_expr: &str,
+    fixture: &Fixture,
+    errors: &[crate::core::ir::ErrorDef],
+) {
+    let _ = writeln!(out, "{indent}__reason =");
+    let _ = writeln!(out, "{indent}  case {call_expr} do");
+    let _ = writeln!(out, "{indent}    {{:error, reason}} ->");
+    let _ = writeln!(out, "{indent}      reason");
+    let _ = writeln!(out, "{indent}    {{:ok, __stream}} ->");
+    let _ = writeln!(out, "{indent}      try do");
+    let _ = writeln!(out, "{indent}        Enum.to_list(__stream)");
+    let _ = writeln!(out, "{indent}        nil");
+    let _ = writeln!(out, "{indent}      rescue");
+    let _ = writeln!(out, "{indent}        exception -> exception");
+    let _ = writeln!(out, "{indent}      end");
+    let _ = writeln!(out, "{indent}  end");
+    let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "{indent}assert __reason != nil, \"the stream ended without an error\""
+    );
+    match classify("elixir", fixture, errors) {
+        DeclaredErrorAssertion::Undeclared => {}
+        DeclaredErrorAssertion::Assert(value) => {
+            let escaped = escape_elixir(value);
+            let _ = writeln!(out, "{indent}assert String.contains?(inspect(__reason), \"{escaped}\")");
+        }
+        DeclaredErrorAssertion::Unsubstantiable(variant) => {
+            let _ = writeln!(out, "{indent}{}", skip_line("", "#", variant, &fixture.id, "elixir"));
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn render_test_case(
     out: &mut String,
@@ -484,7 +526,11 @@ pub(super) fn render_test_case(
         } else {
             format!("{module_path}.{function_name}({effective_args})")
         };
-        emit_error_assertion(out, "      ", &call_invocation, fixture, errors);
+        if crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming_enabled()) {
+            emit_stream_error_assertion(out, "      ", &call_invocation, fixture, errors);
+        } else {
+            emit_error_assertion(out, "      ", &call_invocation, fixture, errors);
+        }
         if needs_api_key_skip {
             let _ = writeln!(out, "      end");
         }
@@ -824,6 +870,7 @@ mod dropped_field_marker_tests {
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
             assertions: vec![Assertion {
                 assertion_type: "equals".to_string(),

@@ -82,6 +82,7 @@ mod trait_bridge_tests {
             http: None,
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
             assertions: vec![],
             visitor: None,

@@ -15,8 +15,14 @@ const REQUEST_COUNTER_SOURCE: &str = r####"// ----------------------------------
 // harnesses:
 //   GET  /__alef/requests/total?prefix=<p>       -> decimal count, text/plain
 //   GET  /__alef/requests/one?key=<METHOD>%20<p> -> decimal count, text/plain
+//   GET  /__alef/requests/body?key=<k>&field=<path>&op=<equals|not_equals>&value=<json>
+//                                                -> "1" or "0", text/plain
 //   POST /__alef/requests/reset?prefix=<p>       -> 204, no body
 //
+// The body endpoint answers whether the JSON bodies of the requests recorded for `<k>`
+// (`<METHOD> <path>`, or a bare `<path>` for any method) hold `<json>` at the dotted
+// `<path>`. It answers 1 only when at least one request matched `<k>`.
+
 // Control requests are matched and answered BEFORE route lookup, and are never
 // counted themselves.
 
@@ -31,11 +37,37 @@ fn request_counts() -> &'static std::sync::Mutex<std::collections::HashMap<(Stri
     REQUEST_COUNTS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
+/// Largest request body the server records, in bytes. A larger body (an upload) is counted
+/// but not stored, so a suite that sends big files does not hold them in memory.
+const MAX_RECORDED_BODY_BYTES: usize = 1024 * 1024;
+
+/// Request bodies in arrival order, as `(method, path, body)`. A request whose body is empty,
+/// too large or unreadable is stored with an empty body.
+static REQUEST_BODIES: std::sync::OnceLock<std::sync::Mutex<Vec<(String, String, Vec<u8>)>>> =
+    std::sync::OnceLock::new();
+
+fn request_bodies() -> &'static std::sync::Mutex<Vec<(String, String, Vec<u8>)>> {
+    REQUEST_BODIES.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+}
+
+/// Read a request body up to `MAX_RECORDED_BODY_BYTES`. A longer or unreadable body reads as empty.
+async fn read_request_body(body: Body) -> Vec<u8> {
+    axum::body::to_bytes(body, MAX_RECORDED_BODY_BYTES)
+        .await
+        .map(|bytes| bytes.to_vec())
+        .unwrap_or_default()
+}
+
 /// Record one request for `(method, path)`. Callers must invoke this for every
 /// non-control request, before route lookup, so redirects and 404s are counted too.
-fn record_request(method: &str, path: &str) {
+fn record_request(method: &str, path: &str, body: Vec<u8>) {
     let mut counts = request_counts().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     *counts.entry((method.to_string(), path.to_string())).or_insert(0) += 1;
+    drop(counts);
+    request_bodies()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push((method.to_string(), path.to_string(), body));
 }
 
 /// Sum of counts across every `(method, path)` key whose path starts with `prefix`.
@@ -59,6 +91,89 @@ fn count_for_key(key: &str) -> u64 {
 fn reset_requests_for_prefix(prefix: &str) {
     let mut counts = request_counts().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     counts.retain(|(_, path), _| !path.starts_with(prefix));
+    drop(counts);
+    request_bodies()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .retain(|(_, path, _)| !path.starts_with(prefix));
+}
+
+/// Follow a dotted path through a JSON value. A segment names an object key, or an array
+/// index when the value is an array and the segment is a number.
+fn json_at_path<'a>(root: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
+    let mut current = root;
+    for segment in path.split('.') {
+        current = match current {
+            serde_json::Value::Object(map) => map.get(segment)?,
+            serde_json::Value::Array(items) => items.get(segment.parse::<usize>().ok()?)?,
+            _ => return None,
+        };
+    }
+    Some(current)
+}
+
+/// The value of an integer JSON number, or `None` for a number written with a fraction or exponent.
+fn exact_integer(number: &serde_json::Number) -> Option<i128> {
+    number.as_i64().map(i128::from).or_else(|| number.as_u64().map(i128::from))
+}
+
+/// Number equality that treats `8192` and `8192.0` as the same number. Two integers compare as
+/// integers, so `9007199254740992` and `9007199254740993` stay different.
+fn json_numbers_equal(a: &serde_json::Number, b: &serde_json::Number) -> bool {
+    match (exact_integer(a), exact_integer(b)) {
+        (Some(x), Some(y)) => x == y,
+        (None, None) => a.as_f64() == b.as_f64(),
+        (Some(integer), None) | (None, Some(integer)) => {
+            let float = if exact_integer(a).is_some() { b } else { a };
+            float
+                .as_f64()
+                .is_some_and(|f| f.fract() == 0.0 && f.abs() < 1e18 && f as i128 == integer)
+        }
+    }
+}
+
+/// JSON equality that treats `8192` and `8192.0` as the same number.
+fn json_values_equal(actual: &serde_json::Value, expected: &serde_json::Value) -> bool {
+    match (actual, expected) {
+        (serde_json::Value::Number(a), serde_json::Value::Number(b)) => json_numbers_equal(a, b),
+        _ => actual == expected,
+    }
+}
+
+/// Whether the bodies of the requests recorded for `key` hold `expected_json` at `field`.
+///
+/// `equals` needs at least one matching request and every one of them to hold the value.
+/// `not_equals` needs at least one matching request and none of them to hold it; a body that
+/// is not JSON, or lacks the field, does not hold it. An unknown `op` or unparsable
+/// `expected_json` answers false.
+fn request_bodies_match(key: &str, field: &str, op: &str, expected_json: &str) -> bool {
+    let Ok(expected) = serde_json::from_str::<serde_json::Value>(expected_json) else {
+        return false;
+    };
+    let (method, path) = match key.split_once(' ') {
+        Some((method, path)) => (Some(method), path),
+        None => (None, key),
+    };
+    let bodies = request_bodies().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut matched = 0usize;
+    let mut holding = 0usize;
+    for (request_method, request_path, body) in bodies.iter() {
+        if request_path != path || method.is_some_and(|m| m != request_method) {
+            continue;
+        }
+        matched += 1;
+        let holds = serde_json::from_slice::<serde_json::Value>(body)
+            .ok()
+            .is_some_and(|json| json_at_path(&json, field).is_some_and(|actual| json_values_equal(actual, &expected)));
+        if holds {
+            holding += 1;
+        }
+    }
+    match op {
+        "equals" => matched > 0 && holding == matched,
+        "not_equals" => matched > 0 && holding == 0,
+        _ => false,
+    }
 }
 
 /// Minimal `application/x-www-form-urlencoded`-style percent-decoder for query values.
@@ -133,6 +248,14 @@ fn handle_request_counter_control(method: &str, path: &str, query: Option<&str>)
         ("GET", "/__alef/requests/one") => {
             let key = query_param(query, "key").unwrap_or_default();
             Some(plain_text_response(StatusCode::OK, count_for_key(&key).to_string()))
+        }
+        ("GET", "/__alef/requests/body") => {
+            let key = query_param(query, "key").unwrap_or_default();
+            let field = query_param(query, "field").unwrap_or_default();
+            let op = query_param(query, "op").unwrap_or_default();
+            let value = query_param(query, "value").unwrap_or_default();
+            let holds = request_bodies_match(&key, &field, &op, &value);
+            Some(plain_text_response(StatusCode::OK, u8::from(holds).to_string()))
         }
         ("POST", "/__alef/requests/reset") => {
             let prefix = query_param(query, "prefix").unwrap_or_default();

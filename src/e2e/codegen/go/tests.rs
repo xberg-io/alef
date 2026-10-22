@@ -25,11 +25,14 @@ fn make_fixture(id: &str) -> Fixture {
             body: Some(serde_json::Value::Null),
             stream_chunks: None,
             headers: std::collections::BTreeMap::new(),
+            delay_ms: None,
+            stream_chunk_delay_ms: None,
         }),
         source: String::new(),
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
         assertions: vec![Assertion {
             assertion_type: "not_error".to_string(),
@@ -387,6 +390,7 @@ fn handle_config_deserialization_uses_resolved_options_type() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     };
     let data_enum_names = std::collections::HashSet::new();
@@ -466,6 +470,7 @@ fn test_result_is_simple_contains_binds_result_and_emits_imports() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
         assertions: vec![Assertion {
             assertion_type: "contains".to_string(),

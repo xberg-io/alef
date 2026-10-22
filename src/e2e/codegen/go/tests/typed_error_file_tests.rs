@@ -19,6 +19,8 @@ fn error_fixture(declared: &str) -> Fixture {
             body: Some(serde_json::Value::Null),
             stream_chunks: None,
             headers: std::collections::BTreeMap::new(),
+            delay_ms: None,
+            stream_chunk_delay_ms: None,
         }),
         assertions: vec![
             Assertion {

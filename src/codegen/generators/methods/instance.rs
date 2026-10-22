@@ -158,7 +158,7 @@ pub fn gen_method(
                     ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))"
                 }
                 AsyncPattern::NapiNativeAsync => ".map_err(alef_napi_err)",
-                AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
+                AsyncPattern::WasmNativeAsync => ".map_err(alef_wasm_err)",
                 AsyncPattern::TokioBlockOn => {
                     ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))"
                 }
@@ -205,7 +205,7 @@ pub fn gen_method(
                         ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))"
                     }
                     AsyncPattern::NapiNativeAsync => ".map_err(alef_napi_err)",
-                    AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
+                    AsyncPattern::WasmNativeAsync => ".map_err(alef_wasm_err)",
                     AsyncPattern::TokioBlockOn => {
                         ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))"
                     }
@@ -335,7 +335,7 @@ pub fn gen_method(
                         ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))"
                     }
                     AsyncPattern::NapiNativeAsync => ".map_err(alef_napi_err)",
-                    AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
+                    AsyncPattern::WasmNativeAsync => ".map_err(alef_wasm_err)",
                     _ => ".map_err(|e| e.to_string())",
                 };
                 let unwrapped = apply_return_newtype_unwrap("result", &method.return_newtype_wrapper);
@@ -453,7 +453,7 @@ pub fn gen_method(
                     ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))"
                 }
                 AsyncPattern::NapiNativeAsync => ".map_err(alef_napi_err)",
-                AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
+                AsyncPattern::WasmNativeAsync => ".map_err(alef_wasm_err)",
                 AsyncPattern::TokioBlockOn => {
                     ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))"
                 }

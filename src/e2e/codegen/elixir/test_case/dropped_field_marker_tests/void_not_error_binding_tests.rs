@@ -39,6 +39,7 @@ fn void_not_error_fixture_binds_underscored_and_emits_no_failing_assertion() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
         assertions: vec![Assertion {
             assertion_type: "not_error".to_string(),

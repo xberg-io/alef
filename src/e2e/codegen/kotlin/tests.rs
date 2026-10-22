@@ -197,6 +197,7 @@ fn handle_config_deserialization_uses_resolved_options_type() {
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     };
 
@@ -1027,6 +1028,7 @@ fn make_not_error_fixture_test_file(id: &str, assertions: Vec<Assertion>) -> Str
         http: None,
         asyncapi: None,
         websocket: None,
+        client_options: None,
         preserve_input_urls: false,
     };
     let e2e_config = E2eConfig::default();

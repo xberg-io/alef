@@ -637,6 +637,8 @@ mod tests {
                 body: Some(serde_json::json!({"mime": "application/pdf"})),
                 stream_chunks: None,
                 headers: Default::default(),
+                delay_ms: None,
+                stream_chunk_delay_ms: None,
             }),
             ..Fixture::default()
         };
@@ -857,6 +859,7 @@ mod tests {
             }),
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         };
 
@@ -943,6 +946,7 @@ mod tests {
             }),
             asyncapi: None,
             websocket: None,
+            client_options: None,
             preserve_input_urls: false,
         };
 

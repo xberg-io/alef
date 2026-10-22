@@ -10,7 +10,7 @@ use heck::ToLowerCamelCase;
 
 use super::super::helpers::{
     gen_php_call_args, gen_php_call_args_with_let_bindings, gen_php_function_params, gen_php_named_let_bindings,
-    php_wrap_return,
+    has_json_param, php_wrap_return,
 };
 use super::params::{
     PhpEnumReturnSets, PhpFunctionTarget, PhpParamTypeSets, apply_bridge_none_substitutions,
@@ -53,7 +53,8 @@ pub(crate) fn gen_async_function_as_static_method(
     let visible_params = promote_default_params(&visible_params, type_sets.default, type_sets.opaque);
     let params = gen_php_function_params(&visible_params, mapper, type_sets.opaque, &AHashSet::new());
     let return_type = mapper.map_type(&func.return_type);
-    let mut return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
+    let json_wrap = func.error_type.is_none() && has_json_param(&func.params);
+    let mut return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some() || json_wrap);
     if matches!(&func.return_type, TypeRef::Bytes) {
         return_annotation = override_bytes_return_type(&return_annotation);
     }
@@ -160,6 +161,7 @@ fn gen_async_function_body(
                     core_call => &core_call,
                         error_converter => error_converter,
                     result_wrap => &result_wrap,
+                    fallible => func.error_type.is_none() && has_json_param(&func.params),
                 },
             )
         }
@@ -186,11 +188,13 @@ pub(crate) fn gen_async_instance_method(
     let empty_bridges = AHashSet::new();
     let params = gen_php_function_params(&method.params, mapper, opaque_types, &empty_bridges);
     let return_type = mapper.map_type(&method.return_type);
-    let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
+    let adapter_key = format!("{type_name}.{}", method.name);
+    let json_wrap =
+        method.error_type.is_none() && has_json_param(&method.params) && !adapter_bodies.contains_key(&adapter_key);
+    let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some() || json_wrap);
 
     let can_delegate = shared::can_auto_delegate(method, opaque_types);
 
-    let adapter_key = format!("{type_name}.{}", method.name);
     let body = if let Some(body) = adapter_bodies.get(&adapter_key) {
         body.clone()
     } else if can_delegate && is_opaque {
@@ -235,6 +239,7 @@ pub(crate) fn gen_async_instance_method(
                     let_bindings => inner_clone,
                     core_call => &core_call,
                     result_wrap => &result_wrap,
+                    fallible => json_wrap,
                 },
             )
         }
@@ -279,6 +284,7 @@ pub(crate) fn gen_async_instance_method(
                     let_bindings => &let_bindings,
                     core_call => &core_call,
                     result_wrap => &result_wrap,
+                    fallible => json_wrap,
                 },
             )
         }
