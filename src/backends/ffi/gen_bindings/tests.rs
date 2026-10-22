@@ -19,4 +19,5 @@ mod methods;
 mod regressions;
 mod result_presence;
 mod security;
+mod stream_error_messages;
 mod visitor;
