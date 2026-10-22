@@ -159,7 +159,7 @@ fn ruby_core_calls_raise_the_typed_exception() {
         lib.contains("let result = test_lib::ping().map_err(alef_magnus_err)?;"),
         "the function call must route its error through the dispatch:\n{lib}"
     );
-    assert!(lib.contains("define_error(\"RateLimited\""), "{lib}");
+    assert!(lib.contains("define_error(\"RateLimitedError\""), "{lib}");
     assert!(lib.contains("define_attr(\"status_code\""), "{lib}");
     assert!(lib.contains("define_attr(\"retry_after\""), "{lib}");
     assert!(
@@ -173,7 +173,7 @@ fn ruby_optional_primitive_arguments_accept_nil() {
     let lib = generated(&MagnusBackend, &ruby_config(), "lib.rs");
     // Control: the optional string and the optional primitives are scanned the same way.
     assert!(
-        lib.contains("scan_args::<(String,), (Option<magnus::Value>, Option<magnus::Value>), (), (), (), ()>"),
+        lib.contains("scan_args::<(String,), (Option<magnus::Value>, Option<magnus::Value>,), (), (), (), ()>"),
         "{lib}"
     );
     assert!(
@@ -192,7 +192,7 @@ fn php_core_calls_throw_the_typed_exception() {
     assert!(lib.contains("fn alef_php_err<E"), "dispatch function missing:\n{lib}");
     assert!(lib.contains("fn client_error_to_php_err("), "{lib}");
     assert!(
-        lib.contains("test_lib::ping().map_err(alef_php_err)"),
+        lib.contains("test_lib::ping().map_err(client_error_to_php_err)"),
         "the function call must route its error through the dispatch:\n{lib}"
     );
     assert!(lib.contains("info_status_code"), "{lib}");
