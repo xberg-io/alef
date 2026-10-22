@@ -3,11 +3,10 @@ let async_result = alef_magnus_run_without_gvl(move || -> Result<_, String> {
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?;
-    {% if has_error -%}
-    rt.block_on(async { {{ core_call }}.await }).map_err(|e| e.to_string())
-    {%- else -%}
     Ok(rt.block_on(async { {{ core_call }}.await }))
-    {%- endif %}
 });
 let result = async_result.map_err(|message| magnus::Error::new(unsafe { Ruby::get_unchecked() }.exception_runtime_error(), message))?;
+{% if has_error -%}
+let result = result.map_err(alef_magnus_err)?;
+{% endif -%}
 Ok({{ wrap }})

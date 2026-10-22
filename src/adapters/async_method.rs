@@ -243,10 +243,10 @@ fn gen_ruby_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> Stri
                  .enable_all()\n        \
                  .thread_stack_size(ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES)\n        \
                  .build()\n        \
-                 .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
+                 .map_err(alef_magnus_err)?;\n    \
              rt.block_on(async {{ self.inner.{core_path}().await }})\n        \
              {map_expr}\n        \
-             .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))"
+             .map_err(alef_magnus_err)"
         )
     } else {
         let call_str = args.join(", ");
@@ -259,11 +259,11 @@ fn gen_ruby_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> Stri
                  .enable_all()\n        \
                  .thread_stack_size(ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES)\n        \
                  .build()\n        \
-                 .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
+                 .map_err(alef_magnus_err)?;\n    \
              let core_req = {call_str};\n    \
              rt.block_on(async {{ self.inner.{core_path}(core_req).await }})\n        \
              {map_expr}\n        \
-             .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))"
+             .map_err(alef_magnus_err)"
         )
     }
 }
@@ -292,7 +292,7 @@ fn gen_php_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> Strin
              {inner_call}\n    \
          }})\n    \
          {map_expr}\n    \
-         .map_err(|e| ext_php_rs::exception::PhpException::from_message(e.to_string()))"
+         .map_err(alef_php_err)"
     )
 }
 

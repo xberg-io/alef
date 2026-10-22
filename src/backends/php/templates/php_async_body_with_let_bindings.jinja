@@ -1,2 +1,3 @@
-{{ let_bindings }}let result = WORKER_RUNTIME.block_on(async { {{ core_call }}.await });
-    {{ result_wrap }}
+{% if fallible %}{{ let_bindings }}let result = WORKER_RUNTIME.block_on(async { Ok::<_, ext_php_rs::exception::PhpException>({{ core_call }}.await) })?;
+    Ok({{ result_wrap }}){% else %}{{ let_bindings }}let result = WORKER_RUNTIME.block_on(async { {{ core_call }}.await });
+    {{ result_wrap }}{% endif %}

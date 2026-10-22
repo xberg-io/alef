@@ -670,10 +670,12 @@ impl Backend for MagnusBackend {
             }
         }
 
+        builder.add_item(&crate::codegen::error_gen::gen_magnus_error_dispatch(api, &core_import));
         for error in &api.errors {
             builder.add_item(&crate::codegen::error_gen::gen_magnus_error_converter(
                 error,
                 &core_import,
+                &module_name,
             ));
             let methods_struct = crate::codegen::error_gen::gen_magnus_error_methods_struct(error, &core_import);
             if !methods_struct.is_empty() {

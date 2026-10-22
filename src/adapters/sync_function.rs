@@ -97,7 +97,7 @@ fn gen_ruby_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> Stri
     format!(
         "{core_path}({call_str})\n        \
          .map({returns}::from)\n        \
-         .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))"
+         .map_err(alef_magnus_err)"
     )
 }
 
@@ -111,7 +111,7 @@ fn gen_php_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> Strin
     format!(
         "{core_path}({call_str})\n        \
          .map({returns}::from)\n        \
-         .map_err(|e| PhpException::from_message(e.to_string()))"
+         .map_err(alef_php_err)"
     )
 }
 
