@@ -246,6 +246,9 @@ fn field_from_expr(field: &FieldDef, field_expr: &str) -> String {
         TypeRef::Duration => {
             format!("std::time::Duration::from_millis(*{field_expr} as u64)")
         }
+        TypeRef::String if field.core_wrapper == CoreWrapper::Cow => {
+            format!("std::borrow::Cow::Owned({field_expr}.clone())")
+        }
         TypeRef::String if field.core_wrapper == CoreWrapper::StaticStr => {
             format!("intern_static_str({field_expr})")
         }

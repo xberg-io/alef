@@ -9,8 +9,8 @@ use super::helpers::extract_binding_exclusion_reason;
 use crate::extract::type_resolver;
 
 use super::helpers::{
-    build_rust_path, extract_alef_error_code, extract_alef_transparent_string, extract_cfg_condition,
-    extract_doc_comments, extract_enum_variant, extract_error_message_template, extract_field,
+    build_rust_path, detect_core_wrapper, extract_alef_error_code, extract_alef_transparent_string,
+    extract_cfg_condition, extract_doc_comments, extract_enum_variant, extract_error_message_template, extract_field,
     extract_field_binding_exclusion_reason, extract_field_type_rust_path, extract_serde_container_conversion,
     extract_serde_rename_all, extract_serde_rename_all_fields, extract_serde_skip, extract_serde_skip_serializing_if,
     extract_version_annotation, has_alef_sensitive, has_cfg_attribute, has_container_serde_default, has_derive,
@@ -346,6 +346,8 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
                                 typed_default: None,
                                 core_wrapper: if is_static_str_ref(&f.ty) {
                                     CoreWrapper::StaticStr
+                                } else if detect_core_wrapper(&f.ty) == CoreWrapper::Cow {
+                                    CoreWrapper::Cow
                                 } else {
                                     CoreWrapper::None
                                 },

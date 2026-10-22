@@ -372,6 +372,10 @@ fn test_error_variant_fields_record_which_text_the_core_borrows() {
             TupleOwned(String),
             #[error("named optional owned")]
             NamedOptionalOwned { reason: Option<String> },
+            #[error("named cow: {reason}")]
+            NamedCow { reason: Cow<'static, str> },
+            #[error("tuple cow: {0}")]
+            TupleCow(Cow<'static, str>),
         }
     "#;
 
@@ -395,6 +399,9 @@ fn test_error_variant_fields_record_which_text_the_core_borrows() {
         "TupleOptionalBorrowed",
     ] {
         assert_eq!(wrapper(borrowed), CoreWrapper::StaticStr, "{borrowed} borrows its text");
+    }
+    for cow in ["NamedCow", "TupleCow"] {
+        assert_eq!(wrapper(cow), CoreWrapper::Cow, "{cow} holds a Cow");
     }
     for owned in ["NamedOwned", "TupleOwned", "NamedOptionalOwned"] {
         assert_eq!(wrapper(owned), CoreWrapper::None, "{owned} owns its text");
