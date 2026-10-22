@@ -171,7 +171,9 @@ fn lib_rs() -> String {
 /// The text of the generated function whose signature starts with `signature`, up to its closing
 /// brace at the same indentation.
 fn function_body<'a>(lib: &'a str, signature: &str) -> &'a str {
-    let start = lib.find(signature).unwrap_or_else(|| panic!("`{signature}` must be generated:\n{lib}"));
+    let start = lib
+        .find(signature)
+        .unwrap_or_else(|| panic!("`{signature}` must be generated:\n{lib}"));
     let rest = &lib[start..];
     let indent: String = lib[..start]
         .rsplit('\n')
@@ -222,7 +224,14 @@ fn the_converter_builds_an_error_with_the_node_property_names() {
         converter.contains("js_sys::Error::new(&message)"),
         "the rejection must be an Error instance:\n{converter}"
     );
-    for name in ["kind", "errorCode", "statusCode", "isTransient", "errorType", "retryAfter"] {
+    for name in [
+        "kind",
+        "errorCode",
+        "statusCode",
+        "isTransient",
+        "errorType",
+        "retryAfter",
+    ] {
         assert!(
             converter.contains(&format!("&\"{name}\".into()")),
             "the converter must set `{name}`, the name the Node binding uses:\n{converter}"

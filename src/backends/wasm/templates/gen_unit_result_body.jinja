@@ -1,2 +1,2 @@
-{{ let_bindings }}{{ core_call }}.map_err(|e| JsValue::from_str(&e.to_string()))?;
+{{ let_bindings }}{{ core_call }}.map_err(alef_wasm_err)?;
     Ok(())

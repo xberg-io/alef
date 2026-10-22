@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reject a WASM call with an `Error` that carries `kind`, `errorCode`, `statusCode`, `isTransient`, `errorType` and `retryAfter`, the same property names the Node binding uses. Every generated call site rejected with a plain string, so a caller lost the error kind, the HTTP status and the retry delay. `retryAfter` is in whole milliseconds, and `null` when the server sends no delay. (GH#648)
+- Reject a WASM streaming call when the server refuses the stream. The call resolved at once and the refusal (401, 429) surfaced on the first `next()`. The call now opens the stream before it resolves. An error in the middle of a stream rejects `next()` with the same typed error. (GH#649)
 - Serve a newline-delimited JSON stream when a streaming fixture sets a `content-type` that contains `ndjson`. The mock server wrote each chunk as `data: <chunk>`, added a `data: [DONE]` line, and sent two content-type headers. It now writes each chunk followed by one newline, with no `data:` prefix, no `[DONE]` line and one content-type header.
 
 ## [0.112.0] - 2026-10-21

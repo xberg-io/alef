@@ -46,10 +46,8 @@ pub fn napi_converter_fn_name(error: &ErrorDef) -> String {
     format!("{}_to_napi_err", to_snake_case(&error.name))
 }
 
-/// Generate a converter function that maps a core error to a `JsValue` object
-/// with `code` (string) and `message` (string) fields, plus a private
-/// `error_code` helper that returns the variant code string.
-pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str, source_remaps: &[(&str, &str)]) -> String {
+/// The Rust path of `error` in the generated WASM crate, with the source-crate remaps applied.
+fn wasm_error_rust_path(error: &ErrorDef, core_import: &str, source_remaps: &[(&str, &str)]) -> String {
     let mut rust_path = if error.rust_path.is_empty() {
         format!("{core_import}::{}", error.name)
     } else {
@@ -62,6 +60,63 @@ pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str, source_rema
             break;
         }
     }
+    rust_path
+}
+
+/// The own properties set on a thrown WASM error, as `(name, JsValue expression)` pairs.
+///
+/// The names match the Node binding's thrown error (`kind`, `errorCode`, `statusCode`,
+/// `isTransient`, `errorType`, and the duration getters such as `retryAfter` in whole
+/// milliseconds, `null` when absent), so a JS caller reads one shape from either package. The
+/// expressions read the converter locals `e`, `kind` and `error_code`.
+fn wasm_error_properties(error: &ErrorDef) -> Vec<(String, String)> {
+    let mut props = vec![
+        ("kind".to_string(), "wasm_bindgen::JsValue::from_str(kind)".to_string()),
+        (
+            "errorCode".to_string(),
+            "wasm_bindgen::JsValue::from_f64(f64::from(error_code))".to_string(),
+        ),
+    ];
+    for method in &error.methods {
+        match method.name.as_str() {
+            "status_code" => props.push((
+                "statusCode".to_string(),
+                "wasm_bindgen::JsValue::from_f64(f64::from(e.status_code()))".to_string(),
+            )),
+            "is_transient" => props.push((
+                "isTransient".to_string(),
+                "wasm_bindgen::JsValue::from_bool(e.is_transient())".to_string(),
+            )),
+            "error_type" => props.push((
+                "errorType".to_string(),
+                "wasm_bindgen::JsValue::from_str(&e.error_type().to_string())".to_string(),
+            )),
+            other => {
+                let Some((_, optional)) = duration_methods(error).into_iter().find(|(m, _)| m.name == other) else {
+                    continue;
+                };
+                let call = millis_expr(&format!("e.{other}()"), optional, "i64");
+                let value = if optional {
+                    format!(
+                        "match {call} {{ Some(v) => wasm_bindgen::JsValue::from_f64(v as f64), None => wasm_bindgen::JsValue::NULL }}"
+                    )
+                } else {
+                    format!("wasm_bindgen::JsValue::from_f64(({call}) as f64)")
+                };
+                props.push((heck::ToLowerCamelCase::to_lower_camel_case(other), value));
+            }
+        }
+    }
+    props
+}
+
+/// Generate a converter function that maps a core error to a JS `Error` object.
+///
+/// The `Error` keeps the display text as its `message`. It carries `code` (the snake-case variant
+/// name), the structured properties of [`wasm_error_properties`], and the payload fields of the
+/// variant. A private `error_code` helper returns the variant code string.
+pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str, source_remaps: &[(&str, &str)]) -> String {
+    let rust_path = wasm_error_rust_path(error, core_import, source_remaps);
 
     let fn_name = format!("{}_to_js_value", to_snake_case(&error.name));
     let code_fn_name = format!("{}_error_code", to_snake_case(&error.name));
@@ -131,17 +186,65 @@ pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str, source_rema
         },
     );
 
+    let unknown_code = crate::core::ir::ApiSurface::FFI_ERROR_CODE_UNKNOWN;
+    let mut kind_arms = Vec::with_capacity(error.variants.len() + 1);
+    for variant in &error.variants {
+        let pattern = error_variant_wildcard_pattern(&rust_path, variant);
+        let code = variant
+            .taxonomy(&error.rust_path)
+            .map_or(unknown_code, |taxonomy| taxonomy.code);
+        kind_arms.push(format!("        {pattern} => (\"{}\", {code}),", variant.name));
+    }
+    kind_arms.push(format!(
+        "        #[allow(unreachable_patterns)]\n        _ => (\"Unknown\", {unknown_code}),"
+    ));
+    let property_writes = wasm_error_properties(error)
+        .iter()
+        .map(|(name, value)| format!("    js_sys::Reflect::set(&obj, &\"{name}\".into(), &{value}).ok();"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
     let converter_fn = crate::codegen::template_env::render(
         "error_gen/wasm_error_converter.jinja",
         crate::alef_context! {
             rust_path => rust_path.as_str(),
             fn_name => fn_name.as_str(),
             code_fn_name => code_fn_name.as_str(),
+            kind_arms => kind_arms.join("\n"),
+            property_writes => property_writes,
             payload_projection => payload_projection,
         },
     );
 
     format!("{}\n\n{}", code_fn, converter_fn)
+}
+
+/// Generate `alef_wasm_err`, the one conversion every generated WASM call site uses.
+///
+/// A core error that has a typed converter (see [`gen_wasm_error_converter`]) keeps its kind,
+/// status and retry delay; any other `Display` error becomes a string, as before. The downcast
+/// lets a call site convert without naming the error type it came from. `errors` must be the
+/// errors whose converters the crate emits.
+pub fn gen_wasm_error_dispatch(errors: &[&ErrorDef], core_import: &str, source_remaps: &[(&str, &str)]) -> String {
+    let mut arms = String::new();
+    for error in errors {
+        arms.push_str(&format!(
+            "    let boxed = match boxed.downcast::<{}>() {{\n        Ok(typed) => return {}(*typed),\n        Err(other) => other,\n    }};\n",
+            wasm_error_rust_path(error, core_import, source_remaps),
+            wasm_converter_fn_name(error)
+        ));
+    }
+    format!(
+        "/// Convert any error a binding call returns into the `JsValue` it rejects with.\n\
+         #[allow(dead_code)]\n\
+         fn alef_wasm_err<E: std::fmt::Display + 'static>(e: E) -> wasm_bindgen::JsValue {{\n    \
+             let message = e.to_string();\n    \
+             let boxed: Box<dyn std::any::Any> = Box::new(e);\n\
+         {arms}    \
+             drop(boxed);\n    \
+             wasm_bindgen::JsValue::from_str(&message)\n\
+         }}"
+    )
 }
 
 fn wasm_payload_writes(names: &[&str], indent: &str) -> String {

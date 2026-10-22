@@ -17,9 +17,9 @@
 //! construction, not a claim either side is emitting the other's language.
 //!
 //! `method.is_async: true` mirrors the Node fixture: `gen_wasm_body`'s method body awaits the
-//! core call inside a `wasm_bindgen_futures::spawn_local` task, but the realistic *source* trait
-//! method a streaming adapter wraps is itself async (it must await before it can start
-//! producing a stream) -- see `src/adapters/streaming.rs`'s `gen_wasm_body`.
+//! core call that opens the stream, so the call rejects when the server refuses the stream, and
+//! the realistic *source* trait method a streaming adapter wraps is itself async -- see
+//! `src/adapters/streaming.rs`'s `gen_wasm_body`.
 //!
 //! `gen_method` (`backends/wasm/gen_bindings/methods.rs`) is `pub(super)` to
 //! `backends::wasm::gen_bindings`, unreachable from `src/docs` -- same story as the Go test's

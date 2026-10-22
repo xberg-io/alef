@@ -473,9 +473,8 @@ fn test_gen_wasm_error_converter() {
             "fn conversion_error_to_js_value(e: sample_markup_rs::ConversionError) -> wasm_bindgen::JsValue {"
         )
     );
-    assert!(output.contains("js_sys::Object::new()"));
+    assert!(output.contains("js_sys::Error::new(&e.to_string())"));
     assert!(output.contains("js_sys::Reflect::set(&obj, &\"code\".into(), &code.into()).ok()"));
-    assert!(output.contains("js_sys::Reflect::set(&obj, &\"message\".into(), &message.into()).ok()"));
     assert!(
         output
             .contains("if let sample_markup_rs::ConversionError::InputTooLarge { observed_size, max_size, .. } = &e {")
