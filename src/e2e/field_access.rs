@@ -104,3 +104,7 @@ mod byte_payload_result_tests;
 #[cfg(test)]
 #[path = "field_access/internally_tagged_variant_tests.rs"]
 mod internally_tagged_variant_tests;
+
+#[cfg(test)]
+#[path = "field_access/enum_payload_parts_tests.rs"]
+mod enum_payload_parts_tests;
