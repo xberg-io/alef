@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Serve a newline-delimited JSON stream when a streaming fixture sets a `content-type` that contains `ndjson`. The mock server wrote each chunk as `data: <chunk>`, added a `data: [DONE]` line, and sent two content-type headers. It now writes each chunk followed by one newline, with no `data:` prefix, no `[DONE]` line and one content-type header.
+- Zig: give every optional struct member, and every optional member of an enum payload struct, a `= null` default. `std.json` reports `MissingField` for an absent key on an optional member without a default, so a stream chunk that omitted `usage`, `system_fingerprint` or `service_tier` failed to parse. The parse stays strict for required members. (GH#650)
+- Zig: keep the HTTP status and the retry delay of a failed call. The deferred `_free` calls clear the FFI error state before the caller sees the error. The capture that copies the message now also copies every error introspection value into `LastErrorDetails`, which `_last_error_details()` returns. The retry delay is in milliseconds, and is `null` when the error has none. (GH#651)
 
 ## [0.112.0] - 2026-10-21
 
