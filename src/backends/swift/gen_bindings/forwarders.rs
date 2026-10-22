@@ -1,4 +1,5 @@
 use crate::backends::swift::gen_bindings::bridge_artifacts::already_emitted_top_level_names;
+use crate::backends::swift::gen_bindings::bridged_call::bridged_call;
 use crate::backends::swift::gen_bindings::client::emit_doc_comment;
 use crate::backends::swift::gen_rust_crate::type_bridge::{
     compute_handle_returned_types, result_ok_needs_json_bridge_with_handles,
@@ -409,7 +410,12 @@ pub(super) fn emit_single_free_function_forwarder(
     } else {
         ""
     };
-    let _ = effective_try;
+    let sync_call = format!("RustBridge.{swift_name}({args})");
+    let bridge_call = if func.error_type.is_some() {
+        bridged_call(&sync_call, true, false)
+    } else {
+        format!("{effective_try}{sync_call}")
+    };
 
     let body = if func.error_type.is_some() && return_uses_json_bridge(&func.return_type) {
         let decode_ty = forwarder_return_type(&func.return_type);
@@ -432,14 +438,11 @@ pub(super) fn emit_single_free_function_forwarder(
             },
         )
     } else if matches!(&func.return_type, TypeRef::Named(n) if client_class_names.contains(n)) {
-        let bridge_call_try = if func.error_type.is_some() { "try " } else { "" };
         let class_name = swift_type_name(&func.return_type);
         crate::backends::swift::template_env::render(
             "swift_sync_forwarder_client_return_body.swift.jinja",
             crate::alef_context! {
-                bridge_call_try => bridge_call_try,
-                function_name => swift_name,
-                args => &args,
+                bridge_call => &bridge_call,
                 class_name => &class_name,
             },
         )
@@ -450,27 +453,21 @@ pub(super) fn emit_single_free_function_forwarder(
         // `init(from: Decoder)` — so they cannot use the struct-return template. Decode ~keep
         // via the enum's `RawValue` initializer instead, matching the pattern already ~keep
         // used for enum-typed DTO fields (see `dto::swift_ffi_read_expr`). ~keep
-        let bridge_call_try = if func.error_type.is_some() { "try " } else { "" };
         let enum_name = swift_type_name(&func.return_type);
         crate::backends::swift::template_env::render(
             "swift_sync_forwarder_unit_enum_return_body.swift.jinja",
             crate::alef_context! {
-                bridge_call_try => bridge_call_try,
-                function_name => swift_name,
-                args => &args,
+                bridge_call => &bridge_call,
                 enum_name => &enum_name,
                 error_type_name => error_type_name,
             },
         )
     } else if bare_named_dto_return(&func.return_type, known_dto_names) {
-        let bridge_call_try = if func.error_type.is_some() { "try " } else { "" };
         let dto_name = swift_type_name(&func.return_type);
         crate::backends::swift::template_env::render(
             "swift_sync_forwarder_dto_return_body.swift.jinja",
             crate::alef_context! {
-                bridge_call_try => bridge_call_try,
-                function_name => swift_name,
-                args => &args,
+                bridge_call => &bridge_call,
                 dto_name => &dto_name,
             },
         )
@@ -478,9 +475,7 @@ pub(super) fn emit_single_free_function_forwarder(
         crate::backends::swift::template_env::render(
             "swift_sync_forwarder_result_return_body.swift.jinja",
             crate::alef_context! {
-                effective_try => effective_try,
-                function_name => swift_name,
-                args => &args,
+                bridge_call => &bridge_call,
                 return_suffix => &return_suffix,
             },
         )
@@ -559,7 +554,7 @@ pub(super) fn emit_async_free_function_forwarder(
             // fields (see `dto::swift_ffi_read_expr`). ~keep
             let enum_name = swift_ident(name);
             (
-                format!("try await RustBridge.{swift_name}({args})"),
+                bridged_call(&format!("RustBridge.{swift_name}({args})"), true, true),
                 format!(
                     "        let _rbRawValue = _rb_obj.to_string().toString()\n        guard let _rbValue = {enum_name}(rawValue: _rbRawValue) else {{\n            throw {}.validation(message: \"Unknown {enum_name} variant\", source: _rbRawValue)\n        }}\n        return _rbValue",
                     context.error_type_name
@@ -569,25 +564,25 @@ pub(super) fn emit_async_free_function_forwarder(
         TypeRef::Named(name) if known_dto_names.contains(name) => {
             let struct_name = swift_ident(name);
             (
-                format!("try await RustBridge.{swift_name}({args})"),
+                bridged_call(&format!("RustBridge.{swift_name}({args})"), true, true),
                 format!("        return try {struct_name}(_rb_obj)"),
             )
         }
         _ if result_ok_uses_json_bridge => {
             let decode_ty = forwarder_return_type(&func.return_type);
             (
-                format!("try await RustBridge.{swift_name}({args}).toString()"),
+                format!("{}.toString()", bridged_call(&format!("RustBridge.{swift_name}({args})"), true, true)),
                 format!(
                     "        let _rb_data = _rb_result.data(using: .utf8) ?? Data()\n        return try JSONDecoder().decode({decode_ty}.self, from: _rb_data)"
                 ),
             )
         }
         TypeRef::String => (
-            format!("try await RustBridge.{swift_name}({args})"),
+            bridged_call(&format!("RustBridge.{swift_name}({args})"), true, true),
             "        return result.toString()".to_string(),
         ),
         _ => (
-            format!("try await RustBridge.{swift_name}({args})"),
+            bridged_call(&format!("RustBridge.{swift_name}({args})"), true, true),
             "        return result".to_string(),
         ),
     };

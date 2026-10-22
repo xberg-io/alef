@@ -4,7 +4,7 @@
 /// Swift caller (swift-bridge boxes the handle internally). Declared `async fn`
 /// in the bridge module, so the Swift caller suspends while the request opens
 /// instead of parking a thread.
-pub async fn {{ fn_start }}({{ start_params }}) -> Result<{{ handle_name }}, String> {
+pub async fn {{ fn_start }}({{ start_params }}) -> Result<{{ handle_name }}, AlefBridgeError> {
     use ::futures_util::StreamExt;
 {{ param_bindings }}    // SAFETY: Swift keeps the owner alive until this future's task completes.
     let client: &'static {{ owner_type }} = unsafe { &*(client as *const {{ owner_type }}) };
@@ -12,11 +12,11 @@ pub async fn {{ fn_start }}({{ start_params }}) -> Result<{{ handle_name }}, Str
     let __alef_task = rt.spawn(async move {
         {{ core_call }}
             .await
-            .map_err(|e| e.to_string())
+            .map_err(alef_bridge_error)
     });
     let raw = __alef_task
         .await
-        .unwrap_or_else(|__alef_join_error| Err(format!("alef: spawned async task failed: {__alef_join_error}")))?;
+        .unwrap_or_else(|__alef_join_error| Err(AlefBridgeError::from(format!("alef: spawned async task failed: {__alef_join_error}"))))?;
     let erased: ::futures_util::stream::BoxStream<
         'static,
         Result<{{ core_item }}, Box<dyn ::std::error::Error + Send + Sync + 'static>>,

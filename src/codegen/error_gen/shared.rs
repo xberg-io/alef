@@ -3,7 +3,7 @@ use crate::core::ir::ErrorVariant;
 
 /// Generate a wildcard match pattern for an error variant.
 /// Struct variants use `{ .. }`, tuple variants use `(..)`, unit variants have no suffix.
-pub(super) fn error_variant_wildcard_pattern(rust_path: &str, variant: &ErrorVariant) -> String {
+pub(crate) fn error_variant_wildcard_pattern(rust_path: &str, variant: &ErrorVariant) -> String {
     if variant.is_unit {
         format!("{rust_path}::{}", variant.name)
     } else if is_tuple_variant(&variant.fields) {

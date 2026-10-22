@@ -61,7 +61,11 @@ pub(super) fn emit_capsule_free_function_forwarder(
         format!(" -> {host_type}?")
     };
 
-    let c_call = format!("RustBridge.{swift_name}({})", c_args.join(", "));
+    let c_call = if is_fallible {
+        super::super::bridged_call::bridged_call(&format!("RustBridge.{swift_name}({})", c_args.join(", ")), true, false)
+    } else {
+        format!("RustBridge.{swift_name}({})", c_args.join(", "))
+    };
     let construct = match capsule_cfg.construct_required("cLang", "Language", "swift") {
         Ok(c) => c,
         Err(e) => {
@@ -131,7 +135,11 @@ pub(super) fn emit_async_capsule_free_function_forwarder(
     let sig = sig_params.join(", ");
     let return_clause = format!(" -> {host_type}");
 
-    let c_call = format!("RustBridge.{swift_name}({})", c_args.join(", "));
+    let c_call = super::super::bridged_call::bridged_call(
+        &format!("RustBridge.{swift_name}({})", c_args.join(", ")),
+        true,
+        true,
+    );
     let construct = match capsule_cfg.construct_required("cLang", "Language", "swift") {
         Ok(c) => c,
         Err(e) => {
@@ -144,7 +152,7 @@ pub(super) fn emit_async_capsule_free_function_forwarder(
     );
 
     let body = format!(
-        "        let addr = try await {c_call}\n        guard addr != 0, let cLang = OpaquePointer(bitPattern: addr) else {{ throw {nil_error} }}\n        return {construct}\n"
+        "        let addr = {c_call}\n        guard addr != 0, let cLang = OpaquePointer(bitPattern: addr) else {{ throw {nil_error} }}\n        return {construct}\n"
     );
 
     out.push_str(&super::render_async_forwarder(
