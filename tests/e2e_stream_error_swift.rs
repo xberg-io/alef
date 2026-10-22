@@ -53,13 +53,35 @@ args = []
         .join("\n")
 }
 
+/// The statements of the `do` block of the generated test, and the text that follows it.
+fn split_do_block(output: &str) -> (&str, &str) {
+    let (before_catch, handler) = output
+        .split_once("        } catch {")
+        .expect("the error test has a catch block");
+    let (_, do_block) = before_catch
+        .rsplit_once("        do {\n")
+        .expect("the catch block closes a do block");
+    (do_block, handler)
+}
+
 #[test]
-fn stream_error_reads_the_stream_before_the_expected_throw_check() {
+fn stream_error_reads_the_stream_inside_the_do_block_before_the_expected_throw_check() {
     let output = render(true);
-    let read = output.find("for try await _ in _stream {}").expect("stream is read");
-    let fail = output.find("XCTFail(\"expected to throw\")").expect("error check");
-    let call = output.find("let _stream = try await").expect("stream is bound");
-    assert!(call < read && read < fail, "{output}");
+    let (do_block, handler) = split_do_block(&output);
+    let bind = do_block
+        .find("let _stream = try await")
+        .expect("the stream is bound inside the do block");
+    let read = do_block
+        .find("for try await _ in _stream {}")
+        .expect("the stream is read inside the do block");
+    let fail = do_block
+        .find("XCTFail(\"expected to throw\")")
+        .expect("the throw check is inside the do block");
+    assert!(bind < read && read < fail, "{output}");
+    assert!(
+        !handler.contains("for try await") && !handler.contains("let _stream"),
+        "the stream is not read after the catch block starts:\n{output}"
+    );
 }
 
 #[test]
