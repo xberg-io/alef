@@ -303,7 +303,11 @@ fn exception_class_has_the_constructor_the_native_layer_calls() {
         "constructor(message: String?, kind: String?, status: Int, retryAfterMs: Long)",
         "constructor(message: String?)",
     ] {
-        assert!(exception.content.contains(needle), "missing `{needle}`: {}", exception.content);
+        assert!(
+            exception.content.contains(needle),
+            "missing `{needle}`: {}",
+            exception.content
+        );
     }
 }
 

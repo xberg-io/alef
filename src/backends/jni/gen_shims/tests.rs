@@ -582,10 +582,12 @@ namespace = "dev.sample_crate"
             binding_exclusion_reason: None,
             version: Default::default(),
         };
-        let mut function = crate::core::ir::FunctionDef::default();
-        function.name = "ping".to_string();
-        function.error_type = Some("SampleError".to_string());
-        function.return_type = TypeRef::String;
+        let function = crate::core::ir::FunctionDef {
+            name: "ping".to_string(),
+            error_type: Some("SampleError".to_string()),
+            return_type: TypeRef::String,
+            ..Default::default()
+        };
         let api = crate::core::ir::ApiSurface {
             unresolved_modules: Vec::new(),
             crate_name: "demo".into(),
