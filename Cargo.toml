@@ -76,7 +76,7 @@ heck = "0.5"
 # `codegen::identifier_grammar` accept are read from these two Unicode tables, so a caret bump
 # silently changes which identifiers are legal (and the Unicode version `identifier_grammar`
 # states). See `tests/unicode_dependency_pins.rs`. ~keep
-icu_casemap = "=2.3.0"
+icu_casemap = "=2.4.0"
 jsonschema = { version = "0.59", default-features = false, features = ["resolve-file"] }
 libloading = { version = "0.9", optional = true }
 minijinja = { version = "3.0", features = ["serde"] }
