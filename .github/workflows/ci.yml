@@ -138,7 +138,7 @@ jobs:
       - name: Set up Dart for constructor default runtime checks
         uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d
         with:
-          sdk: "3.13.6"
+          sdk: "3.13.7"
       - uses: xberg-io/actions/setup-zig@v1
         with:
           version: "0.17.0"
