@@ -51,7 +51,7 @@ fn should_preserve_optional_hidden_error_source_case_arity_without_transporting_
         ..Default::default()
     };
     let bridge = crate::backends::swift::gen_rust_crate::bridge_error::definition(&api, "sample_core");
-    assert!(bridge.contains("source: _"), "{bridge}");
+    assert!(!bridge.contains("source: _"), "{bridge}");
     assert!(!bridge.contains("serde_json::to_string(__alef_field_1)"), "{bridge}");
     let mut private = error;
     private.variants[0].fields[1].sensitive = true;

@@ -69,17 +69,19 @@ fn payload_pattern(rust_path: &str, variant: &crate::core::ir::ErrorVariant) -> 
     if variant.is_unit || variant.fields.is_empty() {
         return crate::codegen::error_gen::error_variant_wildcard_pattern(rust_path, variant);
     }
+    let tuple = crate::codegen::conversions::is_tuple_variant(&variant.fields);
     let fields: Vec<String> = variant
         .fields
         .iter()
         .enumerate()
+        .filter(|(_, field)| tuple || payload_field_supported(field))
         .map(|(index, field)| {
             let binding = if payload_field_supported(field) {
                 format!("__alef_field_{index}")
             } else {
                 "_".to_string()
             };
-            if crate::codegen::conversions::is_tuple_variant(&variant.fields) {
+            if tuple {
                 binding
             } else {
                 format!(
@@ -89,8 +91,11 @@ fn payload_pattern(rust_path: &str, variant: &crate::core::ir::ErrorVariant) -> 
             }
         })
         .collect();
+    if fields.is_empty() {
+        return crate::codegen::error_gen::error_variant_wildcard_pattern(rust_path, variant);
+    }
     let joined = fields.join(", ");
-    if crate::codegen::conversions::is_tuple_variant(&variant.fields) {
+    if tuple {
         format!("{rust_path}::{}({joined})", variant.name)
     } else {
         format!("{rust_path}::{} {{ {joined}, .. }}", variant.name)
@@ -174,3 +179,7 @@ pub(crate) fn definition(api: &ApiSurface, source_crate: &str) -> String {
         },
     )
 }
+
+#[cfg(test)]
+#[path = "bridge_error_pattern_tests.rs"]
+mod tests;
