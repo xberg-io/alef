@@ -226,7 +226,7 @@ pub(super) fn render_assertion(
     if is_streaming
         && let Some(f) = &assertion.field
         && !f.is_empty()
-        && crate::e2e::codegen::streaming_assertions::is_streaming_virtual_field(f)
+        && crate::e2e::codegen::streaming_assertions::is_streaming_call_field(f)
     {
         if let Some(expr) =
             crate::e2e::codegen::streaming_assertions::StreamingFieldResolver::accessor(f, "elixir", result_var)

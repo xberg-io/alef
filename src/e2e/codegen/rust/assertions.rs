@@ -128,7 +128,7 @@ pub fn render_assertion_with_streaming(
     result_is_option: bool,
     returns_result: bool,
     streaming_item_type: Option<&str>,
-    _is_streaming: bool,
+    is_streaming: bool,
 ) {
     // Vec<T> result: iterate per-element so each assertion checks every element.
     // Field-path assertions become `for r in &{result} { <assert using r> }`.
@@ -137,7 +137,7 @@ pub fn render_assertion_with_streaming(
     let has_field = assertion.field.as_ref().is_some_and(|f| !f.is_empty());
     if result_is_vec && has_field && !is_error_context {
         let _ = writeln!(out, "    for r in &{result_var} {{");
-        render_assertion(
+        render_assertion_with_streaming(
             out,
             assertion,
             "r",
@@ -152,6 +152,7 @@ pub fn render_assertion_with_streaming(
             result_is_option,
             returns_result,
             streaming_item_type,
+            is_streaming,
         );
         let _ = writeln!(out, "    }}");
         return;
@@ -179,7 +180,7 @@ pub fn render_assertion_with_streaming(
             out,
             "    let r = {result_var}.as_ref().expect(\"Option<T> should be Some\");"
         );
-        render_assertion(
+        render_assertion_with_streaming(
             out,
             assertion,
             "r",
@@ -194,6 +195,7 @@ pub fn render_assertion_with_streaming(
             false, // already unwrapped
             returns_result,
             streaming_item_type,
+            is_streaming,
         );
         return;
     }
@@ -267,6 +269,7 @@ pub fn render_assertion_with_streaming(
         dep_name,
         field_resolver,
         streaming_item_type,
+        is_streaming,
     ) {
         return;
     }

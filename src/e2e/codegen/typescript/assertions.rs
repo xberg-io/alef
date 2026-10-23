@@ -401,8 +401,8 @@ fn render_synthetic_field_assertion(
         // (`[e2e.calls.<name>] streaming = false`) — `chunks` then names a plain
         // field on the synchronous result struct and must flow through normal
         // accessor resolution (e.g. `result.chunks`).
-        f if is_streaming && crate::e2e::codegen::streaming_assertions::is_streaming_virtual_field(f) => {
-            streaming::render(out, assertion, f, streaming_item_enum)
+        f if is_streaming && crate::e2e::codegen::streaming_assertions::is_streaming_call_field(f) => {
+            streaming::render(out, assertion, f, streaming_item_enum, lang)
         }
         _ => false,
     }

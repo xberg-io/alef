@@ -12,7 +12,7 @@ use crate::e2e::codegen::call_ir::{CallIr, resolve_declared_result_type};
 use crate::e2e::codegen::rust::args::{
     emit_rust_visitor_method, render_rust_arg, resolve_handle_config_type, resolve_visitor_trait,
 };
-use crate::e2e::codegen::rust::assertions::render_assertion;
+use crate::e2e::codegen::rust::assertions::{render_assertion, render_assertion_with_streaming};
 use crate::e2e::codegen::rust::http::render_http_test_function;
 use crate::e2e::codegen::rust::mock_server::render_mock_server_setup;
 
@@ -586,7 +586,7 @@ pub fn render_test_function(
         }
         match &a.field {
             Some(f) if !f.is_empty() => {
-                if is_streaming && crate::e2e::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+                if is_streaming && crate::e2e::codegen::streaming_assertions::is_streaming_call_field(f) {
                     return true;
                 }
                 // ~keep The renderer's own answer, not a second derivation of it: an assertion
@@ -767,7 +767,7 @@ pub fn render_test_function(
             // Already handled by .expect() above.
             continue;
         }
-        render_assertion(
+        render_assertion_with_streaming(
             out,
             assertion,
             result_var,
@@ -782,6 +782,7 @@ pub fn render_test_function(
             result_is_option,
             returns_result,
             streaming_item_type,
+            is_streaming,
         );
     }
 

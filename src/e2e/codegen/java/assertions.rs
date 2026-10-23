@@ -328,7 +328,7 @@ pub(super) fn render_assertion(
     if let Some(f) = &assertion.field
         && is_streaming
         && !f.is_empty()
-        && crate::e2e::codegen::streaming_assertions::is_streaming_virtual_field(f)
+        && crate::e2e::codegen::streaming_assertions::is_streaming_call_field(f)
     {
         if let Some(expr) =
             crate::e2e::codegen::streaming_assertions::StreamingFieldResolver::accessor_with_streaming_context(

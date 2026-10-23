@@ -366,7 +366,7 @@ pub(super) fn render_test_function_with_facts(
         }
         match &a.field {
             Some(f) if !f.is_empty() => {
-                if is_streaming && crate::e2e::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+                if is_streaming && crate::e2e::codegen::streaming_assertions::is_streaming_call_field(f) {
                     return true;
                 }
                 if result_is_simple {

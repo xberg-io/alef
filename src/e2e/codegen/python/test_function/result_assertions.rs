@@ -104,7 +104,7 @@ pub(super) fn emit_result_and_assertions(
                 continue;
             }
             if let Some(f) = &assertion.field
-                && crate::e2e::codegen::streaming_assertions::is_streaming_virtual_field(f)
+                && crate::e2e::codegen::streaming_assertions::is_streaming_call_field(f)
             {
                 emit_streaming_virtual_assertion(
                     &mut streaming_assertions,

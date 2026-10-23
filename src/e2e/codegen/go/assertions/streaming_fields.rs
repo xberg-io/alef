@@ -34,7 +34,7 @@ pub(super) fn render_streaming_field_assertion(
     if context.result_is_simple
         || !context.is_streaming
         || f.is_empty()
-        || !crate::e2e::codegen::streaming_assertions::is_streaming_virtual_field(f)
+        || !crate::e2e::codegen::streaming_assertions::is_streaming_call_field(f)
     {
         return false;
     }

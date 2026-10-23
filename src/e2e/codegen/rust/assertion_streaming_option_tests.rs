@@ -42,7 +42,8 @@ fn render(field: &str, assertion_type: &str, array_fields: &[&str]) -> String {
     };
     let resolver = optional_resolver(field, array_fields);
     let mut out = String::new();
-    let handled = try_render_streaming_virtual_field_assertion(&mut out, &assertion, "sample_dep", &resolver, None);
+    let handled =
+        try_render_streaming_virtual_field_assertion(&mut out, &assertion, "sample_dep", &resolver, None, true);
     assert!(
         handled,
         "'{field}' must be handled as a streaming-virtual field, got: {out}"

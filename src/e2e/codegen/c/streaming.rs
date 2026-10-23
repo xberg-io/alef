@@ -41,6 +41,89 @@ pub(super) fn resolve_c_streaming_adapter(
         })
 }
 
+/// The integer counters a streaming fixture reads off the stream's `usage` payload, with the
+/// snake-case name of the usage type that owns their accessors.
+///
+/// The driver loop reads each counter off every chunk that carries a usage handle and keeps the
+/// last value, which is what `usage.<counter>` means on a stream.
+#[derive(Default)]
+pub(super) struct UsageProbe {
+    type_snake: String,
+    fields: Vec<String>,
+}
+
+impl UsageProbe {
+    fn local(field: &str) -> String {
+        format!("last_usage_{field}")
+    }
+
+    fn reads(&self, field: &str) -> bool {
+        self.fields.iter().any(|f| f == field)
+    }
+}
+
+/// Resolve the usage counters the fixture asserts on from the IR.
+///
+/// A counter qualifies when the chunk type has a `usage` field of a named type and that type has
+/// an integer field of the asserted name. Anything else stays unresolved, so its assertion
+/// renders the registered skip comment instead of calling an accessor the header lacks.
+fn resolve_usage_probe(
+    fixture: &Fixture,
+    type_defs: &[crate::core::ir::TypeDef],
+    item_type: &str,
+) -> UsageProbe {
+    use crate::core::ir::{PrimitiveType, TypeRef};
+    fn named(ty: &TypeRef) -> Option<&str> {
+        match ty {
+            TypeRef::Named(name) => Some(name.rsplit("::").next().unwrap_or(name)),
+            TypeRef::Optional(inner) => named(inner),
+            _ => None,
+        }
+    }
+    let find = |name: &str| type_defs.iter().find(|t| t.name == name);
+    let Some(usage_type) = find(item_type)
+        .and_then(|chunk| chunk.fields.iter().find(|f| f.name == "usage"))
+        .and_then(|f| named(&f.ty))
+        .and_then(find)
+    else {
+        return UsageProbe::default();
+    };
+    let mut fields: Vec<String> = Vec::new();
+    for assertion in &fixture.assertions {
+        let Some(counter) = assertion.field.as_deref().and_then(|f| f.strip_prefix("usage.")) else {
+            continue;
+        };
+        let is_integer = usage_type.fields.iter().any(|f| {
+            f.name == counter
+                && matches!(
+                    &f.ty,
+                    TypeRef::Primitive(
+                        PrimitiveType::U8
+                            | PrimitiveType::U16
+                            | PrimitiveType::U32
+                            | PrimitiveType::U64
+                            | PrimitiveType::I8
+                            | PrimitiveType::I16
+                            | PrimitiveType::I32
+                            | PrimitiveType::I64
+                            | PrimitiveType::Usize
+                            | PrimitiveType::Isize
+                    )
+                )
+        });
+        if is_integer && !fields.iter().any(|f| f == counter) {
+            fields.push(counter.to_string());
+        }
+    }
+    if fields.is_empty() {
+        return UsageProbe::default();
+    }
+    UsageProbe {
+        type_snake: usage_type.name.to_snake_case(),
+        fields,
+    }
+}
+
 pub(super) fn resolve_c_client_owner_type(
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
@@ -110,8 +193,8 @@ pub(super) fn render_c_diagnostic_skip(out: &mut String, reason: &str) {
 /// translated to assertions on these locals. Chat-specific field extraction
 /// remains best effort and unsupported fields — `stream_content`,
 /// `stream_complete`, `finish_reason`, `tool_calls`,
-/// `tool_calls[0].function.name`, `usage.total_tokens` — are skipped by
-/// `emit_chat_stream_assertion`.
+/// `tool_calls[0].function.name` — are skipped by `emit_chat_stream_assertion`. A `usage.<counter>`
+/// assertion is real: the loop reads the counter off each chunk's usage handle.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn render_streaming_test_function(
     out: &mut String,
@@ -125,6 +208,7 @@ pub(super) fn render_streaming_test_function(
     errors: &[crate::core::ir::ErrorDef],
     api_key_var: Option<&str>,
     documentation_snippet: bool,
+    type_defs: &[crate::core::ir::TypeDef],
 ) {
     // cbindgen's `[export] prefix` (shouty-snake), not a bare uppercase — see
     // `c_consumer::export_type_prefix`. ~keep
@@ -138,6 +222,7 @@ pub(super) fn render_streaming_test_function(
     let stream_start = format!("{prefix}_{owner_snake}_{adapter_name}_start");
     let stream_next = format!("{prefix}_{owner_snake}_{adapter_name}_next");
     let stream_free = format!("{prefix}_{owner_snake}_{adapter_name}_free");
+    let usage = resolve_usage_probe(fixture, type_defs, item_type_pascal);
 
     let mut request_var: Option<String> = None;
     for arg in args {
@@ -280,6 +365,12 @@ pub(super) fn render_streaming_test_function(
         out,
         "    int no_chunks_after_done = 1; /* true by construction: the loop below cannot call stream_next again once it observes done */"
     );
+    if !usage.fields.is_empty() {
+        let _ = writeln!(out, "    int usage_seen = 0;");
+        for field in &usage.fields {
+            let _ = writeln!(out, "    long long {} = 0;", UsageProbe::local(field));
+        }
+    }
     let _ = writeln!(out);
 
     let _ = writeln!(out, "    while (1) {{");
@@ -292,13 +383,32 @@ pub(super) fn render_streaming_test_function(
         crate::alef_context! { result_var => result_var, prefix => prefix },
     ));
     let _ = writeln!(out, "        chunks_count++;");
+    if !usage.fields.is_empty() {
+        // The usage payload rides on the final chunk only, so keep the last non-null one.
+        let usage_snake = &usage.type_snake;
+        let _ = writeln!(
+            out,
+            "        {prefix_upper}AlefHandle chunk_usage = {prefix}_{item_type_snake}_usage({result_var});"
+        );
+        let _ = writeln!(out, "        if (chunk_usage != 0) {{");
+        let _ = writeln!(out, "            usage_seen = 1;");
+        for field in &usage.fields {
+            let _ = writeln!(
+                out,
+                "            {} = (long long){prefix}_{usage_snake}_{field}(chunk_usage);",
+                UsageProbe::local(field)
+            );
+        }
+        let _ = writeln!(out, "            {prefix}_{usage_snake}_free(chunk_usage);");
+        let _ = writeln!(out, "        }}");
+    }
     let _ = writeln!(out, "        {prefix}_{item_type_snake}_free({result_var});");
     let _ = writeln!(out, "    }}");
     let _ = writeln!(out, "    {stream_free}(stream_handle);");
     let _ = writeln!(out);
 
     for assertion in &fixture.assertions {
-        emit_chat_stream_assertion(out, assertion);
+        emit_chat_stream_assertion(out, assertion, &usage);
     }
 
     let _ = writeln!(out, "    free(stream_content);");
@@ -311,13 +421,16 @@ pub(super) fn render_streaming_test_function(
         "    /* suppress unused */ (void)no_chunks_after_done; \
          (void)chunks_count; (void)stream_content_len;"
     );
+    if !usage.fields.is_empty() {
+        let _ = writeln!(out, "    (void)usage_seen;");
+    }
     let _ = writeln!(out, "}}");
 }
 
 /// Emit a single fixture assertion for a streaming test, mapping fixture
 /// pseudo-field references (`chunks`, `no_chunks_after_done`, ...)
 /// to the local aggregator variables built by [`render_streaming_test_function`].
-fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion) {
+fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion, usage: &UsageProbe) {
     // `mock.*` (alef issue #443) never reaches `assertions::render_assertion` for a streaming
     // fixture -- this function is the split-dispatch path the issue's own intel table named `c`
     // for. Intercept first, exactly like that shared oracle does. ~keep
@@ -333,7 +446,16 @@ fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion) {
         Unsupported,
     }
 
+    // `usage.<counter>` reads the local the driver loop fills from the last chunk's usage handle.
+    // It is a counter, so it takes the integer arms below like `chunks`; it additionally requires
+    // that a usage payload arrived, so a stream without one fails instead of comparing zero.
+    let usage_local = field
+        .strip_prefix("usage.")
+        .filter(|counter| usage.reads(counter))
+        .map(UsageProbe::local);
+
     let (expr, kind) = match field {
+        _ if usage_local.is_some() => (usage_local.as_deref().unwrap_or(""), Kind::IntCount),
         "chunks" => ("chunks_count", Kind::IntCount),
         "no_chunks_after_done" => ("no_chunks_after_done", Kind::Bool),
         // `stream_complete` joins the unsupported set rather than keeping a local of its own.
@@ -347,8 +469,7 @@ fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion) {
         | "stream_content"
         | "finish_reason"
         | "tool_calls"
-        | "tool_calls[0].function.name"
-        | "usage.total_tokens" => ("", Kind::Unsupported),
+        | "tool_calls[0].function.name" => ("", Kind::Unsupported),
         _ => ("", Kind::Unsupported),
     };
 
@@ -374,10 +495,11 @@ fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion) {
     // `FieldSkip`'s nor `AssertionTypeSkip`'s registered wording, so it rendered a comment no
     // strict gate could see. Both are now routed through the same funnel every other backend
     // (dart/elixir/go/java/kotlin/php/swift/typescript/zig) already uses.
+    let seen = if usage_local.is_some() { "usage_seen && " } else { "" };
     match (atype, &kind) {
         ("count_min", Kind::IntCount) => {
             if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
-                let _ = writeln!(out, "    assert({expr} >= {n} && \"expected at least {n} chunks\");");
+                let _ = writeln!(out, "    assert({seen}{expr} >= {n} && \"expected at least {n} chunks\");");
             } else {
                 let _ = writeln!(
                     out,
@@ -394,7 +516,7 @@ fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion) {
         }
         ("greater_than_or_equal", Kind::IntCount) => {
             if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
-                let _ = writeln!(out, "    assert({expr} >= {n} && \"expected {expr} >= {n}\");");
+                let _ = writeln!(out, "    assert({seen}{expr} >= {n} && \"expected {expr} >= {n}\");");
             } else {
                 let _ = writeln!(
                     out,
@@ -405,7 +527,7 @@ fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion) {
         }
         ("equals", Kind::IntCount) => {
             if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
-                let _ = writeln!(out, "    assert({expr} == {n} && \"equals assertion failed\");");
+                let _ = writeln!(out, "    assert({seen}{expr} == {n} && \"equals assertion failed\");");
             } else {
                 let _ = writeln!(
                     out,
@@ -426,7 +548,7 @@ fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion) {
 
 #[cfg(test)]
 mod emit_chat_stream_assertion_tests {
-    use super::emit_chat_stream_assertion;
+    use super::{UsageProbe, emit_chat_stream_assertion};
     use crate::e2e::codegen::assertion_type_skip::AssertionTypeSkip;
     use crate::e2e::fixture::Assertion;
 
@@ -445,7 +567,7 @@ mod emit_chat_stream_assertion_tests {
             ..Assertion::default()
         };
         let mut out = String::new();
-        emit_chat_stream_assertion(&mut out, &assertion);
+        emit_chat_stream_assertion(&mut out, &assertion, &UsageProbe::default());
         assert_eq!(
             out,
             "    assert(alef_mock_request_count(getenv(\"MOCK_SERVER_URL\"), \"/__alef/requests/total?prefix=\") == 2 && \"equals assertion failed\");\n",
@@ -468,7 +590,7 @@ mod emit_chat_stream_assertion_tests {
             ..Assertion::default()
         };
         let mut out = String::new();
-        emit_chat_stream_assertion(&mut out, &assertion);
+        emit_chat_stream_assertion(&mut out, &assertion, &UsageProbe::default());
         assert_eq!(
             out, "    /* skipped: assertion type 'count_min' has no renderable value for streaming field 'chunks' */\n",
             "got: {out}"
@@ -491,7 +613,7 @@ mod emit_chat_stream_assertion_tests {
             ..Assertion::default()
         };
         let mut out = String::new();
-        emit_chat_stream_assertion(&mut out, &assertion);
+        emit_chat_stream_assertion(&mut out, &assertion, &UsageProbe::default());
         assert_eq!(
             out,
             "    /* skipped: assertion type 'greater_than_or_equal' has no renderable value for streaming field \
@@ -514,7 +636,7 @@ mod emit_chat_stream_assertion_tests {
             ..Assertion::default()
         };
         let mut out = String::new();
-        emit_chat_stream_assertion(&mut out, &assertion);
+        emit_chat_stream_assertion(&mut out, &assertion, &UsageProbe::default());
         assert_eq!(
             out,
             "    /* skipped: assertion type 'matches_regex' on field 'chunks' not yet supported for streaming */\n",
@@ -538,7 +660,7 @@ mod emit_chat_stream_assertion_tests {
             ..Assertion::default()
         };
         let mut out = String::new();
-        emit_chat_stream_assertion(&mut out, &assertion);
+        emit_chat_stream_assertion(&mut out, &assertion, &UsageProbe::default());
         assert_eq!(
             out, "    assert(chunks_count >= 2 && \"expected at least 2 chunks\");\n",
             "got: {out}"
@@ -548,7 +670,9 @@ mod emit_chat_stream_assertion_tests {
 
 #[cfg(test)]
 mod stream_completion_signal_tests {
-    use super::{CStreamingAdapterMetadata, emit_chat_stream_assertion, render_streaming_test_function};
+    use super::{
+        CStreamingAdapterMetadata, UsageProbe, emit_chat_stream_assertion, render_streaming_test_function,
+    };
     use crate::e2e::codegen::field_skip::FieldSkip;
     use crate::e2e::fixture::{Assertion, Fixture};
 
@@ -581,6 +705,7 @@ mod stream_completion_signal_tests {
             &[],
             None,
             false,
+            &[],
         );
         out
     }
@@ -622,7 +747,7 @@ mod stream_completion_signal_tests {
             ..Assertion::default()
         };
         let mut out = String::new();
-        emit_chat_stream_assertion(&mut out, &assertion);
+        emit_chat_stream_assertion(&mut out, &assertion, &UsageProbe::default());
 
         assert_eq!(
             out,
@@ -645,11 +770,98 @@ mod stream_completion_signal_tests {
             ..Assertion::default()
         };
         let mut out = String::new();
-        emit_chat_stream_assertion(&mut out, &assertion);
+        emit_chat_stream_assertion(&mut out, &assertion, &UsageProbe::default());
 
         assert_eq!(
             out, "    assert(no_chunks_after_done && \"expected no_chunks_after_done to be true\");\n",
             "got: {out}"
         );
+    }
+
+    fn usage_type_defs() -> Vec<crate::core::ir::TypeDef> {
+        use crate::core::ir::{FieldDef, PrimitiveType, TypeDef, TypeRef};
+        let field = |name: &str, ty: TypeRef| FieldDef {
+            name: name.to_string(),
+            ty,
+            ..FieldDef::default()
+        };
+        vec![
+            TypeDef {
+                name: "StreamChunk".to_string(),
+                fields: vec![field("usage", TypeRef::Optional(Box::new(TypeRef::Named("Usage".to_string()))))],
+                ..TypeDef::default()
+            },
+            TypeDef {
+                name: "Usage".to_string(),
+                fields: vec![
+                    field("total_tokens", TypeRef::Primitive(PrimitiveType::U64)),
+                    field("model", TypeRef::String),
+                ],
+                ..TypeDef::default()
+            },
+        ]
+    }
+
+    fn usage_driver(field: &str, defs: &[crate::core::ir::TypeDef]) -> String {
+        let fixture = Fixture {
+            id: "stream_with_usage".to_string(),
+            description: "stream with usage".to_string(),
+            assertions: vec![Assertion {
+                assertion_type: "equals".into(),
+                field: Some(field.into()),
+                value: Some(serde_json::json!(18)),
+                ..Assertion::default()
+            }],
+            ..Fixture::default()
+        };
+        let mut out = String::new();
+        render_streaming_test_function(
+            &mut out,
+            &fixture,
+            "mylib",
+            "chunk",
+            &[],
+            "client_new",
+            &adapter(),
+            false,
+            &[],
+            None,
+            false,
+            defs,
+        );
+        out
+    }
+
+    /// The defect: the loop freed each chunk without reading it, so `usage.total_tokens` could
+    /// only be a skip. The loop now reads the usage handle off every chunk, keeps the last one,
+    /// frees the handle, and the assertion compares that value.
+    #[test]
+    fn a_usage_counter_is_read_off_the_chunk_usage_handle_and_asserted() {
+        let body = usage_driver("usage.total_tokens", &usage_type_defs());
+        for expected in [
+            "long long last_usage_total_tokens = 0;",
+            "MYLIBAlefHandle chunk_usage = mylib_stream_chunk_usage(chunk);",
+            "last_usage_total_tokens = (long long)mylib_usage_total_tokens(chunk_usage);",
+            "mylib_usage_free(chunk_usage);",
+            "assert(usage_seen && last_usage_total_tokens == 18 && \"equals assertion failed\");",
+        ] {
+            assert!(body.contains(expected), "missing `{expected}`. Emitted:\n{body}");
+        }
+        assert!(!body.contains("skipped"), "the assertion must not skip. Emitted:\n{body}");
+        let read = body.find("mylib_stream_chunk_usage(chunk)").expect("usage read");
+        let free = body.find("mylib_stream_chunk_free(chunk)").expect("chunk free");
+        assert!(read < free, "the usage handle must be read before the chunk is freed. Emitted:\n{body}");
+    }
+
+    /// Negative control: a field the IR cannot resolve to an integer counter keeps the registered
+    /// skip and adds no usage plumbing, so the positive test above is not satisfied by accident.
+    #[test]
+    fn a_usage_field_the_ir_cannot_resolve_stays_a_registered_skip() {
+        let unresolved = usage_driver("usage.model", &usage_type_defs());
+        assert!(!unresolved.contains("chunk_usage"), "Emitted:\n{unresolved}");
+        assert!(unresolved.contains("/* skipped: "), "Emitted:\n{unresolved}");
+        let no_ir = usage_driver("usage.total_tokens", &[]);
+        assert!(!no_ir.contains("chunk_usage"), "Emitted:\n{no_ir}");
+        assert!(no_ir.contains("/* skipped: "), "Emitted:\n{no_ir}");
     }
 }

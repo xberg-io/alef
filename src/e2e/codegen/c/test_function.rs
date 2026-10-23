@@ -687,6 +687,7 @@ pub(super) fn render_test_function_impl(
             errors,
             api_key_var,
             documentation_snippet,
+            type_defs,
         );
         return Ok(());
     }

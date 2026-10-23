@@ -769,7 +769,7 @@ fn authored_shows_on_result(field: &str, resolver: &FieldResolver, fixture_is_st
 /// whoever wrote the path.
 fn path_is_renderable_at_all(field: &str, fixture_is_streaming: bool) -> bool {
     !field.is_empty()
-        && !(fixture_is_streaming && crate::e2e::codegen::streaming_assertions::is_streaming_virtual_field(field))
+        && !(fixture_is_streaming && crate::e2e::codegen::streaming_assertions::is_streaming_call_field(field))
 }
 
 /// Whether the IR declines to refute `field` as a member of the call's result type. `false` only

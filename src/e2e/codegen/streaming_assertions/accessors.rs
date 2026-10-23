@@ -637,12 +637,44 @@ impl StreamingFieldResolver {
                             typeddict_map,
                         ));
                     }
+                    // `usage.<counter>` reads a counter off the last chunk's usage payload. Rust
+                    // and Go need their own root: Rust's base accessor yields an `Option`, and
+                    // Go's yields an untyped `interface{}` neither of which can take a field.
+                    if root == "usage" {
+                        return render_usage_deep(chunks_var, tail, lang);
+                    }
                     let root_expr = Self::accessor(root, lang, chunks_var)?;
                     Some(render_deep_tail(&root_expr, tail, lang))
                 } else {
                     None
                 }
             }
+        }
+    }
+}
+
+/// Render a path below the stream-level `usage` root, such as `usage.total_tokens`.
+///
+/// Returns `None` for a backend that cannot read a typed usage payload off a chunk: Zig keeps
+/// each chunk as a raw JSON string, so the assertion stays a counted skip there.
+fn render_usage_deep(chunks_var: &str, tail: &str, lang: &str) -> Option<String> {
+    match lang {
+        "zig" => None,
+        "rust" => {
+            let root = format!(
+                "{chunks_var}.last().and_then(|c| c.usage.as_ref()).expect(\"expected usage on the last chunk\")"
+            );
+            Some(render_deep_tail(&root, tail, lang))
+        }
+        // Go counters are `uint64`; testify compares numbers of different types as unequal, so
+        // the counter is widened to the `int` a fixture literal is rendered as.
+        "go" => {
+            let root = format!("{chunks_var}[len({chunks_var})-1].Usage");
+            Some(format!("int({})", render_deep_tail(&root, tail, lang)))
+        }
+        _ => {
+            let root = StreamingFieldResolver::accessor("usage", lang, chunks_var)?;
+            Some(render_deep_tail(&root, tail, lang))
         }
     }
 }

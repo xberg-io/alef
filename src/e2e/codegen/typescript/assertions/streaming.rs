@@ -11,11 +11,19 @@ pub(super) fn render(
     assertion: &Assertion,
     field: &str,
     streaming_item_enum: Option<&crate::core::ir::EnumDef>,
+    lang: &str,
 ) -> bool {
     let event_expression = streaming_item_enum.and_then(|enum_def| event_variant_accessor(field, "chunks", enum_def));
     let expression = event_expression.or_else(|| {
         crate::e2e::codegen::streaming_assertions::StreamingFieldResolver::accessor(field, "node", "chunks")
     });
+    // wasm-bindgen maps a Rust `u64` counter (`usage.total_tokens`) to a JS `BigInt`, which never
+    // compares equal to a numeric literal. A stream-scoped path with a tail reads such a counter.
+    let reads_counter = lang == "wasm"
+        && crate::e2e::codegen::streaming_assertions::is_stream_scoped_field(field)
+        && (field.contains('.') || field.contains('['))
+        && assertion.value.as_ref().is_some_and(serde_json::Value::is_number);
+    let expression = expression.map(|e| if reads_counter { format!("Number({e})") } else { e });
     let Some(expression) = expression else {
         // ~keep An unsupported stream predicate must remain visible to the skip ledger.
         out.push_str(&format!(

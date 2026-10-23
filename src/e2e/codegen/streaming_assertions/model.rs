@@ -58,11 +58,41 @@ pub const STREAMING_VIRTUAL_FIELDS: &[&str] = &[
 /// A field like `tool_calls[0].function.name` starts with `tool_calls` and has
 /// a continuation `[0].function.name`. These are handled by
 /// [`StreamingFieldResolver::accessor`] via the deep-path logic.
-///
-/// `usage` is a stream-level root: `usage.total_tokens` resolves against the
-/// last chunk that carried a usage payload (accessed via the collected chunks
-/// list). Python accessor: `(chunks[-1].usage if chunks else None)`.
 pub(super) const STREAMING_VIRTUAL_ROOTS: &[&str] = &["tool_calls", "finish_reason"];
+
+/// Roots that are stream-level only on a streaming call.
+///
+/// `usage` resolves against the last chunk that carried a usage payload, but a non-streaming
+/// response also carries `usage.total_tokens` at the response root. The root therefore cannot
+/// join [`STREAMING_VIRTUAL_FIELDS`]: [`is_streaming_virtual_field`] has no call context and
+/// would drag non-streaming fixtures into the chunks accessor. A caller that knows the call
+/// streams asks [`is_streaming_call_field`] instead.
+pub(super) const STREAM_SCOPED_ROOTS: &[&str] = &["usage"];
+
+/// Returns `true` when `field` is `root` or continues it with `.` or `[`.
+fn names_root(field: &str, root: &str) -> bool {
+    field == root
+        || (field.len() > root.len()
+            && field.starts_with(root)
+            && (field[root.len()..].starts_with('[') || field[root.len()..].starts_with('.')))
+}
+
+/// Returns `true` when `field` is a stream-scoped field such as `usage.total_tokens`.
+///
+/// This answers "does the name belong to the stream-level set", not "does the call stream".
+/// Use [`is_streaming_call_field`] at a site that has already established the call streams.
+pub fn is_stream_scoped_field(field: &str) -> bool {
+    STREAM_SCOPED_ROOTS.iter().any(|root| names_root(field, root))
+}
+
+/// Returns `true` when `field` resolves against the collected chunks of a call that streams:
+/// a streaming-virtual field or a stream-scoped field such as `usage.total_tokens`.
+///
+/// Call this only where the call is known to stream. On a non-streaming call `usage` is an
+/// ordinary response field.
+pub fn is_streaming_call_field(field: &str) -> bool {
+    is_streaming_virtual_field(field) || is_stream_scoped_field(field)
+}
 
 /// Returns `true` when `field` is a streaming-virtual field name, including
 /// deep-nested paths that start with a known streaming-virtual root.
@@ -77,28 +107,22 @@ pub fn is_streaming_virtual_field(field: &str) -> bool {
     }
     // Check deep-path prefixes: `tool_calls[…` or `tool_calls.`
     for root in STREAMING_VIRTUAL_ROOTS {
-        if field.len() > root.len() && field.starts_with(root) {
-            let rest = &field[root.len()..];
-            if rest.starts_with('[') || rest.starts_with('.') {
-                return true;
-            }
+        if field.len() > root.len() && names_root(field, root) {
+            return true;
         }
     }
     false
 }
 
 /// Split a field path into `(root, tail)` when it starts with a streaming-virtual
-/// root and has a continuation.
+/// or stream-scoped root and has a continuation.
 ///
 /// Returns `None` when the field is an exact root match (no tail) or is not a
-/// streaming-virtual root at all.
+/// streaming root at all.
 pub(super) fn split_streaming_deep_path(field: &str) -> Option<(&str, &str)> {
-    for root in STREAMING_VIRTUAL_ROOTS {
-        if field.len() > root.len() && field.starts_with(root) {
-            let rest = &field[root.len()..];
-            if rest.starts_with('[') || rest.starts_with('.') {
-                return Some((root, rest));
-            }
+    for root in STREAMING_VIRTUAL_ROOTS.iter().chain(STREAM_SCOPED_ROOTS) {
+        if field.len() > root.len() && names_root(field, root) {
+            return Some((root, &field[root.len()..]));
         }
     }
     None
