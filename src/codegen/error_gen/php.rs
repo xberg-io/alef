@@ -152,7 +152,7 @@ fn payload_fields(variant: &ErrorVariant) -> Vec<PayloadField> {
                 || field.sensitive
                 || field.sanitized
                 || field.is_boxed
-                || field.core_wrapper != CoreWrapper::None
+                || !matches!(field.core_wrapper, CoreWrapper::None | CoreWrapper::StaticStr)
                 || field.newtype_wrapper.is_some()
                 || field.name.starts_with('_')
                 || matches!(

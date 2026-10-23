@@ -1,6 +1,40 @@
 use super::*;
 
 #[test]
+fn should_preserve_static_string_error_fields_as_php_attributes() {
+    let mut error = sample_error();
+    let mut reason = named_field("reason");
+    reason.core_wrapper = CoreWrapper::StaticStr;
+    error.variants = vec![ErrorVariant {
+        name: "DeniedByPolicy".to_string(),
+        fields: vec![reason],
+        ..Default::default()
+    }];
+    let api = crate::core::ir::ApiSurface {
+        errors: vec![error.clone()],
+        ..Default::default()
+    };
+    let generated =
+        gen_php_error_types(&api, "Sample", None).unwrap() + &gen_php_error_converter(&error, "sample_markup_rs");
+    let stubs = gen_php_error_stubs(&api, None).unwrap();
+    assert!(stubs.contains("public string $reason;"), "{stubs}");
+    assert!(generated.contains("pub reason: String"), "{generated}");
+    assert!(generated.contains("reason: ToString::to_string(reason)"), "{generated}");
+    syn::parse_file(&generated).expect("PHP exception conversion emits valid Rust");
+    compile_payload_probe(
+        r#"
+struct Core { reason: &'static str }
+struct Payload { reason: String }
+fn convert(e: Core) -> Payload {
+    let Core { reason } = &e;
+    Payload { reason: ToString::to_string(reason) }
+}
+fn main() { assert_eq!(convert(Core { reason: "loopback" }).reason, "loopback"); }
+"#,
+    );
+}
+
+#[test]
 fn should_own_borrowed_and_owned_php_error_strings_at_runtime() {
     for normalized in [false, true] {
         let mut error = sample_error();

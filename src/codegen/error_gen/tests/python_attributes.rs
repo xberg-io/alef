@@ -1,6 +1,27 @@
 use super::*;
 
 #[test]
+fn should_preserve_static_string_error_fields_as_python_attributes() {
+    let mut error = sample_error();
+    let mut reason = named_field("reason");
+    reason.core_wrapper = CoreWrapper::StaticStr;
+    error.variants = vec![ErrorVariant {
+        name: "DeniedByPolicy".to_string(),
+        fields: vec![reason],
+        ..Default::default()
+    }];
+    let fields = pyo3_error_attribute_fields(&error.variants[0]);
+    assert_eq!(fields.len(), 1);
+    assert_eq!(fields[0].name, "reason");
+    let output = gen_pyo3_error_converter(&error, "sample_markup_rs");
+    assert!(
+        output.contains("value.setattr(\"reason\", Clone::clone(reason))?;"),
+        "{output}"
+    );
+    syn::parse_file(&output).expect("generated converter is valid Rust");
+}
+
+#[test]
 fn should_preserve_named_scalar_error_fields_as_python_attributes() {
     let mut error = sample_error();
     let mut status = named_field("status");

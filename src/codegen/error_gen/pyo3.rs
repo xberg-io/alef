@@ -381,7 +381,10 @@ pub fn pyo3_error_attribute_fields(variant: &crate::core::ir::ErrorVariant) -> V
                 && !field.sensitive
                 && !field.sanitized
                 && !field.is_boxed
-                && field.core_wrapper == crate::core::ir::CoreWrapper::None
+                && matches!(
+                    field.core_wrapper,
+                    crate::core::ir::CoreWrapper::None | crate::core::ir::CoreWrapper::StaticStr
+                )
                 && field.newtype_wrapper.is_none()
                 && !field.name.starts_with('_')
                 && !matches!(field.name.as_str(), "args" | "with_traceback" | "add_note")

@@ -77,6 +77,7 @@ mod tests {
                         FieldDef {
                             name: "body".to_string(),
                             ty: TypeRef::String,
+                            core_wrapper: crate::core::ir::CoreWrapper::StaticStr,
                             optional: true,
                             ..Default::default()
                         },

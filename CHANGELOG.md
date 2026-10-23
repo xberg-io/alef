@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.113.3] - 2026-10-23
+
+### Fixed
+
+- Preserve borrowed static-string payload attributes in generated Python and PHP exceptions.
+- Retain Swift error cases' released nullable source argument while keeping excluded native error causes out of bridge payloads.
+- Preserve Node error shims across semicolonless NAPI loader output, enforce package and runtime version checks, and retain the shim when migrating builds to `--no-js`.
+
 ## [0.113.2] - 2026-10-23
 
 ### Fixed

@@ -41,7 +41,24 @@ fn swift_view(error: &ErrorDef) -> ErrorDef {
     let mut view = error.clone();
     let has_status = has_status_code_method(error);
     for variant in &mut view.variants {
-        variant.fields.retain(|field| !field.binding_excluded);
+        let has_source = variant.has_source;
+        variant.fields.retain_mut(|field| {
+            if !field.binding_excluded {
+                return true;
+            }
+            // ~keep Nullable error causes shipped as Swift String? associated values. Keep
+            // their case arity while transporting no value from an explicitly skipped source.
+            if has_source
+                && field.name == "source"
+                && (field.optional || matches!(field.ty, TypeRef::Optional(_)))
+                && !field.sensitive
+            {
+                field.ty = TypeRef::String;
+                field.optional = true;
+                return true;
+            }
+            false
+        });
         if !has_status || variant.fields.iter().any(is_status_field) {
             continue;
         }
@@ -271,6 +288,9 @@ fn bridge_value_expression(value: &AssociatedValue<'_>, error: &ErrorDef) -> Opt
     let Some(field) = value.field else {
         return Some("message".to_string());
     };
+    if field.binding_excluded {
+        return Some("nil".to_string());
+    }
     if is_status_field(field) && has_status_code_method(error) {
         let (inner, optional) = match &field.ty {
             TypeRef::Optional(inner) => (inner.as_ref(), true),
@@ -392,3 +412,7 @@ pub(super) fn emit_errors(errors: &[ErrorDef], module_name: &str, out: &mut Stri
     }
     emit_bridge_conversions(errors, module_name, out, mapper);
 }
+
+#[cfg(test)]
+#[path = "errors_tests.rs"]
+mod tests;
