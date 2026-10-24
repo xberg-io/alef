@@ -210,6 +210,32 @@ fn should_read_the_text_of_one_part_through_the_typed_accessor() {
     );
 }
 
+/// The skip for display-text union paths is the fallback of the renderer. If it ran first, every
+/// parts path would be skipped and the consumer's parts checks would stop asserting.
+#[test]
+fn should_render_the_renderer_before_the_skip_for_a_parts_path() {
+    let out = render(
+        true,
+        vec![
+            assertion("count_equals", "choices[0].message.content.parts", serde_json::json!(2)),
+            assertion(
+                "equals",
+                "choices[0].message.content.parts[0].text",
+                serde_json::json!("hello"),
+            ),
+        ],
+    );
+    assert!(
+        !out.contains("alef#691") && !out.contains("// skipped"),
+        "a parts path of a configured text type must not render the skip, got:\n{out}"
+    );
+    assert_eq!(
+        out.matches(".message().contentValue()").count(),
+        2,
+        "each parts path must render an assertion, got:\n{out}"
+    );
+}
+
 #[test]
 fn should_still_read_the_display_text_of_the_union_itself() {
     let out = render(
@@ -239,5 +265,9 @@ fn should_leave_a_union_that_is_not_untagged_to_the_existing_path() {
     assert!(
         !out.contains("contentValue()"),
         "a union with a wrapper in its wire form does not encode as its payload, got:\n{out}"
+    );
+    assert!(
+        out.contains("flattens to text (xberg-io/alef#691)"),
+        "the path the renderer cannot read keeps the skip, got:\n{out}"
     );
 }

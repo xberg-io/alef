@@ -120,7 +120,10 @@ fn render(assertions: Vec<Assertion>) -> String {
     let map = super::values::build_swift_first_class_map(&type_defs, &enums, &e2e_config, &call_config);
     let config = ResolvedCrateConfig {
         name: "sample".into(),
-        untagged_union_text_types: vec!["ReplyContent".to_string()],
+        // The union is not a configured text type, so the bridge has no typed accessor for it and
+        // the skip is the only thing left to render. A configured text type is read through the
+        // accessor instead (`reply_parts_accessor_tests`).
+        untagged_union_text_types: Vec::new(),
         ..ResolvedCrateConfig::default()
     };
     let mut out = String::new();
