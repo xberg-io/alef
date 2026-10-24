@@ -499,3 +499,14 @@ fn fields_outside_the_text_types_get_no_value_accessor() {
     assert!(!source.contains("requiredValue"), "{source}");
     assert!(!rust_source(&files).contains("required_json"));
 }
+
+#[test]
+fn the_struct_form_carries_the_whole_value_not_only_its_text() {
+    let files = generated(true);
+    let source = swift(&files);
+    let init = block(source, "internal extension Packet {");
+    assert!(init.contains("self.required = try rb.requiredValue()"), "{init}");
+    assert!(init.contains("self.nullable = try rb.nullableValue()"), "{init}");
+    assert!(init.contains("self.legacy = try rb.legacyValue()"), "{init}");
+    assert!(!init.contains("BodyValue.text("), "{init}");
+}
