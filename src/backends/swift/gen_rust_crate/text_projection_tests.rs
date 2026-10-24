@@ -77,7 +77,9 @@ fn json_getter_is_declared_beside_the_text_getter_with_the_same_optionality() {
     let optional = reply_extern_block(true, &configured);
     assert!(optional.contains("fn content(&self) -> Option<String>;"), "{optional}");
     assert!(
-        optional.contains("#[swift_bridge(swift_name = \"contentJson\")]\n        fn content_json(&self) -> Option<String>;"),
+        optional.contains(
+            "#[swift_bridge(swift_name = \"contentJson\")]\n        fn content_json(&self) -> Option<String>;"
+        ),
         "{optional}"
     );
     let required = reply_extern_block(false, &configured);

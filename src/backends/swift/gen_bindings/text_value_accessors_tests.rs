@@ -59,15 +59,23 @@ fn each_text_field_gets_an_accessor_that_decodes_its_json_getter() {
     assert!(out.starts_with("extension RustBridge.MessageRef {"), "{out}");
     assert!(out.contains("public func contentValue() throws -> Content? {"), "{out}");
     assert!(
-        out.contains("try contentJson().map { try JSONDecoder().decode(Content.self, from: Data($0.toString().utf8)) }"),
+        out.contains(
+            "try contentJson().map { try JSONDecoder().decode(Content.self, from: Data($0.toString().utf8)) }"
+        ),
         "{out}"
     );
-    assert!(out.contains("public func summaryTextValue() throws -> Content {"), "{out}");
+    assert!(
+        out.contains("public func summaryTextValue() throws -> Content {"),
+        "{out}"
+    );
     assert!(
         out.contains("try JSONDecoder().decode(Content.self, from: Data(summaryTextJson().toString().utf8))"),
         "{out}"
     );
-    assert!(!out.contains("labelValue"), "a field outside the text types gets no accessor:\n{out}");
+    assert!(
+        !out.contains("labelValue"),
+        "a field outside the text types gets no accessor:\n{out}"
+    );
 }
 
 #[test]

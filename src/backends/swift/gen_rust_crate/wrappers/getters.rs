@@ -845,7 +845,9 @@ mod tests {
             "a text-type field getter must return the text of the value:\n{out}"
         );
         assert!(
-            !out.contains("pub fn content(&self) -> Option<String> {\n        self.0.content.as_ref().map(|v| serde_json"),
+            !out.contains(
+                "pub fn content(&self) -> Option<String> {\n        self.0.content.as_ref().map(|v| serde_json"
+            ),
             "the text getter must not return JSON text:\n{out}"
         );
     }

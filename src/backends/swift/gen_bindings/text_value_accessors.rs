@@ -32,7 +32,11 @@ pub(super) fn emit(
         .filter(|t| !t.has_serde)
         .map(|t| t.name.as_str())
         .collect();
-    for ty in api.types.iter().filter(|t| !t.is_trait && !exclude_types.contains(&t.name)) {
+    for ty in api
+        .types
+        .iter()
+        .filter(|t| !t.is_trait && !exclude_types.contains(&t.name))
+    {
         let accessors: Vec<_> = ty
             .fields
             .iter()

@@ -30,7 +30,9 @@ pub(super) fn try_render(out: &mut String, assertion: &Assertion, result_var: &s
     };
     if prefix.is_empty()
         || !resolver.is_text_projected_enum(&owner)
-        || !resolver.enum_definition(&owner).is_some_and(|definition| definition.serde_untagged)
+        || !resolver
+            .enum_definition(&owner)
+            .is_some_and(|definition| definition.serde_untagged)
     {
         return false;
     }

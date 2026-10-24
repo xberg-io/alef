@@ -471,7 +471,9 @@ fn configured_text_fields_expose_the_whole_value_through_a_public_accessor() {
         "{extension}"
     );
     assert!(
-        extension.contains("try nullableJson().map { try JSONDecoder().decode(BodyValue.self, from: Data($0.toString().utf8)) }"),
+        extension.contains(
+            "try nullableJson().map { try JSONDecoder().decode(BodyValue.self, from: Data($0.toString().utf8)) }"
+        ),
         "{extension}"
     );
     let rust = rust_source(&files);
@@ -479,7 +481,10 @@ fn configured_text_fields_expose_the_whole_value_through_a_public_accessor() {
     assert!(rust.contains("fn nullable_json(&self) -> Option<String>;"), "{rust}");
     assert!(rust.contains("fn legacy_json(&self) -> Option<String>;"), "{rust}");
     assert!(rust.contains("serde_json::to_string(&self.0.required)"), "{rust}");
-    assert!(rust.contains("self.0.legacy.as_ref().map(|v| serde_json::to_string(v)"), "{rust}");
+    assert!(
+        rust.contains("self.0.legacy.as_ref().map(|v| serde_json::to_string(v)"),
+        "{rust}"
+    );
     let text = block(source, "public enum BodyValue:");
     assert!(text.contains("case plainValue(field0: String)"), "{text}");
 }
