@@ -262,7 +262,7 @@ fn emit_lib_rs(
     exclude_types: &HashSet<String>,
     exclude_fields: &HashSet<String>,
     configured_features: &HashSet<&str>,
-) -> anyhow::Result<(String, Vec<(String, Vec<owned_vec::OwnedVecGetter>)>)> {
+) -> anyhow::Result<(String, Vec<owned_vec::TypeOwnedVecGetters>)> {
     let source_crate = crate_name.replace('-', "_");
 
     // This binding's own configured feature set (already expanded through the core crate's
@@ -435,7 +435,7 @@ fn emit_lib_rs(
 
     let enum_names_owned: std::collections::HashSet<String> = enum_names.iter().map(|s| s.to_string()).collect();
     let mut extern_blocks: Vec<String> = Vec::new();
-    let mut owned_vec_types: Vec<(String, Vec<owned_vec::OwnedVecGetter>)> = Vec::new();
+    let mut owned_vec_types: Vec<owned_vec::TypeOwnedVecGetters> = Vec::new();
     // `BTreeSet` so the paired `extern "Rust"` declaration (`extern_block::
     // emit_extern_block_for_functions`) and no-op shim (`deferred_noop::emit_shims`) are
     // emitted in the same deterministic order across runs. ~keep

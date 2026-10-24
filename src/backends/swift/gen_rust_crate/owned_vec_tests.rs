@@ -30,7 +30,8 @@ fn handle(name: &str, fields: Vec<FieldDef>) -> TypeDef {
     TypeDef {
         name: name.to_string(),
         rust_path: format!("test_lib::{name}"),
-        has_serde: false,
+        is_opaque: true,
+        has_serde: true,
         fields,
         ..Default::default()
     }

@@ -103,6 +103,9 @@ pub(crate) fn owned_vec_getters(
         .collect()
 }
 
+/// A type name with the owned-array getters it needs.
+pub(crate) type TypeOwnedVecGetters = (String, Vec<OwnedVecGetter>);
+
 #[derive(Serialize)]
 struct TypeAccessors<'a> {
     name: &'a str,
@@ -111,7 +114,7 @@ struct TypeAccessors<'a> {
 
 /// The Swift file with every owned-array accessor, or `None` when no getter needs one.
 pub(crate) fn emit_swift_file(
-    types: &[(String, Vec<OwnedVecGetter>)],
+    types: &[TypeOwnedVecGetters],
     rust_bridge_sources: &Path,
 ) -> Option<GeneratedFile> {
     let entries: Vec<TypeAccessors<'_>> = types
@@ -164,7 +167,15 @@ mod tests {
                 optional: true
             })
         );
-        for ty in ["Vec<u8>", "Vec<f32>", "Vec<bool>", "String", "Choice", "Vec<Vec<String>>", "Option<String>"] {
+        for ty in [
+            "Vec<u8>",
+            "Vec<f32>",
+            "Vec<bool>",
+            "String",
+            "Choice",
+            "Vec<Vec<String>>",
+            "Option<String>",
+        ] {
             assert_eq!(owned(ty), None, "{ty} must keep its bridge shape");
         }
     }
