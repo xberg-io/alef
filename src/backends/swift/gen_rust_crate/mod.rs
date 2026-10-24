@@ -593,6 +593,12 @@ fn emit_lib_rs(
         }
     }
     for (_bridge_cfg, trait_def) in &active_bridges {
+        for method in trait_def.methods.iter().filter(|m| !m.has_default_impl) {
+            let bridge_fn = trait_bridge::trait_method_bridge_fn(trait_def, method, &visible_type_names);
+            owned_vec_accessors
+                .functions
+                .extend(owned_vec::owned_vec_function(&bridge_fn)?);
+        }
         extern_blocks.push(trait_bridge::emit_extern_block_for_trait_bridge(
             trait_def,
             &visible_type_names,

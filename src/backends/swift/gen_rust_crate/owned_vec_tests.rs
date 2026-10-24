@@ -223,3 +223,27 @@ fn a_parameter_without_a_wrapper_form_is_an_error_not_an_unsafe_return() {
     let error = super::owned_vec::owned_vec_function(&odd).unwrap_err().to_string();
     assert!(error.contains("namesFor") && error.contains("filter"), "{error}");
 }
+
+#[test]
+fn a_trait_trampoline_returning_strings_is_wrapped_to_an_owned_array() {
+    let trait_def = TypeDef {
+        name: "Backend".to_string(),
+        is_trait: true,
+        methods: vec![MethodDef {
+            name: "supported_formats".to_string(),
+            return_type: vec_of(TypeRef::String),
+            receiver: Some(ReceiverKind::Ref),
+            ..MethodDef::default()
+        }],
+        ..TypeDef::default()
+    };
+    let bridge_fn =
+        super::trait_bridge::trait_method_bridge_fn(&trait_def, &trait_def.methods[0], &HashSet::new());
+    assert_eq!(bridge_fn.swift_name, "backend_call_supported_formatsRustVec");
+
+    let wrapper = super::owned_vec::owned_vec_function(&bridge_fn).unwrap().expect("a wrapper");
+    assert_eq!(wrapper.swift_name, "backend_call_supported_formats");
+    assert_eq!(wrapper.params, "_ this: BackendBoxRef");
+    assert_eq!(wrapper.return_type, "[RustString]");
+    assert_eq!(wrapper.body, "backend_call_supported_formatsRustVec(this).alefIntoOwnedArray()");
+}

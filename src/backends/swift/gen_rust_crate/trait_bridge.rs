@@ -11,6 +11,8 @@
 //! wrappers that delegate to the host crate's `unregister_*` / `clear_*` registry entry
 //! points.
 
+use crate::backends::swift::gen_rust_crate::extern_block::BridgeFn;
+use crate::backends::swift::gen_rust_crate::owned_vec;
 use crate::backends::swift::gen_rust_crate::type_bridge::bridge_type;
 use crate::codegen::conversions::helpers::{apply_param_newtype_to_core, is_explicit_newtype};
 use crate::codegen::generators::binding_helpers::apply_return_newtype_unwrap;
@@ -112,6 +114,47 @@ impl TraitBridgeGenerator for SwiftBridgeGenerator {
     }
 }
 
+/// The extern trampoline of a trait method, shared by the extern block and the owned-array
+/// wrapper emission. A trampoline has no Swift name of its own: Swift sees the Rust name.
+pub(crate) fn trait_method_bridge_fn(
+    trait_def: &TypeDef,
+    method: &MethodDef,
+    visible_type_names: &HashSet<&str>,
+) -> BridgeFn {
+    let trait_snake = heck::AsSnakeCase(trait_def.name.as_str()).to_string();
+    let fn_name = format!("{trait_snake}_call_{}", method.name.to_snake_case());
+
+    let mut params = vec![("this".to_string(), format!("&{}Box", trait_def.name))];
+    for p in &method.params {
+        let bridge_ty = bridge_type_for_trait_method(&p.ty, visible_type_names);
+        let bridge_ty = if p.optional {
+            format!("Option<{bridge_ty}>")
+        } else {
+            bridge_ty
+        };
+        params.push((p.name.to_snake_case(), bridge_ty));
+    }
+
+    let return_ty = if method.error_type.is_some() {
+        "String".to_string()
+    } else {
+        bridge_type_for_trait_method(&method.return_type, visible_type_names)
+    };
+    let swift_name = if owned_vec::owned_vec_return(&return_ty).is_some() {
+        owned_vec::raw_swift_name(&fn_name)
+    } else {
+        fn_name.clone()
+    };
+    BridgeFn {
+        public_name: fn_name.clone(),
+        fn_name,
+        swift_name,
+        params,
+        return_ty,
+        is_async: false,
+    }
+}
+
 /// Emit the `extern "Rust"` block for a trait bridge.
 ///
 /// Declares an opaque `{Trait}Box` type plus one free trampoline function per method:
@@ -143,34 +186,27 @@ pub fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef, visible_type_name
             continue;
         }
 
-        let method_name = method.name.to_snake_case();
-        let fn_name = format!("{trait_snake}_call_{method_name}");
-
-        let mut params = vec!["this: &".to_string() + &format!("{}Box", trait_def.name)];
-        for p in &method.params {
-            let bridge_ty = bridge_type_for_trait_method(&p.ty, visible_type_names);
-            let bridge_ty = if p.optional {
-                format!("Option<{bridge_ty}>")
-            } else {
-                bridge_ty
-            };
-            let name = p.name.to_snake_case();
-            params.push(format!("{name}: {bridge_ty}"));
+        let bridge_fn = trait_method_bridge_fn(trait_def, method, visible_type_names);
+        if bridge_fn.swift_name != bridge_fn.fn_name {
+            block.push_str(&crate::backends::swift::template_env::render(
+                "extern_swift_name_attr.jinja",
+                crate::alef_context! {
+                    swift_name => &bridge_fn.swift_name,
+                },
+            ));
         }
-
-        let return_ty = if method.error_type.is_some() {
-            "String".to_string()
-        } else {
-            bridge_type_for_trait_method(&method.return_type, visible_type_names)
-        };
-
-        let params_str = params.join(", ");
+        let params_str = bridge_fn
+            .params
+            .iter()
+            .map(|(name, ty)| format!("{name}: {ty}"))
+            .collect::<Vec<_>>()
+            .join(", ");
         block.push_str(&crate::backends::swift::template_env::render(
             "trait_method_fn.jinja",
             crate::alef_context! {
-                fn_name => &fn_name,
+                fn_name => &bridge_fn.fn_name,
                 params => &params_str,
-                return_type => &return_ty,
+                return_type => &bridge_fn.return_ty,
             },
         ));
     }
