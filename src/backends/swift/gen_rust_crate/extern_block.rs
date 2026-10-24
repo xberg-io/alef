@@ -132,6 +132,183 @@ pub(crate) fn getter_bridge_type(
     }
 }
 
+/// One `extern "Rust"` function as swift-bridge sees it.
+///
+/// `swift_name` is the name of the extern declaration. It differs from `public_name` when the
+/// function returns a vector whose elements Swift would read by reference (see `owned_vec`): the
+/// extern gets the raw name and a Swift wrapper declares `public_name` on top of it.
+pub(crate) struct BridgeFn {
+    pub fn_name: String,
+    pub swift_name: String,
+    pub public_name: String,
+    /// Parameter name and bridge type, in order. A method's receiver comes first.
+    pub params: Vec<(String, String)>,
+    pub return_ty: String,
+    pub is_async: bool,
+}
+
+fn push_bridge_fn(block: &mut String, bridge_fn: &BridgeFn) {
+    if bridge_fn.swift_name != bridge_fn.fn_name {
+        block.push_str(&crate::backends::swift::template_env::render(
+            "extern_swift_name_attr.jinja",
+            crate::alef_context! {
+                swift_name => &bridge_fn.swift_name,
+            },
+        ));
+    }
+    let params_str = bridge_fn
+        .params
+        .iter()
+        .map(|(name, ty)| format!("{name}: {ty}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    block.push_str(&crate::backends::swift::template_env::render(
+        "extern_fn_decl.jinja",
+        crate::alef_context! {
+            fn_name => &bridge_fn.fn_name,
+            params => &params_str,
+            return_type => &bridge_fn.return_ty,
+            is_async => bridge_fn.is_async,
+        },
+    ));
+}
+
+/// The extern declaration of an instance method, shared by the extern block and the owned-array
+/// wrapper emission so both read the same signature.
+pub(crate) fn type_method_bridge_fn(
+    ty: &TypeDef,
+    method: &crate::core::ir::MethodDef,
+    handle_returned_types: &HashSet<String>,
+    enum_names: &HashSet<&str>,
+    unit_enum_names: &HashSet<&str>,
+) -> BridgeFn {
+    let type_snake = ty.name.to_snake_case();
+    let method_snake = method.name.to_snake_case();
+    let fn_name = format!("{type_snake}_{method_snake}");
+    let public_name = swift_ident(&fn_name.to_lower_camel_case());
+
+    let client_receiver = if matches!(method.receiver, Some(crate::core::ir::ReceiverKind::RefMut)) {
+        format!("&mut {}", ty.name)
+    } else {
+        format!("&{}", ty.name)
+    };
+    let mut params: Vec<(String, String)> = vec![("client".to_string(), client_receiver)];
+    for p in &method.params {
+        let bridge_ty = bridge_type_enum_aware_ref(&p.ty, enum_names);
+        let bridge_ty = if p.optional && !needs_json_bridge(&p.ty) {
+            format!("Option<{bridge_ty}>")
+        } else {
+            bridge_ty
+        };
+        params.push((swift_ident(&p.name.to_snake_case()), bridge_ty));
+    }
+
+    // This declaration must describe the same forced-fallible signature
+    // `emit_type_method_shims` builds for the matching `pub fn`, or swift-bridge reports
+    // `error[E0308]`. Both call `forces_fallible_enum_bridge` rather than deciding
+    // separately -- see its doc comment for why. An async method is forced fallible as well:
+    // its work runs as a spawned task whose `JoinError` must cross the bridge as `Err(String)`
+    // rather than leave the Swift continuation unresumed. ~keep
+    let forced_fallible =
+        method.is_async || forces_fallible_enum_bridge(&method.params, method.error_type.as_ref(), unit_enum_names);
+
+    let return_ty = if method.error_type.is_some() || forced_fallible {
+        let ok_ty = bridge_result_ok_type_with_handles(&method.return_type, handle_returned_types);
+        if matches!(method.return_type, TypeRef::Unit) {
+            result_type("()")
+        } else {
+            result_type(&ok_ty)
+        }
+    } else {
+        bridge_type_with_handles(&method.return_type, handle_returned_types)
+    };
+
+    let swift_name = if owned_vec::owned_vec_return(&return_ty).is_some() {
+        owned_vec::raw_swift_name(&public_name)
+    } else {
+        public_name.clone()
+    };
+    BridgeFn {
+        fn_name,
+        swift_name,
+        public_name,
+        params,
+        return_ty,
+        is_async: method.is_async,
+    }
+}
+
+/// The extern declaration of a free function, shared like `type_method_bridge_fn`.
+pub(crate) fn function_bridge_fn(
+    f: &FunctionDef,
+    handle_returned_types: &HashSet<String>,
+    enum_names: &HashSet<String>,
+    unit_enum_names: &HashSet<&str>,
+    capsule_types: &std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
+    opaque_types: &ahash::AHashSet<String>,
+) -> anyhow::Result<BridgeFn> {
+    let fn_name = swift_ident(&f.name.to_snake_case());
+    let params: Vec<(String, String)> = f
+        .params
+        .iter()
+        .map(|p| {
+            let bridge_ty = bridge_type_enum_aware(&p.ty, enum_names);
+            let bridge_ty = if p.optional {
+                format!("Option<{bridge_ty}>")
+            } else {
+                bridge_ty
+            };
+            (swift_ident(&p.name.to_snake_case()), bridge_ty)
+        })
+        .collect();
+
+    crate::codegen::mut_writeback::reject_unsupported_writeback(&f.name, &f.params, &f.return_type, opaque_types)?;
+    let effective_return_type =
+        crate::codegen::mut_writeback::effective_return_type(&f.params, &f.return_type, opaque_types)
+            .unwrap_or_else(|| f.return_type.clone());
+
+    let is_capsule_return =
+        matches!(&effective_return_type, TypeRef::Named(n) if capsule_types.contains_key(n.as_str()));
+
+    // This declaration must describe the same forced-fallible signature `emit_function_shim`
+    // builds for the matching `pub fn`, or swift-bridge reports `error[E0308]`. Both call
+    // Async shims are also forced fallible so a spawned task's JoinError crosses the bridge
+    // as `Err(String)`. Keep this predicate identical to `emit_function_shim`. ~keep
+    let forced_fallible = f.is_async || forces_fallible_enum_bridge(&f.params, f.error_type.as_ref(), unit_enum_names);
+
+    let return_ty = if is_capsule_return {
+        if forced_fallible {
+            result_type("usize")
+        } else {
+            "usize".to_string()
+        }
+    } else if f.error_type.is_some() || forced_fallible {
+        let ok_ty = bridge_result_ok_type_with_handles(&effective_return_type, handle_returned_types);
+        if matches!(effective_return_type, TypeRef::Unit) {
+            result_type("()")
+        } else {
+            result_type(&ok_ty)
+        }
+    } else {
+        bridge_type_with_handles(&effective_return_type, handle_returned_types)
+    };
+
+    let public_name = swift_ident(&f.name.to_lower_camel_case());
+    let swift_name = if owned_vec::owned_vec_return(&return_ty).is_some() {
+        owned_vec::raw_swift_name(&public_name)
+    } else {
+        public_name.clone()
+    };
+    Ok(BridgeFn {
+        fn_name,
+        swift_name,
+        public_name,
+        params,
+        return_ty,
+        is_async: f.is_async,
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_extern_block_for_type(
     ty: &TypeDef,
@@ -307,66 +484,8 @@ pub(crate) fn emit_extern_block_for_type_methods(
     block.push_str("    extern \"Rust\" {\n");
 
     for method in &bridgeable {
-        let type_snake = ty.name.to_snake_case();
-        let method_snake = method.name.to_snake_case();
-        let fn_name = format!("{type_snake}_{method_snake}");
-        let swift_name = swift_ident(&fn_name.to_lower_camel_case());
-
-        let client_receiver = if matches!(method.receiver, Some(crate::core::ir::ReceiverKind::RefMut)) {
-            format!("client: &mut {}", ty.name)
-        } else {
-            format!("client: &{}", ty.name)
-        };
-        let mut params: Vec<String> = vec![client_receiver];
-        for p in &method.params {
-            let bridge_ty = bridge_type_enum_aware_ref(&p.ty, enum_names);
-            let bridge_ty = if p.optional && !needs_json_bridge(&p.ty) {
-                format!("Option<{bridge_ty}>")
-            } else {
-                bridge_ty
-            };
-            let name = swift_ident(&p.name.to_snake_case());
-            params.push(format!("{name}: {bridge_ty}"));
-        }
-        let params_str = params.join(", ");
-
-        // This declaration must describe the same forced-fallible signature
-        // `emit_type_method_shims` builds for the matching `pub fn`, or swift-bridge reports
-        // `error[E0308]`. Both call `forces_fallible_enum_bridge` rather than deciding
-        // separately -- see its doc comment for why. An async method is forced fallible as well:
-        // its work runs as a spawned task whose `JoinError` must cross the bridge as `Err(String)`
-        // rather than leave the Swift continuation unresumed. ~keep
-        let forced_fallible =
-            method.is_async || forces_fallible_enum_bridge(&method.params, method.error_type.as_ref(), unit_enum_names);
-
-        let return_ty = if method.error_type.is_some() || forced_fallible {
-            let ok_ty = bridge_result_ok_type_with_handles(&method.return_type, handle_returned_types);
-            if matches!(method.return_type, TypeRef::Unit) {
-                result_type("()")
-            } else {
-                result_type(&ok_ty)
-            }
-        } else {
-            bridge_type_with_handles(&method.return_type, handle_returned_types)
-        };
-
-        if swift_name != fn_name {
-            block.push_str(&crate::backends::swift::template_env::render(
-                "extern_swift_name_attr.jinja",
-                crate::alef_context! {
-                    swift_name => &swift_name,
-                },
-            ));
-        }
-        block.push_str(&crate::backends::swift::template_env::render(
-            "extern_fn_decl.jinja",
-            crate::alef_context! {
-                fn_name => &fn_name,
-                params => &params_str,
-                return_type => &return_ty,
-                is_async => method.is_async,
-            },
-        ));
+        let bridge_fn = type_method_bridge_fn(ty, method, handle_returned_types, enum_names, unit_enum_names);
+        push_bridge_fn(&mut block, &bridge_fn);
     }
 
     block.push_str("    }\n\n");
@@ -514,73 +633,15 @@ pub(crate) fn emit_extern_block_for_functions(
     }
 
     for f in functions {
-        let fn_name = swift_ident(&f.name.to_snake_case());
-        let params: Vec<String> = f
-            .params
-            .iter()
-            .map(|p| {
-                let bridge_ty = bridge_type_enum_aware(&p.ty, enum_names);
-                let bridge_ty = if p.optional {
-                    format!("Option<{bridge_ty}>")
-                } else {
-                    bridge_ty
-                };
-                let name = swift_ident(&p.name.to_snake_case());
-                format!("{name}: {bridge_ty}")
-            })
-            .collect();
-        let params_str = params.join(", ");
-
-        crate::codegen::mut_writeback::reject_unsupported_writeback(&f.name, &f.params, &f.return_type, opaque_types)?;
-        let effective_return_type =
-            crate::codegen::mut_writeback::effective_return_type(&f.params, &f.return_type, opaque_types)
-                .unwrap_or_else(|| f.return_type.clone());
-
-        let is_capsule_return =
-            matches!(&effective_return_type, TypeRef::Named(n) if capsule_types.contains_key(n.as_str()));
-
-        // This declaration must describe the same forced-fallible signature `emit_function_shim`
-        // builds for the matching `pub fn`, or swift-bridge reports `error[E0308]`. Both call
-        // Async shims are also forced fallible so a spawned task's JoinError crosses the bridge
-        // as `Err(String)`. Keep this predicate identical to `emit_function_shim`. ~keep
-        let forced_fallible =
-            f.is_async || forces_fallible_enum_bridge(&f.params, f.error_type.as_ref(), unit_enum_names);
-
-        let return_ty = if is_capsule_return {
-            if forced_fallible {
-                result_type("usize")
-            } else {
-                "usize".to_string()
-            }
-        } else if f.error_type.is_some() || forced_fallible {
-            let ok_ty = bridge_result_ok_type_with_handles(&effective_return_type, handle_returned_types);
-            if matches!(effective_return_type, TypeRef::Unit) {
-                result_type("()")
-            } else {
-                result_type(&ok_ty)
-            }
-        } else {
-            bridge_type_with_handles(&effective_return_type, handle_returned_types)
-        };
-
-        let swift_name = swift_ident(&f.name.to_lower_camel_case());
-        if swift_name != fn_name {
-            block.push_str(&crate::backends::swift::template_env::render(
-                "extern_swift_name_attr.jinja",
-                crate::alef_context! {
-                    swift_name => &swift_name,
-                },
-            ));
-        }
-        block.push_str(&crate::backends::swift::template_env::render(
-            "extern_fn_decl.jinja",
-            crate::alef_context! {
-                fn_name => &fn_name,
-                params => &params_str,
-                return_type => &return_ty,
-                is_async => f.is_async,
-            },
-        ));
+        let bridge_fn = function_bridge_fn(
+            f,
+            handle_returned_types,
+            enum_names,
+            unit_enum_names,
+            capsule_types,
+            opaque_types,
+        )?;
+        push_bridge_fn(&mut block, &bridge_fn);
     }
 
     block.push_str("    }\n\n");

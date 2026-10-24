@@ -1,6 +1,6 @@
 {{ header }}
 // swift-format-ignore-file
-// Getters that return a list of opaque handles or strings. swift-bridge hands such a list back as
+// Getters, functions and methods that return a list of opaque handles or strings. swift-bridge hands such a list back as
 // a `RustVec`, and an element read from a `RustVec` by index points into the vector's own buffer
 // without keeping the vector alive. These accessors move every element out of the vector first,
 // so each element owns its storage and `result.items()[0].name()` is safe on a temporary.
@@ -28,5 +28,10 @@ extension {{ ty.name }}Ref {
 {%- endif %}
     }
 {% endfor %}
+}
+{% endfor %}
+{% for item in functions %}
+public func {{ item.swift_name }}{{ item.generics }}({{ item.params }}){% if item.is_async %} async{% endif %}{% if item.throws %} throws{% endif %} -> {{ item.return_type }} {
+    {{ item.body }}
 }
 {% endfor %}
