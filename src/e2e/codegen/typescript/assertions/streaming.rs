@@ -20,9 +20,7 @@ pub(super) fn render(
     // wasm-bindgen maps a Rust `u64` counter (`usage.total_tokens`) to a JS `BigInt`, which never
     // compares equal to a numeric literal. A stream-scoped path with a tail reads such a counter.
     let reads_counter = lang == "wasm"
-        && crate::e2e::codegen::streaming_assertions::is_stream_scoped_field(field)
-        && (field.contains('.') || field.contains('['))
-        && assertion.value.as_ref().is_some_and(serde_json::Value::is_number);
+        && crate::e2e::codegen::streaming_assertions::is_stream_counter_assertion(field, assertion.value.as_ref());
     let expression = expression.map(|e| if reads_counter { format!("Number({e})") } else { e });
     let Some(expression) = expression else {
         // ~keep An unsupported stream predicate must remain visible to the skip ledger.

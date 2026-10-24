@@ -44,8 +44,9 @@ pub(super) fn resolve_c_streaming_adapter(
 /// The integer counters a streaming fixture reads off the stream's `usage` payload, with the
 /// snake-case name of the usage type that owns their accessors.
 ///
-/// The driver loop reads each counter off every chunk that carries a usage handle and keeps the
-/// last value, which is what `usage.<counter>` means on a stream.
+/// The driver loop reads each counter off the usage handle of every chunk and overwrites the
+/// previous value, so after the loop the locals hold the last chunk's counters: what
+/// `usage.<counter>` means on a stream in every backend.
 #[derive(Default)]
 pub(super) struct UsageProbe {
     type_snake: String,
@@ -380,12 +381,18 @@ pub(super) fn render_streaming_test_function(
     ));
     let _ = writeln!(out, "        chunks_count++;");
     if !usage.fields.is_empty() {
-        // The usage payload rides on the final chunk only, so keep the last non-null one.
+        // `usage.<counter>` is the LAST chunk's usage, as in every other backend: each chunk
+        // overwrites the locals, so a final chunk without a usage payload leaves `usage_seen` at
+        // zero and the assertion fails instead of passing on an earlier chunk's counters.
         let usage_snake = &usage.type_snake;
         let _ = writeln!(
             out,
             "        {prefix_upper}AlefHandle chunk_usage = {prefix}_{item_type_snake}_usage({result_var});"
         );
+        let _ = writeln!(out, "        usage_seen = 0;");
+        for field in &usage.fields {
+            let _ = writeln!(out, "        {} = 0;", UsageProbe::local(field));
+        }
         let _ = writeln!(out, "        if (chunk_usage != 0) {{");
         let _ = writeln!(out, "            usage_seen = 1;");
         for field in &usage.fields {
@@ -855,6 +862,20 @@ mod stream_completion_signal_tests {
             read < free,
             "the usage handle must be read before the chunk is freed. Emitted:\n{body}"
         );
+    }
+
+    /// `usage.<counter>` is the LAST chunk's usage in every backend. The loop must overwrite the
+    /// locals on each chunk, before it reads the handle, so a final chunk without a usage payload
+    /// cannot pass on the counters of an earlier chunk.
+    #[test]
+    fn a_usage_counter_reflects_the_last_chunk_only() {
+        let body = usage_driver("usage.total_tokens", &usage_type_defs());
+        let in_loop = &body[body.find("while (1) {").expect("driver loop")..];
+        let reset = in_loop
+            .find("        usage_seen = 0;\n        last_usage_total_tokens = 0;\n")
+            .expect("the locals are reset on every chunk");
+        let guard = in_loop.find("if (chunk_usage != 0) {").expect("guarded read");
+        assert!(reset < guard, "the reset must come before the read. Emitted:\n{body}");
     }
 
     /// Negative control: a field the IR cannot resolve to an integer counter keeps the registered

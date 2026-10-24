@@ -10,6 +10,7 @@ use std::fmt::Write as FmtWrite;
 
 use super::values::escape_dart;
 
+mod stream_counter;
 mod tagged_union;
 
 use tagged_union::try_render_tagged_union_assertion;
@@ -743,6 +744,11 @@ pub(super) fn render_streaming_assertion_dart(out: &mut String, assertion: &Asse
     // `mock.*` assertion reaches this interception instead of `render_assertion_dart`'s own copy,
     // which only ever sees non-streaming fixtures. ~keep
     if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
+        return;
+    }
+
+    // `usage.total_tokens` and its siblings are read off the last chunk of the collected list.
+    if stream_counter::try_render(out, assertion, result_var) {
         return;
     }
 

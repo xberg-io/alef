@@ -88,6 +88,8 @@ mod mock_capture_gate_tests;
 #[cfg(test)]
 mod result_is_json_struct_ir_tests;
 mod result_shape;
+#[cfg(test)]
+mod stream_usage_tests;
 mod stubs;
 mod test_file;
 mod visitor;

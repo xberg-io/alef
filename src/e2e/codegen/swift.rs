@@ -325,6 +325,8 @@ mod runtime_compile_contract_tests;
 #[cfg(test)]
 mod self_referential_first_class_tests;
 #[cfg(test)]
+mod stream_usage_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod void_not_error_call_tests;

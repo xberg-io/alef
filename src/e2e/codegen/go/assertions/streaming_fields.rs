@@ -53,6 +53,13 @@ pub(super) fn render_streaming_field_assertion(
         // fixture's value did not survive `as_u64()` / the string pattern, so the assertion
         // disappeared with no line for any funnel to count.
         let value_skip = || streaming_assertion_value_skip_line("\t", "//", f, &assertion.assertion_type);
+        // A Go counter is a `uint64`, and testify compares numbers of different types as unequal.
+        // Widen the read to the `int` a fixture literal renders as, only for an assertion that
+        // compares the counter with a number.
+        let counter =
+            crate::e2e::codegen::streaming_assertions::is_stream_counter_assertion(f, assertion.value.as_ref());
+        let numeric_expr = if counter { format!("int({expr})") } else { expr.clone() };
+        let is_stream_scoped = crate::e2e::codegen::streaming_assertions::is_stream_scoped_field(f);
         match assertion.assertion_type.as_str() {
             "count_min" => {
                 if let Some(val) = &assertion.value
@@ -81,7 +88,7 @@ pub(super) fn render_streaming_field_assertion(
             "equals" => {
                 if let Some(serde_json::Value::String(s)) = &assertion.value {
                     let escaped = go_string_literal(s);
-                    let is_deep_path = f.contains('.') || f.contains('[');
+                    let is_deep_path = (f.contains('.') || f.contains('[')) && !is_stream_scoped;
                     let safe_expr = if is_deep_path {
                         format!("func() string {{ v := {expr}; if v == nil {{ return \"\" }}; return *v }}()")
                     } else {
@@ -91,7 +98,7 @@ pub(super) fn render_streaming_field_assertion(
                 } else if let Some(val) = &assertion.value
                     && let Some(n) = val.as_u64()
                 {
-                    let _ = writeln!(out, "\tassert.Equal(t, {n}, {expr})");
+                    let _ = writeln!(out, "\tassert.Equal(t, {n}, {numeric_expr})");
                 } else {
                     let _ = writeln!(out, "{}", value_skip());
                 }
@@ -112,7 +119,7 @@ pub(super) fn render_streaming_field_assertion(
                 if let Some(val) = &assertion.value
                     && let Some(n) = val.as_u64()
                 {
-                    let _ = writeln!(out, "\tassert.Greater(t, {expr}, {n}, \"expected > {n}\")");
+                    let _ = writeln!(out, "\tassert.Greater(t, {numeric_expr}, {n}, \"expected > {n}\")");
                 } else {
                     let _ = writeln!(out, "{}", value_skip());
                 }
@@ -121,7 +128,10 @@ pub(super) fn render_streaming_field_assertion(
                 if let Some(val) = &assertion.value
                     && let Some(n) = val.as_u64()
                 {
-                    let _ = writeln!(out, "\tassert.GreaterOrEqual(t, {expr}, {n}, \"expected >= {n}\")");
+                    let _ = writeln!(
+                        out,
+                        "\tassert.GreaterOrEqual(t, {numeric_expr}, {n}, \"expected >= {n}\")"
+                    );
                 } else {
                     let _ = writeln!(out, "{}", value_skip());
                 }

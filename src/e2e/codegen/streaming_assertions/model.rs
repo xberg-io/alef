@@ -85,6 +85,18 @@ pub fn is_stream_scoped_field(field: &str) -> bool {
     STREAM_SCOPED_ROOTS.iter().any(|root| names_root(field, root))
 }
 
+/// Returns `true` when an assertion compares a counter below a stream-scoped root with a number,
+/// such as `usage.total_tokens` equal to `18`.
+///
+/// A backend whose counter type differs from the type of a fixture literal (a Go `uint64`, a
+/// wasm-bindgen `BigInt`) widens the read only for such an assertion. A string-valued assertion
+/// on the same root, or a bare `usage` read, keeps the field type.
+pub fn is_stream_counter_assertion(field: &str, value: Option<&serde_json::Value>) -> bool {
+    is_stream_scoped_field(field)
+        && (field.contains('.') || field.contains('['))
+        && value.is_some_and(serde_json::Value::is_number)
+}
+
 /// Returns `true` when `field` resolves against the collected chunks of a call that streams:
 /// a streaming-virtual field or a stream-scoped field such as `usage.total_tokens`.
 ///
