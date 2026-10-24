@@ -439,3 +439,63 @@ fn text_projection_without_a_string_variant_reports_the_enum() {
             .contains("text-projected enum BodyValue has no single-String variant")
     );
 }
+
+fn rust_source(files: &[alef::core::GeneratedFile]) -> &str {
+    &files
+        .iter()
+        .find(|file| file.path.ends_with("rust/src/lib.rs"))
+        .unwrap()
+        .content
+}
+
+#[test]
+fn configured_text_fields_expose_the_whole_value_through_a_public_accessor() {
+    let files = generated(true);
+    let source = swift(&files);
+    let extension = block(source, "extension RustBridge.PacketRef {");
+    assert!(
+        extension.contains("public func requiredValue() throws -> BodyValue {"),
+        "{extension}"
+    );
+    assert!(
+        extension.contains("public func nullableValue() throws -> BodyValue? {"),
+        "{extension}"
+    );
+    assert!(
+        extension.contains("public func legacyValue() throws -> BodyValue? {"),
+        "{extension}"
+    );
+    assert!(
+        extension.contains("try JSONDecoder().decode(BodyValue.self, from: Data(requiredJson().toString().utf8))"),
+        "{extension}"
+    );
+    assert!(
+        extension.contains("try nullableJson().map { try JSONDecoder().decode(BodyValue.self, from: Data($0.toString().utf8)) }"),
+        "{extension}"
+    );
+    let rust = rust_source(&files);
+    assert!(rust.contains("fn required_json(&self) -> String;"), "{rust}");
+    assert!(rust.contains("fn nullable_json(&self) -> Option<String>;"), "{rust}");
+    assert!(rust.contains("fn legacy_json(&self) -> Option<String>;"), "{rust}");
+    assert!(rust.contains("serde_json::to_string(&self.0.required)"), "{rust}");
+    assert!(rust.contains("self.0.legacy.as_ref().map(|v| serde_json::to_string(v)"), "{rust}");
+    let text = block(source, "public enum BodyValue:");
+    assert!(text.contains("case plainValue(field0: String)"), "{text}");
+}
+
+#[test]
+fn text_fields_keep_the_text_getter_the_reply_text_depends_on() {
+    let files = generated(true);
+    let rust = rust_source(&files);
+    assert!(rust.contains("self.0.required.to_string()"), "{rust}");
+    assert!(rust.contains("fn required(&self) -> String;"), "{rust}");
+}
+
+#[test]
+fn fields_outside_the_text_types_get_no_value_accessor() {
+    let files = generated(false);
+    let source = swift(&files);
+    assert!(!source.contains("extension RustBridge.PacketRef"), "{source}");
+    assert!(!source.contains("requiredValue"), "{source}");
+    assert!(!rust_source(&files).contains("required_json"));
+}

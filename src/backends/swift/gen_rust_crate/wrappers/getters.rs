@@ -836,8 +836,8 @@ mod tests {
             "a text-type field getter must return the text of the value:\n{out}"
         );
         assert!(
-            !out.contains("serde_json::to_string"),
-            "a text-type field getter must not return JSON text:\n{out}"
+            !out.contains("pub fn content(&self) -> Option<String> {\n        self.0.content.as_ref().map(|v| serde_json"),
+            "the text getter must not return JSON text:\n{out}"
         );
     }
 
@@ -851,8 +851,46 @@ mod tests {
             "a required text-type field getter must return the text of the value:\n{out}"
         );
         assert!(
-            !out.contains("serde_json::to_string"),
-            "no JSON round-trip expected:\n{out}"
+            !out.contains("pub fn content(&self) -> String {\n        serde_json"),
+            "the text getter must not return JSON text:\n{out}"
+        );
+    }
+
+    /// The text getter joins the parts of a reply, so a second getter returns the whole value as
+    /// JSON for the Swift side to decode into the union type.
+    #[test]
+    fn should_return_the_whole_value_as_json_beside_the_text_of_an_optional_text_type_field() {
+        let text_types: HashSet<&str> = ["AssistantContent"].into_iter().collect();
+        let out = emit_message_getters(true, &text_types);
+
+        assert!(
+            out.contains(
+                "pub fn content_json(&self) -> Option<String> {\n        self.0.content.as_ref().map(|v| serde_json::to_string(v).expect(\"serializable content\"))"
+            ),
+            "an optional text-type field needs a JSON getter beside the text getter:\n{out}"
+        );
+    }
+
+    #[test]
+    fn should_return_the_whole_value_as_json_beside_the_text_of_a_required_text_type_field() {
+        let text_types: HashSet<&str> = ["AssistantContent"].into_iter().collect();
+        let out = emit_message_getters(false, &text_types);
+
+        assert!(
+            out.contains(
+                "pub fn content_json(&self) -> String {\n        serde_json::to_string(&self.0.content).expect(\"serializable content\")"
+            ),
+            "a required text-type field needs a JSON getter beside the text getter:\n{out}"
+        );
+    }
+
+    #[test]
+    fn should_not_add_a_json_getter_for_an_enum_outside_the_text_types() {
+        let out = emit_message_getters(true, &HashSet::new());
+
+        assert!(
+            !out.contains("content_json"),
+            "only text-type fields get the extra JSON getter:\n{out}"
         );
     }
 

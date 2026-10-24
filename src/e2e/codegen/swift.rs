@@ -321,6 +321,8 @@ mod optional_parent_collection_tests;
 #[cfg(test)]
 mod promoted_result_type_root_tests;
 #[cfg(test)]
+mod reply_parts_accessor_tests;
+#[cfg(test)]
 mod runtime_compile_contract_tests;
 #[cfg(test)]
 mod self_referential_first_class_tests;
