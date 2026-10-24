@@ -235,7 +235,9 @@ fn emit_remaining_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx: &
 /// list of parts gives the joined text of its text parts.
 ///
 /// A second getter returns the whole value as JSON, because the text of a list of parts does not
-/// hold the parts. The Swift facade decodes it into the union type.
+/// hold the parts. The Swift facade decodes it into the union type. A value that fails to
+/// serialise gives the JSON text `null`, which the Swift decode rejects, so the failure reaches the
+/// caller as a thrown error and never as a panic across the bridge.
 fn emit_text_type_getter(field: &FieldDef, ctx: &GetterCtx, out: &mut String) {
     let optional = field.optional || matches!(field.ty, TypeRef::Optional(_));
     out.push_str(&crate::backends::swift::template_env::render(
@@ -876,7 +878,7 @@ mod tests {
 
         assert!(
             out.contains(
-                "pub fn content_json(&self) -> Option<String> {\n        self.0.content.as_ref().map(|v| serde_json::to_string(v).expect(\"serializable content\"))"
+                "pub fn content_json(&self) -> Option<String> {\n        self.0.content.as_ref().map(|v| serde_json::to_string(v).unwrap_or_else(|_| \"null\".to_string()))"
             ),
             "an optional text-type field needs a JSON getter beside the text getter:\n{out}"
         );
@@ -889,7 +891,7 @@ mod tests {
 
         assert!(
             out.contains(
-                "pub fn content_json(&self) -> String {\n        serde_json::to_string(&self.0.content).expect(\"serializable content\")"
+                "pub fn content_json(&self) -> String {\n        serde_json::to_string(&self.0.content).unwrap_or_else(|_| \"null\".to_string())"
             ),
             "a required text-type field needs a JSON getter beside the text getter:\n{out}"
         );

@@ -41,6 +41,10 @@ fn reply_api() -> ApiSurface {
 }
 
 fn emitted(api: &ApiSurface, text_types: &[&str], exclude_fields: &[&str]) -> String {
+    try_emit(api, text_types, exclude_fields).expect("accessors are emitted")
+}
+
+fn try_emit(api: &ApiSurface, text_types: &[&str], exclude_fields: &[&str]) -> anyhow::Result<String> {
     let mut out = String::new();
     emit(
         api,
@@ -49,8 +53,8 @@ fn emitted(api: &ApiSurface, text_types: &[&str], exclude_fields: &[&str]) -> St
         &exclude_fields.iter().map(|f| f.to_string()).collect(),
         &HashSet::new(),
         &mut out,
-    );
-    out
+    )?;
+    Ok(out)
 }
 
 #[test]
@@ -95,4 +99,43 @@ fn a_type_without_a_text_field_gets_no_extension() {
     let mut api = reply_api();
     api.types[0].fields.retain(|field| field.name == "label");
     assert_eq!(emitted(&api, &["Content"], &[]), "");
+}
+
+fn api_with_extra_field(name: &str) -> ApiSurface {
+    let mut api = reply_api();
+    api.types[0].fields.push(FieldDef {
+        name: name.into(),
+        ty: TypeRef::String,
+        ..Default::default()
+    });
+    api
+}
+
+#[test]
+fn a_field_named_like_the_json_getter_fails_generation() {
+    for name in ["content_json", "contentJson"] {
+        let error = try_emit(&api_with_extra_field(name), &["Content"], &[]).expect_err(name);
+        assert!(error.to_string().contains("`content_json`"), "{error}");
+    }
+}
+
+#[test]
+fn a_field_named_like_the_accessor_fails_generation() {
+    for name in ["content_value", "contentValue"] {
+        let error = try_emit(&api_with_extra_field(name), &["Content"], &[]).expect_err(name);
+        assert!(error.to_string().contains("`contentValue()`"), "{error}");
+    }
+}
+
+#[test]
+fn a_colliding_field_that_the_bridge_excludes_does_not_fail_generation() {
+    let api = api_with_extra_field("content_json");
+    let out = try_emit(&api, &["Content"], &["Message.content_json"]).expect("excluded field has no getter");
+    assert!(out.contains("contentValue"), "{out}");
+}
+
+#[test]
+fn a_similar_name_that_is_not_a_collision_is_accepted() {
+    let out = try_emit(&api_with_extra_field("content_values"), &["Content"], &[]).expect("no collision");
+    assert!(out.contains("contentValue"), "{out}");
 }

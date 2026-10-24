@@ -385,7 +385,7 @@ impl Backend for SwiftBackend {
             &exclude_fields,
             &configured_features,
             &mut body,
-        );
+        )?;
 
         let result_type_enums: std::collections::HashSet<String> = config
             .trait_bridges_for(Language::Swift)
