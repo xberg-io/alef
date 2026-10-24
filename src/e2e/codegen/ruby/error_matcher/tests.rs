@@ -54,3 +54,37 @@ fn bare_and_message_checks_accept_only_known_families_or_native_fallback() {
         }
     }
 }
+
+fn errors_with_excluded() -> Vec<ErrorDef> {
+    let mut errors = errors();
+    errors.extend(
+        serde_json::from_value::<Vec<ErrorDef>>(serde_json::json!([
+            {"name": "HiddenError", "rust_path": "sample::HiddenError", "doc": "", "binding_excluded": true,
+             "variants": [{"name": "Compile", "is_unit": true, "doc": ""}]}
+        ]))
+        .expect("excluded error"),
+    );
+    errors
+}
+
+#[test]
+fn bare_and_message_checks_never_name_an_error_the_extension_does_not_define() {
+    for value in [None, Some("missing.field[0]")] {
+        let clause = render_raise_error_clause(&fixture(value), &errors_with_excluded(), "Sample");
+        assert!(!clause.contains("HiddenError"), "{clause}");
+        assert!(
+            clause.contains("be_a(Sample::RootError).or be_a(RuntimeError)"),
+            "{clause}"
+        );
+    }
+}
+
+#[test]
+fn a_declared_variant_of_an_excluded_error_falls_back_to_the_message_check() {
+    let clause = render_raise_error_clause(&fixture(Some("Compile")), &errors_with_excluded(), "Sample");
+    assert!(
+        !clause.contains("HiddenError") && !clause.contains("CompileError"),
+        "{clause}"
+    );
+    assert!(clause.starts_with("raise_error(StandardError) { |error|"), "{clause}");
+}
