@@ -265,6 +265,10 @@ pub struct RawCrateConfig {
     /// - JSON array of objects with `"type":"text"` → concatenate their `"text"` fields.
     /// - Otherwise → return `""`.
     ///
+    /// The Swift binding also gives each such field a public accessor named `<field>Value()` on
+    /// the bridge type. It returns the whole union as a Swift value, so the parts of a list stay
+    /// readable. The type must implement `Serialize`.
+    ///
     /// The list is matched against the Rust type name exactly (e.g. `"RichTextContent"`).
     /// When the list is empty (the default) no text accessor is emitted and the generated
     /// output for all types is identical to what was produced before this feature existed.

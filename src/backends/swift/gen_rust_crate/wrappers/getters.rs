@@ -9,7 +9,7 @@
 
 use crate::backends::swift::gen_rust_crate::type_bridge::{
     bridge_type_enum_aware_ref, field_needs_json_bridge, is_enum_named, is_vec_of_enum, needs_json_bridge,
-    text_projected_getter_type,
+    text_projected_getter_type, text_projected_value_names,
 };
 use crate::codegen::conversions::helpers::{apply_explicit_field_newtype_from_core, is_explicit_newtype};
 use crate::core::ir::{CoreWrapper, FieldDef, TypeDef, TypeRef};
@@ -233,11 +233,20 @@ fn emit_remaining_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx: &
 /// The value converts through the core type's `Display` impl, the same conversion the WASM
 /// backend uses for these fields. A `Text` value gives its string without JSON quotes, and a
 /// list of parts gives the joined text of its text parts.
+///
+/// A second getter returns the whole value as JSON, because the text of a list of parts does not
+/// hold the parts. The Swift facade decodes it into the union type.
 fn emit_text_type_getter(field: &FieldDef, ctx: &GetterCtx, out: &mut String) {
+    let optional = field.optional || matches!(field.ty, TypeRef::Optional(_));
     out.push_str(&crate::backends::swift::template_env::render(
         "getter_display_text.rs.jinja",
         crate::alef_context! { getter_name => &ctx.getter_name, return_type => &ctx.bridge_ty_owned,
-        name => &ctx.name, optional => field.optional || matches!(field.ty, TypeRef::Optional(_)) },
+        name => &ctx.name, optional => optional },
+    ));
+    out.push_str(&crate::backends::swift::template_env::render(
+        "getter_display_text_json.rs.jinja",
+        crate::alef_context! { json_name => text_projected_value_names(&ctx.name).json_getter,
+        return_type => &ctx.bridge_ty_owned, name => &ctx.name, optional => optional },
     ));
 }
 

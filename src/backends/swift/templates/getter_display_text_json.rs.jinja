@@ -1,0 +1,4 @@
+    pub fn {{ json_name }}(&self) -> {{ return_type }} {
+{% if optional %}        self.0.{{ name }}.as_ref().map(|v| serde_json::to_string(v).expect("serializable {{ name }}"))
+{% else %}        serde_json::to_string(&self.0.{{ name }}).expect("serializable {{ name }}")
+{% endif %}    }

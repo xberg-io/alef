@@ -219,6 +219,24 @@ pub(crate) fn emit_extern_block_for_type(
                 return_type => &bridge_ty,
             },
         ));
+        // The text getter above drops the parts of a list variant, so the same field gets a
+        // second getter that returns the whole value as JSON. ~keep
+        if super::type_bridge::text_projected_getter_type(field, text_types).is_some() {
+            let names = super::type_bridge::text_projected_value_names(&field.name);
+            block.push_str(&crate::backends::swift::template_env::render(
+                "extern_swift_name_attr.jinja",
+                crate::alef_context! {
+                    swift_name => &names.json_getter_swift,
+                },
+            ));
+            block.push_str(&crate::backends::swift::template_env::render(
+                "extern_fn_getter.jinja",
+                crate::alef_context! {
+                    name => &names.json_getter,
+                    return_type => &bridge_ty,
+                },
+            ));
+        }
     }
 
     if type_needs_own_block_noop(ty) {

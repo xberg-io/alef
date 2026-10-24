@@ -176,11 +176,16 @@ pub(super) fn render_assertion(
         return;
     }
 
-    // A union read as display text reaches Swift as its plain-text rendering only: the getter
-    // returns the concatenated text, and the binding rebuilds the value as its text variant. No
-    // public Swift surface holds the other variants, so a path that steps into one (`.parts`) has
-    // nothing to read. Skip it rather than call an accessor the `RustString` lacks; the skip names
-    // the issue for the accessor that replaces it. ~keep
+    // A path that steps into a variant of a display-text union reads the typed value that the
+    // bridge type exposes for the union field, since the text getter drops the parts. ~keep
+    if super::union_value_assertion::try_render(out, assertion, result_var, field_resolver) {
+        return;
+    }
+
+    // Fallback for a path the renderer above cannot read: a union read as display text reaches
+    // Swift as its plain-text rendering only, so a path that steps into another variant has
+    // nothing to read. Skip it rather than call an accessor the `RustString` lacks. This must stay
+    // after the renderer, or every parts path is skipped. ~keep
     if let Some(f) = assertion.field.as_deref().filter(|f| !f.is_empty())
         && let Some((union_field, ..)) = field_resolver.ir_tagged_union_split(field_resolver.resolve(f))
         && string_expression::is_display_text(field_resolver, Some(&union_field))

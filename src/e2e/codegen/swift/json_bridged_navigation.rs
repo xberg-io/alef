@@ -130,7 +130,13 @@ fn navigated_value_expr(leaf_expr: &str, leaf_is_optional: bool, steps: &[JsonNa
     } else {
         format!("{leaf_expr}.toString()")
     };
-    let mut expr = format!("(try? JSONSerialization.jsonObject(with: Data({json_text_expr}.utf8)))");
+    let expr = format!("(try? JSONSerialization.jsonObject(with: Data({json_text_expr}.utf8)))");
+    append_nav_steps(expr, steps)
+}
+
+/// Appends one safe subscript or key lookup to `expr` for each of `steps`. `expr` is an `Any?`
+/// holding decoded JSON.
+pub(super) fn append_nav_steps(mut expr: String, steps: &[JsonNavStep]) -> String {
     for step in steps {
         expr = match step {
             // ~keep `?[n]` would be an UNCHECKED Swift subscript: optional chaining guards a nil
@@ -150,7 +156,7 @@ fn navigated_value_expr(leaf_expr: &str, leaf_is_optional: bool, steps: &[JsonNa
 
 /// A stable per-(field, assertion type) local variable name, so two navigated assertions in the
 /// same generated test method never redeclare the same Swift identifier.
-fn json_nav_local_name(field: &str, assertion_type: &str) -> String {
+pub(super) fn json_nav_local_name(field: &str, assertion_type: &str) -> String {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     field.hash(&mut hasher);
@@ -160,7 +166,7 @@ fn json_nav_local_name(field: &str, assertion_type: &str) -> String {
 
 /// The rendered assertion body referencing `local` (an `Any?` already bound to the navigated,
 /// decoded value), or `None` when `assertion`'s type or value shape has no renderer here yet.
-fn build_assertion_lines(assertion: &Assertion, local: &str) -> Option<String> {
+pub(super) fn build_assertion_lines(assertion: &Assertion, local: &str) -> Option<String> {
     match assertion.assertion_type.as_str() {
         "equals" => build_equals(assertion, local),
         "not_empty" => Some(build_presence(local, true)),

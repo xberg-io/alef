@@ -1,0 +1,7 @@
+extension RustBridge.{{ type_name }}Ref {
+{% for accessor in accessors %}    /// The whole value of `{{ accessor.field }}`, parts included. `{{ accessor.field }}()` returns only its text.
+    public func {{ accessor.name }}() throws -> {{ accessor.value_type }} {
+{% if accessor.optional %}        try {{ accessor.json_getter }}().map { try JSONDecoder().decode({{ accessor.enum_name }}.self, from: Data($0.toString().utf8)) }
+{% else %}        try JSONDecoder().decode({{ accessor.enum_name }}.self, from: Data({{ accessor.json_getter }}().toString().utf8))
+{% endif %}    }
+{% endfor %}}

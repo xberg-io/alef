@@ -29,6 +29,7 @@ mod overloads;
 pub mod plugin_marshal;
 pub mod service_api;
 mod streaming;
+mod text_value_accessors;
 pub mod trait_bridge;
 pub(crate) mod zero_arg_default;
 
@@ -376,6 +377,15 @@ impl Backend for SwiftBackend {
             ));
             body.push('\n');
         }
+
+        text_value_accessors::emit(
+            api,
+            &config.untagged_union_text_types,
+            &exclude_types,
+            &exclude_fields,
+            &configured_features,
+            &mut body,
+        );
 
         let result_type_enums: std::collections::HashSet<String> = config
             .trait_bridges_for(Language::Swift)

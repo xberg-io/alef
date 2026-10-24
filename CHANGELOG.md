@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Expose the whole value of a Swift text-projected field through a public typed accessor named `<field>Value()`, so a reply made of parts stays readable, and read it in generated Swift assertions; the text getter still returns the reply text (#691).
+
 ## [0.113.4] - 2026-10-23
 
 ### Fixed
