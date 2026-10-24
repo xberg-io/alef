@@ -67,11 +67,7 @@ impl UsageProbe {
 /// A counter qualifies when the chunk type has a `usage` field of a named type and that type has
 /// an integer field of the asserted name. Anything else stays unresolved, so its assertion
 /// renders the registered skip comment instead of calling an accessor the header lacks.
-fn resolve_usage_probe(
-    fixture: &Fixture,
-    type_defs: &[crate::core::ir::TypeDef],
-    item_type: &str,
-) -> UsageProbe {
+fn resolve_usage_probe(fixture: &Fixture, type_defs: &[crate::core::ir::TypeDef], item_type: &str) -> UsageProbe {
     use crate::core::ir::{PrimitiveType, TypeRef};
     fn named(ty: &TypeRef) -> Option<&str> {
         match ty {
@@ -465,11 +461,9 @@ fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion, usage: &U
         // (`streaming_assertions/model.rs`'s field table). The local this used to resolve to was
         // set from loop termination alone: a different fact wearing this field's name, and one
         // the loop now asserts directly against the ABI's error code. ~keep
-        "stream_complete"
-        | "stream_content"
-        | "finish_reason"
-        | "tool_calls"
-        | "tool_calls[0].function.name" => ("", Kind::Unsupported),
+        "stream_complete" | "stream_content" | "finish_reason" | "tool_calls" | "tool_calls[0].function.name" => {
+            ("", Kind::Unsupported)
+        }
         _ => ("", Kind::Unsupported),
     };
 
@@ -499,7 +493,10 @@ fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion, usage: &U
     match (atype, &kind) {
         ("count_min", Kind::IntCount) => {
             if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
-                let _ = writeln!(out, "    assert({seen}{expr} >= {n} && \"expected at least {n} chunks\");");
+                let _ = writeln!(
+                    out,
+                    "    assert({seen}{expr} >= {n} && \"expected at least {n} chunks\");"
+                );
             } else {
                 let _ = writeln!(
                     out,
@@ -670,9 +667,7 @@ mod emit_chat_stream_assertion_tests {
 
 #[cfg(test)]
 mod stream_completion_signal_tests {
-    use super::{
-        CStreamingAdapterMetadata, UsageProbe, emit_chat_stream_assertion, render_streaming_test_function,
-    };
+    use super::{CStreamingAdapterMetadata, UsageProbe, emit_chat_stream_assertion, render_streaming_test_function};
     use crate::e2e::codegen::field_skip::FieldSkip;
     use crate::e2e::fixture::{Assertion, Fixture};
 
@@ -788,7 +783,10 @@ mod stream_completion_signal_tests {
         vec![
             TypeDef {
                 name: "StreamChunk".to_string(),
-                fields: vec![field("usage", TypeRef::Optional(Box::new(TypeRef::Named("Usage".to_string()))))],
+                fields: vec![field(
+                    "usage",
+                    TypeRef::Optional(Box::new(TypeRef::Named("Usage".to_string()))),
+                )],
                 ..TypeDef::default()
             },
             TypeDef {
@@ -847,10 +845,16 @@ mod stream_completion_signal_tests {
         ] {
             assert!(body.contains(expected), "missing `{expected}`. Emitted:\n{body}");
         }
-        assert!(!body.contains("skipped"), "the assertion must not skip. Emitted:\n{body}");
+        assert!(
+            !body.contains("skipped"),
+            "the assertion must not skip. Emitted:\n{body}"
+        );
         let read = body.find("mylib_stream_chunk_usage(chunk)").expect("usage read");
         let free = body.find("mylib_stream_chunk_free(chunk)").expect("chunk free");
-        assert!(read < free, "the usage handle must be read before the chunk is freed. Emitted:\n{body}");
+        assert!(
+            read < free,
+            "the usage handle must be read before the chunk is freed. Emitted:\n{body}"
+        );
     }
 
     /// Negative control: a field the IR cannot resolve to an integer counter keeps the registered

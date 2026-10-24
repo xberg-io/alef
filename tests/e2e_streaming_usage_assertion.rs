@@ -50,7 +50,7 @@ function = "chat_stream"
 module = "MyLib"
 result_var = "result"
 args = [
-  { name = "req", field = "input", type = "json_object" },
+  {{ name = "req", field = "input", type = "json_object" }},
 ]
 {streaming}"#
     );
