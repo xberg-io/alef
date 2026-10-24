@@ -120,7 +120,7 @@ fn swift(files: &[alef::core::GeneratedFile]) -> &str {
 }
 
 #[test]
-fn configured_text_getters_are_reconstructed_without_json_decoding() {
+fn configured_text_getters_keep_returning_plain_text_and_the_struct_reads_the_accessor() {
     let files = generated(true);
     let source = swift(&files);
     for name in ["required", "nullable", "legacy"] {
@@ -128,7 +128,8 @@ fn configured_text_getters_are_reconstructed_without_json_decoding() {
             .lines()
             .find(|line| line.contains(&format!("self.{name} =")) && line.contains("rb."))
             .unwrap();
-        assert!(assignment.contains("plainValue(field0:"), "{assignment}");
+        assert!(assignment.contains(&format!("try rb.{name}Value()")), "{assignment}");
+        assert!(!assignment.contains("plainValue(field0:"), "{assignment}");
         assert!(!assignment.contains("JSONDecoder"), "{assignment}");
     }
     let rust = &files
