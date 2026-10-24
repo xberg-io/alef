@@ -59,7 +59,7 @@ fn reply_type(optional: bool) -> crate::core::ir::TypeDef {
 fn reply_extern_block(optional: bool, configured: &HashSet<&str>) -> String {
     let all = HashSet::from(["BodyValue"]);
     let unit = HashSet::new();
-    super::extern_block::emit_extern_block_for_type(
+    crate::backends::swift::gen_rust_crate::extern_block::emit_extern_block_for_type(
         &reply_type(optional),
         &HashSet::new(),
         &std::collections::HashMap::new(),
