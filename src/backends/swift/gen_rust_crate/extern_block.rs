@@ -10,6 +10,7 @@ use crate::backends::swift::gen_rust_crate::type_bridge::{
     bridge_type_enum_aware_ref, bridge_type_with_handles, forces_fallible_enum_bridge, is_vec_of_enum,
     needs_json_bridge,
 };
+use crate::backends::swift::gen_rust_crate::owned_vec;
 use crate::backends::swift::gen_rust_crate::wrappers::is_unbridgeable_getter;
 use crate::core::config::AdapterConfig;
 use crate::core::ir::{EnumDef, FieldDef, FunctionDef, TypeDef, TypeRef};
@@ -99,6 +100,38 @@ pub(crate) fn has_lossless_constructor_extern(
             .all(|field| enum_kinds.supports_constructor_field(&field.ty))
 }
 
+/// The swift-bridge return type that the extern declaration of a field getter uses.
+///
+/// This is the one place that decides how a getter crosses the bridge, so the extern block and
+/// the owned-vector accessor emission (`owned_vec`) read the same answer.
+pub(crate) fn getter_bridge_type(
+    field: &FieldDef,
+    enum_kinds: EnumKinds<'_, '_>,
+    no_serde_names: &HashSet<&str>,
+    parent_first_class: bool,
+    text_types: &HashSet<&str>,
+) -> String {
+    let enum_set = enum_kinds.all();
+    let bridge_ty = bridge_type_enum_and_serde_struct_aware(&field.ty, enum_set, no_serde_names, parent_first_class);
+    if let Some(projected) = super::type_bridge::text_projected_getter_type(field, text_types) {
+        projected.to_string()
+    } else if super::type_bridge::field_needs_json_bridge(&field.ty, field.optional) {
+        "String".to_string()
+    } else if field.optional {
+        if is_vec_of_enum(&field.ty, enum_set)
+            || (parent_first_class
+                && matches!(&field.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !no_serde_names.contains(n.as_str())))
+                && !matches!(&field.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if enum_set.contains(n.as_str()))))
+        {
+            "String".to_string()
+        } else {
+            format!("Option<{bridge_ty}>")
+        }
+    } else {
+        bridge_ty
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_extern_block_for_type(
     ty: &TypeDef,
@@ -182,28 +215,13 @@ pub(crate) fn emit_extern_block_for_type(
         ) {
             continue;
         }
-        let enum_set = enum_kinds.all();
-        let bridge_ty =
-            bridge_type_enum_and_serde_struct_aware(&field.ty, enum_set, no_serde_names, parent_first_class);
-        let bridge_ty = if let Some(projected) = super::type_bridge::text_projected_getter_type(field, text_types) {
-            projected.to_string()
-        } else if super::type_bridge::field_needs_json_bridge(&field.ty, field.optional) {
-            "String".to_string()
-        } else if field.optional {
-            if is_vec_of_enum(&field.ty, enum_set)
-                || (parent_first_class
-                    && matches!(&field.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !no_serde_names.contains(n.as_str())))
-                    && !matches!(&field.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if enum_set.contains(n.as_str()))))
-            {
-                "String".to_string()
-            } else {
-                format!("Option<{bridge_ty}>")
-            }
-        } else {
-            bridge_ty
-        };
+        let bridge_ty = getter_bridge_type(field, enum_kinds, no_serde_names, parent_first_class, text_types);
         let name = swift_ident(&field.name.to_snake_case());
-        let swift_name = swift_ident(&field.name.to_lower_camel_case());
+        let swift_name = if owned_vec::owned_vec_element(&bridge_ty).is_some() {
+            owned_vec::bridge_getter_swift_name(&field.name)
+        } else {
+            swift_ident(&field.name.to_lower_camel_case())
+        };
         if swift_name != name {
             block.push_str(&crate::backends::swift::template_env::render(
                 "extern_swift_name_attr.jinja",

@@ -1,0 +1,32 @@
+{{ header }}
+// swift-format-ignore-file
+// Getters that return a list of opaque handles or strings. swift-bridge hands such a list back as
+// a `RustVec`, and an element read from a `RustVec` by index points into the vector's own buffer
+// without keeping the vector alive. These accessors move every element out of the vector first,
+// so each element owns its storage and `result.items()[0].name()` is safe on a temporary.
+
+extension RustVec {
+    /// Moves every element out of the vector and returns them, in order, as owned values.
+    func alefIntoOwnedArray() -> [T] {
+        var owned: [T] = []
+        owned.reserveCapacity(len())
+        while let element = pop() {
+            owned.append(element)
+        }
+        owned.reverse()
+        return owned
+    }
+}
+{% for ty in types %}
+extension {{ ty.name }}Ref {
+{%- for getter in ty.getters %}
+    public func {{ getter.swift_name }}() -> {% if getter.optional %}[{{ getter.element }}]?{% else %}[{{ getter.element }}]{% endif %} {
+{%- if getter.optional %}
+        self.{{ getter.raw_name }}().map { $0.alefIntoOwnedArray() }
+{%- else %}
+        self.{{ getter.raw_name }}().alefIntoOwnedArray()
+{%- endif %}
+    }
+{% endfor %}
+}
+{% endfor %}

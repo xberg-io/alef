@@ -255,8 +255,10 @@ pub(crate) fn is_enum_named(ty: &TypeRef, enum_names: &HashSet<&str>) -> bool {
 ///   `ExtractionResult`), there is no Codable wrapper; consumers access elements through the
 ///   opaque `RustBridge.{Elem}` accessors (`results()[0].mimeType()`). The getter must therefore
 ///   return a real `Vec<Opaque>`, matching the constructor param. swift-bridge supports this for
-///   declared opaque `type T;` — the accessor's `RustVec` is lifetime-hoisted on the Swift side
-///   to avoid the ARC use-after-free that motivated the old blanket JSON degradation.
+///   declared opaque `type T;`. The extern getter keeps its `RustVec` return but takes the Swift
+///   name `<field>RustVec`; the `owned_vec` module declares `<field>()` on top of it, returning
+///   an array of owned elements, because an element read from a `RustVec` by index does not
+///   keep the vector alive.
 ///
 /// `Vec<Named(enum)>` is always `Vec<String>` (swift-bridge's `Vectorizable` is broken for enums),
 /// regardless of the parent.
