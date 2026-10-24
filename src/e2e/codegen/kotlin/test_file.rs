@@ -631,6 +631,24 @@ pub(super) fn render_test_file_inner(
             "kotlin"
         };
         let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve(lang_for_recipe, f, cc, type_defs);
+        if kotlin_android_style {
+            let resolver = super::call_field_resolver::build_call_field_resolver(
+                super::call_field_resolver::CallFieldResolverInputs {
+                    e2e_config,
+                    call_config: cc,
+                    fixture: f,
+                    lang: lang_for_recipe,
+                    type_defs,
+                    enums,
+                    functions,
+                },
+            );
+            for field in f.assertions.iter().filter_map(|a| a.field.as_deref()) {
+                for type_name in super::discriminated::android_imports(&resolver, resolver.resolve(field)) {
+                    imports.push_binding_type(&type_name);
+                }
+            }
+        }
         for arg in recipe.args.iter().filter(|arg| arg.arg_type == "handle") {
             let value = crate::e2e::codegen::resolve_field(&f.input, &arg.field);
             if value.is_null() || value.is_object() && value.as_object().is_some_and(|o| o.is_empty()) {

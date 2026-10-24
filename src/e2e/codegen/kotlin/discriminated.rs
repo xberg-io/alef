@@ -13,6 +13,7 @@
 //! `kotlin_field_name_with_type` instead of assuming `"metadata"`.
 
 mod list_payload;
+pub(super) use list_payload::android_imports;
 
 use heck::{ToLowerCamelCase, ToUpperCamelCase};
 use std::fmt::Write as FmtWrite;

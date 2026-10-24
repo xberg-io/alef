@@ -1221,7 +1221,11 @@ fn render_test_file(
             e2e_config.effective_fields_array(fixture_call),
             &std::collections::HashSet::new(),
         )
-        .with_ir_fields(ir_reachable_fields, ir_known_excluded_fields, ir_optional_fields);
+        .with_ir_fields(ir_reachable_fields, ir_known_excluded_fields, ir_optional_fields)
+        .with_ir_enum_map(
+            FieldResolver::ir_enum_fields(type_defs, enums),
+            crate::e2e::codegen::call_ir::resolve_declared_result_type(fixture_call, lang, ir),
+        );
         let _ = field_resolver; // top-level resolver retained for compat; per-call wins
         let field_resolver = &per_call_field_resolver;
 

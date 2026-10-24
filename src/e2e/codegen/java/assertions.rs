@@ -47,6 +47,11 @@ pub(super) fn render_assertion(
         return;
     }
 
+    // A path below an untagged union wrapper reads the wrapper's JSON tree. ~keep
+    if super::union_list_payload::try_render(out, assertion, result_var, field_resolver) {
+        return;
+    }
+
     // Bare-result is_empty / not_empty on Option<T> returns: the Java facade exposes
     // these as `@Nullable T` (via `.orElse(null)`) rather than `Optional<T>`, so the
     // template's `.isEmpty()` call would not compile for record types. Emit a

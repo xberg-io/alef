@@ -15,6 +15,7 @@ pub(in crate::e2e::codegen::go) struct GoCrateResolverFacts {
     ir_optional_fields: std::collections::HashSet<String>,
     ir_result_fields: crate::e2e::field_access::IrResultFieldMap,
     ir_collection_fields: crate::e2e::field_access::IrCollectionMap,
+    ir_enum_fields: crate::e2e::field_access::IrEnumMap,
     reserved_type_names: std::collections::HashSet<String>,
 }
 
@@ -29,6 +30,7 @@ impl GoCrateResolverFacts {
         let emission = crate::backends::go::emission_facts::GoEmissionFacts::from_config(type_defs, enums, config);
         let ir_result_fields = FieldResolver::go_ir_result_field_facts_from_emission(type_defs, enums, &emission);
         let ir_collection_fields = FieldResolver::ir_collection_fields(type_defs);
+        let ir_enum_fields = FieldResolver::ir_enum_fields(type_defs, enums);
         let reserved_type_names = emission
             .structs
             .iter()
@@ -42,6 +44,7 @@ impl GoCrateResolverFacts {
             ir_optional_fields,
             ir_result_fields,
             ir_collection_fields,
+            ir_enum_fields,
             reserved_type_names,
         }
     }
@@ -95,7 +98,7 @@ pub(in crate::e2e::codegen::go) fn fixture_has_go_callable(fixture: &Fixture, e2
 /// with a resolution gap in `target_field_is_pointer` produced the wrong `.unwrap_or(is_optional &&
 /// !is_array_for_len)` guess for e.g. `Chunks []Chunk` — `len(*result.Chunks)` against a plain
 /// slice, a Go compile error (`cannot indirect ... variable of type []mycrate.Chunk`).
-pub(super) fn build_call_field_resolver_with_facts(
+pub(in crate::e2e::codegen::go) fn build_call_field_resolver_with_facts(
     e2e_config: &E2eConfig,
     call_config: &CallConfig,
     functions: &[FunctionDef],
@@ -116,6 +119,7 @@ pub(super) fn build_call_field_resolver_with_facts(
     )
     .with_display_as_text_fields(e2e_config.effective_fields_display_as_text(call_config).clone())
     .with_ir_collection_map(facts.ir_collection_fields.clone(), call_root_type.clone())
+    .with_ir_enum_map(facts.ir_enum_fields.clone(), call_root_type.clone())
     .with_ir_result_fields(facts.ir_result_fields.clone(), call_root_type)
     .with_ir_fields(
         facts.ir_reachable_fields.clone(),

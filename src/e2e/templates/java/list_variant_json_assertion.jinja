@@ -1,0 +1,6 @@
+        assertNotNull({{ container }}, "expected content");
+        assertTrue({{ payload }}.isArray(), "expected list variant");
+{% if not count %}
+        assertTrue({{ expression }}.isTextual(), "expected text field");
+{% endif %}
+        assertEquals({{ expected }}, {{ expression }}.{% if count %}size(){% else %}asText(){% endif %});

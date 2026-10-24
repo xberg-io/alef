@@ -160,6 +160,23 @@ pub(super) fn render_assertion(
         return;
     }
 
+    // A union read as display text reaches Swift as its plain-text rendering only: the getter
+    // returns the concatenated text, and the binding rebuilds the value as its text variant. No
+    // public Swift surface holds the other variants, so a path that steps into one (`.parts`) has
+    // nothing to read. Skip it rather than call an accessor the `RustString` lacks; the skip names
+    // the issue for the accessor that replaces it. ~keep
+    if let Some(f) = assertion.field.as_deref().filter(|f| !f.is_empty())
+        && let Some((union_field, ..)) = field_resolver.ir_tagged_union_split(field_resolver.resolve(f))
+        && string_expression::is_display_text(field_resolver, Some(&union_field))
+    {
+        let _ = writeln!(
+            out,
+            "        // skipped: {}",
+            FieldSkip::DisplayTextUnionVariantNotReadableInSwift.message(f)
+        );
+        return;
+    }
+
     // Before refusing a path that steps past a JSON-bridged leaf outright, try to decode-and-
     // navigate it: `JSONSerialization` (every generated file imports `Foundation`) can subscript
     // or key into the bridged `RustString`'s JSON text exactly as

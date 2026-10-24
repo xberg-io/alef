@@ -35,4 +35,8 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
         "csharp/list_variant_json_assertion.jinja",
         include_str!("../templates/csharp/list_variant_json_assertion.jinja"),
     ),
+    (
+        "java/list_variant_json_assertion.jinja",
+        include_str!("../templates/java/list_variant_json_assertion.jinja"),
+    ),
 ];

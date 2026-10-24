@@ -41,3 +41,62 @@ fn indexed_list_variant_assertions_run_against_actual_generated_types() {
         }
     }
 }
+
+/// The Android test package is a child of the binding package, so the test file must import the
+/// union and the element union that the typed assertions name.
+#[test]
+fn android_test_file_imports_the_union_and_element_types_the_assertions_name() {
+    use crate::core::ir::{FunctionDef, TypeRef};
+    use crate::e2e::config::{CallConfig, E2eConfig};
+    use crate::e2e::fixture::Fixture;
+
+    let api = support::api(true, false);
+    let fixture = Fixture {
+        id: "parts".into(),
+        description: "parts".into(),
+        assertions: support::assertions(false),
+        ..Fixture::default()
+    };
+    let functions = vec![FunctionDef {
+        name: "read_envelope".into(),
+        return_type: TypeRef::Named("Envelope".into()),
+        ..FunctionDef::default()
+    }];
+    let e2e = E2eConfig {
+        call: CallConfig {
+            function: "read_envelope".into(),
+            result_var: "result".into(),
+            ..CallConfig::default()
+        },
+        ..Default::default()
+    };
+    let render = |android: bool| {
+        crate::e2e::codegen::kotlin::test_file::render_test_file_inner(
+            "parts",
+            &[&fixture],
+            "SampleClient",
+            "readEnvelope",
+            "dev.sample.android",
+            "result",
+            &[],
+            None,
+            false,
+            &e2e,
+            &std::collections::HashMap::new(),
+            android,
+            &crate::core::config::ResolvedCrateConfig::default(),
+            &api.types,
+            &api.enums,
+            &functions,
+        )
+        .expect("the test file renders")
+    };
+    let android = render(true);
+    for name in ["Payload", "Piece"] {
+        assert!(
+            android.contains(&format!("import dev.sample.android.{name}\n")),
+            "{android}"
+        );
+    }
+    assert!(!render(false).contains("import dev.sample.android.Payload\n"));
+}

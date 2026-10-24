@@ -135,3 +135,37 @@ fn project_declarations(wire: bool, directory: &std::path::Path, go: &std::path:
     std::fs::remove_file(projector).unwrap();
     String::from_utf8(projection.stdout).unwrap()
 }
+
+/// The resolver the generator builds for a real call must resolve the union crossing; a resolver
+/// assembled by hand in a test can hide a missing enum map.
+#[test]
+fn the_per_call_resolver_resolves_the_union_crossing() {
+    let mut api = support::surface(false);
+    api.functions.push(crate::core::ir::FunctionDef {
+        name: "chat".to_string(),
+        return_type: crate::core::ir::TypeRef::Named("Reply".to_string()),
+        ..Default::default()
+    });
+    let config = ResolvedCrateConfig {
+        name: "sample".to_string(),
+        ..Default::default()
+    };
+    let facts = crate::e2e::codegen::go::test_function::call_resolver::GoCrateResolverFacts::new(
+        &api.types, &api.enums, &config,
+    );
+    let call: crate::core::config::e2e::CallConfig = toml::from_str("function = \"chat\"").unwrap();
+    let resolver = crate::e2e::codegen::go::test_function::call_resolver::build_call_field_resolver_with_facts(
+        &crate::core::config::e2e::E2eConfig::default(),
+        &call,
+        &api.functions,
+        &api.types,
+        &facts,
+    );
+    let (prefix, owner, variant, suffix) = resolver
+        .ir_tagged_union_split("choices[0].message.content.parts[0].text")
+        .expect("the content enum must be reachable from the call's result type");
+    assert_eq!(
+        (prefix.as_str(), owner.as_str(), variant.as_str(), suffix.as_str()),
+        ("choices[0].message.content", "Body", "Parts", "[0].text")
+    );
+}

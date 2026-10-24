@@ -374,6 +374,7 @@ mod snippet;
 mod stubs;
 mod test_file;
 mod test_method;
+mod union_list_payload;
 mod values;
 mod visitor;
 
@@ -409,5 +410,7 @@ mod sealed_display_wire_name_tests;
 mod super_trait_stub_lifecycle_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod union_list_payload_tests;
 #[cfg(test)]
 mod void_not_error_call_tests;

@@ -41,6 +41,26 @@ pub(super) fn render(
     ))
 }
 
+/// The binding types that the typed (Android) rendering of `field` names: the union and the
+/// union type of its list elements. The Android test package is a child of the binding package,
+/// so it must import each of them. ~keep
+pub(in crate::e2e::codegen::kotlin) fn android_imports(resolver: &FieldResolver, field: &str) -> Vec<String> {
+    let Some((_, owner, variant, _)) = resolver.ir_tagged_union_split(field) else {
+        return Vec::new();
+    };
+    let Some((_, element_type)) = resolver.union_variant_payload(&owner, &variant) else {
+        return Vec::new();
+    };
+    if !resolver.union_variant_payload_is_collection(&owner, &variant) {
+        return Vec::new();
+    }
+    let mut types = vec![owner];
+    if resolver.enum_definition(element_type).is_some() {
+        types.push(element_type.to_string());
+    }
+    types
+}
+
 fn indexed_leaf(resolver: &FieldResolver, owner: &str, suffix: &str, payload: &str, style: &str) -> Option<String> {
     let end = suffix.find(']')?;
     let element = resolver.element_accessor(&suffix[..=end], style, payload);

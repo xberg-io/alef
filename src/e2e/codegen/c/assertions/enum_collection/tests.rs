@@ -237,3 +237,80 @@ fn compile_probe(wire: bool, directory: &std::path::Path) -> std::path::PathBuf 
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     binary
 }
+
+/// The test file the generator writes for a real call must read the parts through the union
+/// crossing. A resolver assembled by hand in a test can hide a missing enum map.
+#[test]
+fn the_generated_test_file_reads_the_parts_of_a_content_union() {
+    use crate::e2e::codegen::call_ir::CallIr;
+    use crate::e2e::config::{CallConfig, CallOverride, E2eConfig};
+    use crate::e2e::field_access::FieldResolver;
+    use crate::e2e::fixture::{Assertion, Fixture};
+
+    let mut api = support::surface(false);
+    api.functions.push(crate::core::ir::FunctionDef {
+        name: "chat".to_string(),
+        return_type: crate::core::ir::TypeRef::Named("Reply".to_string()),
+        ..Default::default()
+    });
+    let fixture = Fixture {
+        id: "parts_reply".into(),
+        description: "Reply with a list of parts".into(),
+        call: Some("chat".into()),
+        assertions: vec![Assertion {
+            assertion_type: "count_equals".into(),
+            field: Some("choices[0].message.content.parts".into()),
+            value: Some(serde_json::json!(2)),
+            ..Default::default()
+        }],
+        ..Fixture::default()
+    };
+    let mut e2e = E2eConfig::default();
+    let mut call = CallConfig {
+        function: "chat".to_string(),
+        ..CallConfig::default()
+    };
+    call.overrides.insert(
+        "c".to_string(),
+        CallOverride {
+            function: Some("sample_chat".to_string()),
+            ..CallOverride::default()
+        },
+    );
+    e2e.calls.insert("chat".into(), call);
+    let config = ResolvedCrateConfig {
+        name: "sample".into(),
+        ..ResolvedCrateConfig::default()
+    };
+    let resolver = FieldResolver::new(
+        &HashMap::new(),
+        &HashSet::new(),
+        &HashSet::new(),
+        &HashSet::new(),
+        &HashSet::new(),
+    );
+    let rendered = super::super::super::render_test_file(
+        "chat",
+        &[&fixture],
+        "sample.h",
+        "sample",
+        "result",
+        &e2e,
+        "c",
+        &resolver,
+        &config,
+        &api.types,
+        &api.enums,
+        &[],
+        CallIr {
+            functions: &api.functions,
+            type_defs: &api.types,
+        },
+    )
+    .expect("a call returning a content union renders");
+    assert!(rendered.contains("expected enum collection payload"), "{rendered}");
+    assert!(
+        !rendered.contains("alef_json_get_string(content_json, \"parts\")"),
+        "{rendered}"
+    );
+}

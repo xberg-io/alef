@@ -220,6 +220,14 @@ field_skip_variants! {
     /// site can append which assertion type it was, mirroring
     /// [`Self::StreamingAssertionOnUnsupportedField`]'s rider convention.
     NavigatedJsonBridgedAssertionTypeNotSupportedInSwift: GeneratorGap => ("navigated JSON-bridged field ", ""),
+    /// ~keep The Swift getter of a display-text union returns its plain text and the binding
+    /// rebuilds the value as the text variant, so no public Swift member holds the other
+    /// variants. The gap is alef's: the issue it names tracks the accessor that closes it, and
+    /// this skip stays as the fallback for any shape that accessor does not render.
+    DisplayTextUnionVariantNotReadableInSwift: GeneratorGap => (
+        "field ",
+        " reads a variant that the Swift getter of a display-text union flattens to text (xberg-io/alef#691)",
+    ),
     /// ~keep Was `NestedArrayWildcardNotSupportedInZig` (" not supported in zig"), emitted by the
     /// one backend that had ever guarded the case. Every other backend now refuses it too, so the
     /// wording is language-neutral and single-sourced through `nested_wildcard_skip_line`. The
