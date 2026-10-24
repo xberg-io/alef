@@ -13,6 +13,9 @@ enum RustBridge {
         func required() -> NativeString { NativeString(value: value) }
         func nullable() -> NativeString? { absent ? nil : NativeString(value: value) }
         func legacy() -> NativeString? { absent ? nil : NativeString(value: value) }
+        func requiredValue() throws -> BodyValue { .plainValue(field0: value) }
+        func nullableValue() throws -> BodyValue? { absent ? nil : .plainValue(field0: value) }
+        func legacyValue() throws -> BodyValue? { absent ? nil : .plainValue(field0: value) }
     }
     struct StructuralPacketRef {
         let value: String

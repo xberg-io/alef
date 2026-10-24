@@ -40,7 +40,7 @@ pub(crate) fn error_type_name(api: &ApiSurface, config: &ResolvedCrateConfig, mo
     }
 }
 
-fn projected_read_expression(field: &FieldDef, accessor: &str, variants: &TextVariants) -> Option<String> {
+fn projected_read_expression(field: &FieldDef, variants: &TextVariants) -> Option<String> {
     let configured = variants.keys().map(String::as_str).collect();
     crate::backends::swift::gen_rust_crate::type_bridge::text_projected_getter_type(field, &configured)?;
     let named = match &field.ty {
@@ -48,16 +48,9 @@ fn projected_read_expression(field: &FieldDef, accessor: &str, variants: &TextVa
         other => other,
     };
     let TypeRef::Named(name) = named else { return None };
-    let (variant, label) = variants.get(name)?;
-    Some(
-        crate::backends::swift::template_env::render(
-            "swift_text_projected_read.swift.jinja",
-            crate::alef_context! { name => name, variant => variant, label => label, accessor => accessor,
-            optional => field.optional || matches!(field.ty, TypeRef::Optional(_)) },
-        )
-        .trim_end()
-        .to_string(),
-    )
+    variants.get(name)?;
+    let names = crate::backends::swift::gen_rust_crate::type_bridge::text_projected_value_names(&field.name);
+    Some(format!("try rb.{}()", names.accessor))
 }
 
 pub(super) fn assignments(context: Initializer<'_>) -> String {
@@ -104,7 +97,7 @@ impl Initializer<'_> {
         if is_vec_of_serde_struct(&field.ty, self.serde_struct_names) {
             return self.serde_vector(field, &accessor, optional);
         }
-        if let Some(expression) = projected_read_expression(field, &accessor, self.text_variants) {
+        if let Some(expression) = projected_read_expression(field, self.text_variants) {
             return expression;
         }
         if is_untagged_enum_type(&field.ty, self.untagged_enum_names) {

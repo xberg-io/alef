@@ -1,1 +1,0 @@
-{% if optional %}rb.{{ accessor }}().map { {{ name }}.{{ variant }}({{ label }}: $0.toString()) }{% else %}{{ name }}.{{ variant }}({{ label }}: rb.{{ accessor }}().toString()){% endif %}
