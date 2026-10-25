@@ -1,12 +1,6 @@
 ---
 name: alef
-description: >-
-  Use Alef correctly for Rust-to-polyglot binding generation. Trigger when
-  configuring alef.toml, generating bindings, READMEs, API/CLI/MCP docs,
-  llms.txt, agent skills, e2e suites, or debugging stale/missing generated
-  output in Alef-powered repositories. Covers the safe command sequence,
-  config ownership, generated-output rules, snippet validation, downstream
-  smoke testing, and Alef development workflow.
+description: "Alef Rust-to-polyglot binding generation: alef.toml, bindings, READMEs, API/CLI/MCP docs, llms.txt, skills and e2e suites, the safe command sequence and generated-output rules. Use when configuring Alef or debugging stale generated output."
 license: MIT
 metadata:
   author: xberg-io
