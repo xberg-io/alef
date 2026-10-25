@@ -4,7 +4,7 @@
 version = 1
 ai_rulez_version = '5.6.3'
 scope = 'all'
-tree = 'sha256:b49c0c0ce62277ee80829df93dbafbd09ff12e845d5b10f455280b706aaa0f9b'
+tree = 'sha256:d9228821abc58e547e77289e02ad00724897902e1d22d51d787672bd959263c9'
 
 [[include]]
 name = 'xberg-cicd'
@@ -58,7 +58,7 @@ digest = 'sha256:6f2fdbd9135cc10f3f511e5daf3545070a31dd7afd7715621c1bbe02f8b338a
 name = 'binding-audit'
 source = '.ai-rulez/skills/binding-audit/SKILL.md'
 commit = ''
-digest = 'sha256:62bba2822de81137997c0a1c319f345d70dccbd216698037424c0e311e17aa3e'
+digest = 'sha256:1b7590d8daabd7e6e51653f796acc338ba12387bb4e98fc90e3eec4e3de1cb7e'
 
 [[served]]
 name = 'cicd-pipeline-standards'
@@ -118,7 +118,7 @@ digest = 'sha256:5cb87728d1449fadda6d8557501fcc0823509c60a37058ce4d2dda123296f67
 name = 'jinja-codegen'
 source = '.ai-rulez/skills/jinja-codegen/SKILL.md'
 commit = ''
-digest = 'sha256:495d52932e3df7828aba7b3fcca1b59ef9f1b4c809bce2397a4c723fb1cd993c'
+digest = 'sha256:8b8a2e86906e1d79687887fff882ef538945c771ec3813ef725a6f242ad9dd56'
 
 [[served]]
 name = 'owasp-quick-reference'
@@ -142,13 +142,13 @@ digest = 'sha256:37e225c8dfdab9a71522d9ec9718ee8f41881bab149618e58467534827488dd
 name = 'regen-audit'
 source = '.ai-rulez/skills/regen-audit/SKILL.md'
 commit = ''
-digest = 'sha256:4473e2051e2fd4687bbf16752f2c99a8ddb3e5505e188b4885391ca5931088c4'
+digest = 'sha256:5945aedd60557eae90ec4184b4db767afd7dd569e11f2741a31e8428969ed86d'
 
 [[served]]
 name = 'release-procedure'
 source = '.ai-rulez/skills/release-procedure/SKILL.md'
 commit = ''
-digest = 'sha256:9303bf2678ddbd19b7f3349db000d278174f980a5b158993e884220c5d242e12'
+digest = 'sha256:46922fd2acbfc70d705b120a5e74f5c2c4ac3b553df5d62811daa2049fc66ed3'
 
 [[served]]
 name = 'release-workflow'
@@ -184,7 +184,7 @@ digest = 'sha256:1a78706b01bfacec5f36b3563dca41cdb73edc978d34902f4d5cb204c74c552
 name = 'two-generators-disagree'
 source = '.ai-rulez/skills/two-generators-disagree/SKILL.md'
 commit = ''
-digest = 'sha256:4a9a597989d63c4501546f85501702ddd43c34d0a94c3f3ca41e23bd64cbb185'
+digest = 'sha256:d7733498460cfffc7283e60e98e2d48009bc98c73917249214e682fc7eeaa9a3'
 
 [[served]]
 name = 'xberg-brand-and-docs'
@@ -193,82 +193,52 @@ commit = 'bca4b4e8f1f198bef25308aaabf7a2c238a387a3'
 digest = 'sha256:552648a1d89cccb6bc3d47cb25f3b6355f75a104936fc70668fdb6167868c965'
 
 [[item]]
-kind = 'agent'
-id = 'alef-developer'
-path = 'agents/alef-developer.md'
-digest = 'sha256:26e02de66f419f3d9cdd7d6283aa9a0dba7f6fffd993914c8d065da87e250587'
-
-[[item]]
 kind = 'context'
 id = 'architecture'
 path = 'context/architecture.md'
-digest = 'sha256:4550d70e45e69cd775f9736680c525a97a8e4cf77fa3f6e6c6a864ad2682d19c'
+digest = 'sha256:c7fbed77dce71961ee3c84e8541973b6acb534633eb9718e1feb8f45054d3b1e'
 
 [[item]]
-kind = 'context'
-id = 'poly'
-path = 'context/poly.md'
-digest = 'sha256:349377185eb8d4b7e0460affbeef1516cbbc7751439f267fa9a81cfe7877bae1'
+kind = 'rule'
+id = 'backend-modules'
+path = 'rules/backend-modules.md'
+digest = 'sha256:75c64693f6c69576d4b3155c81d81f2a6bb3f0ae6526e8e4ea12f6c4cea6d4e3'
 
 [[item]]
 kind = 'rule'
 id = 'centralized-naming'
 path = 'rules/centralized-naming.md'
-digest = 'sha256:1955708140da7fea140b3312ddc89b42cbf38815d2db0f767f677868214d5980'
+digest = 'sha256:c649f407e8b301c2ada2f312de42d4e0e912c7d4bf8db255ee5cd0a8ca6e1e5c'
 
 [[item]]
 kind = 'rule'
 id = 'codegen-structure'
 path = 'rules/codegen-structure.md'
-digest = 'sha256:8bd4614ec83ae032ea2e676030ee5acf093d2be311cd03c748e6df027cce007d'
+digest = 'sha256:33960b2a0768988ef03ec380d0600117a69550973314bd56be2cb4b7adf3299c'
 
 [[item]]
 kind = 'rule'
 id = 'file-modularization'
 path = 'rules/file-modularization.md'
-digest = 'sha256:1c2a787e98e2dd5bf6d719e14beb41d617662fcf42d7273e24e5f5eb70c40fd1'
+digest = 'sha256:ec1a959bcb796f2364dde85ae69723e4ce7245d88c24af5c00b526810cb1013c'
 
 [[item]]
 kind = 'rule'
-id = 'jinja-templates'
-path = 'rules/jinja-templates.md'
-digest = 'sha256:3409197fafad2beeb042c8b3edbbaa842dbf36b3c72f196f08419856d7d02e6f'
-
-[[item]]
-kind = 'rule'
-id = 'local-alef-install'
-path = 'rules/local-alef-install.md'
-digest = 'sha256:a27924102b915354a32ffa32a848940f4aeefc0f411b64a6883444d30fdbb1bd'
-
-[[item]]
-kind = 'rule'
-id = 'no-ai-signatures'
-path = 'rules/no-ai-signatures.md'
-digest = 'sha256:5a34786532aaa988f3501ed6754fdbf5dab948ee9f1ab9166a53f72cd8b57759'
+id = 'pipeline-hooks'
+path = 'rules/pipeline-hooks.md'
+digest = 'sha256:9c2cdb5504d427362c1fccadb30185866a333847fcffdffc5948cf464203ddfd'
 
 [[item]]
 kind = 'rule'
 id = 'project-agnostic-codegen'
 path = 'rules/project-agnostic-codegen.md'
-digest = 'sha256:366f0fd1549f46c0717423ceee9b80a94889ec0cd89bb771fc16d0a7fa1aeba2'
+digest = 'sha256:7332ad68616689830dfc56a6ce586c334ee2e7274aa709ec371049992aad6d23'
 
 [[item]]
 kind = 'rule'
-id = 'publish-flow'
-path = 'rules/publish-flow.md'
-digest = 'sha256:4fa359d11d66ed399a3806d5a71ae39cb4f4c10a09f64948935cfca8d6917959'
-
-[[item]]
-kind = 'rule'
-id = 'sibling-agent-coordination'
-path = 'rules/sibling-agent-coordination.md'
-digest = 'sha256:e3f784834ef643f7c2a78adbced4fe788ceed8c46aeeb06273d9c7c593988a54'
-
-[[item]]
-kind = 'rule'
-id = 'upstream-triage'
-path = 'rules/upstream-triage.md'
-digest = 'sha256:2dfeb03e99d10825bfe93d5d04b323bce1730e6be26dbcdb8e4a19786162f435'
+id = 'repo-commits'
+path = 'rules/repo-commits.md'
+digest = 'sha256:d5ac1355e79f46c8f4b91ce800751dc2609f35d5538594b1d330d56e4654fc7a'
 
 [[item]]
 kind = 'settings'
@@ -279,28 +249,28 @@ digest = 'sha256:81bb42246d1c22113883a04cedb34f4d9e1ba31930ed3a2921dce10505ab1b6
 kind = 'skill'
 id = 'binding-audit'
 path = 'skills/binding-audit'
-digest = 'sha256:823cee3d47386194cdba23e60f47275b2d601ebdd688b3ac895a851bedb33522'
+digest = 'sha256:b559258ec0afb55137f10e4a7b3a23979ddcb0d60886e3c1e1280a577b3b92ac'
 
 [[item]]
 kind = 'skill'
 id = 'jinja-codegen'
 path = 'skills/jinja-codegen'
-digest = 'sha256:5999653b43c3b612af9956b7066e46716a703738c4f0d29c861bdd053d929820'
+digest = 'sha256:8839456e09f62d20648c54179db7ec03720b676e88cbcfcbdc77617a3337b523'
 
 [[item]]
 kind = 'skill'
 id = 'regen-audit'
 path = 'skills/regen-audit'
-digest = 'sha256:92c4d9de18ec1132e693061a4d74afa4d227de88e6802e84f80a65f87b633c20'
+digest = 'sha256:5feee3661e644a56573484b693c678ba558ac8a48a0ce187eef7b8cc222efa82'
 
 [[item]]
 kind = 'skill'
 id = 'release-procedure'
 path = 'skills/release-procedure'
-digest = 'sha256:59f1db31db71d797791f2326e85846e697219b442760fbef40326df6c7db095f'
+digest = 'sha256:2ef26e3acf029282dece60d485a6487621c6b3138cc22b0e2a138952512df0f4'
 
 [[item]]
 kind = 'skill'
 id = 'two-generators-disagree'
 path = 'skills/two-generators-disagree'
-digest = 'sha256:6d750a32b470c8a8528344350801eae797772aa0a1353afcafca797c9c515fa0'
+digest = 'sha256:c4a9ec796ac519721a69bbc98fe7e56f51b7805815d5e249a001ad4c6590ab03'
