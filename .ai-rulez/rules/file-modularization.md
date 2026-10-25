@@ -1,6 +1,10 @@
 ---
 type: Decision
 title: File Modularization
+paths:
+  - "src/**/*.rs"
+  - "src/**/*.jinja"
+  - "tests/**/*.rs"
 x-ai-rulez:
   kind: rule
   id: file-modularization
@@ -8,23 +12,8 @@ x-ai-rulez:
     priority: high
 ---
 
-Backend, codegen, e2e generator, and test source files must stay at or below 1,000 lines of
-code, including tests. Files approaching 800 lines should be split before more behavior is
-added. Split by concern, not by arbitrary line count.
-
-Existing files over 1,000 lines are remediation targets and must not grow except in commits whose
-purpose is splitting them. When touching an over-limit file, either split the touched concern
-into a smaller module/test file or explicitly keep the change no-growth and preparatory.
-
-115 files were already over the cap when `tests/file_size_ratchet.rs` landed and are grandfathered
-in its baseline (`tests/file_size_baseline.txt`, `MAX_LINES = 1_000`) — the cap is not universally
-met today. The ratchet is the enforcement: it fails on any new file over the cap and on any
-baseline file that grows past its recorded ceiling, not on the grandfathered files simply existing.
-
-Standard module structure for `src/backends/<lang>/` is documented in the `architecture` context
-entry — split new backend code along that layout.
-
-Functions exceeding 50 lines should be extracted into named helpers. Deeply nested conditional
-blocks (>3 levels) should be extracted. When a file handles multiple distinct concepts, split it
-at the concept boundary — not by line count alone. The 1,000-line cap applies to `src/**/*.rs`,
-`src/**/*.jinja`, and `tests/**/*.rs`; generated snapshots are excluded.
+- Cap: 1,000 lines per file, tests included, for `src/**/*.rs`, `src/**/*.jinja`, `tests/**/*.rs`; generated snapshots are excluded. Split files nearing 800 lines before adding behavior.
+- Split by concept boundary, not line count; backend code follows the `backend-modules` layout.
+- `tests/file_size_ratchet.rs` enforces it against `tests/file_size_baseline.txt`: it fails on a new over-cap file or a baseline file growing past its ceiling.
+- Over-cap baseline files do not grow except in commits that split them; when touching one, split the touched concern or keep the change no-growth.
+- Extract functions over 50 lines and conditionals nested deeper than 3 levels into named helpers.
