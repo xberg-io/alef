@@ -919,3 +919,134 @@ fn gen_setter_non_class_named_field_keeps_the_mapped_type() {
         "the borrow is gated on the name actually being emitted as a class: {out}"
     );
 }
+
+fn message_with_text_union() -> TypeDef {
+    TypeDef {
+        name: "Message".to_string(),
+        rust_path: "my_lib::Message".to_string(),
+        fields: vec![
+            FieldDef {
+                name: "content".to_string(),
+                ty: TypeRef::Named("Content".to_string()),
+                optional: true,
+                ..Default::default()
+            },
+            FieldDef {
+                name: "name".to_string(),
+                ty: TypeRef::String,
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    }
+}
+
+/// A mapper that renders the `Content` union as display text and keeps its lossless companion,
+/// the way `untagged_union_text_types` configures it.
+fn text_union_mapper() -> WasmMapper {
+    WasmMapper::new(
+        HashMap::from([("Content".to_string(), "String".to_string())]),
+        "Wasm".to_string(),
+    )
+    .with_text_value_enums(enum_names(&["Content"]))
+}
+
+fn text_union_methods(typ: &TypeDef, mapper: &WasmMapper) -> String {
+    let methods = gen_struct_methods(
+        typ,
+        mapper,
+        &[],
+        "my_lib",
+        &AHashSet::default(),
+        &[],
+        "Wasm",
+        &AHashSet::default(),
+        &ahash::AHashMap::default(),
+        &no_untagged_ts_types(),
+        &[],
+        &[],
+    );
+    methods.lines().map(str::trim_start).collect::<Vec<_>>().join("\n")
+}
+
+/// The defect: `content` returned the display text of the union, so the parts of a list were
+/// gone and the generated e2e test had to skip every assertion on them. The struct now keeps
+/// the whole union in a second field and a `contentValue` getter returns it.
+#[test]
+fn a_text_projected_union_field_keeps_a_lossless_companion() {
+    let typ = message_with_text_union();
+    let mapper = text_union_mapper();
+    let declaration = gen_struct(&typ, &mapper, &[], "my_lib", "Wasm", &AHashSet::default(), &[], true);
+    assert!(declaration.contains("content: Option<String>,"), "{declaration}");
+    assert!(declaration.contains("content_value: Option<JsValue>,"), "{declaration}");
+    assert!(!declaration.contains("name_value"), "{declaration}");
+
+    let methods = text_union_methods(&typ, &mapper);
+    assert!(
+        methods
+            .contains("#[wasm_bindgen(getter, js_name = \"contentValue\")]\npub fn content_value(&self) -> JsValue {"),
+        "{methods}"
+    );
+    assert!(
+        methods.contains("self.content_value.clone().unwrap_or_else(|| match &self.content {"),
+        "the getter falls back to the display text: {methods}"
+    );
+    assert!(
+        methods.contains(
+            "pub fn set_content(&mut self, value: Option<String>) {\nself.content = value;\nself.content_value = None;\n}"
+        ),
+        "assigning text must drop the stale union: {methods}"
+    );
+    assert!(
+        methods.contains("content_value: None"),
+        "the constructor starts empty: {methods}"
+    );
+    assert!(!methods.contains("name_value"), "{methods}");
+}
+
+/// Negative control: without the opt-in the struct, getters and constructor are unchanged.
+#[test]
+fn a_union_without_the_text_opt_in_gets_no_companion() {
+    let typ = message_with_text_union();
+    let mapper = WasmMapper::new(
+        HashMap::from([("Content".to_string(), "String".to_string())]),
+        "Wasm".to_string(),
+    );
+    let declaration = gen_struct(&typ, &mapper, &[], "my_lib", "Wasm", &AHashSet::default(), &[], true);
+    let methods = text_union_methods(&typ, &mapper);
+    assert!(!declaration.contains("content_value"), "{declaration}");
+    assert!(
+        !methods.contains("content_value") && !methods.contains("contentValue"),
+        "{methods}"
+    );
+}
+
+/// The core value fills the companion, so a response from the client keeps its parts.
+#[test]
+fn the_core_conversion_fills_the_companion_with_the_whole_union() {
+    use crate::codegen::conversions::{ConversionConfig, gen_from_core_to_binding_cfg};
+    let typ = message_with_text_union();
+    let texts = enum_names(&["Content"]);
+    let config = ConversionConfig {
+        type_name_prefix: "Wasm",
+        map_uses_jsvalue: true,
+        text_field_enum_names: Some(&texts),
+        text_value_enum_names: Some(&texts),
+        ..Default::default()
+    };
+    let out = gen_from_core_to_binding_cfg(&typ, "my_lib", &AHashSet::default(), &config);
+    assert!(
+        out.contains("content: val.content.as_ref().map(|v| v.to_string()),"),
+        "{out}"
+    );
+    assert!(
+        out.contains("content_value: val.content.as_ref().and_then(|v| serde_wasm_bindgen::to_value(v).ok()),"),
+        "{out}"
+    );
+    let without = ConversionConfig {
+        text_value_enum_names: None,
+        ..config
+    };
+    let out = gen_from_core_to_binding_cfg(&typ, "my_lib", &AHashSet::default(), &without);
+    assert!(!out.contains("content_value"), "{out}");
+}

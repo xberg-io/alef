@@ -180,6 +180,13 @@ pub struct ConversionConfig<'a> {
     ///   - binding→core: `serde_json::from_value(serde_json::Value::String(val.<name>))`
     ///     (an untagged content union deserialises a JSON string into its text variant)
     pub text_field_enum_names: Option<&'a AHashSet<String>>,
+    /// The subset of `text_field_enum_names` that can be serialized. A field of one of these
+    /// types also fills a `<field>_value` companion that holds the whole union as a `JsValue`
+    /// (see `helpers::text_value_companion`), so the parts of a list survive the display-text
+    /// projection. Used by the WASM backend only.
+    ///
+    ///   - core→binding: `serde_wasm_bindgen::to_value(&val.<name>).ok()`
+    pub text_value_enum_names: Option<&'a AHashSet<String>>,
     /// Names of tagged-data enums (`#[serde(tag = "...")]` with at least one data variant).
     /// Fields referencing these types (or `Vec` of these types) are stored as `JsValue` in the
     /// wasm binding struct so that plain JS objects `{ role: "user", content: "..." }` can be

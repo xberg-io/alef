@@ -1,4 +1,5 @@
 use crate::codegen::type_mapper::TypeMapper;
+use ahash::AHashSet;
 use std::borrow::Cow;
 use std::collections::HashMap;
 
@@ -6,11 +7,23 @@ use std::collections::HashMap;
 pub struct WasmMapper {
     pub overrides: HashMap<String, String>,
     pub prefix: String,
+    /// Display-text unions that also keep a lossless `JsValue` companion on every field that
+    /// holds one. See `crate::codegen::conversions::helpers::text_value_companion`.
+    pub text_value_enums: AHashSet<String>,
 }
 
 impl WasmMapper {
     pub fn new(overrides: HashMap<String, String>, prefix: String) -> Self {
-        Self { overrides, prefix }
+        Self {
+            overrides,
+            prefix,
+            text_value_enums: AHashSet::new(),
+        }
+    }
+
+    pub fn with_text_value_enums(mut self, names: AHashSet<String>) -> Self {
+        self.text_value_enums = names;
+        self
     }
 }
 

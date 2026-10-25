@@ -198,6 +198,7 @@ pub(super) fn render_test_method(
             lang,
             type_defs,
             functions,
+            enums,
             per_call_getter_map: &per_call_getter_map,
         });
     let field_resolver = &call_field_resolver;

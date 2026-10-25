@@ -41,7 +41,9 @@ pub(super) fn resolve_c_streaming_adapter(
         })
 }
 
+mod content;
 mod usage;
+use content::ContentProbe;
 use usage::UsageProbe;
 
 pub(super) fn resolve_c_client_owner_type(
@@ -111,10 +113,12 @@ pub(super) fn render_c_diagnostic_skip(out: &mut String, reason: &str) {
 /// `stream_content`, `last_choices_json`, ...). Fixture
 /// assertions on streaming pseudo-fields (`chunks`, `no_chunks_after_done`) are
 /// translated to assertions on these locals. Chat-specific field extraction
-/// remains best effort and unsupported fields — `stream_content`,
-/// `stream_complete`, `finish_reason`, `tool_calls`,
-/// `tool_calls[0].function.name` — are skipped by `emit_chat_stream_assertion`. A `usage.<counter>`
-/// assertion is real: the loop reads the counter off each chunk's usage handle.
+/// remains best effort: a field the IR cannot resolve is skipped by `emit_chat_stream_assertion`.
+/// A `usage.<counter>` assertion is real: the loop reads the counter off each chunk's usage
+/// handle. `stream_content`, `finish_reason`, `stream_complete`, `tool_calls` and
+/// `tool_calls[0].function.name` are real when the IR resolves the first choice of a chunk: the
+/// loop appends the delta text to `stream_content`, keeps the last non-null finish reason, and
+/// counts the tool calls of the deltas.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn render_streaming_test_function(
     out: &mut String,
@@ -143,6 +147,13 @@ pub(super) fn render_streaming_test_function(
     let stream_next = format!("{prefix}_{owner_snake}_{adapter_name}_next");
     let stream_free = format!("{prefix}_{owner_snake}_{adapter_name}_free");
     let usage = UsageProbe::resolve(fixture, type_defs, item_type_pascal);
+    // ~keep The delta read calls `alef_json_array_get_index` from the test runner header, which a
+    // documentation snippet does not include, so only a test reads the stream text.
+    let content = if documentation_snippet {
+        ContentProbe::default()
+    } else {
+        ContentProbe::resolve(fixture, type_defs, item_type_pascal)
+    };
 
     let mut request_var: Option<String> = None;
     for arg in args {
@@ -286,6 +297,7 @@ pub(super) fn render_streaming_test_function(
         "    int no_chunks_after_done = 1; /* true by construction: the loop below cannot call stream_next again once it observes done */"
     );
     usage.render_declarations(out);
+    content.render_declarations(out);
     let _ = writeln!(out);
 
     let _ = writeln!(out, "    while (1) {{");
@@ -299,16 +311,18 @@ pub(super) fn render_streaming_test_function(
     ));
     let _ = writeln!(out, "        chunks_count++;");
     usage.render_capture(out, prefix, &item_type_snake, result_var, &prefix_upper);
+    content.render_capture(out, prefix, result_var, &prefix_upper);
     let _ = writeln!(out, "        {prefix}_{item_type_snake}_free({result_var});");
     let _ = writeln!(out, "    }}");
     let _ = writeln!(out, "    {stream_free}(stream_handle);");
     let _ = writeln!(out);
 
     for assertion in &fixture.assertions {
-        emit_chat_stream_assertion(out, assertion, &usage);
+        emit_chat_stream_assertion(out, assertion, &usage, &content);
     }
 
     let _ = writeln!(out, "    free(stream_content);");
+    content.render_release(out);
     if request_var.is_some() {
         let _ = writeln!(out, "    {prefix}_{req_snake}_free({req_handle});");
     }
@@ -327,7 +341,7 @@ pub(super) fn render_streaming_test_function(
 /// Emit a single fixture assertion for a streaming test, mapping fixture
 /// pseudo-field references (`chunks`, `no_chunks_after_done`, ...)
 /// to the local aggregator variables built by [`render_streaming_test_function`].
-fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion, usage: &UsageProbe) {
+fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion, usage: &UsageProbe, content: &ContentProbe) {
     // `mock.*` (alef issue #443) never reaches `assertions::render_assertion` for a streaming
     // fixture -- this function is the split-dispatch path the issue's own intel table named `c`
     // for. Intercept first, exactly like that shared oracle does. ~keep
@@ -343,20 +357,16 @@ fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion, usage: &U
         Unsupported,
     }
 
-    if usage.render_assertion(out, assertion) {
+    if usage.render_assertion(out, assertion) || content.render_assertion(out, assertion) {
         return;
     }
 
     let (expr, kind) = match field {
         "chunks" => ("chunks_count", Kind::IntCount),
         "no_chunks_after_done" => ("no_chunks_after_done", Kind::Bool),
-        // `stream_complete` joins the unsupported set rather than keeping a local of its own.
-        // The driver loop above frees each chunk handle without reading a single field from it,
-        // and `finish_reason` is unsupported on this backend for exactly that reason — so nothing
-        // here can observe the terminal marker the cross-backend field is defined by
-        // (`streaming_assertions/model.rs`'s field table). The local this used to resolve to was
-        // set from loop termination alone: a different fact wearing this field's name, and one
-        // the loop now asserts directly against the ABI's error code. ~keep
+        // The fields below are read from the first choice of each chunk by `ContentProbe`. When
+        // the probe could not resolve one, nothing here observes it, so the assertion keeps its
+        // registered skip. ~keep
         "stream_complete" | "stream_content" | "finish_reason" | "tool_calls" | "tool_calls[0].function.name" => {
             ("", Kind::Unsupported)
         }
@@ -441,7 +451,7 @@ fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion, usage: &U
 
 #[cfg(test)]
 mod emit_chat_stream_assertion_tests {
-    use super::{UsageProbe, emit_chat_stream_assertion};
+    use super::{ContentProbe, UsageProbe, emit_chat_stream_assertion};
     use crate::e2e::codegen::assertion_type_skip::AssertionTypeSkip;
     use crate::e2e::fixture::Assertion;
 
@@ -460,7 +470,7 @@ mod emit_chat_stream_assertion_tests {
             ..Assertion::default()
         };
         let mut out = String::new();
-        emit_chat_stream_assertion(&mut out, &assertion, &UsageProbe::default());
+        emit_chat_stream_assertion(&mut out, &assertion, &UsageProbe::default(), &ContentProbe::default());
         assert_eq!(
             out,
             "    assert(alef_mock_request_count(getenv(\"MOCK_SERVER_URL\"), \"/__alef/requests/total?prefix=\") == 2 && \"equals assertion failed\");\n",
@@ -483,7 +493,7 @@ mod emit_chat_stream_assertion_tests {
             ..Assertion::default()
         };
         let mut out = String::new();
-        emit_chat_stream_assertion(&mut out, &assertion, &UsageProbe::default());
+        emit_chat_stream_assertion(&mut out, &assertion, &UsageProbe::default(), &ContentProbe::default());
         assert_eq!(
             out, "    /* skipped: assertion type 'count_min' has no renderable value for streaming field 'chunks' */\n",
             "got: {out}"
@@ -506,7 +516,7 @@ mod emit_chat_stream_assertion_tests {
             ..Assertion::default()
         };
         let mut out = String::new();
-        emit_chat_stream_assertion(&mut out, &assertion, &UsageProbe::default());
+        emit_chat_stream_assertion(&mut out, &assertion, &UsageProbe::default(), &ContentProbe::default());
         assert_eq!(
             out,
             "    /* skipped: assertion type 'greater_than_or_equal' has no renderable value for streaming field \
@@ -529,7 +539,7 @@ mod emit_chat_stream_assertion_tests {
             ..Assertion::default()
         };
         let mut out = String::new();
-        emit_chat_stream_assertion(&mut out, &assertion, &UsageProbe::default());
+        emit_chat_stream_assertion(&mut out, &assertion, &UsageProbe::default(), &ContentProbe::default());
         assert_eq!(
             out,
             "    /* skipped: assertion type 'matches_regex' on field 'chunks' not yet supported for streaming */\n",
@@ -553,7 +563,7 @@ mod emit_chat_stream_assertion_tests {
             ..Assertion::default()
         };
         let mut out = String::new();
-        emit_chat_stream_assertion(&mut out, &assertion, &UsageProbe::default());
+        emit_chat_stream_assertion(&mut out, &assertion, &UsageProbe::default(), &ContentProbe::default());
         assert_eq!(
             out, "    assert(chunks_count >= 2 && \"expected at least 2 chunks\");\n",
             "got: {out}"
@@ -563,7 +573,9 @@ mod emit_chat_stream_assertion_tests {
 
 #[cfg(test)]
 mod stream_completion_signal_tests {
-    use super::{CStreamingAdapterMetadata, UsageProbe, emit_chat_stream_assertion, render_streaming_test_function};
+    use super::{
+        CStreamingAdapterMetadata, ContentProbe, UsageProbe, emit_chat_stream_assertion, render_streaming_test_function,
+    };
     use crate::e2e::codegen::field_skip::FieldSkip;
     use crate::e2e::fixture::{Assertion, Fixture};
 
@@ -638,7 +650,7 @@ mod stream_completion_signal_tests {
             ..Assertion::default()
         };
         let mut out = String::new();
-        emit_chat_stream_assertion(&mut out, &assertion, &UsageProbe::default());
+        emit_chat_stream_assertion(&mut out, &assertion, &UsageProbe::default(), &ContentProbe::default());
 
         assert_eq!(
             out,
@@ -661,7 +673,7 @@ mod stream_completion_signal_tests {
             ..Assertion::default()
         };
         let mut out = String::new();
-        emit_chat_stream_assertion(&mut out, &assertion, &UsageProbe::default());
+        emit_chat_stream_assertion(&mut out, &assertion, &UsageProbe::default(), &ContentProbe::default());
 
         assert_eq!(
             out, "    assert(no_chunks_after_done && \"expected no_chunks_after_done to be true\");\n",

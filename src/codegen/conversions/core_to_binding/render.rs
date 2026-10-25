@@ -2,9 +2,9 @@ use crate::codegen::conversions::ConversionConfig;
 use crate::codegen::conversions::helpers::{
     apply_field_newtype_from_core, core_type_path_remapped, explicit_newtype_replaces_base_conversion,
     explicit_newtype_uses_wasm_jsvalue, field_references_excluded_type, is_newtype, is_tuple_type_name,
-    needs_clippy_allow,
+    needs_clippy_allow, text_value_companion, text_value_field_is_optional,
 };
-use crate::core::ir::{CoreWrapper, TypeDef, TypeRef};
+use crate::core::ir::{CoreWrapper, FieldDef, TypeDef, TypeRef};
 use ahash::AHashSet;
 
 use super::fields::field_conversion_from_core_cfg;
@@ -266,6 +266,12 @@ pub fn gen_from_core_to_binding_cfg(
             _ => conversion,
         };
         fields.push(conversion);
+        if let Some(companion) = config
+            .text_value_enum_names
+            .and_then(|names| text_value_companion(&typ.fields, field, names))
+        {
+            fields.push(text_value_conversion(field, &companion));
+        }
     }
 
     let (needs_redundant_closure_allow, needs_useless_conversion_allow) =
@@ -284,4 +290,16 @@ pub fn gen_from_core_to_binding_cfg(
             needs_useless_conversion_allow => needs_useless_conversion_allow,
         },
     )
+}
+
+/// The struct-literal entry that fills a text-projected field's `JsValue` companion with the
+/// whole union. A value that cannot be serialized leaves the companion empty, so the getter
+/// falls back to the display text.
+fn text_value_conversion(field: &FieldDef, companion: &str) -> String {
+    let name = &field.name;
+    if text_value_field_is_optional(field) {
+        format!("{companion}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::to_value(v).ok())")
+    } else {
+        format!("{companion}: serde_wasm_bindgen::to_value(&val.{name}).ok()")
+    }
 }
