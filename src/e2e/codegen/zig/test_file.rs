@@ -606,7 +606,24 @@ fn render_test_fn(
         };
         emit_declared_error_value_assertion(out, fixture, errors, &expressions, for_docs);
         if !for_docs {
-            crate::e2e::codegen::error_path_assertions::emit_runtime(out, fixture, "    // ", "zig");
+            let reachable = crate::e2e::codegen::error_field_checks::reachable_errors(
+                errors,
+                crate::e2e::codegen::error_field_checks::STATUS_CODE,
+            );
+            // The wrapper copies the FFI error's introspection values next to its message, so the
+            // status is read from the same capture the message check above uses. ~keep
+            out.push_str(&crate::e2e::codegen::error_field_checks::render(
+                fixture,
+                &reachable,
+                "    // ",
+                "zig",
+                |_, method, expected| {
+                    format!("    try testing.expect({module_name}._last_error_details().{method} == {expected});\n")
+                },
+            ));
+            crate::e2e::codegen::error_path_assertions::emit_runtime_with_errors(
+                out, fixture, "    // ", "zig", &reachable,
+            );
         }
     } else if (for_docs
         || fixture

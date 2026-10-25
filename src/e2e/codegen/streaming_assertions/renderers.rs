@@ -41,6 +41,46 @@ pub(super) fn render_swift_tool_calls_deep(root_expr: &str, tail: &str) -> Strin
     expr
 }
 
+/// Render a Zig deep accessor for `tool_calls[N]...` paths over the collected chunks.
+///
+/// Zig keeps every chunk as its JSON text, so the accessor parses each chunk, walks the tool
+/// calls of its first choice in stream order, and follows the object fields of the tail from
+/// the `N`th call. A string leaf is copied out of the parsed value before the parse is freed, and the
+/// caller frees the copy (`zig/assertions/tool_call_leaf.rs`).
+/// A missing call, field or non-string leaf reads as the empty string, so the comparison fails
+/// instead of trapping. Returns `None` for a tail that is not one index followed by object
+/// fields, which no fixture uses. ~keep
+pub(super) fn render_zig_tool_calls_deep(chunks_var: &str, tail: &str) -> Option<String> {
+    let mut segs = parse_tail(tail).into_iter();
+    let Some(TailSeg::Index(index)) = segs.next() else {
+        return None;
+    };
+    let mut walk = String::new();
+    for seg in segs {
+        let TailSeg::Field(field) = seg else {
+            return None;
+        };
+        walk.push_str(&format!(
+            " if (_v != .object) break :blk \"\"; _v = _v.object.get(\"{field}\") orelse break :blk \"\";"
+        ));
+    }
+    Some(format!(
+        "@as([]const u8, blk: {{ var _idx: usize = 0; for ({chunks_var}.items) |_cj| {{ \
+         var _tp = std.json.parseFromSlice(std.json.Value, std.heap.c_allocator, _cj, .{{}}) catch continue; \
+         defer _tp.deinit(); \
+         const _chs = _tp.value.object.get(\"choices\") orelse continue; \
+         if (_chs != .array or _chs.array.items.len == 0) continue; \
+         const _delta = _chs.array.items[0].object.get(\"delta\") orelse continue; \
+         const _tcs = _delta.object.get(\"tool_calls\") orelse continue; \
+         if (_tcs != .array) continue; \
+         for (_tcs.array.items) |_tc| {{ \
+         if (_idx == {index}) {{ var _v: std.json.Value = _tc; _ = &_v;{walk} \
+         if (_v != .string) break :blk \"\"; \
+         break :blk std.heap.c_allocator.dupe(u8, _v.string) catch \"\"; }} \
+         _idx += 1; }} }} break :blk \"\"; }})"
+    ))
+}
+
 /// Render a rust deep accessor for `tool_calls[N]...` paths over the flattened
 /// stream-chunk tool_calls iterator. Handles Option-wrapped fields by chaining
 /// `as_ref().and_then(...)` so the final value is a `&str` (for name/id/arguments).

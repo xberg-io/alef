@@ -132,6 +132,24 @@ fn render_error_test_body(
         ),
         _ => (String::new(), String::new(), String::new()),
     };
+    // ~keep The exception the binding throws carries the introspection values of the live core
+    // error (`info_status_code` and its siblings), read back through camelCase accessors.
+    let field_checks = crate::e2e::codegen::error_field_checks::render(
+        fixture,
+        &crate::e2e::codegen::error_field_checks::reachable_errors(
+            errors,
+            crate::e2e::codegen::error_field_checks::STATUS_CODE,
+        ),
+        "        // ",
+        "php",
+        |_, method, expected| {
+            let accessor = heck::ToLowerCamelCase::to_lower_camel_case(method);
+            format!(
+                "        $this->assertTrue(method_exists($caughtException, '{accessor}'), 'expected the exception to carry {method}');\n\
+                 \x20       $this->assertSame({expected}, $caughtException->{accessor}(), 'expected {method} {expected}');\n"
+            )
+        },
+    );
     crate::e2e::template_env::render(
         "php/error_test_body.jinja",
         crate::alef_context! {
@@ -139,6 +157,7 @@ fn render_error_test_body(
             call_expr => call_expr,
             pattern => pattern,
             message_value => message_value,
+            field_checks => field_checks.trim_end(),
             skip_marker => skip_marker,
             collect_snippet => collect_snippet,
             result_var => result_var,
@@ -497,7 +516,15 @@ pub(super) fn render_test_method(
         let mut body = render_error_test_body(&setup_lines, &call_expr, fixture, errors, &collect_snippet, result_var);
         // ~keep `render_error_test_body` ends without a trailing newline on the `None` arm, so the
         // markers have to open their own line rather than being appended to the last statement.
-        let markers = crate::e2e::codegen::error_path_assertions::render(fixture, "        // ", "php");
+        let markers = crate::e2e::codegen::error_path_assertions::render_with_errors(
+            fixture,
+            "        // ",
+            "php",
+            &crate::e2e::codegen::error_field_checks::reachable_errors(
+                errors,
+                crate::e2e::codegen::error_field_checks::STATUS_CODE,
+            ),
+        );
         if !markers.is_empty() {
             body.push('\n');
             body.push_str(markers.trim_end());

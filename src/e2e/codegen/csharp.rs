@@ -956,8 +956,13 @@ fn render_test_method(
     // ~keep The `expects_error` branch of `csharp/test_method.jinja` renders the throws-assertion
     // and nothing else, so every other assertion on an error fixture — most often an `equals`
     // against `error.status_code` — used to leave no trace at all in the generated test.
+    let reachable = crate::e2e::codegen::error_field_checks::reachable_errors(
+        errors,
+        crate::e2e::codegen::error_field_checks::STATUS_CODE,
+    );
+    let error_field_checks = error_field_checks::render_checks(fixture, &reachable);
     let unrenderable_error_assertions =
-        crate::e2e::codegen::error_path_assertions::render(fixture, "        // ", "csharp");
+        crate::e2e::codegen::error_path_assertions::render_with_errors(fixture, "        // ", "csharp", &reachable);
 
     let ctx = crate::alef_context! {
         is_skipped => false,
@@ -971,13 +976,15 @@ fn render_test_method(
         call_expr => call_expr,
         exception_class => exception_class,
         declared_error_check => declared_error_check,
+        binds_thrown => declared_error_check.is_some() || !error_field_checks.is_empty(),
+        error_field_checks => error_field_checks.trim_end(),
         unrenderable_error_assertions => unrenderable_error_assertions.trim_end(),
         client_factory_setup => client_factory_setup,
         has_usable_assertion => !expects_error && !returns_void,
         void_not_error => void_not_error,
         result_var => result_var,
         assertions_body => assertions_body,
-        coverage_warning => inert_example::coverage_warning_for_path(&assertions_body, expects_error, &[declared_error_check.as_deref().unwrap_or(""), &unrenderable_error_assertions], "csharp", &fixture.id),
+        coverage_warning => inert_example::coverage_warning_for_path(&assertions_body, expects_error, &[declared_error_check.as_deref().unwrap_or(""), &error_field_checks, &unrenderable_error_assertions], "csharp", &fixture.id),
         refusal_skip_reason => refusal_skip_reason,
         is_streaming => _is_streaming,
         is_trait_bridge => is_trait_bridge_registration,
@@ -1000,6 +1007,7 @@ mod assertions;
 mod call_field_resolver;
 mod declared_error_value;
 mod discriminated;
+mod error_field_checks;
 mod http;
 mod project;
 mod setup;

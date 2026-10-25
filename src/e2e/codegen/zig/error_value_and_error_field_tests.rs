@@ -195,3 +195,40 @@ fn an_equals_on_an_error_field_is_named_instead_of_dropped() {
     assert_eq!(records[0].language, "zig");
     assert_eq!(records[0].field, "equals");
 }
+
+/// The status assertion of an error fixture reads the status the wrapper captured with the
+/// error, instead of being named as skipped.
+#[test]
+fn an_error_status_code_assertion_reads_the_captured_status() {
+    use crate::e2e::codegen::error_field_checks::test_fixtures::{status_code_errors, status_code_fixture};
+
+    let fixture = status_code_fixture(401);
+    let mut e2e = E2eConfig::default();
+    e2e.call.function = "parse".into();
+    let _ = crate::e2e::codegen::take_skip_records();
+    let rendered = render_test_file(
+        "error",
+        &[&fixture],
+        &e2e,
+        "parse",
+        "result",
+        &[],
+        "sample",
+        "sample",
+        &ResolvedCrateConfig::default(),
+        &[],
+        &status_code_errors(),
+        crate::e2e::codegen::call_ir::CallIr::default(),
+        &[],
+    );
+
+    assert!(
+        rendered.contains("try testing.expect(sample._last_error_details().status_code == 401);"),
+        "the status must be compared with the fixture value: {rendered}"
+    );
+    assert!(
+        !rendered.contains("no accessor for error field error.status_code"),
+        "a rendered assertion must not also be named as skipped: {rendered}"
+    );
+    assert!(crate::e2e::codegen::take_skip_records().is_empty());
+}

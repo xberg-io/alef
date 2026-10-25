@@ -226,7 +226,10 @@ pub(super) fn render_test_file(
                 fixture,
                 "  # ",
                 "elixir",
-                &[],
+                &crate::e2e::codegen::error_field_checks::reachable_errors(
+                    errors,
+                    crate::e2e::codegen::error_field_checks::STATUS_CODE,
+                ),
                 "\n  end",
             );
         }
@@ -343,6 +346,27 @@ mod error_path_marker_tests {
         assert_eq!(records.len(), 1, "got: {records:?}");
         assert_eq!(records[0].language, "elixir");
         assert_eq!(records[0].field, "equals");
+    }
+
+    /// The typed error reaches Elixir as an exception struct with a `status` field, so the
+    /// `error.status_code` assertion matches it instead of being named as skipped.
+    #[test]
+    fn elixir_error_status_code_matches_the_status_of_the_reason() {
+        let out = render_with_errors(
+            vec![Assertion {
+                assertion_type: "equals".into(),
+                field: Some("error.status_code".into()),
+                value: Some(serde_json::json!(401)),
+                ..Assertion::default()
+            }],
+            None,
+            &crate::e2e::codegen::error_field_checks::test_fixtures::status_code_errors(),
+        );
+
+        assert!(out.contains("assert {:error, __reason} ="), "got:\n{out}");
+        assert!(out.contains("assert %{status: 401} = __reason"), "got:\n{out}");
+        assert!(!out.contains("has no accessor for error field"), "got:\n{out}");
+        assert!(crate::e2e::codegen::take_skip_records().is_empty());
     }
 
     /// Negative control: a lone `error` assertion must leave the generated file marker-free.

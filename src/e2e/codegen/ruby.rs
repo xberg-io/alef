@@ -264,6 +264,8 @@ mod is_true_tests;
 #[cfg(test)]
 mod mock_capture_gate_tests;
 #[cfg(test)]
+mod reply_text_tests;
+#[cfg(test)]
 mod tests;
 
 #[cfg(test)]

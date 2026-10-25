@@ -13,6 +13,8 @@
    - expects_error: bool
    - exception_class: exception class name to catch
    - declared_error_check: string containing the rendered declared-value assertion, or empty
+   - error_field_checks: the rendered `error.<field>` equals checks, read off `thrown`, or empty
+   - binds_thrown: bool - whether the thrown exception is bound to `thrown` for the checks above
    - client_factory_setup: client factory setup code (or empty string)
    - has_usable_assertion: bool - whether there's a result to assert on
    - void_not_error: bool - a returns_void call whose only meaningful check is `not_error`;
@@ -41,7 +43,7 @@
 {{ client_factory_setup }}
 {% endif %}
 {% if return_type == "async Task" %}
-{% if declared_error_check %}
+{% if binds_thrown %}
         var thrown = await Assert.ThrowsAnyAsync<{{ exception_class }}>(async () =>
 {% else %}
         await Assert.ThrowsAnyAsync<{{ exception_class }}>(async () =>
@@ -59,8 +61,11 @@
 {% if declared_error_check %}
 {{ declared_error_check }}
 {% endif %}
+{% if error_field_checks %}
+{{ error_field_checks }}
+{% endif %}
 {% else %}
-{% if declared_error_check %}
+{% if binds_thrown %}
         var thrown = Assert.ThrowsAny<{{ exception_class }}>(() =>
 {% else %}
         Assert.ThrowsAny<{{ exception_class }}>(() =>
@@ -73,6 +78,9 @@
         });
 {% if declared_error_check %}
 {{ declared_error_check }}
+{% endif %}
+{% if error_field_checks %}
+{{ error_field_checks }}
 {% endif %}
 {% endif %}
 {% if unrenderable_error_assertions %}

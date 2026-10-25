@@ -44,13 +44,23 @@ pub(super) fn emit_chat_stream_assertion(
     let field = assertion.field.as_deref().unwrap_or("");
 
     // Ruby drives the stream with a block, so by the time the call returns there is no iterator
-    // left to ask for one more element -- the only way to observe a chunk arriving after done.
-    // `csharp/streaming.rs` can probe its enumerator and does; ruby cannot, and the previous
-    // mapping papered over that by aliasing this field onto the `stream_complete` local, so two
-    // different assertions rendered one identical check that could not fail either way. ~keep
+    // left to ask for one more element. The check reads the collected chunks instead: the stream
+    // is done at the first chunk that carries a finish reason, and no later chunk may carry text
+    // or tool calls. It stays separate from `stream_complete`, which only asks whether a done
+    // chunk exists. ~keep
+    if field == "no_chunks_after_done" && atype == "is_true" && stream_complete_is_derived {
+        out.push_str(concat!(
+            "    done_at = chunks.index { |c| c.choices.any? { |ch| !ch.finish_reason.nil? } }\n",
+            "    expect(done_at).not_to be_nil\n",
+            "    expect(chunks.drop(done_at + 1).all? { |c| c.choices.all? { |ch| ",
+            "ch.delta.content.to_s.empty? && (ch.delta.tool_calls || []).empty? } }).to be true\n",
+        ));
+        return;
+    }
     if field == "no_chunks_after_done" {
         out.push_str(&format!(
-            "    # skipped: {}; a block-driven ruby stream exposes no post-completion probe\n",
+            "    # skipped: {}; this stream's chunks carry no terminal finish_reason, \
+so the done chunk is not observable here\n",
             FieldSkip::StreamingAssertionOnUnsupportedField.message(field)
         ));
         return;
@@ -298,5 +308,39 @@ mod emit_chat_stream_assertion_tests {
         let mut out = String::new();
         emit_chat_stream_assertion(&mut out, &assertion, &E2eConfig::default(), None, false);
         assert_eq!(out, "    expect(chunks.length).to be >= 2\n", "got: {out}");
+    }
+
+    /// The done check reads the collected chunks: a done chunk must exist and nothing after it
+    /// may carry text or tool calls.
+    #[test]
+    fn no_chunks_after_done_checks_the_chunks_after_the_done_chunk() {
+        let assertion = Assertion {
+            assertion_type: "is_true".into(),
+            field: Some("no_chunks_after_done".into()),
+            ..Assertion::default()
+        };
+        let mut out = String::new();
+        emit_chat_stream_assertion(&mut out, &assertion, &E2eConfig::default(), None, true);
+        assert!(
+            out.starts_with("    done_at = chunks.index { |c| c.choices.any? { |ch| !ch.finish_reason.nil? } }\n    expect(done_at).not_to be_nil\n    expect(chunks.drop(done_at + 1).all?"),
+            "got: {out}"
+        );
+        assert!(!out.contains("skipped"), "got: {out}");
+    }
+
+    /// A stream whose chunks carry no finish reason has no done chunk to locate, so the check is
+    /// refused with a visible marker.
+    #[test]
+    fn no_chunks_after_done_is_refused_when_the_chunks_carry_no_finish_reason() {
+        let assertion = Assertion {
+            assertion_type: "is_true".into(),
+            field: Some("no_chunks_after_done".into()),
+            ..Assertion::default()
+        };
+        let mut out = String::new();
+        emit_chat_stream_assertion(&mut out, &assertion, &E2eConfig::default(), None, false);
+        assert!(out.starts_with("    # skipped: "), "got: {out}");
+        assert!(out.contains("no terminal finish_reason"), "got: {out}");
+        assert!(!out.contains("done_at"), "got: {out}");
     }
 }

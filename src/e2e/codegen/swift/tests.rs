@@ -1209,3 +1209,91 @@ fn swift_a_lone_error_assertion_renders_no_marker() {
     );
     assert!(!output.contains("has no accessor for error field"), "{output}");
 }
+
+/// Render a Swift error fixture that asserts `error.status_code` against the given value.
+fn render_swift_status_code_fixture(value: serde_json::Value, errors: &[crate::core::ir::ErrorDef]) -> String {
+    use crate::core::config::ResolvedCrateConfig;
+    use crate::e2e::config::E2eConfig;
+    use crate::e2e::fixture::{Assertion, Fixture};
+
+    let mut e2e_config = E2eConfig::default();
+    e2e_config.call.function = "parseThing".into();
+    let fixture = Fixture {
+        id: "error_auth_401".into(),
+        description: "Rejects the key".into(),
+        assertions: vec![
+            Assertion {
+                assertion_type: "error".into(),
+                ..Default::default()
+            },
+            Assertion {
+                assertion_type: "equals".into(),
+                field: Some("error.status_code".into()),
+                value: Some(value),
+                ..Default::default()
+            },
+        ],
+        ..Fixture::default()
+    };
+    let _ = crate::e2e::codegen::take_skip_records();
+    super::test_file::render_test_file(
+        "smoke",
+        &[&fixture],
+        &e2e_config,
+        "TestModule",
+        "TestCase",
+        "parseThing",
+        "result",
+        &[],
+        false,
+        None,
+        &Default::default(),
+        &ResolvedCrateConfig::default(),
+        &[],
+        false,
+        &[],
+        &[],
+        errors,
+    )
+}
+
+/// The bridge throws the generated error enum, which carries `statusCode`, so the catch block
+/// casts the caught error and compares the property with the fixture value.
+#[test]
+fn swift_error_status_code_is_read_off_the_caught_error() {
+    let errors = crate::e2e::codegen::error_field_checks::test_fixtures::status_code_errors();
+    let output = render_swift_status_code_fixture(serde_json::json!(401), &errors);
+
+    assert!(
+        output.contains("XCTAssertEqual((error as? ApiError)?.statusCode, 401"),
+        "{output}"
+    );
+    assert!(!output.contains("has no accessor for error field"), "{output}");
+    assert!(crate::e2e::codegen::take_skip_records().is_empty());
+}
+
+/// A value that is not a whole number cannot be compared, so the skip stays named.
+#[test]
+fn swift_error_status_code_with_a_text_value_keeps_the_skip_marker() {
+    let errors = crate::e2e::codegen::error_field_checks::test_fixtures::status_code_errors();
+    let output = render_swift_status_code_fixture(serde_json::json!("401"), &errors);
+
+    assert!(!output.contains("statusCode"), "{output}");
+    assert!(
+        output.contains("has no accessor for error field error.status_code"),
+        "{output}"
+    );
+}
+
+/// A crate whose error does not list `status_code` still names the skip.
+#[test]
+fn swift_error_status_code_without_the_method_keeps_the_skip_marker() {
+    let errors = crate::e2e::codegen::error_field_checks::test_fixtures::error_with_methods("ApiError", &[]);
+    let output = render_swift_status_code_fixture(serde_json::json!(401), &errors);
+
+    assert!(!output.contains("statusCode"), "{output}");
+    assert!(
+        output.contains("has no accessor for error field error.status_code"),
+        "{output}"
+    );
+}
