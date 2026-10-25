@@ -1,0 +1,69 @@
+{#- Reads the first choice of one streamed chunk into the stream buffers.
+
+    Context variables:
+    - prefix, prefix_upper: the crate's C ABI symbol prefix and its handle type prefix
+    - result:        the per-iteration chunk-handle local
+    - text, finish, tools: which buffers the fixture asserts on
+    - choices_getter, delta_getter, content_getter: ABI accessor symbols
+    - choice_type, delta_type: snake_case type names for `_from_json` and `_free`
+
+    The chunk getter returns the choices as a JSON array. The delta text goes back through the
+    choice type's `_from_json`, so it comes from the ABI's own decoded getter and is appended to
+    `stream_content` with `realloc`. The finish reason and the tool calls are read from the
+    choice's JSON with the runner's helpers. Every handle and string is freed before the next
+    chunk; the finish reason and the first tool call name stay until the assertions ran. ~keep
+#}
+        char *chunk_choices = {{ choices_getter }}({{ result }});
+        if (chunk_choices != NULL) {
+            char *first_choice_json = alef_json_array_get_index(chunk_choices, 0);
+            if (first_choice_json != NULL) {
+{%- if finish %}
+                char *choice_finish = alef_json_get_string(first_choice_json, "finish_reason");
+                if (choice_finish != NULL && strcmp(choice_finish, "null") != 0) {
+                    free(stream_finish_reason);
+                    stream_finish_reason = choice_finish;
+                } else {
+                    free(choice_finish);
+                }
+{%- endif %}
+{%- if tools %}
+                char *choice_delta = alef_json_get_object(first_choice_json, "delta");
+                char *delta_tool_calls = alef_json_get_object(choice_delta, "tool_calls");
+                if (delta_tool_calls != NULL) {
+                    int delta_tool_call_count = alef_json_array_count(delta_tool_calls);
+                    if (delta_tool_call_count > 0 && stream_tool_calls_count == 0) {
+                        char *first_call = alef_json_array_get_index(delta_tool_calls, 0);
+                        char *call_function = alef_json_get_object(first_call, "function");
+                        stream_tool_call_name = alef_json_get_string(call_function, "name");
+                        free(call_function);
+                        free(first_call);
+                    }
+                    stream_tool_calls_count += delta_tool_call_count;
+                    free(delta_tool_calls);
+                }
+                free(choice_delta);
+{%- endif %}
+{%- if text %}
+                {{ prefix_upper }}AlefHandle first_choice = {{ prefix }}_{{ choice_type }}_from_json(first_choice_json);
+                if (first_choice != 0) {
+                    {{ prefix_upper }}AlefHandle delta = {{ delta_getter }}(first_choice);
+                    if (delta != 0) {
+                        char *delta_content = {{ content_getter }}(delta);
+                        if (delta_content != NULL) {
+                            size_t delta_len = strlen(delta_content);
+                            char *grown = (char *)realloc(stream_content, stream_content_len + delta_len + 1);
+                            assert(grown != NULL);
+                            stream_content = grown;
+                            memcpy(stream_content + stream_content_len, delta_content, delta_len + 1);
+                            stream_content_len += delta_len;
+                            {{ prefix }}_free_string(delta_content);
+                        }
+                        {{ prefix }}_{{ delta_type }}_free(delta);
+                    }
+                    {{ prefix }}_{{ choice_type }}_free(first_choice);
+                }
+{%- endif %}
+                free(first_choice_json);
+            }
+            {{ prefix }}_free_string(chunk_choices);
+        }

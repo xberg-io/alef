@@ -5,6 +5,7 @@ mod field_fragments;
 mod newtypes;
 mod paths;
 mod primitives;
+mod text_value;
 mod type_discovery;
 
 pub(crate) use clippy_allow::{clippy_allow_attr_line, needs_clippy_allow};
@@ -30,4 +31,5 @@ pub use paths::{
     core_type_path_remapped, resolve_named_path,
 };
 pub(crate) use primitives::{binding_prim_str, core_prim_str, needs_f64_cast, needs_i32_cast, needs_i64_cast};
+pub(crate) use text_value::{text_value_companion, text_value_field_is_optional};
 pub use type_discovery::{field_references_excluded_type, input_type_names};

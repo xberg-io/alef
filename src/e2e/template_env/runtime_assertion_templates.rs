@@ -32,6 +32,10 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/c/usage_capture.jinja"),
     ),
     (
+        "c/stream_content_capture.jinja",
+        include_str!("../templates/c/stream_content_capture.jinja"),
+    ),
+    (
         "c/usage_assertion.jinja",
         include_str!("../templates/c/usage_assertion.jinja"),
     ),

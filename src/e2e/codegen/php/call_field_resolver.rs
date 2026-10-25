@@ -12,6 +12,10 @@
 //! resolves correctly, and `with_anchored_optional_paths` materializes that IR-anchored answer
 //! for this fixture's own assertion paths into the same lookup set, mirroring `presentation.rs`'s
 //! existing use of it.
+//!
+//! The resolver also carries the IR enum map. Without it a path that steps into an untagged
+//! union (`content.parts`) never splits at the union, and the assertion renderer skips it as
+//! "enum lowered to a string" instead of decoding the JSON string the getter returns.
 
 use crate::e2e::codegen::call_ir::{CallIr, resolve_declared_result_type};
 use crate::e2e::config::{CallConfig, E2eConfig};
@@ -28,6 +32,7 @@ pub(super) struct CallFieldResolverInputs<'a> {
     pub lang: &'a str,
     pub type_defs: &'a [crate::core::ir::TypeDef],
     pub functions: &'a [crate::core::ir::FunctionDef],
+    pub enums: &'a [crate::core::ir::EnumDef],
     pub per_call_getter_map: &'a PhpGetterMap,
 }
 
@@ -39,6 +44,7 @@ pub(super) fn build_call_field_resolver(inputs: CallFieldResolverInputs<'_>) -> 
         lang,
         type_defs,
         functions,
+        enums,
         per_call_getter_map,
     } = inputs;
     let (ir_reachable_fields, ir_known_excluded_fields, ir_optional_fields) = FieldResolver::ir_field_sets(type_defs);
@@ -53,6 +59,7 @@ pub(super) fn build_call_field_resolver(inputs: CallFieldResolverInputs<'_>) -> 
     )
     .with_php_getter_map(per_call_getter_map.clone())
     .with_display_as_text_fields(e2e_config.effective_fields_display_as_text(call_config).clone())
+    .with_ir_enum_map(FieldResolver::ir_enum_fields(type_defs, enums), call_root_type.clone())
     .with_ir_collection_map(FieldResolver::ir_collection_fields(type_defs), call_root_type.clone())
     .with_ir_result_fields(FieldResolver::ir_result_field_facts(type_defs, lang), call_root_type)
     .with_ir_fields(ir_reachable_fields, ir_known_excluded_fields, ir_optional_fields)

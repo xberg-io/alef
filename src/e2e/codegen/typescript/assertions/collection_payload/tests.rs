@@ -33,13 +33,49 @@ fn wasm_structural_collection_payload_preserves_indices_and_wire_names() {
     assert_eq!(support::wire_value()["content"].as_array().unwrap().len(), 2);
 }
 
+/// The defect: a configured text projection made the plain getter return the display text, and
+/// the generator refused every assertion on the parts. The binding now emits a lossless
+/// `contentValue` getter, so the same three assertions run against it.
 #[test]
-fn wasm_configured_text_projection_refuses_all_structural_assertions() {
+fn wasm_configured_text_projection_reads_the_lossless_getter() {
     let output = rendered(true);
+    assert_eq!(output.matches("expect(").count(), 3, "{output}");
+    assert!(!output.contains("skipped:"), "{output}");
+    assert!(!output.contains("text projection"), "{output}");
+    assert!(output.contains("result.contentValue"), "{output}");
+    assert_eq!(
+        output.matches("result.content").count(),
+        output.matches("result.contentValue").count(),
+        "every read must go through the lossless getter: {output}"
+    );
+    assert!(output.contains("[0]"), "{output}");
+    assert!(output.contains("[1]"), "{output}");
+    assert!(output.contains(".length"), "{output}");
+}
+
+/// Negative control: a union the binding cannot serialize gets no lossless getter, so the
+/// generator keeps its refusal instead of spelling a getter that does not exist.
+#[test]
+fn wasm_text_projection_without_serde_keeps_the_refusal() {
+    let mut output = String::new();
+    for assertion in support::assertions() {
+        super::super::render_assertion(
+            &mut output,
+            &assertion,
+            "result",
+            &support::resolver_without_serde(),
+            false,
+            &HashMap::new(),
+            "wasm",
+            false,
+            false,
+            true,
+        );
+    }
     assert_eq!(output.matches("skipped:").count(), 3, "{output}");
     assert_eq!(output.matches("untagged_union_text_types text projection").count(), 3);
     assert!(!output.contains("expect("), "{output}");
-    assert!(!output.contains(".length"), "{output}");
+    assert!(!output.contains("contentValue"), "{output}");
 }
 
 #[test]

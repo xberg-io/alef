@@ -456,7 +456,10 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_test_case(
             .assertions
             .iter()
             .filter_map(|assertion| assertion.field.as_deref())
-            .any(|field| field_resolver.text_projected_crossing(field).is_some());
+            .any(|field| {
+                field_resolver.text_projected_crossing(field).is_some()
+                    && !field_resolver.wasm_text_value_readable(field)
+            });
     let refuse = verdict.as_ref().is_some_and(|refusal| {
         refusal.cause == InertCause::UnresolvedFieldPath
             || (is_streaming && !declares_not_error)

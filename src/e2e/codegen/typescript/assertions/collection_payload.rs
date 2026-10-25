@@ -18,7 +18,11 @@ pub(super) fn render(out: &mut String, assertion: &Assertion, result: &str, reso
     let Some(keys) = resolver.enum_payload_wire_prefix(&owner, &variant) else {
         return false;
     };
-    let mut payload = resolver.accessor(&prefix, "typescript", result);
+    // ~keep A text-projected union reads through its lossless `<field>Value` getter: the plain
+    // getter returns the display text, which has already lost the parts.
+    let mut payload = resolver
+        .wasm_text_value_accessor(&prefix, &owner, result)
+        .unwrap_or_else(|| resolver.accessor(&prefix, "typescript", result));
     for key in keys {
         payload.push_str(&format!("[{}]", super::json_to_js(&serde_json::Value::String(key))));
     }

@@ -18,7 +18,13 @@ use crate::e2e::field_access::FieldResolver;
 ///
 /// The returned line carries its own trailing newline, so callers `push_str` it directly.
 pub(super) fn refusal_line(field: &str, field_resolver: &FieldResolver, lang: &str) -> Option<String> {
+    // ~keep A text-projected union stays refused only when the binding gives no lossless getter
+    // for it. `FieldResolver::wasm_text_value_readable` asks the same IR question the WASM
+    // backend asks before it emits `<field>Value`, so a refusal here never hides a getter that
+    // exists and a getter is never assumed where none was emitted.
+    let reads_text_value = lang == "wasm" && field_resolver.wasm_text_value_readable(field);
     if lang == "wasm"
+        && !reads_text_value
         && let Some(owner) = field_resolver.text_projected_crossing(field)
     {
         return Some(crate::e2e::template_env::render(
@@ -43,7 +49,8 @@ pub(super) fn refusal_line(field: &str, field_resolver: &FieldResolver, lang: &s
     // the payload onto the discriminant's own object. Only when the IR can't confirm either of
     // those (no IR at all, or a variant shape neither binding names) does this fall back to the
     // blanket refusal. ~keep
-    if field_resolver.tagged_union_split(field).is_some()
+    if !reads_text_value
+        && field_resolver.tagged_union_split(field).is_some()
         && field_resolver
             .typescript_tagged_union_accessor(field, lang, "result")
             .is_none()

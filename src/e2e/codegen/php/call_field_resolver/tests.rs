@@ -80,6 +80,7 @@ fn resolver_classifies_ir_only_optional_collection_leaf_without_config() {
         lang: "php",
         type_defs: &envelope_document_type_defs(),
         functions: &envelope_document_functions(),
+        enums: &[],
         per_call_getter_map: &PhpGetterMap::default(),
     });
 
@@ -90,5 +91,47 @@ fn resolver_classifies_ir_only_optional_collection_leaf_without_config() {
     assert!(
         resolver.is_array("results[0].chunks"),
         "is_array must be true for an IR-only Vec<T> leaf with no fields_array entry"
+    );
+}
+
+/// The defect: the per-call resolver carried no enum map, so a fixture path that steps into an
+/// untagged union (`content.parts`) never split at the union. The PHP assertion renderer then
+/// skipped it as "enum lowered to a string" although the union is a JSON string it can decode.
+#[test]
+fn resolver_splits_a_path_at_an_untagged_union() {
+    let surface = super::super::enum_collection_access::test_support::surface();
+    let e2e_config = E2eConfig {
+        call: CallConfig {
+            function: "reply".to_string(),
+            result_var: "result".to_string(),
+            returns_result: true,
+            ..CallConfig::default()
+        },
+        ..E2eConfig::default()
+    };
+    let functions = vec![FunctionDef {
+        name: "reply".to_string(),
+        return_type: TypeRef::Named("Reply".to_string()),
+        ..FunctionDef::default()
+    }];
+    let resolver = build_call_field_resolver(CallFieldResolverInputs {
+        e2e_config: &e2e_config,
+        call_config: &e2e_config.call,
+        fixture: &Fixture::default(),
+        lang: "php",
+        type_defs: &surface.types,
+        functions: &functions,
+        enums: &surface.enums,
+        per_call_getter_map: &PhpGetterMap::default(),
+    });
+    let split = resolver.ir_tagged_union_split("choices[0].message.content.parts[0].text");
+    assert_eq!(
+        split,
+        Some((
+            "choices[0].message.content".to_string(),
+            "Body".to_string(),
+            "Parts".to_string(),
+            "[0].text".to_string()
+        ))
     );
 }

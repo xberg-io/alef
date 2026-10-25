@@ -451,3 +451,46 @@ pub(super) fn gen_clear_method(
         .to_string(),
     )
 }
+
+/// Generate the setter of a text-projected field whose lossless companion must not outlive it.
+///
+/// Assigning new display text makes the stored union stale, so the setter drops the companion and
+/// the `<field>Value` getter reads the new text back. A text-projected union maps to `String`, so
+/// the field reaches the plain setter shape of `gen_setter`; this mirrors it with one extra
+/// line. ~keep
+pub(super) fn gen_text_value_setter(
+    field: &FieldDef,
+    env: &AccessorEnv<'_>,
+    has_default: bool,
+    companion: &str,
+) -> String {
+    format!(
+        "#[wasm_bindgen(setter{})]\npub fn set_{name}(&mut self, value: {}) {{\n    self.{name} = value;\n    self.{companion} = None;\n}}",
+        js_name_attr(field),
+        setter_field_type(field, env, has_default),
+        name = field.name,
+    )
+}
+
+/// Generate the `<field>Value` getter of a text-projected union field.
+///
+/// The ordinary getter returns the display text, which drops the parts of a list. This getter
+/// returns the stored union as a plain JS value: a string, or an array of parts. A struct built
+/// in JS has no stored union yet, so the getter falls back to the display text. ~keep
+pub(super) fn gen_text_value_getter(field: &FieldDef, companion: &str) -> String {
+    let name = &field.name;
+    let fallback = if stores_option(field) {
+        format!("match &self.{name} {{ Some(text) => JsValue::from_str(text), None => JsValue::UNDEFINED }}")
+    } else {
+        format!("JsValue::from_str(&self.{name})")
+    };
+    format!(
+        "/// The whole value of `{}` as a plain JS value: a string, or an array of parts.\n\
+         /// The `{}` getter returns the display text and drops the parts of a list.\n\
+         #[wasm_bindgen(getter, js_name = \"{}\")]\npub fn {companion}(&self) -> JsValue {{\n    \
+         self.{companion}.clone().unwrap_or_else(|| {fallback})\n}}",
+        to_node_name(name),
+        to_node_name(name),
+        to_node_name(companion),
+    )
+}

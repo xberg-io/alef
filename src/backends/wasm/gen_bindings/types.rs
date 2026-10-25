@@ -15,6 +15,7 @@ use super::functions::{
     wasm_mapped_return_type, wasm_newtype_param_bindings, wasm_wrap_return, wrap_jsvalue_mapped_return,
 };
 use super::methods::gen_method_with_type_paths;
+use crate::codegen::conversions::helpers::text_value_companion;
 
 #[path = "types_accessors.rs"]
 mod types_accessors;
@@ -27,7 +28,9 @@ mod types_unit_enum;
 #[path = "types_tests.rs"]
 mod types_tests;
 
-use types_accessors::{AccessorEnv, gen_clear_method, gen_getter, gen_setter};
+use types_accessors::{
+    AccessorEnv, gen_clear_method, gen_getter, gen_setter, gen_text_value_getter, gen_text_value_setter,
+};
 pub(in crate::backends::wasm::gen_bindings) use types_helpers::filter_cfg_fields_for_features;
 use types_helpers::{
     complex_newtype_field_uses_jsvalue, is_bare_tagged_data_enum, is_option_of_tagged_data_enum,
@@ -89,6 +92,9 @@ pub(super) fn gen_struct(
             mapper.map_type(&field.ty)
         };
         fields.push((field.name.clone(), field_type));
+        if let Some(companion) = text_value_companion(&typ.fields, field, &mapper.text_value_enums) {
+            fields.push((companion, "Option<JsValue>".to_string()));
+        }
     }
 
     // When the type IS convertible, suppress #[derive(Default)] and emit the delegating
@@ -199,28 +205,28 @@ pub(super) fn gen_struct_methods(
             continue;
         }
         emitted_field_names.insert(field.name.as_str());
-        impl_builder.add_method(&gen_getter(
-            field,
-            &AccessorEnv {
-                mapper,
-                enum_names: &enum_names,
-                tagged_data_enum_names: &tagged_data_enum_names,
-                untagged_ts_value_types,
-                class_type_names: &class_type_names,
-            },
-            typ.has_default,
-        ));
-        impl_builder.add_method(&gen_setter(
-            field,
-            &AccessorEnv {
-                mapper,
-                enum_names: &enum_names,
-                tagged_data_enum_names: &tagged_data_enum_names,
-                untagged_ts_value_types,
-                class_type_names: &class_type_names,
-            },
-            typ.has_default,
-        ));
+        let accessor_env = AccessorEnv {
+            mapper,
+            enum_names: &enum_names,
+            tagged_data_enum_names: &tagged_data_enum_names,
+            untagged_ts_value_types,
+            class_type_names: &class_type_names,
+        };
+        impl_builder.add_method(&gen_getter(field, &accessor_env, typ.has_default));
+        match text_value_companion(&typ.fields, field, &mapper.text_value_enums) {
+            Some(companion) => {
+                impl_builder.add_method(&gen_text_value_setter(
+                    field,
+                    &accessor_env,
+                    typ.has_default,
+                    &companion,
+                ));
+                impl_builder.add_method(&gen_text_value_getter(field, &companion));
+            }
+            None => {
+                impl_builder.add_method(&gen_setter(field, &accessor_env, typ.has_default));
+            }
+        }
         if let Some(clear) = gen_clear_method(field, mapper, &class_type_names, &reserved_idents) {
             impl_builder.add_method(&clear);
         }
@@ -439,6 +445,14 @@ fn gen_new_method(
     let borrowed = borrowable_constructor_fields(typ, &filtered_fields, mapper, class_type_names);
     let (param_list_camel, assignments_camel) =
         convert_constructor_params_to_camel_case(&param_list, &assignments, &field_names, &borrowed);
+    // ~keep The constructor takes the display text only, so the lossless companion starts empty
+    // and its getter reads the text back until the core value fills it.
+    let assignments_camel = filtered_fields
+        .iter()
+        .filter_map(|field| text_value_companion(&typ.fields, field, &mapper.text_value_enums))
+        .fold(assignments_camel, |assignments, companion| {
+            format!("{assignments}, {companion}: None")
+        });
 
     let field_count = filtered_fields.iter().filter(|f| f.cfg.is_none()).count();
     let mut attrs = Vec::new();
