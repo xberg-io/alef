@@ -564,6 +564,9 @@ mod vacuous_assertion_fallback_tests;
 mod error_test_body_tests;
 
 #[cfg(test)]
+mod error_status_code_tests;
+
+#[cfg(test)]
 mod visitor_options_type_tests;
 
 #[cfg(test)]

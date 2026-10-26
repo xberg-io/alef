@@ -395,6 +395,8 @@ mod enum_field_classification_tests;
 #[cfg(test)]
 mod enum_return_type_tests;
 #[cfg(test)]
+mod error_status_code_tests;
+#[cfg(test)]
 mod loop_binding_tests;
 #[cfg(test)]
 mod mock_capture_gate_tests;
