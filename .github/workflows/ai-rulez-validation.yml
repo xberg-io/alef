@@ -43,3 +43,8 @@ jobs:
         with:
           ai-rulez-version: "5.7.0"
       - uses: xberg-io/actions/validate-ai-rulez@98adf87f1ed4c62a57ff56f9010d62faf42d4db6
+      - uses: xberg-io/agent-conventions/actions/context-exposure@3f5cc5a5cf3cb34578289c096ab66cb75238045b
+        with:
+          budgets: |
+            claude=3550
+            codex=5000
