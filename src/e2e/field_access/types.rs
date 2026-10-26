@@ -113,6 +113,10 @@ pub struct FieldResolver {
     /// Enum names whose serde wire representation has no discriminator at all.
     pub(super) wasm_untagged_enum_names: HashSet<String>,
     pub(super) text_projected_enum_names: HashSet<String>,
+    /// `(owner type, field)` pairs for which the WASM backend emits a lossless `<field>Value`
+    /// getter. Filled by `with_wasm_text_value_fields` from the backend's own
+    /// `text_value_companion`; empty means no field has a getter.
+    pub(super) wasm_text_value_fields: HashSet<(String, String)>,
     /// Names of IR enum types for which the Java binding backend does NOT emit a plain
     /// `enum` with a `getValue()` accessor — i.e. `!backends::java::gen_bindings::emits_get_value`
     /// (tagged- or untagged-union wrapper classes). Populated once per crate IR, from the exact

@@ -326,6 +326,15 @@ pub(super) fn enum_type_at_path(map: &IrEnumMap, path: &str) -> Option<String> {
     enum_type_at_path_from(map, root, path)
 }
 
+/// The IR type that declares the leaf segment of `path`, walking from `map.root_type` through
+/// `map.field_types` the way [`enum_type_at_path_from`] does. `None` when the walk leaves the IR.
+pub(super) fn leaf_owner_type_at_path(map: &IrEnumMap, path: &str) -> Option<String> {
+    let root = map.root_type.as_deref()?;
+    let segments = parse_path(path);
+    let (_, prefix) = segments.split_last()?;
+    resolve_owner(map, root, prefix).map(str::to_string)
+}
+
 /// The same walk [`enum_type_at_path`] does, starting from an explicit `owner` type instead of
 /// `map.root_type` -- for a caller that has already crossed into a tagged-union variant's own
 /// payload type and needs to resolve a SECOND enum-typed field declared on it (a union nested
