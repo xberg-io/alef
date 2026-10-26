@@ -51,7 +51,8 @@ impl FieldResolver {
     /// list are gone from it. The binding backend adds a lossless `<field>Value` getter beside it
     /// for every serializable union (`backends::wasm::gen_bindings::types_accessors`), and this method spells that
     /// getter. `prefix` is the path of the field, `owner` the union type it holds. The method
-    /// answers `None` for a field the backend gives no getter: an unserializable or excluded union, a cfg-gated or sanitized field.
+    /// answers `None` for a field the backend gives no getter: an unserializable or excluded union,
+    /// or a cfg-gated or sanitized field.
     /// ~keep
     pub(crate) fn wasm_text_value_accessor(&self, prefix: &str, owner: &str, result: &str) -> Option<String> {
         if !self.is_text_projected_enum(owner) {
