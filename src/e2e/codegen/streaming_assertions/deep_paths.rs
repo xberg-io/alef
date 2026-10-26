@@ -2,6 +2,7 @@ use super::model::{StreamingFieldResolver, split_streaming_deep_path};
 use super::python_typeddict_accessor::{python_tool_call_element_type, render_python_tool_calls_deep};
 use super::renderers::{
     render_deep_tail, render_optional_chain_tail, render_rust_tool_calls_deep, render_swift_tool_calls_deep,
+    render_zig_tool_calls_deep,
 };
 use crate::e2e::field_access::PythonTypedDictMap;
 
@@ -21,7 +22,7 @@ pub(super) fn render(
             &StreamingFieldResolver::accessor(root, lang, chunks_var)?,
             tail,
         )),
-        ("tool_calls", "zig") => None,
+        ("tool_calls", "zig") => render_zig_tool_calls_deep(chunks_var, tail),
         ("tool_calls", "python") => {
             let expression = StreamingFieldResolver::accessor_with_typeddict_map(
                 root,

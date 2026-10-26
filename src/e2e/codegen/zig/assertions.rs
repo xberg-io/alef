@@ -5,6 +5,7 @@ use crate::e2e::codegen::assertion_type_skip::{
 use crate::e2e::codegen::field_skip::{FieldSkip, nested_wildcard_skip_line};
 
 mod chunks_synthetic;
+mod tool_call_leaf;
 
 use super::json_access::{Unwrap, json_path_expr_with};
 
@@ -127,7 +128,14 @@ pub(super) fn render_json_assertion(
         && !f.is_empty()
         && is_streaming_virtual_field(f)
     {
-        if let Some(expr) = StreamingFieldResolver::accessor(f, "zig", "chunks") {
+        if let Some(accessor) = StreamingFieldResolver::accessor(f, "zig", "chunks") {
+            let hoisted = tool_call_leaf::is_hoisted(f);
+            let expr = if hoisted {
+                tool_call_leaf::LEAF.to_string()
+            } else {
+                accessor.clone()
+            };
+            let start = out.len();
             // ~keep The value-narrowing arms below used to fall through to nothing when the
             // fixture's value did not survive `as_u64()`, so the assertion disappeared with no
             // line for any funnel to count.
@@ -174,6 +182,9 @@ pub(super) fn render_json_assertion(
                         streaming_assertion_type_skip_line("    ", "//", f, &assertion.assertion_type)
                     );
                 }
+            }
+            if hoisted {
+                tool_call_leaf::wrap(out, start, &accessor);
             }
         } else {
             // ~keep The accessor returns `None` for reachable inputs — every `stream.has_*_event`

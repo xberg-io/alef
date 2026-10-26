@@ -109,10 +109,10 @@ pub(crate) fn declared_variant<'a>(
 ///   error/exception/error-set-member only for variants that declared a code; an uncoded variant
 ///   collapses to a generic wrapper (Go: `*errors.errorString`; Java: the flat infra exception;
 ///   Zig: `error.UnknownFfiError`). Conditional on `variant.error_code`.
-/// - `c`: the C ABI exposes a variant's code as `{prefix}_last_error_code()`, never as a string
-///   (`e2e/codegen/c/test_function.rs`'s own doc comment on `emit_c_error_epilogue`), and the
-///   generated test only ever compares message text — so even a coded variant cannot be named
-///   today. Never substantiable.
+/// - `c`: the C ABI records the variant name of the last typed error beside its message and
+///   reads it back through `{prefix}_last_error_variant()`, so the generated test compares the
+///   name itself (`e2e/codegen/c/test_function.rs`, `emit_c_error_epilogue`). Always
+///   substantiable. ~keep
 /// - `dart`: known Rust error types use the typed bridge codec, which returns the generated
 ///   FRB enum value or variant class while preserving payload fields. ~keep
 /// - `csharp`: every fallible throw site (regular method calls, opaque-handle constructors and
@@ -143,24 +143,25 @@ pub(crate) fn declared_variant<'a>(
 ///   this — it is backed by the same NIF glue.
 /// - `r`: no error-conversion code exists in the R backend at all; extendr's default panic
 ///   handling surfaces a generic `simpleError`.
-/// - `typescript` (NAPI): every thrown error keeps a generic `.name` and its message, and also
-///   carries `kind`, `statusCode` and `retryAfter` as own properties (the generated
-///   `binding.cjs` shim). The e2e assertion still matches message and `.name` only, so a
-///   variant identity stays unsubstantiated here until the assertion reads `kind`.
-/// - `wasm`: fallible calls use `JsValue::from_str(&e.to_string())`, exposing only the display
-///   message. Generated structured-error helpers are not used by these call sites. ~keep
+/// - `typescript` (NAPI): every thrown error carries `kind`, `statusCode` and `retryAfter` as
+///   own properties (the generated `binding.cjs` shim), so the e2e assertion compares `kind`
+///   with the variant name. Always substantiable. ~keep
+/// - `wasm`: a fallible call throws a JS error that carries `kind`, `statusCode` and
+///   `retryAfter` as own properties, and the shared TypeScript renderer compares `kind` with
+///   the variant name. Always substantiable. ~keep
 ///
 /// Any language absent from this match keeps today's behaviour (`true`), so a backend this fix
 /// did not audit and rewrite is never silently weakened.
 pub(crate) fn substantiates_variant_identity(lang: &str, variant: &ErrorVariant) -> bool {
     match lang {
-        "python" | "dart" | "ruby" => true,
+        "python" | "dart" | "ruby" | "c" => true,
         "go" | "java" | "zig" => variant.error_code.is_some(),
         "csharp" => crate::backends::csharp::gen_bindings::variant_dispatch_prefix(variant).is_some(),
         // The shared TypeScript renderer passes `node` or `wasm` through its `lang` parameter.
         // `"typescript"` here was dead: it never matched what the backend actually threads
         // through, so the wiring silently fell through to the `true` default below. ~keep
-        "c" | "php" | "swift" | "elixir" | "gleam" | "r" | "node" | "wasm" => false,
+        "node" | "wasm" => true,
+        "php" | "swift" | "elixir" | "gleam" | "r" => false,
         _ => true,
     }
 }
@@ -171,10 +172,9 @@ pub(crate) fn substantiates_variant_identity(lang: &str, variant: &ErrorVariant)
 /// `LanguageLimitation`/`GeneratorGap` split, applied to this one axis. ~keep
 fn skip_variant_for(lang: &str) -> AssertionTypeSkip {
     match lang {
-        // ~keep C's ABI has no string identity; coded backends require a declared taxonomy code.
-        // `go`/`java`/`zig`: whether THIS variant carries a stable ABI taxonomy code is a
+        // ~keep `go`/`java`/`zig`: whether THIS variant carries a stable ABI taxonomy code is a
         // property of the crate's declared error shape, not alef's generator.
-        "c" | "go" | "java" | "zig" => AssertionTypeSkip::DeclaredErrorVariantNotSubstantiated,
+        "go" | "java" | "zig" => AssertionTypeSkip::DeclaredErrorVariantNotSubstantiated,
         // Every other audited backend's own runtime supports distinct per-variant error
         // identities (a class, an atom, a condition); alef's generator just does not build one
         // yet. Fixable in a future alef release, not a permanent limit.
@@ -252,12 +252,15 @@ mod tests {
     }
 
     #[test]
-    fn wasm_string_errors_cannot_substantiate_variant_identity() {
-        let errors = vec![error_def(vec![coded_variant("Authentication", Some(100))])];
-        assert_eq!(
-            classify("wasm", &fixture_with("Authentication"), &errors),
-            DeclaredErrorAssertion::Unsubstantiable("Authentication")
-        );
+    fn c_node_and_wasm_substantiate_a_known_variant() {
+        let errors = vec![error_def(vec![coded_variant("Authentication", None)])];
+        for lang in ["c", "node", "wasm"] {
+            assert_eq!(
+                classify(lang, &fixture_with("Authentication"), &errors),
+                DeclaredErrorAssertion::Assert("Authentication"),
+                "{lang} reads the variant name off the failed call"
+            );
+        }
         assert_eq!(
             classify("wasm", &fixture_with("authentication failed"), &errors),
             DeclaredErrorAssertion::Assert("authentication failed")
@@ -376,16 +379,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn c_never_substantiates_a_known_variant_even_when_coded() {
-        let fixture = fixture_with("Authentication");
-        let errors = vec![error_def(vec![coded_variant("Authentication", Some(100))])];
-        assert_eq!(
-            classify("c", &fixture, &errors),
-            DeclaredErrorAssertion::Unsubstantiable("Authentication")
-        );
-    }
-
     /// Go/Java/Zig are conditional: a coded variant is still assertable, an uncoded one is not.
     #[test]
     fn go_java_zig_are_conditional_on_error_code() {
@@ -407,10 +400,10 @@ mod tests {
     }
 
     #[test]
-    fn swift_elixir_gleam_r_node_never_substantiate_a_known_variant() {
+    fn swift_elixir_gleam_r_never_substantiate_a_known_variant() {
         let fixture = fixture_with("BadRequest");
         let errors = vec![error_def(vec![coded_variant("BadRequest", Some(200))])];
-        for lang in ["swift", "elixir", "gleam", "r", "node"] {
+        for lang in ["swift", "elixir", "gleam", "r"] {
             assert_eq!(
                 classify(lang, &fixture, &errors),
                 DeclaredErrorAssertion::Unsubstantiable("BadRequest"),
@@ -466,7 +459,7 @@ mod tests {
     #[test]
     fn skip_line_renders_the_language_limitation_wording_and_records_it() {
         let _ = crate::e2e::codegen::take_skip_records();
-        let line = skip_line("    ", "//", "Authentication", "auth_fails", "c");
+        let line = skip_line("    ", "//", "Authentication", "auth_fails", "go");
         assert_eq!(
             line,
             "    // skipped: declared error variant 'Authentication' not substantiated by this backend's generated \
@@ -474,7 +467,7 @@ mod tests {
         );
         let records = crate::e2e::codegen::take_skip_records();
         assert_eq!(records.len(), 1, "got: {records:?}");
-        assert_eq!(records[0].language, "c");
+        assert_eq!(records[0].language, "go");
         assert_eq!(records[0].fixture_id, "auth_fails");
         assert_eq!(records[0].field, "Authentication");
     }

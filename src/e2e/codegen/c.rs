@@ -1055,6 +1055,8 @@ mod collection_empty_assertion_tests;
 mod collection_wildcard;
 mod docs_input;
 mod enum_field_inference;
+#[cfg(test)]
+mod error_status_code_tests;
 mod ffi_constructors;
 #[cfg(test)]
 mod mock_capture_gate_tests;

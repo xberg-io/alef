@@ -490,12 +490,16 @@ fn deep_tool_calls_function_name_snapshot_python_elixir_zig() {
     assert!(elixir.contains(".function"), "elixir: {elixir}");
     assert!(elixir.contains(".name"), "elixir: {elixir}");
 
-    // Zig stores chunks as JSON strings, not typed records — deep
-    // tool_calls paths are unsupported and resolve to None so the
-    // assertion site can skip them.
+    // Zig stores chunks as JSON strings, so the accessor parses them and walks the tool calls.
+    let zig = StreamingFieldResolver::accessor(field, "zig", "chunks").unwrap();
+    assert!(zig.starts_with("@as([]const u8, blk: {"), "zig: {zig}");
+    assert!(zig.contains("chunks.items"), "zig: {zig}");
+    assert!(zig.contains("_idx == 0"), "zig: {zig}");
+    assert!(zig.contains(".object.get(\"function\")"), "zig: {zig}");
+    assert!(zig.contains(".object.get(\"name\")"), "zig: {zig}");
     assert!(
-        StreamingFieldResolver::accessor(field, "zig", "chunks").is_none(),
-        "zig: expected None for deep tool_calls path"
+        zig.contains("dupe(u8, _v.string)"),
+        "the name must be copied before the parse is freed: {zig}"
     );
 }
 

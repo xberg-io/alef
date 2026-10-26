@@ -1697,12 +1697,11 @@ fn wasm_error_assertions_preserve_rejections_and_literal_messages() {
     }];
     let variant = error_fixture("auth", Some(serde_json::json!("Authentication")));
     let rendered = render_error_fixture_for_language("wasm", &variant, &errors);
-    assert!(rendered.contains("}).rejects.toThrow();"), "{rendered}");
-    assert!(!rendered.contains("toSatisfy"), "{rendered}");
     assert!(
-        rendered.contains("declared error variant 'Authentication' not yet preserved"),
+        rendered.contains("}).rejects.toEqual(expect.objectContaining({ kind: \"Authentication\" }));"),
         "{rendered}"
     );
+    assert!(!rendered.contains("toSatisfy"), "{rendered}");
 
     let message = error_fixture("invalid", Some(serde_json::json!("invalid (key)")));
     let rendered = render_error_fixture_for_language("wasm", &message, &errors);
@@ -1760,12 +1759,10 @@ fn error_assertion_value_with_regex_metacharacters_is_escaped() {
     );
 }
 
-/// The defect this fix closes: a declared value naming a real `ErrorVariant` — every NAPI
-/// throw site is `napi::Error::new(Status::GenericFailure, e.to_string())`, generic status and
-/// name, message only — must render the registered skip, not a `toSatisfy` matcher that can
-/// never pass.
+/// A declared value naming a real `ErrorVariant` is compared with the `kind` the binding sets on
+/// the thrown error, so a binding that throws another variant fails the test.
 #[test]
-fn error_assertion_with_a_known_variant_node_cannot_substantiate_is_skipped() {
+fn error_assertion_with_a_known_variant_checks_the_kind_property() {
     let fixture = error_fixture("thing_fails_with_auth", Some(serde_json::json!("Authentication")));
     let errors = vec![crate::core::ir::ErrorDef {
         exception_base: None,
@@ -1787,20 +1784,11 @@ fn error_assertion_with_a_known_variant_node_cannot_substantiate_is_skipped() {
     let output = render_error_fixture_with_errors(&fixture, &errors);
 
     assert!(
-        output.contains("\t\t}).rejects.toThrow();\n"),
-        "the call must still be proven to fail (the unconditional toThrow form), got:\n{output}"
-    );
-    assert!(
-        !output.contains("toSatisfy"),
-        "must not render a matcher that can never pass, got:\n{output}"
-    );
-    assert!(
-        output.contains(
-            "\t\t// skipped: declared error variant 'Authentication' not yet preserved as a distinct identity by \
-             this backend's generator"
-        ),
+        output.contains("\t\t}).rejects.toEqual(expect.objectContaining({ kind: \"Authentication\" }));\n"),
         "got:\n{output}"
     );
+    assert!(!output.contains("toSatisfy"), "got:\n{output}");
+    assert!(!output.contains("skipped"), "got:\n{output}");
 }
 
 #[test]

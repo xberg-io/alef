@@ -14,7 +14,7 @@ mod shared;
 
 pub(crate) use host_langs::{
     DurationShape, csharp_error_bases_with_last_error_fields, csharp_last_error_getter_name, duration_shape,
-    java_default_value, java_field_name, typeref_to_csharp_type, typeref_to_java_type,
+    java_default_value, java_field_name, java_getter_name, typeref_to_csharp_type, typeref_to_java_type,
 };
 pub use host_langs::{
     GoErrorMethodField, gen_csharp_error_types, gen_go_error_struct, gen_go_error_types, gen_go_sentinel_errors,

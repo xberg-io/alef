@@ -118,6 +118,49 @@ pub(super) fn emit(out: &mut String, fixture: &Fixture, errors: &[ErrorDef], imp
     }
 }
 
+/// Render the `error.<field>` equals checks of an error fixture: the thrown error is recovered
+/// as the generated `*Error` and the field is compared with the fixture value.
+///
+/// Returns the errors narrowed to the rendered methods, which the caller passes to the skip
+/// funnel so an assertion rendered here is not also named as skipped.
+pub(super) fn emit_field_checks(
+    out: &mut String,
+    fixture: &Fixture,
+    errors: &[ErrorDef],
+    import_alias: &str,
+    go_package: &str,
+) -> Vec<ErrorDef> {
+    let reachable = crate::e2e::codegen::error_field_checks::reachable_errors(
+        errors,
+        crate::e2e::codegen::error_field_checks::STATUS_CODE,
+    );
+    let checks = crate::e2e::codegen::error_field_checks::render(
+        fixture,
+        &reachable,
+        "\t// ",
+        "go",
+        |error, method, expected| {
+            let error_type = go_error_type_name(&error.name, go_package);
+            let field = crate::codegen::error_gen::go_error_method_fields(error)
+                .into_iter()
+                .find(|field| field.method == method)
+                .map_or_else(String::new, |field| field.field_name);
+            format!(
+                "\t{{\n\
+                 \t\tvar fieldError *{import_alias}.{error_type}\n\
+                 \t\tif !errors.As(err, &fieldError) {{\n\
+                 \t\t\tt.Errorf(\"expected a *{import_alias}.{error_type} carrying {method}, got %T: %v\", err, err)\n\
+                 \t\t}} else if fieldError.{field} != {expected} {{\n\
+                 \t\t\tt.Errorf(\"expected {method} {expected}, got %v\", fieldError.{field})\n\
+                 \t\t}}\n\
+                 \t}}\n"
+            )
+        },
+    );
+    out.push_str(&checks);
+    reachable
+}
+
 #[cfg(test)]
 mod tests {
     use super::emit_typed as emit;

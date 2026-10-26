@@ -38,6 +38,7 @@ pub(crate) mod declared_error_variant;
 #[cfg(test)]
 mod derived_presentation_binding_tests;
 pub mod elixir;
+pub(crate) mod error_field_checks;
 pub(crate) mod error_field_reachability;
 pub(crate) mod error_path_assertions;
 #[cfg(test)]

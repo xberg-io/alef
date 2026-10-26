@@ -294,10 +294,10 @@ fn real_generator_preserves_error_registry_for_variant_and_message_assertions() 
         .expect("error suite")
         .content;
     assert_eq!(output.matches("it(\"error_").count(), 3, "{output}");
-    assert_eq!(output.matches("}).rejects.toThrow();").count(), 2, "{output}");
+    assert_eq!(output.matches("}).rejects.toThrow();").count(), 1, "{output}");
     assert_eq!(output.matches("toSatisfy").count(), 1, "{output}");
     assert!(
-        output.contains("declared error variant 'Authentication' not yet preserved"),
+        output.contains("}).rejects.toEqual(expect.objectContaining({ kind: \"Authentication\" }));"),
         "{output}"
     );
     assert!(!output.contains("/Authentication/"), "{output}");

@@ -238,6 +238,8 @@ mod mock_capture_gate_tests;
 #[cfg(test)]
 mod mock_url_resolution_tests;
 #[cfg(test)]
+mod reply_text_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod typed_data_import_tests;

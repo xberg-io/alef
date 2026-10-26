@@ -24,14 +24,12 @@ use super::{
 /// value comparison — or, when the value names a real error variant C cannot substantiate, the
 /// registered skip instead — then a marker for each assertion this path does not render.
 ///
-/// ~keep The C ABI carries a failure as `set_last_error(alef_ffi_error_code(&e), &e.to_string())`,
-/// so `{prefix}_last_error_context()` is the failure's Display text and is the only textual
-/// evidence C has. Before this, a fixture's declared `error` value was discarded outright and the
-/// whole assertion collapsed into `assert(handle == 0)` — a check that cannot tell the expected
-/// failure from any other. C can never satisfy the message-or-type-name disjunction's type-name
-/// side (`declared_error_variant::classify` always answers `Unsubstantiable` for a known variant
-/// here): the C ABI exposes a variant only as a numeric taxonomy code
-/// (`{prefix}_last_error_code()`), never as a string the generated message check could compare.
+/// ~keep The C ABI carries a failure as `set_last_error(alef_ffi_error_code(&e), &e.to_string())`
+/// and records the variant name and the introspection values beside it. `{prefix}_last_error_context()`
+/// is the failure's Display text, `{prefix}_last_error_variant()` is the variant name and
+/// `{prefix}_last_error_status_code()` is the HTTP status. A declared variant name is compared with
+/// the variant, a declared message with the text, and an `error.status_code` assertion with the
+/// status. All three are read before any free call, because every ABI entry point clears them.
 pub(super) fn emit_c_error_epilogue(
     out: &mut String,
     prefix: &str,
@@ -45,9 +43,26 @@ pub(super) fn emit_c_error_epilogue(
     if documentation_snippet {
         return;
     }
-    use crate::e2e::codegen::declared_error_variant::{DeclaredErrorAssertion, classify, skip_line};
+    use crate::e2e::codegen::declared_error_variant::{DeclaredErrorAssertion, classify, declared_variant, skip_line};
     match classify("c", fixture, errors) {
         DeclaredErrorAssertion::Undeclared => {}
+        // A declared variant name is compared with the variant name the ABI records next to the
+        // message. Any other declared value is message text. ~keep
+        DeclaredErrorAssertion::Assert(declared) if declared_variant(fixture, errors).is_some() => {
+            let expected = escape_c(declared);
+            let variant_symbol = crate::codegen::c_consumer::last_error_variant_symbol(prefix);
+            let _ = writeln!(out, "    {{");
+            let _ = writeln!(out, "        const char* _err_variant = {variant_symbol}();");
+            let _ = writeln!(
+                out,
+                "        assert(_err_variant != NULL && \"expected an error variant\");"
+            );
+            let _ = writeln!(
+                out,
+                "        assert(strcmp(_err_variant, \"{expected}\") == 0 && \"error variant mismatch\");"
+            );
+            let _ = writeln!(out, "    }}");
+        }
         DeclaredErrorAssertion::Assert(declared) => {
             let expected = escape_c(declared);
             let _ = writeln!(out, "    {{");
@@ -66,7 +81,23 @@ pub(super) fn emit_c_error_epilogue(
             let _ = writeln!(out, "{}", skip_line("    ", "//", variant, &fixture.id, "c"));
         }
     }
-    crate::e2e::codegen::error_path_assertions::emit(out, fixture, "    // ", "c");
+    // The ABI keeps the introspection values of the last error beside its message, so the status
+    // is read through `{prefix}_last_error_status_code()` before any free call clears it. ~keep
+    let reachable = crate::e2e::codegen::error_field_checks::reachable_errors(
+        errors,
+        crate::e2e::codegen::error_field_checks::STATUS_CODE,
+    );
+    out.push_str(&crate::e2e::codegen::error_field_checks::render(
+        fixture,
+        &reachable,
+        "    // ",
+        "c",
+        |_, method, expected| {
+            let symbol = crate::codegen::c_consumer::last_error_field_symbol(prefix, method);
+            format!("    assert({symbol}() == {expected} && \"error {method} mismatch\");\n")
+        },
+    ));
+    crate::e2e::codegen::error_path_assertions::emit_runtime_with_errors(out, fixture, "    // ", "c", &reachable);
 }
 
 /// Snippet-local definition of the `ALEF_TEST_SKIP` guard macro.
@@ -1791,12 +1822,10 @@ mod declared_error_variant_tests {
         assert!(out.contains("strstr(_err_message, \"rate limit\")"), "got: {out}");
     }
 
-    /// The defect this fix closes: C can NEVER substantiate a known variant, even a CODED one —
-    /// the C ABI exposes the variant only as a numeric taxonomy code, never as a string the
-    /// generated message check could compare. Must render the registered skip, not an assertion
-    /// that can never pass.
+    /// A coded known variant is compared with the name the C ABI returns for the last error, so a
+    /// binding that fails with another variant aborts the test.
     #[test]
-    fn known_variant_renders_the_skip_even_when_coded() {
+    fn known_variant_compares_the_last_error_variant_name() {
         let mut out = String::new();
         let fixture = fixture_with_declared_error("Authentication");
         let errors = error_def_with("Authentication", Some(100));
@@ -1805,10 +1834,11 @@ mod declared_error_variant_tests {
 
         assert_eq!(
             out,
-            "    // skipped: declared error variant 'Authentication' not substantiated by this backend's \
-             generated error type\n"
+            "    {\n        const char* _err_variant = sample_last_error_variant();\n        \
+             assert(_err_variant != NULL && \"expected an error variant\");\n        \
+             assert(strcmp(_err_variant, \"Authentication\") == 0 && \"error variant mismatch\");\n    }\n"
         );
-        assert!(!out.contains("strstr"), "must not render an assertion, got: {out}");
+        assert!(!out.contains("strstr"), "must not compare the message, got: {out}");
     }
 
     /// A documentation snippet renders nothing regardless of substantiability — published prose

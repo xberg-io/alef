@@ -53,6 +53,29 @@ fn declared_error_value_check(fixture: &Fixture, errors: &[crate::core::ir::Erro
     }
 }
 
+/// The checks for `error.<field>` equals assertions, read off the exception the call threw.
+///
+/// The generated base exception of the error type carries a getter for every whitelisted
+/// introspection method, and each variant exception extends it, so the cast holds whichever
+/// variant the call threw. The class is named with its package because the file imports only the
+/// types it uses elsewhere. ~keep
+fn error_field_checks(fixture: &Fixture, reachable: &[crate::core::ir::ErrorDef], package: &str) -> String {
+    crate::e2e::codegen::error_field_checks::render(
+        fixture,
+        reachable,
+        "        // ",
+        "java",
+        |error, method, expected| {
+            let class = format!("{package}.{}Exception", error.name);
+            let getter = crate::codegen::error_gen::java_getter_name(method);
+            format!(
+                "        assertTrue(thrown instanceof {class}, \"expected a {class} carrying {method}, got \" + thrown);\n\
+                 \x20       assertEquals({expected}, (({class}) thrown).{getter}(), \"expected {method} {expected}\");\n"
+            )
+        },
+    )
+}
+
 fn ensure_assertion_line_ending(assertions: &mut String) {
     if !assertions.is_empty() && !assertions.ends_with('\n') {
         assertions.push('\n');
@@ -561,8 +584,13 @@ pub(super) fn render_test_method(
     // ~keep The `expects_error` branch of `java/test_method.jinja` renders the assertThrows and
     // nothing else, so every other assertion on an error fixture — most often an `equals` against
     // `error.status_code` — used to leave no trace at all in the generated test.
+    let reachable = crate::e2e::codegen::error_field_checks::reachable_errors(
+        errors,
+        crate::e2e::codegen::error_field_checks::STATUS_CODE,
+    );
+    let error_field_checks = error_field_checks(fixture, &reachable, &config.java_package());
     let unrenderable_error_assertions =
-        crate::e2e::codegen::error_path_assertions::render(fixture, "        // ", "java");
+        crate::e2e::codegen::error_path_assertions::render_with_errors(fixture, "        // ", "java", &reachable);
 
     let rendered = crate::e2e::template_env::render(
         "java/test_method.jinja",
@@ -575,6 +603,7 @@ pub(super) fn render_test_method(
             expects_error => expects_error,
             is_streaming => is_streaming,
             declared_error_check => declared_error_check,
+            error_field_checks => error_field_checks.trim_end(),
             unrenderable_error_assertions => unrenderable_error_assertions.trim_end(),
             call_expr => call_expr,
             result_var => result_var,
@@ -582,7 +611,7 @@ pub(super) fn render_test_method(
             void_not_error => void_not_error,
             collect_snippet => collect_snippet,
             assertions_body => assertions_body,
-            coverage_warning => inert_example::coverage_warning_for_path(&assertions_body, expects_error, &[declared_error_check.as_deref().unwrap_or(""), &unrenderable_error_assertions], "java", &fixture.id),
+            coverage_warning => inert_example::coverage_warning_for_path(&assertions_body, expects_error, &[declared_error_check.as_deref().unwrap_or(""), &error_field_checks, &unrenderable_error_assertions], "java", &fixture.id),
             teardown_block => teardown_block,
         },
     );

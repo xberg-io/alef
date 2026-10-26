@@ -114,3 +114,39 @@ fn uncoded_known_variant_renders_the_skip() {
         "must not render an assertion, got: {out}"
     );
 }
+
+/// The status assertion of an error fixture is rendered through the generated `*Error`, not
+/// skipped, and the funnel for the same fixture then names nothing.
+#[test]
+fn status_code_assertion_is_rendered_against_the_generated_error() {
+    use super::declared_error_assertion::emit_field_checks;
+    use crate::e2e::codegen::error_field_checks::test_fixtures::{status_code_errors, status_code_fixture};
+
+    let mut out = String::new();
+    let fixture = status_code_fixture(401);
+    let reachable = emit_field_checks(&mut out, &fixture, &status_code_errors(), "pkg", "pkg");
+
+    assert!(out.contains("var fieldError *pkg.ApiError"), "got: {out}");
+    assert!(out.contains("fieldError.StatusCode != 401"), "got: {out}");
+    assert!(
+        crate::e2e::codegen::error_path_assertions::render_with_errors(&fixture, "\t// ", "go", &reachable).is_empty(),
+        "the rendered assertion must not also be named as skipped"
+    );
+}
+
+/// An error type without a `status_code` method has nothing to read, so the skip stays.
+#[test]
+fn status_code_assertion_stays_skipped_without_the_method() {
+    use super::declared_error_assertion::emit_field_checks;
+    use crate::e2e::codegen::error_field_checks::test_fixtures::{error_with_methods, status_code_fixture};
+
+    let mut out = String::new();
+    let fixture = status_code_fixture(401);
+    let reachable = emit_field_checks(&mut out, &fixture, &error_with_methods("ApiError", &[]), "pkg", "pkg");
+
+    assert_eq!(out, "");
+    assert!(
+        crate::e2e::codegen::error_path_assertions::render_with_errors(&fixture, "\t// ", "go", &reachable)
+            .contains("no accessor for error field error.status_code")
+    );
+}

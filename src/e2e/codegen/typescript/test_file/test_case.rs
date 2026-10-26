@@ -304,9 +304,23 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_test_case(
     // literally. A value naming a real `ErrorVariant` this backend cannot substantiate renders
     // the registered skip instead (`error_skip_line`, spliced verbatim by the template): the
     // thrown error's `.name` stays generic, and this assertion does not read its `kind`.
+    let (error_properties, unrenderable_status_markers) = if expects_error {
+        error_properties::collect(fixture, errors, lang)
+    } else {
+        (Vec::new(), String::new())
+    };
+    let error_property_object = error_properties::object_literal(&error_properties);
+    let error_property_conditions = error_properties::conditions(&error_properties);
     let (error_value_regex, error_skip_line) = if expects_error {
         match crate::e2e::codegen::declared_error_variant::classify(lang, fixture, errors) {
             crate::e2e::codegen::declared_error_variant::DeclaredErrorAssertion::Undeclared => (None, None),
+            // ~keep A variant name is read off the thrown error's `kind`, never searched for in its
+            // message: both the NAPI shim and the wasm error builder set `kind` to the variant.
+            crate::e2e::codegen::declared_error_variant::DeclaredErrorAssertion::Assert(_)
+                if error_properties.iter().any(|(key, _)| key == "kind") =>
+            {
+                (None, None)
+            }
             crate::e2e::codegen::declared_error_variant::DeclaredErrorAssertion::Assert(value) => {
                 (Some(format!("/{}/", escape_js_regex_literal(value))), None)
             }
@@ -544,7 +558,10 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_test_case(
     // `rejects` assertion and nothing else, so every other assertion on an error fixture — most
     // often an `equals` against `error.status_code` — used to leave no trace at all in the
     // generated test.
-    let unrenderable_error_assertions = crate::e2e::codegen::error_path_assertions::render(fixture, "\t\t// ", lang);
+    let reachable_errors = error_properties::reachable(errors, lang);
+    let mut unrenderable_error_assertions =
+        crate::e2e::codegen::error_path_assertions::render_with_errors(fixture, "\t\t// ", lang, &reachable_errors);
+    unrenderable_error_assertions.push_str(&unrenderable_status_markers);
 
     let ctx = crate::alef_context! {
         test_name => test_name,
@@ -565,6 +582,8 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_test_case(
         unrenderable_error_assertions => unrenderable_error_assertions.trim_end(),
         error_value_regex => error_value_regex,
         error_skip_line => error_skip_line,
+        error_property_object => error_property_object,
+        error_property_conditions => error_property_conditions,
         is_streaming_error_call => is_streaming_error_call,
         lang => lang,
         skip_reason => skip_reason,
@@ -646,6 +665,8 @@ fn fixture_timeout_ms(fixture: &Fixture) -> u64 {
         }
     })
 }
+
+mod error_properties;
 
 #[cfg(test)]
 mod timeout_tests;
