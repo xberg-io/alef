@@ -930,3 +930,70 @@ fn variant_untagged_output_format_field_becomes_js_value_with_literal_union_dts(
          `any` and not the container-level-untagged null-for-unit-variants shape;\nactual:\n{lib_rs}"
     );
 }
+
+/// A moderation request whose `input` field is the text-projected `EmbeddingInput` union.
+fn moderation_api(text_union: EnumDef) -> ApiSurface {
+    let mut api = empty_api();
+    api.enums = vec![text_union];
+    api.functions = vec![function_taking("ModerationRequest")];
+    api.types = vec![TypeDef {
+        name: "ModerationRequest".to_string(),
+        rust_path: "test_lib::ModerationRequest".to_string(),
+        fields: vec![FieldDef {
+            name: "input".to_string(),
+            ty: TypeRef::Named("EmbeddingInput".to_string()),
+            optional: true,
+            ..Default::default()
+        }],
+        has_serde: true,
+        ..Default::default()
+    }];
+    api
+}
+
+fn generated_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
+    let files = WasmBackend.generate_bindings(api, config).unwrap();
+    files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .expect("lib.rs must be generated")
+        .content
+        .clone()
+}
+
+/// The backend asks the shared text-value rule which unions keep a lossless companion. A
+/// serializable union listed in `untagged_union_text_types` gets the `inputValue` getter that the
+/// generated e2e tests assert through.
+#[test]
+fn serializable_text_union_field_gets_the_companion_and_getter() {
+    let api = moderation_api(embedding_input_enum());
+    let lib_rs = generated_lib_rs(&api, &make_config_with_text_types("\"EmbeddingInput\""));
+
+    assert!(
+        lib_rs.contains("input_value: Option<JsValue>,"),
+        "the struct must keep the whole union beside the display text;\nactual:\n{lib_rs}"
+    );
+    assert!(
+        lib_rs.contains("js_name = \"inputValue\""),
+        "the lossless getter must be emitted;\nactual:\n{lib_rs}"
+    );
+}
+
+/// A union without `Serialize` cannot fill the companion with `serde_wasm_bindgen`, so the shared
+/// rule leaves it out and the backend emits no getter that the e2e generator would then assert on.
+#[test]
+fn non_serializable_text_union_field_gets_no_companion() {
+    let mut union = embedding_input_enum();
+    union.has_serde = false;
+    let api = moderation_api(union);
+    let lib_rs = generated_lib_rs(&api, &make_config_with_text_types("\"EmbeddingInput\""));
+
+    assert!(
+        lib_rs.contains("input: Option<String>,"),
+        "the field stays display text;\nactual:\n{lib_rs}"
+    );
+    assert!(
+        !lib_rs.contains("input_value") && !lib_rs.contains("inputValue"),
+        "no companion without Serialize;\nactual:\n{lib_rs}"
+    );
+}
