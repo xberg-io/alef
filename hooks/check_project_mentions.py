@@ -75,6 +75,7 @@ ALEF_INFRASTRUCTURE_ALLOWLIST = (
     # brand skill those modules ship. Alef consumes org governance; it does not branch on it.
     "xberg-core",
     "xberg-cicd",
+    "xberg-languages",
     "xberg-brand-and-docs",
     "owner: kreuzberg-dev",
     "kreuzberg-bot",

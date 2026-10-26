@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Allow the `xberg-languages` include label in the project-mention hook, next to `xberg-core` and `xberg-cicd`: alef now includes the shared languages module.
+
 ## [0.114.2] - 2026-10-24
 
 ### Fixed
