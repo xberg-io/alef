@@ -118,6 +118,7 @@ fn render_error_test_body(
     call_expr: &str,
     fixture: &Fixture,
     errors: &[crate::core::ir::ErrorDef],
+    reachable: &[crate::core::ir::ErrorDef],
     collect_snippet: &str,
     result_var: &str,
 ) -> String {
@@ -136,10 +137,7 @@ fn render_error_test_body(
     // error (`info_status_code` and its siblings), read back through camelCase accessors.
     let field_checks = crate::e2e::codegen::error_field_checks::render(
         fixture,
-        &crate::e2e::codegen::error_field_checks::reachable_errors(
-            errors,
-            crate::e2e::codegen::error_field_checks::STATUS_CODE,
-        ),
+        reachable,
         "        // ",
         "php",
         |_, method, expected| {
@@ -513,17 +511,26 @@ pub(super) fn render_test_method(
     }
 
     let error_test_body = if expects_error {
-        let mut body = render_error_test_body(&setup_lines, &call_expr, fixture, errors, &collect_snippet, result_var);
+        let reachable = crate::e2e::codegen::error_field_checks::reachable_errors(
+            errors,
+            crate::e2e::codegen::error_field_checks::STATUS_CODE,
+        );
+        let mut body = render_error_test_body(
+            &setup_lines,
+            &call_expr,
+            fixture,
+            errors,
+            &reachable,
+            &collect_snippet,
+            result_var,
+        );
         // ~keep `render_error_test_body` ends without a trailing newline on the `None` arm, so the
         // markers have to open their own line rather than being appended to the last statement.
         let markers = crate::e2e::codegen::error_path_assertions::render_with_errors(
             fixture,
             "        // ",
             "php",
-            &crate::e2e::codegen::error_field_checks::reachable_errors(
-                errors,
-                crate::e2e::codegen::error_field_checks::STATUS_CODE,
-            ),
+            &reachable,
         );
         if !markers.is_empty() {
             body.push('\n');

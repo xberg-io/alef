@@ -59,8 +59,8 @@ pub(super) fn emit_chat_stream_assertion(
     }
     if field == "no_chunks_after_done" {
         out.push_str(&format!(
-            "    # skipped: {}; this stream's chunks carry no terminal finish_reason, \
-so the done chunk is not observable here\n",
+            "    # skipped: {}; this is not a chat stream, so it has no finish_reason \
+and the done chunk is not observable here\n",
             FieldSkip::StreamingAssertionOnUnsupportedField.message(field)
         ));
         return;
@@ -328,10 +328,10 @@ mod emit_chat_stream_assertion_tests {
         assert!(!out.contains("skipped"), "got: {out}");
     }
 
-    /// A stream whose chunks carry no finish reason has no done chunk to locate, so the check is
-    /// refused with a visible marker.
+    /// A stream that is not a chat stream has no finish reason and no done chunk to locate, so the
+    /// check is refused with a visible marker.
     #[test]
-    fn no_chunks_after_done_is_refused_when_the_chunks_carry_no_finish_reason() {
+    fn no_chunks_after_done_is_refused_when_the_stream_is_not_a_chat_stream() {
         let assertion = Assertion {
             assertion_type: "is_true".into(),
             field: Some("no_chunks_after_done".into()),
@@ -340,7 +340,7 @@ mod emit_chat_stream_assertion_tests {
         let mut out = String::new();
         emit_chat_stream_assertion(&mut out, &assertion, &E2eConfig::default(), None, false);
         assert!(out.starts_with("    # skipped: "), "got: {out}");
-        assert!(out.contains("no terminal finish_reason"), "got: {out}");
+        assert!(out.contains("this is not a chat stream"), "got: {out}");
         assert!(!out.contains("done_at"), "got: {out}");
     }
 }

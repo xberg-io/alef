@@ -611,7 +611,7 @@ pub(super) fn render_test_method(
             void_not_error => void_not_error,
             collect_snippet => collect_snippet,
             assertions_body => assertions_body,
-            coverage_warning => inert_example::coverage_warning_for_path(&assertions_body, expects_error, &[declared_error_check.as_deref().unwrap_or(""), &unrenderable_error_assertions], "java", &fixture.id),
+            coverage_warning => inert_example::coverage_warning_for_path(&assertions_body, expects_error, &[declared_error_check.as_deref().unwrap_or(""), &error_field_checks, &unrenderable_error_assertions], "java", &fixture.id),
             teardown_block => teardown_block,
         },
     );
