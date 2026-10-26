@@ -397,7 +397,10 @@ mod error_path_marker_tests {
             true,
         );
 
-        assert!(out.contains("Enum.to_list(__stream)"), "the stream path must render, got:\n{out}");
+        assert!(
+            out.contains("Enum.to_list(__stream)"),
+            "the stream path must render, got:\n{out}"
+        );
         assert!(out.contains("assert %{status: 401} = __reason"), "got:\n{out}");
         assert!(!out.contains("has no accessor for error field"), "got:\n{out}");
         assert!(crate::e2e::codegen::take_skip_records().is_empty());

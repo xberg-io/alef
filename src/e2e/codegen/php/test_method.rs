@@ -526,12 +526,8 @@ pub(super) fn render_test_method(
         );
         // ~keep `render_error_test_body` ends without a trailing newline on the `None` arm, so the
         // markers have to open their own line rather than being appended to the last statement.
-        let markers = crate::e2e::codegen::error_path_assertions::render_with_errors(
-            fixture,
-            "        // ",
-            "php",
-            &reachable,
-        );
+        let markers =
+            crate::e2e::codegen::error_path_assertions::render_with_errors(fixture, "        // ", "php", &reachable);
         if !markers.is_empty() {
             body.push('\n');
             body.push_str(markers.trim_end());
