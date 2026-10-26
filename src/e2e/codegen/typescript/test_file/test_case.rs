@@ -74,9 +74,9 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_test_case(
     // the types and fields it leaves out are gone from it. Reading the same surface here keeps
     // the assertion and the getter in agreement. ~keep
     let wasm_surface = (lang == "wasm").then(|| effective_wasm_e2e_surface(type_defs, enums, errors, config));
-    let (wasm_getter_types, wasm_exclude_types) = wasm_surface
-        .as_ref()
-        .map_or((&[][..], &[][..]), |surface| (&surface.api.types[..], &surface.exclude_types[..]));
+    let (wasm_getter_types, wasm_exclude_types) = wasm_surface.as_ref().map_or((&[][..], &[][..]), |surface| {
+        (&surface.api.types[..], &surface.exclude_types[..])
+    });
     let call_field_resolver = FieldResolver::new(
         e2e_config.effective_fields(call_config),
         e2e_config.effective_fields_optional(call_config),
@@ -99,7 +99,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_test_case(
     .with_ir_enum_map(FieldResolver::ir_enum_fields(type_defs, enums), call_root_type.clone())
     .with_wasm_enum_representations(enums)
     .with_text_projected_enums(&config.untagged_union_text_types)
-    .with_wasm_text_value_fields(wasm_getter_types, enums, &wasm_exclude_types)
+    .with_wasm_text_value_fields(wasm_getter_types, enums, wasm_exclude_types)
     .with_napi_tagged_object_enums(enums, type_defs)
     .with_napi_flattened_newtype_variants(enums, type_defs)
     .with_ir_collection_map(FieldResolver::ir_collection_fields(type_defs), call_root_type)
