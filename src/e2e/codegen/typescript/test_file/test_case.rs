@@ -70,6 +70,15 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_test_case(
         lang,
         crate::e2e::codegen::call_ir::CallIr { functions, type_defs },
     );
+    // The types the WASM binding leaves out decide which `<field>Value` getters exist.
+    let (wasm_getter_types, wasm_exclude_types) = if lang == "wasm" {
+        (
+            type_defs,
+            effective_wasm_e2e_surface(type_defs, enums, errors, config).exclude_types,
+        )
+    } else {
+        (&[][..], Vec::new())
+    };
     let call_field_resolver = FieldResolver::new(
         e2e_config.effective_fields(call_config),
         e2e_config.effective_fields_optional(call_config),
@@ -92,6 +101,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_test_case(
     .with_ir_enum_map(FieldResolver::ir_enum_fields(type_defs, enums), call_root_type.clone())
     .with_wasm_enum_representations(enums)
     .with_text_projected_enums(&config.untagged_union_text_types)
+    .with_wasm_text_value_fields(wasm_getter_types, enums, &wasm_exclude_types)
     .with_napi_tagged_object_enums(enums, type_defs)
     .with_napi_flattened_newtype_variants(enums, type_defs)
     .with_ir_collection_map(FieldResolver::ir_collection_fields(type_defs), call_root_type)

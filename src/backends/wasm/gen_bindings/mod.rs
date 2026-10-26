@@ -115,15 +115,13 @@ impl Backend for WasmBackend {
             }
         }
 
-        // ~keep Only a union the binding can serialize gets the lossless `<field>Value` getter:
-        // the companion is filled with `serde_wasm_bindgen`, which needs `Serialize`. The e2e
-        // generator asks the same question through `FieldResolver::wasm_text_value_accessor`.
-        let text_value_enum_names: AHashSet<String> = api
-            .enums
-            .iter()
-            .filter(|e| text_field_enum_names.contains(&e.name) && e.has_serde && !exclude_types.contains(&e.name))
-            .map(|e| e.name.clone())
-            .collect();
+        // ~keep The e2e generator asks the same question through `FieldResolver::wasm_text_value_accessor`,
+        // which reads the same `text_value_enum_names` and `text_value_companion` functions.
+        let text_value_enum_names = crate::codegen::conversions::helpers::text_value_enum_names(
+            &api.enums,
+            &text_field_enum_names,
+            &exclude_types,
+        );
         let mapper =
             WasmMapper::new(type_overrides, prefix.clone()).with_text_value_enums(text_value_enum_names.clone());
         let core_import = config.core_import_for_language(Language::Wasm);

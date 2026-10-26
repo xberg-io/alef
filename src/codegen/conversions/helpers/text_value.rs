@@ -1,6 +1,24 @@
 use ahash::AHashSet;
 
-use crate::core::ir::{FieldDef, TypeRef};
+use crate::core::ir::{EnumDef, FieldDef, TypeRef};
+
+/// The text-projected unions that can carry a lossless companion in a binding.
+///
+/// The companion is filled with `serde_wasm_bindgen`, which needs `Serialize`, and a union
+/// excluded from the binding has no generated type to store. `text_names` holds the unions listed
+/// in `untagged_union_text_types`. The WASM backend and the TypeScript e2e generator both build
+/// the `names` argument of [`text_value_companion`] here. ~keep
+pub(crate) fn text_value_enum_names(
+    enums: &[EnumDef],
+    text_names: &AHashSet<String>,
+    exclude_types: &[String],
+) -> AHashSet<String> {
+    enums
+        .iter()
+        .filter(|e| text_names.contains(&e.name) && e.has_serde && !exclude_types.contains(&e.name))
+        .map(|e| e.name.clone())
+        .collect()
+}
 
 /// The name of the lossless companion field that a text-projected union field keeps beside it.
 ///
@@ -71,6 +89,24 @@ mod tests {
         );
         assert!(text_value_field_is_optional(&optional));
         assert!(!text_value_field_is_optional(&content));
+    }
+
+    #[test]
+    fn only_serializable_unexcluded_text_unions_are_named() {
+        let union = |name: &str, has_serde: bool| EnumDef {
+            name: name.to_string(),
+            has_serde,
+            ..EnumDef::default()
+        };
+        let enums = [
+            union("Content", true),
+            union("Plain", true),
+            union("Opaque", false),
+            union("Hidden", true),
+        ];
+        let text: AHashSet<String> = ["Content", "Opaque", "Hidden"].iter().map(|n| n.to_string()).collect();
+        let named = text_value_enum_names(&enums, &text, &["Hidden".to_string()]);
+        assert_eq!(named, std::iter::once("Content".to_string()).collect());
     }
 
     #[test]

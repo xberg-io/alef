@@ -55,6 +55,7 @@ fn build_resolver(api: ApiSurface, text_projection: bool) -> FieldResolver {
     )
     .with_wasm_enum_representations(&api.enums)
     .with_text_projected_enums(&projected)
+    .with_wasm_text_value_fields(&api.types, &api.enums, &[])
 }
 
 pub fn assertions() -> Vec<Assertion> {
