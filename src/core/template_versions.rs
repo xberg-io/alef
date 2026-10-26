@@ -422,7 +422,7 @@ pub mod maven {
     pub const MAVEN_ENFORCER_PLUGIN: &str = "3.6.3";
 
     // renovate: datasource=maven depName=org.jacoco:jacoco-maven-plugin
-    pub const JACOCO_MAVEN_PLUGIN: &str = "0.8.15";
+    pub const JACOCO_MAVEN_PLUGIN: &str = "0.8.16";
 
     // renovate: datasource=maven depName=com.puppycrawl.tools:checkstyle
     pub const CHECKSTYLE: &str = "14.3.0";
