@@ -1,6 +1,9 @@
 ---
 type: Decision
 title: Project Agnostic Codegen
+paths:
+  - "src/**"
+  - "tests/**"
 x-ai-rulez:
   kind: rule
   id: project-agnostic-codegen
@@ -8,10 +11,6 @@ x-ai-rulez:
     priority: high
 ---
 
-Alef must remain project-agnostic. Do not hard-code consumer project identities, repository names, package names, module names, paths, or product-specific branches in generator, extraction, scaffold, e2e, publish, or CLI behavior.
-
-Consumer-specific differences must be modeled through generic configuration such as `alef.toml`, IR metadata, backend language config, feature flags, or reusable capability flags. If behavior is needed for one consumer, name and implement the underlying generic condition instead of matching that consumer's project name.
-
-Regression tests may describe the generic behavior being protected, but fixtures and expected output should use neutral sample names rather than real consumer project names.
-
-Generated snapshots, docs, and guidance must also use neutral fixture names. Do not preserve consumer domain types such as product-specific config, result, visitor, handle, or backend names in expected output; rename them to generic fixture concepts before accepting snapshots.
+- No hard-coded consumer identities (repo, package, module names, paths, product branches) in generator, extraction, scaffold, e2e, publish or CLI code.
+- Model consumer differences through generic configuration: `alef.toml`, IR metadata, backend language config, feature flags, capability flags. Name the generic condition, not the consumer.
+- Tests, fixtures, snapshots, docs and expected output use neutral sample names; rename consumer domain types (product-specific config, result, visitor, handle, backend names) before accepting snapshots.

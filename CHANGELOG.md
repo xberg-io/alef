@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Allow the `xberg-languages` include label in the project-mention hook, next to `xberg-core` and `xberg-cicd`: alef now includes the shared languages module.
+
 ### Fixed
 
 - Assert the error status code in generated C, Go, Java, Elixir, PHP, Node, WASM, Zig, Ruby, C# and Swift e2e tests instead of skipping it. Assert the error variant in generated C, Node and WASM e2e tests. Generated PHP, Swift, Elixir, Gleam and R e2e tests still skip the variant assertion, and so do Go, Java and Zig for a variant without an error code.
