@@ -5,7 +5,18 @@ use crate::e2e::fixture::Fixture;
 use std::collections::{BTreeSet, HashMap};
 
 fn full_test(assertions: Vec<crate::e2e::fixture::Assertion>) -> String {
-    let api = support::api();
+    let config = crate::core::config::ResolvedCrateConfig {
+        untagged_union_text_types: vec!["Body".into()],
+        ..Default::default()
+    };
+    full_test_with(support::api(), config, assertions)
+}
+
+fn full_test_with(
+    api: crate::core::ir::ApiSurface,
+    config: crate::core::config::ResolvedCrateConfig,
+    assertions: Vec<crate::e2e::fixture::Assertion>,
+) -> String {
     assert_eq!(support::wire_value()["content"].as_array().unwrap().len(), 2);
     let fixture = Fixture {
         id: "parts_reply".into(),
@@ -18,10 +29,6 @@ fn full_test(assertions: Vec<crate::e2e::fixture::Assertion>) -> String {
             result_var: "result".into(),
             ..Default::default()
         },
-        ..Default::default()
-    };
-    let config = crate::core::config::ResolvedCrateConfig {
-        untagged_union_text_types: vec!["Body".into()],
         ..Default::default()
     };
     let mut output = String::new();
@@ -175,4 +182,74 @@ fn assert_node_probe(directory: &std::path::Path) {
         .output()
         .unwrap();
     assert!(runtime.status.success(), "{}", String::from_utf8_lossy(&runtime.stderr));
+}
+
+fn serializable_api() -> crate::core::ir::ApiSurface {
+    let mut api = support::api();
+    for definition in &mut api.enums {
+        definition.has_serde = true;
+    }
+    api
+}
+
+fn text_projection_config() -> crate::core::config::ResolvedCrateConfig {
+    crate::core::config::ResolvedCrateConfig {
+        untagged_union_text_types: vec!["Body".into()],
+        ..Default::default()
+    }
+}
+
+fn content_field(api: &mut crate::core::ir::ApiSurface) -> &mut crate::core::ir::FieldDef {
+    api.types
+        .iter_mut()
+        .find(|definition| definition.name == "Reply")
+        .and_then(|definition| definition.fields.iter_mut().find(|field| field.name == "content"))
+        .expect("Reply.content exists")
+}
+
+fn assert_no_value_getter(output: &str) {
+    assert!(!output.contains("contentValue"), "{output}");
+    assert_eq!(
+        output
+            .lines()
+            .filter(|line| line.trim_start().starts_with("// skipped:"))
+            .filter(|line| line.contains("untagged_union_text_types text projection"))
+            .count(),
+        3,
+        "{output}"
+    );
+}
+
+/// Control for the three tests below: a serializable, ungated union field does get the getter.
+#[test]
+fn serializable_text_projection_asserts_through_the_value_getter() {
+    let output = full_test_with(serializable_api(), text_projection_config(), support::assertions());
+    assert!(output.contains("result.contentValue"), "{output}");
+    assert!(!output.contains("// skipped:"), "{output}");
+}
+
+/// The backend emits no `contentValue` getter for a field behind a cfg gate.
+#[test]
+fn cfg_gated_text_projection_field_gets_no_value_getter_assertion() {
+    let mut api = serializable_api();
+    content_field(&mut api).cfg = Some("feature = \"extra\"".into());
+    assert_no_value_getter(&full_test_with(api, text_projection_config(), support::assertions()));
+}
+
+/// The backend emits no `contentValue` getter for a sanitized field.
+#[test]
+fn sanitized_text_projection_field_gets_no_value_getter_assertion() {
+    let mut api = serializable_api();
+    content_field(&mut api).sanitized = true;
+    assert_no_value_getter(&full_test_with(api, text_projection_config(), support::assertions()));
+}
+
+/// The backend emits no `contentValue` getter when the union type is excluded from the binding.
+#[test]
+fn excluded_text_projection_type_gets_no_value_getter_assertion() {
+    let config = crate::core::config::ResolvedCrateConfig {
+        wasm: Some(toml::from_str("exclude_types = [\"Body\"]").expect("WASM config parses")),
+        ..text_projection_config()
+    };
+    assert_no_value_getter(&full_test_with(serializable_api(), config, support::assertions()));
 }
