@@ -10,22 +10,18 @@
 //! The commonest dropped shape is `equals` against an `error.<field>` path (e.g.
 //! `error.status_code`). The `rust` backend resolves those via
 //! `FieldResolver::accessor_for_error`, which reads `[e2e.error_field_aliases]` — a map onto
-//! fields on the **Rust** error type, so it generalizes to no other language. `python` resolves a
-//! narrower but real subset the SAME way for every crate, via `error_field_reachability`: when
-//! the sub-field names one of the crate's whitelisted error introspection methods
-//! (`ErrorDef.methods` — `status_code`, `is_transient`, `error_type`), pyo3's own error converter
-//! (`src/codegen/error_gen/pyo3.rs`) already calls that method on the LIVE Rust error value at
-//! conversion time and threads the result through the raised exception's `args`, so a real
-//! assertion against the crate's generated `{Error}Info` companion pyclass is possible — see
-//! `python::test_function::error_assertions::emit_error_assertion`. Most bindings still cannot:
-//! `pyo3::create_exception!`'s bare form, the JNI/P-Invoke/cgo exception and error mappings, and
-//! the C ABI (`{prefix}_last_error_code` / `{prefix}_last_error_context`) collapse a failure to a
-//! message and, at most, a numeric FFI-taxonomy code before the field is ever reachable — even
-//! where a backend's `error.methods`-driven class exists (dart, swift, wasm, go, java, csharp,
-//! php, magnus), its own error-conversion path defaults the field at construction time rather
-//! than reading it off a live error value, so an accessor there would assert a fabricated
-//! constant, not the fixture's real expectation. Naming the gap is the honest fix for those
-//! backends until a future change wires a live value through their own conversion path too.
+//! fields on the **Rust** error type, so it generalizes to no other language. Every other backend
+//! that can read the field resolves it the SAME way for every crate, via `error_field_reachability`:
+//! when the sub-field names one of the crate's whitelisted error introspection methods
+//! (`ErrorDef.methods` — `status_code`, `is_transient`, `error_type`), the backend's own error
+//! conversion carries the value of the LIVE Rust error, and the backend reads it back. `python`
+//! reads the `{Error}Info` companion pyclass (see
+//! `python::test_function::error_assertions::emit_error_assertion`). The C, Go, Java, Elixir,
+//! PHP, Node, WASM, Zig, Ruby, C# and Swift backends read `status_code` through
+//! `error_field_checks` and name every other method as skipped. A backend that does not carry the
+//! value through its error conversion cannot assert it, because an accessor there would assert a
+//! fabricated constant, not the fixture's real expectation. Naming the gap is the honest fix for
+//! those backends until a future change wires a live value through their own conversion path too.
 //!
 //! ~keep A DIFFERENT shape used to be conflated with that one and must not be again: fixture
 //! authors routinely declare a fixture's error expectation as two `"error"`-type assertions — a
@@ -74,7 +70,7 @@ pub(crate) fn render(fixture: &Fixture, line_prefix: &str, language: &str) -> St
 }
 
 /// [`render`], but aware of the crate's declared error types — so a caller that renders a real
-/// assertion for a resolvable `error.<field>` path (today, only python; see
+/// assertion for a resolvable `error.<field>` path (see
 /// `error_field_reachability`) does not ALSO get a skip marker for the very assertion it just
 /// rendered. Passing an empty `errors` slice (what [`render`] does) reproduces the old
 /// behaviour exactly: nothing is ever considered resolvable, so every non-`"error"` assertion is
