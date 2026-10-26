@@ -253,3 +253,48 @@ fn excluded_text_projection_type_gets_no_value_getter_assertion() {
     };
     assert_no_value_getter(&full_test_with(serializable_api(), config, support::assertions()));
 }
+
+fn wasm_config_excluding_reply_fields(fields: &str) -> crate::core::config::ResolvedCrateConfig {
+    crate::core::config::ResolvedCrateConfig {
+        wasm: Some(toml::from_str(&format!("[exclude_fields]\nReply = [{fields}]")).expect("WASM config parses")),
+        ..text_projection_config()
+    }
+}
+
+/// A sibling named `content_value` that the binding strips frees the name, so the backend emits
+/// the `contentValue` getter and the assertion goes through it.
+#[test]
+fn stripped_sibling_value_field_keeps_the_value_getter_assertion() {
+    let mut api = serializable_api();
+    let reply = api
+        .types
+        .iter_mut()
+        .find(|definition| definition.name == "Reply")
+        .expect("Reply exists");
+    let mut sibling = reply
+        .fields
+        .iter()
+        .find(|field| field.name == "summary")
+        .expect("Reply.summary exists")
+        .clone();
+    sibling.name = "content_value".into();
+    reply.fields.push(sibling);
+    let output = full_test_with(
+        api,
+        wasm_config_excluding_reply_fields("\"content_value\""),
+        support::assertions(),
+    );
+    assert!(output.contains("result.contentValue"), "{output}");
+    assert!(!output.contains("// skipped:"), "{output}");
+}
+
+/// The backend emits no `contentValue` getter when `exclude_fields` strips `content` itself.
+#[test]
+fn stripped_text_projection_field_gets_no_value_getter_assertion() {
+    let output = full_test_with(
+        serializable_api(),
+        wasm_config_excluding_reply_fields("\"content\""),
+        support::assertions(),
+    );
+    assert!(!output.contains("contentValue"), "{output}");
+}

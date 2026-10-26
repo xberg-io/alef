@@ -70,15 +70,13 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_test_case(
         lang,
         crate::e2e::codegen::call_ir::CallIr { functions, type_defs },
     );
-    // The types the WASM binding leaves out decide which `<field>Value` getters exist.
-    let (wasm_getter_types, wasm_exclude_types) = if lang == "wasm" {
-        (
-            type_defs,
-            effective_wasm_e2e_surface(type_defs, enums, errors, config).exclude_types,
-        )
-    } else {
-        (&[][..], Vec::new())
-    };
+    // The WASM backend decides which `<field>Value` getters exist from the filtered surface:
+    // the types and fields it leaves out are gone from it. Reading the same surface here keeps
+    // the assertion and the getter in agreement. ~keep
+    let wasm_surface = (lang == "wasm").then(|| effective_wasm_e2e_surface(type_defs, enums, errors, config));
+    let (wasm_getter_types, wasm_exclude_types) = wasm_surface
+        .as_ref()
+        .map_or((&[][..], &[][..]), |surface| (&surface.api.types[..], &surface.exclude_types[..]));
     let call_field_resolver = FieldResolver::new(
         e2e_config.effective_fields(call_config),
         e2e_config.effective_fields_optional(call_config),
