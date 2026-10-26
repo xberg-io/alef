@@ -12,22 +12,15 @@
 //! catch-all).
 //!
 //! `ErrorDef.methods` is the one place in the IR where a SPECIFIC field is proven reachable on a
-//! non-Rust generated error type: `src/codegen/error_gen/pyo3.rs`'s `gen_pyo3_error_converter`
-//! calls the live Rust error value's whitelisted method (e.g. `e.status_code()`) at the point the
-//! error is converted to a Python exception, and stores the result in the exception's `args`
-//! tuple; `gen_pyo3_error_methods_impl` registers a companion `{Error}Info` pyclass + free
-//! function that reads that tuple back out through a real `#[getter]`. Every backend that
-//! generates a class/struct from `error.methods` (dart, swift, wasm, go, java, csharp, php,
-//! magnus) can, in principle, wire the same live-value plumbing through its OWN error-conversion
-//! path — but as of this module, only python's `checkLastError`-equivalent conversion
-//! (`gen_pyo3_error_converter`) actually calls the introspection method on a live error value
-//! rather than defaulting the field to zero/false/empty at construction time. See the e2e
-//! generator's own README-equivalent doc (`error_path_assertions`) for the per-backend
-//! reachability table this was audited against.
+//! non-Rust generated error type. Python reads it from the `{Error}Info` companion pyclass that
+//! `gen_pyo3_error_converter` fills from the live Rust error value. The C, Go, Java, Elixir, PHP,
+//! Node, WASM, Zig, Ruby, C# and Swift backends read `status_code` off the failed call the same
+//! way, and each lists the methods it can read in its own call to
+//! `error_field_checks::reachable_errors`.
 //!
 //! This module answers ONLY "does the IR say the field is whitelisted", not "does this specific
 //! backend's error-conversion path actually populate it with live data" — that second judgment is
-//! a per-backend fact the caller (today, only `e2e::codegen::python`) is responsible for.
+//! a per-backend fact the caller is responsible for.
 
 use crate::core::ir::{ErrorDef, MethodDef};
 use crate::e2e::fixture::Assertion;
@@ -47,7 +40,7 @@ pub(crate) fn introspection_method<'a>(
 }
 
 /// Whether `assertion` is an `equals` check against an `error.<field>` path that resolves to a
-/// whitelisted introspection method — the one assertion shape a caller (today, python) actually
+/// whitelisted introspection method — the one assertion shape a caller actually
 /// renders through this reachability fact.
 ///
 /// ~keep Centralizing the "equals + error.<field> + resolves" test here, rather than letting the

@@ -26,6 +26,11 @@
    - error_value_regex: optional string — JS regex literal (e.g. "/foo\(bar\)/")
        matching a declared error assertion value. Checked against EITHER the
        thrown error's message OR its `name`. Absent means "throws anything".
+   - error_property_object: optional string - the body of an object literal holding the properties
+       the thrown error must carry (`kind` for a declared variant, `statusCode` for an
+       `error.status_code` assertion), compared with `expect.objectContaining`
+   - error_property_conditions: the same properties as ` && error?.kind === ".."` conditions, spliced
+       into the regex predicate when a declared message value is checked as well
    - error_skip_line: optional string — a pre-rendered `//`-prefixed registered-skip comment
        for a declared error value naming a real error variant this backend cannot
        substantiate. Mutually exclusive with error_value_regex: never both set.
@@ -75,8 +80,14 @@
 		}).rejects.toSatisfy((error) => {
 				const _message = error instanceof Error ? error.message : String(error);
 				const _name = error instanceof Error ? error.name : "";
+{% if error_property_conditions %}
+				return ({{ error_value_regex }}.test(_message) || {{ error_value_regex }}.test(_name)){{ error_property_conditions }};
+{% else %}
 				return {{ error_value_regex }}.test(_message) || {{ error_value_regex }}.test(_name);
+{% endif %}
 			});
+{% elif error_property_object %}
+		}).rejects.toEqual(expect.objectContaining({ {{ error_property_object }} }));
 {% else %}
 		}).rejects.toThrow();
 {% endif %}

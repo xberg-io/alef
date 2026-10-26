@@ -25,6 +25,38 @@ use super::args::{ElixirArgsContext, build_args_and_setup};
 use super::assertions::render_assertion;
 use super::visitor::build_elixir_visitor;
 
+/// The exception struct field that holds a whitelisted error method.
+fn exception_field(method: &str) -> &str {
+    match method {
+        "status_code" => "status",
+        other => other,
+    }
+}
+
+/// The checks for `error.<field>` equals assertions against the reason of a failed call.
+///
+/// A typed error reaches Elixir as an exception struct whose `kind`, `status` and
+/// `retry_after_ms` fields come from the live core error (`AlefNifError::Typed`), so the check
+/// matches the field in the reason bound to `__reason`. ~keep
+fn error_field_checks(indent: &str, fixture: &Fixture, errors: &[crate::core::ir::ErrorDef]) -> String {
+    let reachable = crate::e2e::codegen::error_field_checks::reachable_errors(
+        errors,
+        crate::e2e::codegen::error_field_checks::STATUS_CODE,
+    );
+    crate::e2e::codegen::error_field_checks::render(
+        fixture,
+        &reachable,
+        &format!("{indent}# "),
+        "elixir",
+        |_, method, expected| {
+            format!(
+                "{indent}assert %{{{}: {expected}}} = __reason\n",
+                exception_field(method)
+            )
+        },
+    )
+}
+
 /// Emit an `assert {:error, _}` check for a call expression under `indent`.
 ///
 /// ~keep When a declared error value exists, `inspect/1` is used rather than
@@ -44,9 +76,13 @@ fn emit_error_assertion(
     fixture: &Fixture,
     errors: &[crate::core::ir::ErrorDef],
 ) {
+    let field_checks = error_field_checks(indent, fixture, errors);
     match classify("elixir", fixture, errors) {
-        DeclaredErrorAssertion::Undeclared => {
+        DeclaredErrorAssertion::Undeclared if field_checks.is_empty() => {
             let _ = writeln!(out, "{indent}assert {{:error, _}} = {call_expr}");
+        }
+        DeclaredErrorAssertion::Undeclared => {
+            let _ = writeln!(out, "{indent}assert {{:error, __reason}} = {call_expr}");
         }
         DeclaredErrorAssertion::Assert(value) => {
             let escaped = escape_elixir(value);
@@ -58,6 +94,7 @@ fn emit_error_assertion(
             let _ = writeln!(out, "{indent}{}", skip_line("", "#", variant, &fixture.id, "elixir"));
         }
     }
+    out.push_str(&field_checks);
 }
 
 /// Emit the error check for a streaming call under `indent`.
@@ -100,6 +137,7 @@ fn emit_stream_error_assertion(
             let _ = writeln!(out, "{indent}{}", skip_line("", "#", variant, &fixture.id, "elixir"));
         }
     }
+    out.push_str(&error_field_checks(indent, fixture, errors));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -464,6 +502,7 @@ pub(super) fn render_test_case(
                     let _ = writeln!(out, "          {}", skip_line("", "#", variant, &fixture.id, "elixir"));
                 }
             }
+            out.push_str(&error_field_checks("          ", fixture, errors));
             let _ = writeln!(out, "        {{:ok, {bound_var}}} ->");
             for line in &cleaned_setup_lines[idx + 1..] {
                 let _ = writeln!(out, "          {line}");

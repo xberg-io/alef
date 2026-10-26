@@ -10,6 +10,9 @@ use super::enum_variant_access;
 use super::values::json_to_ruby;
 
 mod chunks_synthetic;
+mod method_call;
+
+pub(super) use method_call::build_ruby_method_call;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn render_assertion(
@@ -106,14 +109,17 @@ pub(super) fn render_assertion(
                 ));
                 return;
             }
-            enum_variant_access::RubyEnumAccess::SerializedAsHash => {
+            // A `fields_display_as_text` union lowers to a String (plain text) or an Array of
+            // part Hashes, so the assertion reads it through `reply_text_expr` below. ~keep
+            enum_variant_access::RubyEnumAccess::SerializedAsHash if !field_resolver.is_display_as_text(f) => {
                 out.push_str(&format!(
                     "    # skipped: {}\n",
                     FieldSkip::EnumSerializationDiffersInRuby.message(f)
                 ));
                 return;
             }
-            enum_variant_access::RubyEnumAccess::VariantAccessorUnavailable
+            enum_variant_access::RubyEnumAccess::SerializedAsHash
+            | enum_variant_access::RubyEnumAccess::VariantAccessorUnavailable
             | enum_variant_access::RubyEnumAccess::Available => {}
         }
 
@@ -307,6 +313,14 @@ pub(super) fn render_assertion(
     // assertions on named fields (e.g. "warnings") must still walk the field path.
     let field_expr = match (&assertion.field, enum_variant_field_expr) {
         (_, Some(expr)) => expr,
+        (Some(f), None)
+            if !f.is_empty()
+                && field_resolver.is_display_as_text(f)
+                && enum_variant_access::classify(field_resolver, f)
+                    == enum_variant_access::RubyEnumAccess::SerializedAsHash =>
+        {
+            reply_text_expr(&field_resolver.accessor(f, "ruby", result_var))
+        }
         (Some(f), None) if !f.is_empty() && (!result_is_simple || !f.eq_ignore_ascii_case("content")) => {
             field_resolver.accessor(f, "ruby", result_var)
         }
@@ -699,48 +713,15 @@ pub(super) fn render_assertion(
     }
 }
 
-/// Build a Ruby call expression for a `method_result` assertion on a sample_language Tree.
-/// Maps method names to the appropriate Ruby method or module-function calls.
-pub(super) fn build_ruby_method_call(
-    call_receiver: &str,
-    result_var: &str,
-    method_name: &str,
-    args: Option<&serde_json::Value>,
-) -> String {
-    match method_name {
-        "root_child_count" => format!("{result_var}.root_node.child_count"),
-        "root_node_type" => format!("{result_var}.root_node.type"),
-        "named_children_count" => format!("{result_var}.named_child_count"),
-        "has_error_nodes" => format!("{call_receiver}.tree_has_error_nodes({result_var})"),
-        "error_count" | "tree_error_count" => format!("{call_receiver}.tree_error_count({result_var})"),
-        "tree_to_sexp" => format!("{call_receiver}.tree_to_sexp({result_var})"),
-        "contains_node_type" => {
-            let node_type = args
-                .and_then(|a| a.get("node_type"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            format!("{call_receiver}.tree_contains_node_type({result_var}, \"{node_type}\")")
-        }
-        "find_nodes_by_type" => {
-            let node_type = args
-                .and_then(|a| a.get("node_type"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            format!("{call_receiver}.find_nodes_by_type({result_var}, \"{node_type}\")")
-        }
-        "run_query" => {
-            let query_source = args
-                .and_then(|a| a.get("query_source"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let language = args
-                .and_then(|a| a.get("language"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            format!("{call_receiver}.run_query({result_var}, \"{language}\", \"{query_source}\", source)")
-        }
-        _ => format!("{result_var}.{method_name}"),
-    }
+/// The plain text of a union field that the binding lowers to a String or to an Array of part Hashes.
+///
+/// A String is the text. An Array keeps the `text` of every part whose `type` is `text`, in order,
+/// which matches the `text()` method of the other bindings. An absent value reads as an empty
+/// String. ~keep
+fn reply_text_expr(accessor: &str) -> String {
+    format!(
+        "(->(v) {{ v.is_a?(Array) ? v.select {{ |p| p[:type] == 'text' }}.map {{ |p| p[:text] }}.join : v.to_s }}).call({accessor})"
+    )
 }
 
 #[cfg(test)]

@@ -284,7 +284,7 @@ pub(crate) fn typeref_to_java_type(ty: &crate::core::ir::TypeRef) -> &'static st
 
 /// Convert a snake_case method name to a Java getter name.
 /// E.g. `status_code` → `getStatusCode`, `is_transient` → `isTransient`.
-fn java_getter_name(snake: &str) -> String {
+pub(crate) fn java_getter_name(snake: &str) -> String {
     if let Some(rest) = snake.strip_prefix("is_") {
         let pascal = to_pascal_case(rest);
         format!("is{pascal}")

@@ -414,7 +414,13 @@ pub(super) fn render_test_method(
             let _ = writeln!(out, "            XCTFail(\"expected to throw\")");
             render_error_catch_block(out, fixture, errors);
         }
-        crate::e2e::codegen::error_path_assertions::emit_runtime(out, fixture, "        // ", "swift");
+        crate::e2e::codegen::error_path_assertions::emit_runtime_with_errors(
+            out,
+            fixture,
+            "        // ",
+            "swift",
+            &error_catch::reachable_errors(errors),
+        );
         let _ = writeln!(out, "    }}");
         return;
     }

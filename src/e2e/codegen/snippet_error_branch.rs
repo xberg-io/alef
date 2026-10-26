@@ -109,7 +109,12 @@ mod tests {
     /// so a backend added to one sweep is visible as missing from the other.
     const BACKENDS: &[&str] = &[
         "python", "go", "csharp", "java", "zig", "dart", "ruby", "c", "php", "swift", "gleam", "elixir", "r", "node",
+        "wasm",
     ];
+
+    /// Backends whose e2e test compares the variant name as a value (a string or a property) and
+    /// whose binding has no distinct host type a snippet could catch.
+    const VALUE_COMPARED: &[&str] = &["c", "node", "wasm"];
 
     fn fixture_naming(variant: &str) -> Fixture {
         Fixture {
@@ -156,7 +161,8 @@ mod tests {
     /// The cross-backend guard. For a fixture naming a real, ABI-coded variant, every backend's
     /// snippet branch must exist for exactly the backends whose e2e assertion path calls the
     /// declared value substantiable — the snippet and the assertion make the same claim about the
-    /// same variant, so they must never answer differently. A future backend that gains (or
+    /// same variant, so they must never answer differently. The one exception is [`VALUE_COMPARED`]:
+    /// those tests compare the variant name as a value, so no host type exists to catch. A future backend that gains (or
     /// loses) per-variant identity flips both sides at once because both read the same verdict
     /// function; a per-backend reimplementation of either side fails here.
     #[test]
@@ -168,7 +174,7 @@ mod tests {
             let substantiable = classify(lang, &fixture, &errors) == DeclaredErrorAssertion::Assert("Authentication");
             assert_eq!(
                 branch.is_some(),
-                substantiable,
+                substantiable && !VALUE_COMPARED.contains(lang),
                 "lang={lang}: snippet branch {branch:?} disagrees with the e2e assertion verdict"
             );
         }

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Assert the error status code in generated C, Go, Java, Elixir, PHP, Node, WASM, Zig, Ruby, C# and Swift e2e tests instead of skipping it. Assert the error variant in generated C, Node and WASM e2e tests. Generated PHP, Swift, Elixir, Gleam and R e2e tests still skip the variant assertion, and so do Go, Java and Zig for a variant without an error code.
+- Assert the chat reply text and the stream state (completion, done marker, finish reason, tool calls) in generated Dart e2e tests. Assert the chat reply text and the no-chunks-after-done check in generated Ruby e2e tests. Render the Zig `tool_calls` assertions. The Zig tool call assertions free the string they copy.
+
 ## [0.114.2] - 2026-10-24
 
 ### Fixed

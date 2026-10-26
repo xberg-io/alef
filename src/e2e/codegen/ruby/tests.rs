@@ -590,6 +590,10 @@ mod error_path_marker_tests {
     use std::collections::HashMap;
 
     fn render(extra: Vec<Assertion>) -> String {
+        render_with_errors(extra, &[])
+    }
+
+    fn render_with_errors(extra: Vec<Assertion>, errors: &[crate::core::ir::ErrorDef]) -> String {
         let mut assertions = vec![Assertion {
             assertion_type: "error".to_string(),
             ..Default::default()
@@ -621,10 +625,58 @@ mod error_path_marker_tests {
             &[],
             &ResolvedCrateConfig::default(),
             &[],
-            &[],
+            errors,
             &[],
             &[],
         )
+    }
+
+    fn status_code_assertion(value: serde_json::Value) -> Assertion {
+        Assertion {
+            assertion_type: "equals".to_string(),
+            field: Some("error.status_code".to_string()),
+            value: Some(value),
+            ..Default::default()
+        }
+    }
+
+    /// The raised exception carries `status_code` through an attribute reader on the error
+    /// family, so the matcher block compares it with the fixture value.
+    #[test]
+    fn ruby_error_status_code_is_compared_inside_the_raise_error_block() {
+        let errors = crate::e2e::codegen::error_field_checks::test_fixtures::status_code_errors();
+        let out = render_with_errors(vec![status_code_assertion(serde_json::json!(401))], &errors);
+
+        assert!(out.contains("|error|"), "the matcher block must bind the error:\n{out}");
+        assert!(out.contains("expect(error.status_code).to eq(401)"), "got:\n{out}");
+        assert!(!out.contains("has no accessor for error field"), "got:\n{out}");
+        assert!(crate::e2e::codegen::take_skip_records().is_empty());
+    }
+
+    /// A value that is not a whole number cannot be compared, so the skip stays named.
+    #[test]
+    fn ruby_error_status_code_with_a_text_value_keeps_the_skip_marker() {
+        let errors = crate::e2e::codegen::error_field_checks::test_fixtures::status_code_errors();
+        let out = render_with_errors(vec![status_code_assertion(serde_json::json!("401"))], &errors);
+
+        assert!(!out.contains("expect(error.status_code)"), "got:\n{out}");
+        assert!(
+            out.contains("has no accessor for error field error.status_code"),
+            "got:\n{out}"
+        );
+    }
+
+    /// A crate whose error does not list `status_code` still names the skip.
+    #[test]
+    fn ruby_error_status_code_without_the_method_keeps_the_skip_marker() {
+        let errors = crate::e2e::codegen::error_field_checks::test_fixtures::error_with_methods("ApiError", &[]);
+        let out = render_with_errors(vec![status_code_assertion(serde_json::json!(401))], &errors);
+
+        assert!(!out.contains("expect(error.status_code)"), "got:\n{out}");
+        assert!(
+            out.contains("has no accessor for error field error.status_code"),
+            "got:\n{out}"
+        );
     }
 
     /// Ruby's error path renders one `raise_error` matcher and returns, so every other assertion

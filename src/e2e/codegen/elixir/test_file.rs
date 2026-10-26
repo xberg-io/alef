@@ -226,7 +226,10 @@ pub(super) fn render_test_file(
                 fixture,
                 "  # ",
                 "elixir",
-                &[],
+                &crate::e2e::codegen::error_field_checks::reachable_errors(
+                    errors,
+                    crate::e2e::codegen::error_field_checks::STATUS_CODE,
+                ),
                 "\n  end",
             );
         }
@@ -274,6 +277,15 @@ mod error_path_marker_tests {
         declared_value: Option<&str>,
         errors: &[crate::core::ir::ErrorDef],
     ) -> String {
+        render_call_with_errors(extra, declared_value, errors, false)
+    }
+
+    fn render_call_with_errors(
+        extra: Vec<Assertion>,
+        declared_value: Option<&str>,
+        errors: &[crate::core::ir::ErrorDef],
+        streaming: bool,
+    ) -> String {
         let mut assertions = vec![Assertion {
             assertion_type: "error".into(),
             value: declared_value.map(|v| serde_json::Value::String(v.to_string())),
@@ -288,6 +300,9 @@ mod error_path_marker_tests {
         };
         let mut e2e_config = E2eConfig::default();
         e2e_config.call.function = "parse".into();
+        if streaming {
+            e2e_config.call.streaming = Some(crate::core::config::e2e::StreamingConfig::Enabled(true));
+        }
         let enum_fields: HashMap<String, String> = HashMap::new();
         let handle_atom_list_fields: HashSet<String> = HashSet::new();
         let _ = crate::e2e::codegen::take_skip_records();
@@ -343,6 +358,52 @@ mod error_path_marker_tests {
         assert_eq!(records.len(), 1, "got: {records:?}");
         assert_eq!(records[0].language, "elixir");
         assert_eq!(records[0].field, "equals");
+    }
+
+    /// The typed error reaches Elixir as an exception struct with a `status` field, so the
+    /// `error.status_code` assertion matches it instead of being named as skipped.
+    #[test]
+    fn elixir_error_status_code_matches_the_status_of_the_reason() {
+        let out = render_with_errors(
+            vec![Assertion {
+                assertion_type: "equals".into(),
+                field: Some("error.status_code".into()),
+                value: Some(serde_json::json!(401)),
+                ..Assertion::default()
+            }],
+            None,
+            &crate::e2e::codegen::error_field_checks::test_fixtures::status_code_errors(),
+        );
+
+        assert!(out.contains("assert {:error, __reason} ="), "got:\n{out}");
+        assert!(out.contains("assert %{status: 401} = __reason"), "got:\n{out}");
+        assert!(!out.contains("has no accessor for error field"), "got:\n{out}");
+        assert!(crate::e2e::codegen::take_skip_records().is_empty());
+    }
+
+    /// A streaming call reports its failure while the stream is read, so the status check
+    /// matches the reason taken from the stream rather than being named as skipped.
+    #[test]
+    fn elixir_stream_error_status_code_matches_the_status_of_the_reason() {
+        let out = render_call_with_errors(
+            vec![Assertion {
+                assertion_type: "equals".into(),
+                field: Some("error.status_code".into()),
+                value: Some(serde_json::json!(401)),
+                ..Assertion::default()
+            }],
+            None,
+            &crate::e2e::codegen::error_field_checks::test_fixtures::status_code_errors(),
+            true,
+        );
+
+        assert!(
+            out.contains("Enum.to_list(__stream)"),
+            "the stream path must render, got:\n{out}"
+        );
+        assert!(out.contains("assert %{status: 401} = __reason"), "got:\n{out}");
+        assert!(!out.contains("has no accessor for error field"), "got:\n{out}");
+        assert!(crate::e2e::codegen::take_skip_records().is_empty());
     }
 
     /// Negative control: a lone `error` assertion must leave the generated file marker-free.

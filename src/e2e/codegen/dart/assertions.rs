@@ -11,6 +11,7 @@ use std::fmt::Write as FmtWrite;
 use super::values::escape_dart;
 
 mod stream_counter;
+mod stream_state;
 pub(super) use stream_counter::render_streaming_assertion_dart_with_usage_ir;
 mod tagged_union;
 
@@ -241,13 +242,19 @@ pub(super) fn render_assertion_dart(
     // generated sealed class is a diagnostic rendering, not the serde wire value, so comparing it
     // to the fixture literal asserts the wrong string. Refuse instead. Placed AFTER the `[].`
     // traversal above, which has its own answer for a union-typed element (`.runtimeType`). ~keep
-    if let Some(line) = payload_union_skip_line(
-        "    ",
-        "//",
-        field_resolver,
-        assertion.field.as_deref(),
-        UnionLoweringTarget::Dart,
-    ) {
+    //
+    // A field in `fields_display_as_text` is the exception for the assertion types that read it
+    // through the binding's injected `text()` method (`inject_display_as_text_methods`): the
+    // text value is a plain `String`, so the comparison is honest. ~keep
+    if !reads_through_text_accessor(assertion, field_resolver)
+        && let Some(line) = payload_union_skip_line(
+            "    ",
+            "//",
+            field_resolver,
+            assertion.field.as_deref(),
+            UnionLoweringTarget::Dart,
+        )
+    {
         let _ = writeln!(out, "{line}");
         return;
     }
@@ -288,11 +295,12 @@ pub(super) fn render_assertion_dart(
                 //
                 // A payload-carrying union never reaches here: `payload_union_skip_line` above
                 // refused it, because it has no `.wireValue` AND no honest fallback. ~keep
-                let is_enum_field = assertion
-                    .field
-                    .as_deref()
-                    .filter(|f| !f.is_empty())
-                    .is_some_and(|f| field_resolver.is_enum(f));
+                let is_enum_field = !reads_through_text_accessor(assertion, field_resolver)
+                    && assertion
+                        .field
+                        .as_deref()
+                        .filter(|f| !f.is_empty())
+                        .is_some_and(|f| field_resolver.is_enum(f));
 
                 // Check if this field is a display-as-text type (e.g. AssistantContent).
                 let is_display_as_text = assertion
@@ -376,11 +384,12 @@ pub(super) fn render_assertion_dart(
                 let dart_val = format_value(expected);
                 // Check if this field is an enum field. See the `equals`/`field_equals` arm
                 // above for why this must consult the IR, not only the config. ~keep
-                let is_enum_field = assertion
-                    .field
-                    .as_deref()
-                    .filter(|f| !f.is_empty())
-                    .is_some_and(|f| field_resolver.is_enum(f));
+                let is_enum_field = !reads_through_text_accessor(assertion, field_resolver)
+                    && assertion
+                        .field
+                        .as_deref()
+                        .filter(|f| !f.is_empty())
+                        .is_some_and(|f| field_resolver.is_enum(f));
 
                 // Check if this field is a display-as-text type.
                 let is_display_as_text = assertion
@@ -525,6 +534,8 @@ pub(super) fn render_assertion_dart(
             });
             if is_collection {
                 let _ = writeln!(out, "    expect({field_accessor}, isNotEmpty);");
+            } else if reads_through_text_accessor(assertion, field_resolver) {
+                let _ = writeln!(out, "    expect(({field_accessor}?.text() ?? ''), isNotEmpty);");
             } else {
                 let is_optional = assertion.field.as_deref().is_some_and(|field| {
                     let resolved = field_resolver.resolve(field);
@@ -726,6 +737,20 @@ pub(super) fn render_assertion_dart(
     }
 }
 
+/// Whether `assertion` reads a `fields_display_as_text` field through its `text()` accessor.
+///
+/// Only the assertion types with a text-accessor arm below qualify. Every other type keeps the
+/// union refusal, because its arm would compare the sealed class itself.
+fn reads_through_text_accessor(assertion: &Assertion, field_resolver: &FieldResolver) -> bool {
+    matches!(
+        assertion.assertion_type.as_str(),
+        "equals" | "field_equals" | "not_equals" | "not_empty"
+    ) && assertion.field.as_deref().filter(|f| !f.is_empty()).is_some_and(|f| {
+        let resolved = field_resolver.resolve(f);
+        field_resolver.is_display_as_text(f) || field_resolver.is_display_as_text(resolved)
+    })
+}
+
 /// Render a single fixture assertion for a streaming result.
 ///
 /// `result_var` is the `List<T>` collected via `.toList()` on the stream.
@@ -750,6 +775,12 @@ pub(super) fn render_streaming_assertion_dart(out: &mut String, assertion: &Asse
 
     // `usage.total_tokens` and its siblings are read off the last chunk of the collected list.
     if stream_counter::try_render(out, assertion, result_var) {
+        return;
+    }
+
+    // `stream_complete`, `no_chunks_after_done`, `finish_reason` and `tool_calls` are derived from
+    // the whole list of collected chunks.
+    if stream_state::try_render(out, assertion, result_var) {
         return;
     }
 

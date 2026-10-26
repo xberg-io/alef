@@ -223,17 +223,16 @@ fn ruby_stream_complete_assertion_reads_a_value_derived_from_the_chunks() {
 }
 
 #[test]
-fn ruby_no_chunks_after_done_is_refused_visibly_rather_than_aliased() {
+fn ruby_no_chunks_after_done_reads_the_chunks_after_the_done_chunk() {
     let body = ruby_example(&chat_stream_group());
 
     assert!(
-        body.contains("streaming assertion on unsupported field 'no_chunks_after_done'"),
-        "no_chunks_after_done must leave a visible marker rather than silently vanish. \
-         Emitted:\n{body}"
+        body.contains("done_at = chunks.index { |c| c.choices.any? { |ch| !ch.finish_reason.nil? } }"),
+        "no_chunks_after_done must locate the done chunk. Emitted:\n{body}"
     );
     assert!(
-        body.contains("no post-completion probe"),
-        "the skip must say why the assertion could not be checked. Emitted:\n{body}"
+        body.contains("expect(chunks.drop(done_at + 1).all?"),
+        "no_chunks_after_done must check the chunks after the done chunk. Emitted:\n{body}"
     );
     assert_eq!(
         body.matches("expect(stream_complete).to be(true)").count(),

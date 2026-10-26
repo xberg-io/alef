@@ -774,6 +774,10 @@ fn visitor_fixture_without_trait_bridge_options_type_fails_loudly_instead_of_emi
 }
 
 fn render_csharp_error_method(extra: Vec<Assertion>) -> String {
+    render_csharp_error_method_with_errors(extra, &[])
+}
+
+fn render_csharp_error_method_with_errors(extra: Vec<Assertion>, errors: &[crate::core::ir::ErrorDef]) -> String {
     let mut assertions = vec![Assertion {
         assertion_type: "error".into(),
         ..Assertion::default()
@@ -825,7 +829,7 @@ fn render_csharp_error_method(extra: Vec<Assertion>) -> String {
         &[],
         &[],
         &[],
-        &[],
+        errors,
     );
     out
 }
@@ -853,6 +857,63 @@ fn csharp_equals_on_an_error_field_is_named_instead_of_dropped() {
     assert_eq!(records.len(), 1, "got: {records:?}");
     assert_eq!(records[0].language, "csharp");
     assert_eq!(records[0].field, "equals");
+}
+
+fn csharp_status_code_assertion(value: serde_json::Value) -> Assertion {
+    Assertion {
+        assertion_type: "equals".into(),
+        field: Some("error.status_code".into()),
+        value: Some(value),
+        ..Assertion::default()
+    }
+}
+
+/// The base exception of the error type carries `StatusCode`, so the caught exception is cast to
+/// it and compared with the fixture value.
+#[test]
+fn csharp_error_status_code_is_read_off_the_thrown_exception() {
+    let errors = crate::e2e::codegen::error_field_checks::test_fixtures::status_code_errors();
+    let out =
+        render_csharp_error_method_with_errors(vec![csharp_status_code_assertion(serde_json::json!(401))], &errors);
+
+    assert!(
+        out.contains("var thrown = "),
+        "the exception must be bound, got:\n{out}"
+    );
+    assert!(
+        out.contains("Assert.Equal(401, (int)Assert.IsAssignableFrom<ApiErrorException>(thrown).StatusCode);"),
+        "got:\n{out}"
+    );
+    assert!(!out.contains("has no accessor for error field"), "got:\n{out}");
+    assert!(crate::e2e::codegen::take_skip_records().is_empty());
+}
+
+/// A value that is not a whole number cannot be compared, so the skip stays named.
+#[test]
+fn csharp_error_status_code_with_a_text_value_keeps_the_skip_marker() {
+    let errors = crate::e2e::codegen::error_field_checks::test_fixtures::status_code_errors();
+    let out =
+        render_csharp_error_method_with_errors(vec![csharp_status_code_assertion(serde_json::json!("401"))], &errors);
+
+    assert!(!out.contains("StatusCode"), "got:\n{out}");
+    assert!(
+        out.contains("has no accessor for error field error.status_code"),
+        "got:\n{out}"
+    );
+}
+
+/// A crate whose error does not list `status_code` still names the skip.
+#[test]
+fn csharp_error_status_code_without_the_method_keeps_the_skip_marker() {
+    let errors = crate::e2e::codegen::error_field_checks::test_fixtures::error_with_methods("ApiError", &[]);
+    let out =
+        render_csharp_error_method_with_errors(vec![csharp_status_code_assertion(serde_json::json!(401))], &errors);
+
+    assert!(!out.contains("StatusCode"), "got:\n{out}");
+    assert!(
+        out.contains("has no accessor for error field error.status_code"),
+        "got:\n{out}"
+    );
 }
 
 /// Negative control: a lone `error` assertion must leave the generated method marker-free.

@@ -12,7 +12,7 @@ use crate::e2e::codegen::inert_example::{self, InertCause};
 
 use super::args::build_args_and_setup;
 use super::assertions::render_assertion;
-use super::error_matcher::render_raise_error_clause;
+use super::error_matcher::{reachable_errors, render_raise_error_clause};
 use super::visitor::build_ruby_visitor;
 
 #[allow(clippy::too_many_arguments)]
@@ -168,7 +168,13 @@ pub(super) fn render_chat_stream_example(
     if expects_error {
         let clause = render_raise_error_clause(fixture, errors, module_name);
         out.push_str(&format!("    expect {{ {call_expr} {{ |_chunk| }} }}.to {clause}\n"));
-        crate::e2e::codegen::error_path_assertions::emit_runtime(&mut out, fixture, "    # ", "ruby");
+        crate::e2e::codegen::error_path_assertions::emit_runtime_with_errors(
+            &mut out,
+            fixture,
+            "    # ",
+            "ruby",
+            &reachable_errors(errors),
+        );
         out.push_str("  end\n");
         return out;
     }
@@ -515,7 +521,12 @@ pub(super) fn render_example(
     let has_mock_and_key = has_mock && api_key_var.is_some();
 
     let raise_error_clause = render_raise_error_clause(fixture, errors, module_name);
-    let error_path_assertions = crate::e2e::codegen::error_path_assertions::render(fixture, "    # ", "ruby");
+    let error_path_assertions = crate::e2e::codegen::error_path_assertions::render_with_errors(
+        fixture,
+        "    # ",
+        "ruby",
+        &reachable_errors(errors),
+    );
 
     // Emit the post-clear list assertion for clear operations.
     let post_clear_list_call = if is_clear_op {
