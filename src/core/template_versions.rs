@@ -377,10 +377,10 @@ pub mod maven {
     pub const MAVEN_COMPILER_PLUGIN: &str = "3.16.0";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-surefire-plugin
-    pub const MAVEN_SUREFIRE_PLUGIN: &str = "3.6.0";
+    pub const MAVEN_SUREFIRE_PLUGIN: &str = "3.6.1";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-surefire-plugin
-    pub const MAVEN_SUREFIRE_PLUGIN_E2E: &str = "3.6.0";
+    pub const MAVEN_SUREFIRE_PLUGIN_E2E: &str = "3.6.1";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-checkstyle-plugin
     pub const MAVEN_CHECKSTYLE_PLUGIN: &str = "3.6.0";
@@ -422,7 +422,7 @@ pub mod maven {
     pub const MAVEN_ENFORCER_PLUGIN: &str = "3.6.3";
 
     // renovate: datasource=maven depName=org.jacoco:jacoco-maven-plugin
-    pub const JACOCO_MAVEN_PLUGIN: &str = "0.8.15";
+    pub const JACOCO_MAVEN_PLUGIN: &str = "0.8.16";
 
     // renovate: datasource=maven depName=com.puppycrawl.tools:checkstyle
     pub const CHECKSTYLE: &str = "14.3.0";
