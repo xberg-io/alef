@@ -64,7 +64,10 @@ impl FieldResolver {
             return None;
         }
         let declaring_type = leaf_owner_type_at_path(&self.ir_enum_map, prefix)?;
-        if !self.wasm_text_value_fields.contains(&(declaring_type, leaf.to_string())) {
+        if !self
+            .wasm_text_value_fields
+            .contains(&(declaring_type, leaf.to_string()))
+        {
             return None;
         }
         let getter = crate::codegen::naming::to_node_name(&format!("{leaf}_value"));
