@@ -105,6 +105,7 @@ fn compile_payload_probe(source: &str) {
     let binary = directory.path().join(if cfg!(windows) { "probe.exe" } else { "probe" });
     std::fs::write(&path, source).unwrap();
     let output = std::process::Command::new("rustc")
+        .current_dir(directory.path())
         .args(["--edition=2024", "-D", "warnings"])
         .arg(&path)
         .arg("-o")
@@ -112,7 +113,46 @@ fn compile_payload_probe(source: &str) {
         .output()
         .unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert!(std::process::Command::new(binary).status().unwrap().success());
+    assert!(
+        std::process::Command::new(binary)
+            .current_dir(directory.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+}
+
+// ~keep Run the lost-CWD scenario in a child so it cannot change the parent suite's shared CWD.
+#[cfg(unix)]
+#[test]
+fn should_run_payload_probes_after_inherited_working_directory_is_removed() {
+    const CHILD_FLAG: &str = "ALEF_PHP_ERROR_PAYLOAD_LOST_CWD_CHILD";
+    const TEST_NAME: &str = concat!(
+        "codegen::error_gen::tests::php_attributes::",
+        "should_run_payload_probes_after_inherited_working_directory_is_removed"
+    );
+    if std::env::var_os(CHILD_FLAG).is_some() {
+        let directory = tempfile::tempdir().unwrap();
+        std::env::set_current_dir(directory.path()).unwrap();
+        drop(directory);
+        assert!(std::env::current_dir().is_err());
+        compile_payload_probe("fn main() { assert!(std::env::current_dir().is_ok()); }");
+        return;
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([TEST_NAME, "--exact", "--test-threads=1"])
+        .env(CHILD_FLAG, "1")
+        .current_dir(directory.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("1 passed") && stdout.contains("0 failed"), "{stdout}");
 }
 
 #[test]
