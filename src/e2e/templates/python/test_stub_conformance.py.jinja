@@ -25,10 +25,21 @@ def _is_class_variable(annotation: ast.expr) -> bool:
     )
 
 
+def _is_protocol(base: ast.expr) -> bool:
+    if isinstance(base, ast.Subscript):
+        base = base.value
+    return (isinstance(base, ast.Name) and base.id == "Protocol") or (
+        isinstance(base, ast.Attribute)
+        and isinstance(base.value, ast.Name)
+        and base.value.id == "typing"
+        and base.attr == "Protocol"
+    )
+
+
 def _declared_members(stub: Path) -> dict[str, dict[str, bool]]:
     members: dict[str, dict[str, bool]] = {}
     for node in ast.parse(stub.read_text(encoding="utf-8")).body:
-        if not isinstance(node, ast.ClassDef):
+        if not isinstance(node, ast.ClassDef) or any(_is_protocol(base) for base in node.bases):
             continue
         names = members.setdefault(node.name, {})
         for item in node.body:

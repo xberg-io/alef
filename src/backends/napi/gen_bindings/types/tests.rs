@@ -651,3 +651,5 @@ fn napi_dto_instance_wither_declares_borrowed_wrapper_local_before_use() {
 }
 
 mod legacy_constructor_runtime;
+
+mod container_default_tests;

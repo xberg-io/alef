@@ -306,6 +306,9 @@ impl<'a> ConversionConfig<'a> {
         if field.optional || matches!(field.ty, crate::core::ir::TypeRef::Optional(_)) {
             return false;
         }
+        if self.optionalize_defaults && owner.has_default && owner.serde_container_default {
+            return true;
+        }
         if !owner.legacy_constructor_fields().is_empty() {
             return self.optionalize_defaults && owner.is_constructor_extension(field);
         }

@@ -30,7 +30,8 @@ pub(super) use opaque_methods::{
 /// the emitted `.d.ts` spells it `name?: T` and a JS caller may read `undefined` from it.
 ///
 /// ~keep Recorded constructor fields retain their requiredness when `Default` is added
-/// for extension fields. Without constructor history, `Default` still widens every field.
+/// for extension fields. Explicit container defaults and types without constructor history
+/// still permit sparse input fields.
 /// e2e field resolution shares this predicate so its property accesses agree with the binding.
 pub(crate) fn napi_field_is_optional(field: &FieldDef, owner: &TypeDef) -> bool {
     let policy = crate::codegen::conversions::ConversionConfig {
