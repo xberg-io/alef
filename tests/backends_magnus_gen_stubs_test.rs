@@ -299,7 +299,6 @@ fn test_basic_rbs_stubs() {
 }
 
 #[test]
-#[test]
 fn test_tagged_enum_stubs_mirror_module_and_variants() {
     let backend = MagnusBackend;
 
@@ -357,11 +356,7 @@ fn test_tagged_enum_stubs_mirror_module_and_variants() {
                 EnumVariant {
                     serde_untagged: false,
                     name: "Merge3".to_string(),
-                    fields: vec![make_field(
-                        "_0",
-                        TypeRef::Named("ThreeWayMergePolicy".to_string()),
-                        false,
-                    )],
+                    fields: vec![make_field("_0", TypeRef::Named("AnalyzePolicy".to_string()), false)],
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
@@ -433,6 +428,64 @@ fn test_tagged_enum_stubs_mirror_module_and_variants() {
     assert!(content.contains("def self.new: (value: AnalyzePolicy) -> OperationPolicyAnalyze"));
 }
 
+fn tagged_enum_stub(fields: Vec<FieldDef>) -> String {
+    let api = ApiSurface {
+        crate_name: "test_lib".into(),
+        enums: vec![EnumDef {
+            name: "Event".into(),
+            rust_path: "test_lib::Event".into(),
+            serde_tag: Some("kind".into()),
+            variants: vec![EnumVariant {
+                name: "Ready".into(),
+                fields,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        functions: vec![FunctionDef {
+            name: "event".into(),
+            return_type: TypeRef::Named("Event".into()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    MagnusBackend
+        .generate_type_stubs(&api, &make_config_with_stubs())
+        .unwrap()
+        .into_iter()
+        .find(|file| file.path.to_string_lossy().ends_with("types.rbs"))
+        .unwrap()
+        .content
+}
+
+#[test]
+fn tagged_unit_enum_preserves_symbol_alias_and_references() {
+    let stub = tagged_enum_stub(vec![]);
+    assert!(stub.contains("type enum_Event = :Ready"), "{stub}");
+    assert!(stub.contains("def self.event: () -> enum_Event"), "{stub}");
+    assert!(!stub.contains("module Event"), "{stub}");
+    assert!(!stub.contains("class EventReady"), "{stub}");
+}
+
+#[test]
+fn tagged_data_enum_preserves_decoded_json_members() {
+    let stub = tagged_enum_stub(vec![
+        make_field("payload", TypeRef::Json, false),
+        make_field("items", TypeRef::Vec(Box::new(TypeRef::Json)), false),
+        make_field("extra", TypeRef::Optional(Box::new(TypeRef::Json)), true),
+    ]);
+    assert!(stub.contains("attr_reader payload: json_value"), "{stub}");
+    assert!(stub.contains("attr_reader items: Array[json_value]"), "{stub}");
+    assert!(stub.contains("attr_reader extra: json_value?"), "{stub}");
+    assert!(
+        stub.contains(
+            "def self.new: (payload: json_value, items: Array[json_value], extra: json_value?) -> EventReady"
+        ),
+        "{stub}"
+    );
+}
+
+#[test]
 fn test_type_mapping_in_stubs() {
     let backend = MagnusBackend;
 

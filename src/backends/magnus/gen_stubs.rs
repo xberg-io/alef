@@ -656,7 +656,10 @@ fn gen_enum_stub(
     // declares a shape the extension never defines — steep then accepts
     // `OperationPolicy.from_analyze(...)`, which raises `NoMethodError` at
     // runtime. The stub must mirror the module + variant classes instead. ~keep
-    if enum_def.serde_tag.is_some() {
+    if enum_def.serde_tag.is_some()
+        && enum_def.variants.iter().any(|variant| !variant.fields.is_empty())
+        && !crate::backends::magnus::gen_bindings::is_native_payload_enum(enum_def)
+    {
         return gen_tagged_enum_stub(enum_def, emit_docstrings);
     }
 
@@ -730,8 +733,8 @@ fn gen_enum_stub(
 ///
 /// Shapes are mirrored from `tagged_enums.rs`: predicate names are the
 /// snake_case variant names, a positional `_0` payload is exposed as `value`,
-/// and accessor/param types flow through the same marshalled mappers every
-/// other stub uses, so steep and the extension agree on the same surface. ~keep
+/// and field types describe decoded Ruby values stored by `Data.define`,
+/// including JSON objects and arrays rather than native-wrapper strings. ~keep
 fn gen_tagged_enum_stub(enum_def: &EnumDef, emit_docstrings: bool) -> String {
     let mut lines = vec![];
 
@@ -770,8 +773,15 @@ fn gen_tagged_enum_stub(enum_def: &EnumDef, emit_docstrings: bool) -> String {
             // A positional `_0` payload is renamed to `value` by the runtime
             // variant class; mirror that name, not the internal one. ~keep
             let name = if f.name == "_0" { "value" } else { f.name.as_str() };
-            lines.push(format!("    attr_reader {}: {}", name, rbs_accessor_type(f)));
-            params.push(format!("{}: {}", name, rbs_marshalled_type(&f.ty)));
+            // ~keep Pure Ruby Data readers retain decoded values; native wrappers serialize Json instead.
+            let field_type = rbs_type(&f.ty);
+            let accessor_type = if f.optional && !field_type.ends_with('?') {
+                format!("{field_type}?")
+            } else {
+                field_type.clone()
+            };
+            lines.push(format!("    attr_reader {}: {}", name, accessor_type));
+            params.push(format!("{}: {}", name, field_type));
         }
         if !variant.fields.is_empty() {
             lines.push(String::new());

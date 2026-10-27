@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve symbol aliases for tagged unit-only Ruby enums and decoded JSON types in tagged `Data` variant signatures; restore the existing RBS type-mapping test.
 - Stub internally-tagged enums as a marker `module` with `from_hash` dispatch plus one variant `class` per variant (`include`-ing the module, `attr_reader` members, `<variant>?` predicates, `self.from_hash`, kwargs `self.new`), matching the runtime marker-module/`Data.define` shape the magnus binding emits. Previously the stub declared `class <Enum>` with per-variant `from_<name>` constructors the extension never defines, so steep accepted calls that raise `NoMethodError` at runtime.
 
 ## [0.115.1] - 2026-10-27
