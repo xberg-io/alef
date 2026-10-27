@@ -21,8 +21,53 @@
 }
 {% endif %}
 
-{% if not native_payload %}impl magnus::IntoValue for {{ enum_name }} {
+{% if not native_payload %}{% if serde_tag %}
+// Reconstruct the generated Data variant class instead of a plain Hash, keeping
+// IntoValue symmetric with TryConvert (which accepts those variant classes).
+// Falls back to the JSON shape when the Ruby classes are not loaded.
+impl {{ enum_name }} {
+    #[allow(clippy::unused_self)]
+    fn tagged_ruby_variant(&self, handle: &Ruby) -> Option<(&'static str, magnus::Value)> {
+{%- set ns = namespace(uncovered = false) %}
+{%- for variant in variants %}
+{%- if not (variant.typed_newtype and variant.fields and (variant.fields|length) == 1) %}
+{%- set ns.uncovered = true %}
+{%- endif %}
+{%- endfor %}
+        match self {
+{%- for variant in variants %}
+{%- if variant.typed_newtype and variant.fields and (variant.fields|length) == 1 %}
+{%- if variant.emits_as_tuple %}
+            {{ enum_name }}::{{ variant.name }}(payload) => {
+{%- else %}
+            {{ enum_name }}::{{ variant.name }} { {{ variant.fields[0].name }}: payload } => {
+{%- endif %}
+                let payload = {% if variant.payload_boxed %}(**payload){% else %}(*payload){% endif %}.clone();
+                let value = <{{ variant.payload_type }} as magnus::IntoValue>::into_value_with(payload, handle);
+                Some(("{{ module_name }}::{{ enum_name }}{{ variant.name }}", value))
+            }
+{%- endif %}
+{%- endfor %}
+{%- if ns.uncovered %}
+            _ => None,
+{%- endif %}
+        }
+    }
+}
+
+{% endif %}impl magnus::IntoValue for {{ enum_name }} {
     fn into_value_with(self, handle: &Ruby) -> magnus::Value {
+{%- if serde_tag %}
+        if let Some((class_name, payload)) = self.tagged_ruby_variant(handle) {
+            // magnus 0.8 has no class_lookup; the name is generator-produced and
+            // constant, so evaluating it is safe and allocation-light.
+            if let Ok(class) = handle.eval::<magnus::RClass>(class_name) {
+                if let Ok(instance) = class.funcall::<_, _, magnus::Value>("new", (payload,)) {
+                    return instance;
+                }
+            }
+        }
+{%- endif %}
         match serde_json::to_value(&self) {
             Ok(v) => json_to_ruby(handle, v),
             Err(_) => handle.qnil().into_value_with(handle),
