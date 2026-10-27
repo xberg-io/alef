@@ -1003,3 +1003,6 @@ mod untagged_native_coercion_tests;
 #[cfg(test)]
 #[path = "default_timeout_pairing_tests.rs"]
 mod default_timeout_pairing_tests;
+
+#[cfg(test)]
+mod tagged_enum_reconstruction_tests;

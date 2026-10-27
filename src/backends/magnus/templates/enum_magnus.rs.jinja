@@ -1,5 +1,6 @@
 {# Data enum definition with IntoValue/TryConvert via JSON #}
 {% if has_data %}
+{% set typed_variants = variants|selectattr("typed_newtype")|list %}
 #[derive(Clone{% if not has_sensitive %}, Debug{% endif %}, serde::Serialize, serde::Deserialize)]
 {% if native_payload %}#[magnus::wrap(class = "{{ module_name }}::{{ enum_name }}")]
 {% endif %}
@@ -21,13 +22,12 @@
 }
 {% endif %}
 
-{% if not native_payload %}{% if serde_tag %}
+{% if not native_payload %}{% if serde_tag and typed_variants %}
 // Reconstruct the generated Data variant class instead of a plain Hash, keeping
 // IntoValue symmetric with TryConvert (which accepts those variant classes).
 // Falls back to the JSON shape when the Ruby classes are not loaded.
 impl {{ enum_name }} {
-    #[allow(clippy::unused_self)]
-    fn tagged_ruby_variant(&self, handle: &Ruby) -> Option<(&'static str, magnus::Value)> {
+    fn tagged_ruby_variant(&self, handle: &Ruby) -> Option<magnus::Value> {
         match self {
 {%- for variant in variants %}
 {%- if variant.typed_newtype and variant.fields and (variant.fields|length) == 1 %}
@@ -36,28 +36,26 @@ impl {{ enum_name }} {
 {%- else %}
             {{ enum_name }}::{{ variant.name }} { {{ variant.fields[0].name }}: payload } => {
 {%- endif %}
+                // Resolve the variant before wrapping a payload whose Ruby class may also be absent. ~keep
+                let class = handle.eval::<magnus::RClass>("{{ module_name }}::{{ enum_name }}{{ variant.name }}").ok()?;
                 let payload = {% if variant.payload_boxed %}(**payload){% else %}(*payload){% endif %}.clone();
                 let value = <{{ variant.payload_type }} as magnus::IntoValue>::into_value_with(payload, handle);
-                Some(("{{ module_name }}::{{ enum_name }}{{ variant.name }}", value))
+                class.funcall::<_, _, magnus::Value>("new", (value,)).ok()
             }
 {%- endif %}
 {%- endfor %}
+{% if typed_variants|length < variants|length %}
             _ => None,
+{% endif %}
         }
     }
 }
 
 {% endif %}impl magnus::IntoValue for {{ enum_name }} {
     fn into_value_with(self, handle: &Ruby) -> magnus::Value {
-{%- if serde_tag %}
-        if let Some((class_name, payload)) = self.tagged_ruby_variant(handle) {
-            // magnus 0.8 has no class_lookup; the name is generator-produced and
-            // constant, so evaluating it is safe and allocation-light.
-            if let Ok(class) = handle.eval::<magnus::RClass>(class_name) {
-                if let Ok(instance) = class.funcall::<_, _, magnus::Value>("new", (payload,)) {
-                    return instance;
-                }
-            }
+{%- if serde_tag and typed_variants %}
+        if let Some(instance) = self.tagged_ruby_variant(handle) {
+            return instance;
         }
 {%- endif %}
         match serde_json::to_value(&self) {
