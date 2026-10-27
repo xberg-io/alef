@@ -649,6 +649,17 @@ fn gen_enum_stub(
     is_host_enum: bool,
     configured_features: &std::collections::HashSet<&str>,
 ) -> String {
+    // An internally-tagged enum is not a Ruby class at runtime:
+    // `gen_tagged_enum_ruby_classes` (tagged_enums.rs) emits a marker `module`
+    // with `interface!` plus a `Data.define` variant class per variant, joined
+    // by `include`. Stubbing it as `class Name` with per-variant constructors
+    // declares a shape the extension never defines — steep then accepts
+    // `OperationPolicy.from_analyze(...)`, which raises `NoMethodError` at
+    // runtime. The stub must mirror the module + variant classes instead. ~keep
+    if enum_def.serde_tag.is_some() {
+        return gen_tagged_enum_stub(enum_def, emit_docstrings);
+    }
+
     let mut lines = vec![];
 
     lines.push(format!("  class {}", enum_def.name));
@@ -708,6 +719,81 @@ fn gen_enum_stub(
 
     lines.push("  end".to_string());
 
+    lines.join("\n")
+}
+
+/// Emit the RBS mirror of a tagged enum's runtime shape: a marker `module`
+/// carrying `self.from_hash` dispatch, and one `class <Enum><Variant>` per
+/// variant that `include`s the module and declares the `Data.define` surface
+/// (`attr_reader` members, `<variant>?` predicates for every variant,
+/// `self.from_hash`, and the kwargs `self.new`).
+///
+/// Shapes are mirrored from `tagged_enums.rs`: predicate names are the
+/// snake_case variant names, a positional `_0` payload is exposed as `value`,
+/// and accessor/param types flow through the same marshalled mappers every
+/// other stub uses, so steep and the extension agree on the same surface. ~keep
+fn gen_tagged_enum_stub(enum_def: &EnumDef, emit_docstrings: bool) -> String {
+    let mut lines = vec![];
+
+    lines.push(format!("  module {}", enum_def.name));
+    if emit_docstrings && !enum_def.doc.is_empty() {
+        let doc_lines: Vec<String> = enum_def.doc.lines().map(ToString::to_string).collect();
+        lines.push(crate::backends::magnus::template_env::render(
+            "rbs_doc_block.jinja",
+            crate::alef_context! { doc_lines },
+        ));
+    }
+    lines.push("    def self.from_hash: (untyped hash) -> untyped".to_string());
+    lines.push("  end".to_string());
+    lines.push(String::new());
+
+    let predicates: Vec<String> = enum_def
+        .variants
+        .iter()
+        .map(|v| format!("{}?", crate::codegen::naming::pascal_to_snake(&v.name)))
+        .collect();
+
+    for variant in &enum_def.variants {
+        let variant_class = format!("{}{}", enum_def.name, variant.name);
+        lines.push(format!("  class {}", variant_class));
+        if emit_docstrings && !variant.doc.is_empty() {
+            let doc_lines: Vec<String> = variant.doc.lines().map(ToString::to_string).collect();
+            lines.push(crate::backends::magnus::template_env::render(
+                "rbs_doc_block.jinja",
+                crate::alef_context! { doc_lines },
+            ));
+        }
+        lines.push(format!("    include {}", enum_def.name));
+
+        let mut params: Vec<String> = Vec::new();
+        for f in &variant.fields {
+            // A positional `_0` payload is renamed to `value` by the runtime
+            // variant class; mirror that name, not the internal one. ~keep
+            let name = if f.name == "_0" { "value" } else { f.name.as_str() };
+            lines.push(format!("    attr_reader {}: {}", name, rbs_accessor_type(f)));
+            params.push(format!("{}: {}", name, rbs_marshalled_type(&f.ty)));
+        }
+        if !variant.fields.is_empty() {
+            lines.push(String::new());
+        }
+        for predicate in &predicates {
+            lines.push(format!("    def {}: () -> bool", predicate));
+        }
+        lines.push(String::new());
+        lines.push("    def self.from_hash: (untyped hash) -> untyped".to_string());
+        let params_sig = if params.is_empty() {
+            String::new()
+        } else {
+            format!("({})", params.join(", "))
+        };
+        lines.push(format!("    def self.new: {} -> {}", params_sig, variant_class));
+        lines.push("  end".to_string());
+        lines.push(String::new());
+    }
+
+    while lines.last().is_some_and(String::is_empty) {
+        lines.pop();
+    }
     lines.join("\n")
 }
 

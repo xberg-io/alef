@@ -299,6 +299,140 @@ fn test_basic_rbs_stubs() {
 }
 
 #[test]
+#[test]
+fn test_tagged_enum_stubs_mirror_module_and_variants() {
+    let backend = MagnusBackend;
+
+    let api = ApiSurface {
+        unresolved_modules: Vec::new(),
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "AnalyzePolicy".to_string(),
+            rust_path: "test_lib::AnalyzePolicy".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("extra", TypeRef::String, true)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            serde_container_default: false,
+            serde_container_conversion: Default::default(),
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+            has_private_fields: false,
+            version: Default::default(),
+        }],
+        enums: vec![EnumDef {
+            name: "OperationPolicy".to_string(),
+            rust_path: "test_lib::OperationPolicy".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    serde_untagged: false,
+                    name: "Analyze".to_string(),
+                    fields: vec![make_field("_0", TypeRef::Named("AnalyzePolicy".to_string()), false)],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    is_tuple: true,
+                    sensitive: false,
+                    originally_had_data_fields: true,
+                    cfg: None,
+                    version: Default::default(),
+                },
+                EnumVariant {
+                    serde_untagged: false,
+                    name: "Merge3".to_string(),
+                    fields: vec![make_field(
+                        "_0",
+                        TypeRef::Named("ThreeWayMergePolicy".to_string()),
+                        false,
+                    )],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    is_tuple: true,
+                    sensitive: false,
+                    originally_had_data_fields: true,
+                    cfg: None,
+                    version: Default::default(),
+                },
+            ],
+            methods: vec![],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            has_default: false,
+            serde_tag: Some("operation".to_string()),
+            serde_content: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            rename_all_fields: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            excluded_variants: vec![],
+            version: Default::default(),
+        }],
+        functions: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::BTreeMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let config = make_config_with_stubs();
+    let result = backend.generate_type_stubs(&api, &config);
+    assert!(result.is_ok(), "Stub generation should succeed");
+    let files = result.unwrap();
+    let rbs_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("types.rbs"))
+        .expect("types.rbs");
+    let content = &rbs_file.content;
+
+    // The marker is a module with from_hash dispatch, never a class, and the
+    // removed per-variant constructors must not be stubbed.
+    assert!(
+        content.contains("module OperationPolicy"),
+        "tagged enum marker must be stubbed as a module"
+    );
+    assert!(
+        !content.contains("class OperationPolicy\n"),
+        "tagged enum marker must not be stubbed as a class"
+    );
+    assert!(
+        !content.contains("from_analyze"),
+        "old from_<variant> constructor must not be stubbed"
+    );
+    assert!(content.contains("def self.from_hash: (untyped hash) -> untyped"));
+    // Variant classes include the module and expose value + predicates + ctor.
+    assert!(content.contains("class OperationPolicyAnalyze"));
+    assert!(content.contains("include OperationPolicy"));
+    assert!(content.contains("attr_reader value: AnalyzePolicy"));
+    assert!(content.contains("def analyze?: () -> bool"));
+    assert!(content.contains("def merge3?: () -> bool"));
+    assert!(content.contains("def self.new: (value: AnalyzePolicy) -> OperationPolicyAnalyze"));
+}
+
 fn test_type_mapping_in_stubs() {
     let backend = MagnusBackend;
 
