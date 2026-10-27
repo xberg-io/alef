@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Isolate formatter tests that hide `poly` from `PATH` in child processes so they cannot intermittently disable colocated Go formatters during parallel tests.
+
 - Resolve Ruby tagged-enum variant classes before wrapping their native payloads, preserving the JSON fallback when the Ruby classes have not been loaded. Exercise plain and boxed payload reconstruction and fallback paths in embedded Ruby.
 - Preserve symbol aliases for tagged unit-only Ruby enums and decoded JSON types in tagged `Data` variant signatures; restore the existing RBS type-mapping test.
 - Stub internally-tagged enums as a marker `module` with `from_hash` dispatch plus one variant `class` per variant (`include`-ing the module, `attr_reader` members, `<variant>?` predicates, `self.from_hash`, kwargs `self.new`), matching the runtime marker-module/`Data.define` shape the magnus binding emits. Previously the stub declared `class <Enum>` with per-variant `from_<name>` constructors the extension never defines, so steep accepted calls that raise `NoMethodError` at runtime.

@@ -783,6 +783,14 @@ fn rust_binding_bytes_on_disk_match_a_fresh_render_with_no_poly() {
         return;
     }
 
+    // ~keep The parent guard serializes child cargo operations against the rest of the suite.
+    let _cargo_guard = crate::test_support::RealCargoGuard::acquire();
+    if crate::test_support::run_in_isolated_process(
+        "bin_cli::helpers::format_drift::tests::rust_binding_bytes_on_disk_match_a_fresh_render_with_no_poly",
+    ) {
+        return;
+    }
+
     let temp = tempfile::tempdir().expect("tempdir");
     let root = temp.path().canonicalize().unwrap_or_else(|_| temp.path().to_path_buf());
     write_first_run_fixture(&root);
@@ -792,7 +800,6 @@ fn rust_binding_bytes_on_disk_match_a_fresh_render_with_no_poly() {
          exercising a project's first `alef all` run at all"
     );
 
-    let _cargo_guard = crate::test_support::RealCargoGuard::acquire();
     let _no_poly = crate::test_support::PathWithoutToolGuard::exclude("poly");
     let _cwd = crate::test_support::CwdGuard::enter(&root);
 

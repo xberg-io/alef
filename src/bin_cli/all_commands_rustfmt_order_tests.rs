@@ -84,6 +84,14 @@ fn all_writes_rustfmt_toml_before_bindings_so_the_first_run_is_already_formatted
         return;
     }
 
+    // ~keep The parent guard serializes child cargo operations against the rest of the suite.
+    let _cargo_guard = RealCargoGuard::acquire();
+    if crate::test_support::run_in_isolated_process(
+        "bin_cli::all_commands::rustfmt_order_tests::all_writes_rustfmt_toml_before_bindings_so_the_first_run_is_already_formatted",
+    ) {
+        return;
+    }
+
     let temp = tempfile::tempdir().expect("tempdir");
     let root = temp.path().canonicalize().unwrap_or_else(|_| temp.path().to_path_buf());
     write_fixture(&root);
@@ -96,7 +104,6 @@ fn all_writes_rustfmt_toml_before_bindings_so_the_first_run_is_already_formatted
     // `RealCargoGuard`: the fixture's root `Cargo.toml` makes `converge_full_regen`'s
     // `run_cargo_fmt` spawn a real `cargo fmt --all` unconditionally. `PathWithoutToolGuard`:
     // see this file's module doc for why `poly` must look absent for this test to mean anything.
-    let _cargo_guard = RealCargoGuard::acquire();
     let _no_poly = PathWithoutToolGuard::exclude("poly");
     let _cwd = CwdGuard::enter(&root);
 

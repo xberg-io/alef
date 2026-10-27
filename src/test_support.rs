@@ -11,6 +11,8 @@
 //! modules could still run concurrently and race. [`CWD_LOCK`] is the one lock every cwd-mutating
 //! test in this crate now shares. ~keep
 
+mod isolated_process;
+pub(crate) use isolated_process::run_in_isolated_process;
 pub(crate) mod toolchain;
 
 use std::path::{Path, PathBuf};
