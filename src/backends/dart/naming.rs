@@ -21,13 +21,20 @@ pub fn dart_frb_version(config: &ResolvedCrateConfig) -> String {
         .unwrap_or_else(|| template_versions::cargo::FLUTTER_RUST_BRIDGE.to_string())
 }
 
+// ~keep FRB owns these declarations and preserves Rust type names, including Dart core names.
+pub(crate) fn frb_dart_type_name(name: &str) -> String {
+    crate::codegen::naming::public_casing(
+        crate::core::config::Language::Dart,
+        crate::codegen::naming::PublicIdentifierKind::Type,
+        name,
+    )
+}
+
 pub(crate) fn dart_error_variant_class(error_name: &str, variant_name: &str) -> String {
-    use crate::codegen::naming::{PublicIdentifierKind, public_host_identifier};
-    use crate::core::config::Language;
     format!(
         "{}_{}",
-        public_host_identifier(Language::Dart, PublicIdentifierKind::Type, error_name),
-        public_host_identifier(Language::Dart, PublicIdentifierKind::Type, variant_name)
+        frb_dart_type_name(error_name),
+        frb_dart_type_name(variant_name)
     )
 }
 
@@ -42,7 +49,7 @@ pub(crate) fn dart_simple_error_value(error_name: &str, variant_name: &str) -> S
     use crate::core::config::Language;
     format!(
         "{}.{}",
-        public_host_identifier(Language::Dart, PublicIdentifierKind::Type, error_name),
+        frb_dart_type_name(error_name),
         public_host_identifier(Language::Dart, PublicIdentifierKind::Method, variant_name)
     )
 }
@@ -69,6 +76,18 @@ name = "test-lib"
 sources = ["src/lib.rs"]
 "#,
         )
+    }
+
+    #[test]
+    fn error_references_preserve_the_type_names_owned_by_frb() {
+        for name in ["Error", "Object", "List", "StateError", "RDFaChunk", "SampleError"] {
+            assert_eq!(
+                dart_error_variant_class(name, "LanguageNotFound"),
+                format!("{name}_LanguageNotFound")
+            );
+            assert_eq!(dart_simple_error_value(name, "Missing"), format!("{name}.missing"));
+        }
+        assert_eq!(dart_error_variant_class("SampleError", "Error"), "SampleError_Error");
     }
 
     #[test]

@@ -92,7 +92,7 @@ pub(crate) fn records(errors: &[&ErrorDef]) -> Vec<Record> {
                     (fields, chunks(variant)?)
                 };
                 Some(Record {
-                    owner: public_host_identifier(Language::Dart, PublicIdentifierKind::Type, &error.name),
+                    owner: super::super::naming::frb_dart_type_name(&error.name),
                     factory: public_host_identifier(Language::Dart, PublicIdentifierKind::Method, &variant.name),
                     fields,
                     chunks,

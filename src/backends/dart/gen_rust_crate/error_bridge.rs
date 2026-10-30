@@ -1,3 +1,4 @@
+use crate::backends::dart::naming::frb_dart_type_name;
 use crate::codegen::naming::{PublicIdentifierKind, internal_rust_identifier, public_host_identifier};
 use crate::core::config::Language;
 use crate::core::ir::{ErrorDef, ErrorVariant, FieldDef, TypeRef};
@@ -53,7 +54,7 @@ pub(super) fn emit(out: &mut String, errors: &[ErrorDef], source_crate: &str) {
     let mut decode_arms = Vec::new();
     let mut encode_arms = Vec::new();
     let entries = errors.iter().map(|error| {
-        let dart_name = public_host_identifier(Language::Dart, PublicIdentifierKind::Type, &error.name);
+        let dart_name = frb_dart_type_name(&error.name);
         let dart_factory = public_host_identifier(Language::Dart, PublicIdentifierKind::Method, &error.name);
         decode_arms.push(format!("AlefBridgeErrorWire_{dart_name}(:final error) => error"));
         encode_arms.push(format!("{dart_name} error => AlefBridgeErrorWire.{dart_factory}(error: error)"));
@@ -68,7 +69,7 @@ pub(super) fn emit(out: &mut String, errors: &[ErrorDef], source_crate: &str) {
         (&invalid_input, "ArgumentError", "error.message.toString()"),
         (&native_failure, "StateError", "error.message"),
     ] {
-        let dart_name = public_host_identifier(Language::Dart, PublicIdentifierKind::Type, carrier);
+        let dart_name = frb_dart_type_name(carrier);
         let dart_factory = public_host_identifier(Language::Dart, PublicIdentifierKind::Method, carrier);
         decode_arms.push(format!(
             "AlefBridgeErrorWire_{dart_name}(:final message) => {exception}(message)"
@@ -94,10 +95,10 @@ pub(super) fn emit(out: &mut String, errors: &[ErrorDef], source_crate: &str) {
 fn carrier_name(preferred: &str, errors: &[&ErrorDef]) -> String {
     let mut name = preferred.to_string();
     let mut suffix = 0;
-    while errors.iter().any(|error| {
-        public_host_identifier(Language::Dart, PublicIdentifierKind::Type, &error.name)
-            == public_host_identifier(Language::Dart, PublicIdentifierKind::Type, &name)
-    }) {
+    while errors
+        .iter()
+        .any(|error| frb_dart_type_name(&error.name) == frb_dart_type_name(&name))
+    {
         suffix += 1;
         name = format!("{preferred}{suffix}");
     }

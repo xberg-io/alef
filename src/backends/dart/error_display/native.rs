@@ -36,8 +36,8 @@ fn successful(root: &Path, name: &str, arguments: &[&str]) -> std::process::Outp
     output
 }
 
-fn prepare(root: &Path) -> ResolvedCrateConfig {
-    let core = include_str!("../../../../tests/fixtures/dart_error_display/core.rs");
+fn prepare(root: &Path, error_name: &str) -> ResolvedCrateConfig {
+    let core = include_str!("../../../../tests/fixtures/dart_error_display/core.rs").replace("SampleError", error_name);
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(root.join("src/lib.rs"), core).unwrap();
     std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"display-sample\"\nversion = \"1.0.0\"\nedition = \"2024\"\n[dependencies]\nthiserror = \"2\"\n").unwrap();
@@ -73,7 +73,7 @@ fn prepare(root: &Path) -> ResolvedCrateConfig {
     .unwrap();
     std::fs::write(
         root.join("packages/dart/check.dart"),
-        include_str!("../../../../tests/fixtures/dart_error_display/check.dart"),
+        include_str!("../../../../tests/fixtures/dart_error_display/check.dart").replace("SampleError", error_name),
     )
     .unwrap();
     config
@@ -82,11 +82,21 @@ fn prepare(root: &Path) -> ResolvedCrateConfig {
 #[test]
 #[ignore = "requires Dart, flutter_rust_bridge_codegen, Freezed, and a native Rust toolchain"]
 fn native_error_display_survives_actual_frb_freezed_and_rust_errors() {
+    verify_native_error_display("SampleError");
+}
+
+#[test]
+#[ignore = "requires Dart, flutter_rust_bridge_codegen, Freezed, and a native Rust toolchain"]
+fn native_reserved_error_name_survives_actual_frb_freezed_and_rust_errors() {
+    verify_native_error_display("Error");
+}
+
+fn verify_native_error_display(error_name: &str) {
     let directory = tempfile::Builder::new().prefix("alef-dart-display-").tempdir().unwrap();
     let preserved = directory.keep();
     let root = preserved.as_path();
     eprintln!("dart_error_display_proof={}", root.display());
-    let config = prepare(root);
+    let config = prepare(root, error_name);
     successful(root, "setup", &[]);
     pruning::verify(root, &config);
     successful(root, "generate", &[]);

@@ -118,3 +118,56 @@ fn lexical_bounds_ignore_strings_nested_interpolations_comments_and_generic_comm
 
 #[path = "native.rs"]
 mod native;
+
+#[test]
+fn reserved_error_uses_actual_frb_owner_through_display_restoration() {
+    use crate::backends::dart::DartBackend;
+    use crate::core::backend::Backend;
+    use crate::core::config::NewAlefConfig;
+
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("lib.rs");
+    std::fs::write(
+        &source,
+        r#"#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("Language '{0}' not found")]
+    LanguageNotFound(String),
+}
+pub fn load() -> Result<(), Error> { Err(Error::LanguageNotFound("missing".into())) }
+"#,
+    )
+    .unwrap();
+    let api = crate::extract::extractor::extract(&[&source], "sample", "1.0.0", None).unwrap();
+    assert_eq!(api.errors.len(), 1);
+    assert_eq!(api.errors[0].variants.len(), 1);
+    let config: NewAlefConfig =
+        toml::from_str("[workspace]\nlanguages=['dart']\n[[crates]]\nname='sample'\nsources=[]\n").unwrap();
+    let config = config.resolve().unwrap().remove(0);
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let facades = files
+        .iter()
+        .filter(|file| file.content.contains("alef-error-display:"))
+        .collect::<Vec<_>>();
+    assert_eq!(facades.len(), 1);
+    let facade = &facades[0].content;
+    assert!(facade.contains("pub enum Error {"));
+    let bridge = "sealed class Error {\n const factory Error.languageNotFound({required String field0}) = Error_LanguageNotFound;\n}";
+    let freezed = "class Error_LanguageNotFound extends Error {\n const Error_LanguageNotFound({required this.field0});\n final String field0;\n @override\n String toString() {\n return 'Error.languageNotFound(field0: $field0)';\n }\n}\n";
+    let restored = rewrite(freezed, bridge, facade).expect("metadata must address the actual FRB factory");
+    assert!(restored.contains("field0.toString()"), "{restored}");
+    assert_eq!(rewrite(&restored, bridge, facade).unwrap(), restored);
+    let records = read_records(facade).unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].owner, "Error");
+    assert_eq!(records[0].factory, "languageNotFound");
+    assert!(
+        facade.contains("AlefBridgeErrorWire_Error(:final error) => error"),
+        "{facade}"
+    );
+    assert!(
+        facade.contains("Error error => AlefBridgeErrorWire.error(error: error)"),
+        "{facade}"
+    );
+    assert!(!facade.contains("ErrorNode"), "{facade}");
+}
