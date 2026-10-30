@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Refresh compatible Rust dependency lock entries after checking all three crates for incompatible upgrades.
 - Remove four obsolete file-length lint exemptions from files already below the limit, reducing the baseline to 1,173 rule/file exemptions across 606 files.
 
 ### Fixed
