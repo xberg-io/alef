@@ -1,12 +1,13 @@
 pub(super) mod ffi_initializer;
+mod field_defaults;
 
-use crate::backends::swift::gen_bindings::zero_arg_default::zero_arg_named_default;
 use crate::backends::swift::gen_rust_crate::default_construction::EnumKinds;
 use crate::backends::swift::naming::{swift_rust_shim_ident as swift_ident, swift_source_ident as swift_case_ident};
 use crate::backends::swift::type_map::SwiftMapper;
 use crate::codegen::shared::binding_fields;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::ir::{ApiSurface, DefaultValue, FieldDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
+use field_defaults::{default_assignment_template, non_optional_fallback};
 use heck::{AsSnakeCase, ToLowerCamelCase, ToSnakeCase};
 use std::collections::HashSet;
 
@@ -262,7 +263,7 @@ pub(super) fn emit_first_class_struct(
         ));
     }
 
-    let needs_coding_keys = ty.has_default
+    let needs_coding_keys = super::decoder_gate::needs_decoder_init(ty)
         || visible_fields.iter().any(|field| {
             let camel = field.name.to_lower_camel_case();
             // `#[serde(rename)]` / `#[serde(rename_all)]`, even if the camelCased identifier matches.
@@ -521,50 +522,17 @@ pub(crate) fn emit_decoder_init(
             continue;
         }
 
-        // ~keep A fallback answers the question "what if this key is absent?", so it is only
-        // reachable for a field that can actually be absent. `every_field_may_be_absent` carries
-        // the `has_default` convention (backends treat a `Default`-implementing type as
-        // all-fields-optional); beyond it, serde omits a key only for
-        // `skip_serializing_if` or a field-level `default`. Without this guard, routing a type
-        // here for one skippable field silently made its *required* siblings lenient too --
-        // `DocumentNode.id`, which the source crate always writes, decoded an absent key as `""`.
-        let may_be_absent =
-            every_field_may_be_absent || field.serde_skip_serializing_if || field.typed_default.is_some();
-        let fallback = may_be_absent
-            .then(|| {
-                literal.or_else(|| {
-                    // The type-based zero is only a legitimate stand-in when the Rust default *is* the
-                    // type's own default. `FunctionCall`/`PublicFunctionCall` (a `#[serde(default =
-                    // "path")]` whose body alef never sees), `EnumVariant` (whose enum path the
-                    // extractor discards), `Unresolved` (an `impl Default` body alef could not
-                    // constant-fold), and `TupleVariant`/`StructVariant` (a resolved enum-variant
-                    // default this renderer has no per-argument Swift expression for) all mean "there is
-                    // a default and it is not this zero"; answering them with `0`/`""`/`false` is a
-                    // silent disagreement with the source crate. Emitting the plain required `decode`
-                    // instead makes an absent key throw a `DecodingError` the caller can see. ~keep
-                    if matches!(
-                        field.typed_default,
-                        Some(
-                            DefaultValue::FunctionCall(_)
-                                | DefaultValue::PublicFunctionCall(_)
-                                | DefaultValue::EnumVariant(_)
-                                | DefaultValue::Unresolved(_)
-                                | DefaultValue::TupleVariant(..)
-                                | DefaultValue::StructVariant(..)
-                        )
-                    ) {
-                        return None;
-                    }
-                    zero_arg_named_default(&field.typed_default, &field.ty, &swift_ty, zero_arg_constructible_names)
-                        .or_else(|| swift_type_based_default(&field.ty))
-                })
-            })
-            .flatten();
+        let fallback = non_optional_fallback(
+            field,
+            &swift_ty,
+            zero_arg_constructible_names,
+            every_field_may_be_absent,
+        );
 
         match fallback {
             Some(fb) => {
                 out.push_str(&crate::backends::swift::template_env::render(
-                    "swift_decode_default_assignment.swift.jinja",
+                    default_assignment_template(field, every_field_may_be_absent),
                     crate::alef_context! {
                         field => camel,
                         ty => swift_ty,

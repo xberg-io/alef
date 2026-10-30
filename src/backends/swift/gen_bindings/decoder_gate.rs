@@ -21,7 +21,10 @@ use crate::core::ir::TypeDef;
 /// `emit_decoder_init` already renders `decodeIfPresent ?? []` for exactly these fields -- it was
 /// simply never reached.
 pub(crate) fn needs_decoder_init(ty: &TypeDef) -> bool {
-    ty.has_default || binding_fields(&ty.fields).any(|field| field.serde_skip_serializing_if)
+    ty.has_default
+        || binding_fields(&ty.fields).any(|field| {
+            field.serde_skip_serializing_if || field.has_bare_serde_default() || field.typed_default.is_some()
+        })
 }
 
 #[cfg(test)]
