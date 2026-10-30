@@ -15,6 +15,8 @@ on:
       - "Cargo.toml"
       - "pyproject.toml"
       - "package.json"
+      - "mise.toml"
+      - "mise.lock"
       - ".gitignore"
       - ".github/workflows/ai-rulez-validation.yml"
   pull_request:
@@ -30,6 +32,8 @@ on:
       - "Cargo.toml"
       - "pyproject.toml"
       - "package.json"
+      - "mise.toml"
+      - "mise.lock"
       - ".gitignore"
       - ".github/workflows/ai-rulez-validation.yml"
 permissions:
@@ -39,9 +43,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: xberg-io/actions/setup-ai-rulez@v1
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          ai-rulez-version: "latest"
+          install-args: "github:Goldziher/ai-rulez"
       - uses: xberg-io/actions/validate-ai-rulez@v1
       # ~keep Budgets: the --measure-mcp ai-rulez measurement plus about 5%; re-measure on every pin bump.
       - uses: xberg-io/agent-conventions/actions/context-exposure@v1

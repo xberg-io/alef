@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Install the project-locked AI-Rulez CLI in governance CI so strict regeneration uses the committed generator version.
 - Configure the selected Python shared library for all embedded PyO3 integration runtime fixtures on macOS.
 
 ## [0.115.7] - 2026-10-30
