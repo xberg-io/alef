@@ -11,10 +11,11 @@ from test_formatter_bootstrap import FormatterGate, executable
 
 
 class MiseGate(FormatterGate):
-    def __init__(self, root, foreign=None, version_output=None):
+    def __init__(self, root, foreign=None, version_output=None, mise_version=None):
         super().__init__(root)
         self.foreign = foreign
         self.version_output = version_output
+        self.mise_version = mise_version
 
     def command(self, name, argv, cwd, budget, timeout):
         result = super().command(name, argv, cwd, budget, timeout)
@@ -24,6 +25,8 @@ class MiseGate(FormatterGate):
             (result / "stdout.log").write_text(str(stray) + "\n")
         if self.version_output and name == "version-" + self.version_output[0]:
             (result / "stdout.log").write_text(self.version_output[1] + "\n")
+        if self.mise_version is not None and name == "mise-identity":
+            (result / "stdout.log").write_text(self.mise_version + "\n")
         return result
 
 
@@ -90,4 +93,15 @@ class MiseBootstrap(unittest.TestCase):
             gate = MiseGate(Path(directory), version_output=("poly", "poly 0.24.0"))
             assert failure(gate) == "installed tool version differs: poly"
             assert gate.calls[-1]["name"] == "version-poly"
+            assert not (gate.evidence / "mise-tools.json").exists()
+
+    def test_a_version_that_only_contains_the_pin_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            gate = MiseGate(Path(directory), version_output=("poly", "poly 10.31.25"))
+            assert failure(gate) == "installed tool version differs: poly"
+
+    def test_mise_that_does_not_report_a_release_version_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            gate = MiseGate(Path(directory), mise_version="mise shim 0.1")
+            assert failure(gate) == "mise --version does not report a mise release: mise shim 0.1"
             assert not (gate.evidence / "mise-tools.json").exists()

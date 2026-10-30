@@ -46,7 +46,7 @@ def bootstrap(gate):
     install_mise_tools(gate)
     for program, version in [("rustc", "1.99.1"), ("cargo", "1.99.1")]:
         output = gate.command("version-" + program, [program, "--version"], gate.alef, 0, 15)
-        if version not in (output / "stdout.log").read_text():
+        if not reports_version((output / "stdout.log").read_text(), version):
             raise RuntimeError("installed tool version differs: " + program)
     cache = gate.command("actual-homebrew-cache", ["brew", "--cache"], gate.xberg, 0, 15)
     actual_cache = Path((cache / "stdout.log").read_text().strip())
@@ -65,6 +65,11 @@ def bootstrap(gate):
     for tool in ["cmake", "pkg-config", "swift", "clang", "clang-format"]:
         if not gate.which(tool):
             raise RuntimeError("strict generation/native tool unavailable: " + tool)
+
+
+def reports_version(text, version):
+    """True when `text` names `version` as a whole version, so 2.1.4 does not match 12.1.45."""
+    return re.search(r"(?<![0-9.])" + re.escape(version) + r"(?![0-9.])", text) is not None
 
 
 def configure_rust_native_environment(gate):
@@ -95,11 +100,17 @@ def install_mise_tools(gate):
     mise = gate.which("mise")
     if not mise:
         raise RuntimeError("mise executable unavailable; the workflow installs it before the guarded session")
+    resolved = Path(mise).resolve(strict=True)
+    if any(resolved.is_relative_to(Path(root).resolve(strict=True)) for root in (gate.alef, gate.xberg)):
+        raise RuntimeError("mise resolves inside a checkout under qualification: " + str(resolved))
     identity = gate.command("mise-identity", ["mise", "--version"], gate.alef, 0, 15)
+    mise_version = (identity / "stdout.log").read_text().strip()
+    if re.match(r"[0-9]{4}\.[0-9]+\.[0-9]+ ", mise_version + " ") is None:
+        raise RuntimeError("mise --version does not report a mise release: " + mise_version)
     receipt = {
-        "mise": str(Path(mise).resolve(strict=True)),
-        "mise_sha256": sha(Path(mise)),
-        "mise_version": (identity / "stdout.log").read_text().strip(),
+        "mise": str(resolved),
+        "mise_sha256": sha(resolved),
+        "mise_version": mise_version,
         "tools": [],
     }
     for checkout, tool, program in MISE_TOOLS:
@@ -123,7 +134,7 @@ def install_mise_tools(gate):
         if Path(gate.which(program) or "").resolve() != binary:
             raise RuntimeError("mise-installed executable is not selected on the generation PATH: " + program)
         version = gate.command("version-" + program, [binary, "--version"], gate.alef, 0, 15)
-        if declared not in (version / "stdout.log").read_text():
+        if not reports_version((version / "stdout.log").read_text(), declared):
             raise RuntimeError("installed tool version differs: " + program)
         receipt["tools"].append(
             {
