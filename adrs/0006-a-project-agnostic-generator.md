@@ -22,8 +22,9 @@ out of backend code and test fixtures.
 ## Decision Outcome
 
 Chosen option: "Keep the generator free of consumer identities, and model consumer differences through generic
-configuration", because the guard added in 186e17779 (2026-05-27) states it: "Alef must stay project-agnostic;
-model downstream differences through `alef.toml` or generic config, not project-name special cases."
+configuration", because that is the rule the guard added in 186e17779 (2026-05-27) enforces; no commit states a
+rationale beyond the rule itself: "Alef must stay project-agnostic; model downstream differences through `alef.toml` or
+generic config, not project-name special cases."
 
 The `project-agnostic-codegen` rule, added in the same commit, sets the scope:
 
@@ -43,5 +44,5 @@ The `project-agnostic-codegen` rule, added in the same commit, sets the scope:
 ### Confirmation
 
 * `hooks/check_project_mentions.py` rejects consumer names and hard-coded downstream domain types in enforced files.
-* `tests/project_mentions_hook.rs` and `tests/cli_no_project_special_casing.rs:39` run that hook in the test suite.
+* `tests/project_mentions_hook.rs` and `tests/cli_no_project_special_casing.rs:37` run that hook in the test suite.
 * `.ai-rulez/rules/project-agnostic-codegen.md` states the rule.

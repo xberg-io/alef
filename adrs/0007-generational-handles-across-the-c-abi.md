@@ -20,10 +20,10 @@ backend already kept its own handle registry for trait-bridge lifetimes (28c1095
 
 ## Decision Outcome
 
-Chosen option: "Scalar, generational `AlefHandle` tokens resolved through a typed registry in the FFI crate",
-because the registry rejects each misuse a raw pointer cannot detect: a zero handle, an unknown slot, a stale
-generation, the wrong type, a handle in use, and the same handle passed twice (`HandleError` in the generated
-registry).
+Chosen option: "Scalar, generational `AlefHandle` tokens resolved through a typed registry in the FFI crate", because
+that is what 91cb7d321 and the 0.61.0 release adopted; no commit or CHANGELOG entry records a rationale. The generated
+registry's `HandleError` cases show what it rejects: a zero handle, an unknown slot, a stale generation, the wrong type,
+a handle in use, and the same handle passed twice.
 
 * 91cb7d321 (2026-08-13) added the typed generational handle registry, and 298656162 (2026-08-13) moved Go onto it.
 * The 0.61.0 release (2026-08-18) records it as breaking: "ordinary opaque values now cross the C ABI as scalar,

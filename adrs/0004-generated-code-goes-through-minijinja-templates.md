@@ -21,9 +21,10 @@ c6818a9d3).
 
 ## Decision Outcome
 
-Chosen option: "Rust prepares the data, and minijinja templates own the emitted structure", because 86daa2faa
-(2026-05-08) migrated "all alef-backend-* code emission to Jinja templates", and the 0.15.0 release (a1983c180) was
-staged as the "Jinja backend migration".
+Chosen option: "Rust prepares the data, and minijinja templates own the emitted structure", because that is the
+direction the commits and the `codegen-structure` rule record; none of them states a rationale. 86daa2faa (2026-05-08)
+migrated "all alef-backend-* code emission to Jinja templates", and the 0.15.0 release (a1983c180) was staged as the
+"Jinja backend migration".
 
 The `codegen-structure` rule (first committed in be684a4e1, 2026-06-06) states the split:
 

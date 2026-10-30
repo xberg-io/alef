@@ -8,10 +8,11 @@ decision-makers: ["Na'aman Hirschfeld"]
 
 ## Context and Problem Statement
 
-Go, Java, C#, Dart, Zig and the JNI backends bind a library through the generated C FFI crate. A C ABI carries
-scalars, pointers and byte buffers, not Rust structs, enums or collections, so every structured value the core
-accepts or returns needs a representation that both sides can build and read. The first FFI backend in 56033e56c
-(2026-04-01) generated a `<prefix>_<type>_from_json` function per struct: "Create a `{type_name}` from a JSON string. Returns null on failure."
+Go, Java (Panama), C#, Zig and Dart in `ffi` style bind a library through the generated C FFI crate. A C ABI carries
+scalars, pointers and byte buffers, not Rust structs, enums or collections, so every structured value the core accepts
+or returns needs a representation that both sides can build and read. The first FFI backend in 56033e56c (2026-04-01)
+generated a `<prefix>_<type>_from_json` function per struct: "Create a `{type_name}` from a JSON string. Returns null on
+failure."
 
 ## Considered Options
 
