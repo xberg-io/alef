@@ -11,7 +11,7 @@ log; add a row in the same change as a new record.
 | [0000](../adrs/0000-record-architecture-decisions.md) | Record architecture decisions | accepted | 2026-10-30 |
 | [0001](../adrs/0001-extract-the-rust-api-into-an-ir-with-syn.md) | Extract the Rust API into an IR with syn | accepted | 2026-04-01 |
 | [0002](../adrs/0002-structured-values-cross-the-c-ffi-as-serde-json.md) | Structured values cross the C FFI as serde JSON | accepted | 2026-04-01 |
-| [0003](../adrs/0003-file-ownership-by-an-embedded-alef-marker.md) | File ownership by an embedded alef marker | accepted | 2026-04-26 |
+| [0003](../adrs/0003-file-ownership-by-an-embedded-alef-marker.md) | File ownership by an embedded alef marker | accepted | 2026-09-26 |
 | [0004](../adrs/0004-generated-code-goes-through-minijinja-templates.md) | Generated code goes through minijinja templates | accepted | 2026-05-08 |
 | [0005](../adrs/0005-one-root-crate-for-the-generator.md) | One root crate for the generator | accepted | 2026-05-23 |
 | [0006](../adrs/0006-a-project-agnostic-generator.md) | A project-agnostic generator | accepted | 2026-05-27 |
