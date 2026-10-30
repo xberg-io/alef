@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Refresh shared governance and toolchain baselines to agent-conventions v1.5.0 and toolchains v1.12.0.
 - Refresh encoding_rs to 0.8.43.
 - Refresh compatible Rust dependency lock entries after checking all three crates for incompatible upgrades.
 - Remove four obsolete file-length lint exemptions from files already below the limit, reducing the baseline to 1,173 rule/file exemptions across 606 files.
@@ -20,10 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Upgrade both child packages and the workspace root in pnpm latest plans for Node and WASM, retaining peer-dependency guards. (#747)
 - Allow embedded PyO3 fixture dependencies to resolve from an unprimed Cargo cache instead of relying on test execution order.
 - Enable explicit by-value extraction for cloneable configured opaque Python wrappers under PyO3 0.30, preserving unsendable classes. (#746)
-- Install the project-locked AI-Rulez CLI in governance CI so strict regeneration uses the committed generator version.
+- Follow the organisation’s floating AI-Rulez policy in governance CI and validation hooks, and refresh generated governance files and context budgets.
 - Configure the selected Python shared library for all embedded PyO3 integration runtime fixtures on macOS.
 - Emit explicit zero-sentinel Zig allocations with `dupeSentinel`, retaining Zig 0.16 compatibility and supporting Zig 0.17. (#744)
-- Pin the ai-rulez validation hook to 5.9.3, matching the locked toolchain CLI.
 - Resolve the selected Python shared library for embedded PyO3 runtime fixtures on macOS without changing the parent loader environment.
 - Refresh the Android Gradle snapshot for the configured AGP 9.5.0 version.
 - Build embedded Ruby runtime fixtures for the selected Ruby ABI on Windows and load binaries from the matching target directory.
