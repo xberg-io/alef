@@ -1,3 +1,5 @@
+mod mix;
+
 use crate::core::config::{Language, ResolvedCrateConfig};
 use anyhow::Context as _;
 use std::sync::LazyLock;
@@ -151,7 +153,6 @@ struct SyncState {
     any_node_pkg_modified: bool,
     any_cargo_toml_modified: bool,
     any_composer_json_modified: bool,
-    any_mix_exs_modified: bool,
     text_replacement_paths: std::collections::HashSet<std::path::PathBuf>,
 }
 
@@ -162,7 +163,6 @@ impl SyncState {
             any_node_pkg_modified: false,
             any_cargo_toml_modified: false,
             any_composer_json_modified: false,
-            any_mix_exs_modified: false,
             text_replacement_paths: std::collections::HashSet::new(),
         }
     }
@@ -392,22 +392,6 @@ fn sync_php_composer_json(path: &str, version: &str, state: &mut SyncState) -> a
     Ok(())
 }
 
-fn sync_elixir_mix_exs(version: &str, state: &mut SyncState) -> anyhow::Result<()> {
-    // Elixir: mix.exs — handle both `version: "X.Y.Z"` and `@version "X.Y.Z"` patterns
-    if let Ok(content) = std::fs::read_to_string("packages/elixir/mix.exs") {
-        if let Some(new_content) = replace_version_pattern(&content, r#"version: "[^"]*""#, version) {
-            std::fs::write("packages/elixir/mix.exs", &new_content)?;
-            state.updated.push("packages/elixir/mix.exs".to_string());
-            state.any_mix_exs_modified = true;
-        } else if let Some(new_content) = replace_version_pattern(&content, r#"@version "[^"]*""#, version) {
-            std::fs::write("packages/elixir/mix.exs", &new_content)?;
-            state.updated.push("packages/elixir/mix.exs".to_string());
-            state.any_mix_exs_modified = true;
-        }
-    }
-    Ok(())
-}
-
 fn sync_elixir_nif_cargo_locks(
     config: &ResolvedCrateConfig,
     writable: &crate::cli::git::IgnoreFilter,
@@ -628,7 +612,7 @@ fn sync_remaining_package_manifests(
     state: &mut SyncState,
 ) -> anyhow::Result<()> {
     sync_php_composer_json("packages/php/composer.json", version, state)?;
-    sync_elixir_mix_exs(version, state)?;
+    mix::sync_version(version, &mut state.updated)?;
     sync_elixir_nif_cargo_locks(config, writable, version, &mut state.updated)?;
     sync_java_pom("packages/java/pom.xml", version, &mut state.updated)?;
     sync_csharp_csproj_files(writable, version, &mut state.updated)?;
@@ -1101,9 +1085,7 @@ fn run_post_write_side_effects(state: &SyncState, version: &str) {
     if state.any_composer_json_modified {
         run_optional("composer", &["update", "--lock", "--no-interaction"]);
     }
-    if state.any_mix_exs_modified {
-        run_optional("mix", &["deps.get"]);
-    }
+    mix::refresh_changed_projects(&state.updated);
 }
 
 fn sync_registry_and_log(config_path: &std::path::Path, version: &str) {

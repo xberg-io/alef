@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Refresh changed Mix lockfiles from each affected project directory during version sync, retaining best-effort behavior. (#748)
+
 ## [0.115.7] - 2026-10-30
 
 ### Changed
