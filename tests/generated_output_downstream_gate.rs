@@ -70,6 +70,9 @@ use std::process::Command;
 
 use walkdir::WalkDir;
 
+#[path = "generated_output_downstream_gate/task_serialization.rs"]
+mod task_serialization;
+
 // ---------------------------------------------------------------------------
 // Language coverage
 // ---------------------------------------------------------------------------
@@ -1178,30 +1181,7 @@ fn task_and_ci_serialize_ignored_generated_output_lanes() {
     let workflow = std::fs::read_to_string(&workflow_path)
         .unwrap_or_else(|error| panic!("read {}: {error}", workflow_path.display()));
 
-    let ignored_task_invocations: Vec<&str> = tasks
-        .lines()
-        .filter(|line| line.contains("generated_output_downstream_gate") && line.contains("--ignored"))
-        .collect();
-    assert_eq!(
-        ignored_task_invocations.len(),
-        4,
-        "unexpected mise.toml gate invocation count"
-    );
-    assert!(
-        ignored_task_invocations
-            .iter()
-            .all(|line| line.contains("--test-threads=1")),
-        "{} must serialize every ignored generated-output invocation",
-        tasks_path.display()
-    );
-
-    let serialized_ci_invocation =
-        "run: cargo test --test generated_output_downstream_gate -- --ignored --nocapture --test-threads=1";
-    assert!(
-        workflow.lines().any(|line| line.trim() == serialized_ci_invocation),
-        "{} must serialize the ignored generated-output lanes",
-        workflow_path.display()
-    );
+    task_serialization::assert_serialized(&tasks, &workflow);
 }
 
 /// Whether `block` has an actual `uses:` step line installing `Goldziher/poly`.
