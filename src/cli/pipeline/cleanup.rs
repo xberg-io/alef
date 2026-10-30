@@ -385,7 +385,7 @@ mod tests {
         let current_gen_paths = HashSet::from([alef_file.clone()]);
         let removed = cleanup_orphaned_files(&current_gen_paths, &[tempdir.path().to_path_buf()]).expect("cleanup");
 
-        assert_eq!(removed, 0, "descriptive yaml file must survive");
+        assert_eq!(removed, 0, "descriptive toml file must survive");
         assert!(descriptive.exists(), "descriptive file preserved");
         assert!(alef_file.exists(), "fresh alef file preserved");
     }
