@@ -198,7 +198,6 @@ impl Backend for NapiBackend {
 
         if !capsule_types.is_empty() {
             builder.add_import("napi::bindgen_prelude::JsObjectValue");
-            builder.add_item(&capsule::gen_ffi_declarations());
             let constants = capsule::gen_type_tag_constants(&capsule_types);
             if !constants.is_empty() {
                 builder.add_item(&constants);

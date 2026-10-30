@@ -124,7 +124,7 @@ pub(super) fn gen_capsule_function(
     let tag_block = if let Some(const_name) = &type_tag_const {
         format!(
             r#"    let status = unsafe {{
-        napi_type_tag_object(env_raw, external_value, &{const_name})
+        napi::sys::napi_type_tag_object(env_raw, external_value, &{const_name})
     }};
     if status != napi::sys::Status::napi_ok {{
         return Err(napi::Error::new(
@@ -148,7 +148,7 @@ pub(super) fn gen_capsule_function(
     let env_raw = env.raw();
     let mut external_value: napi::sys::napi_value = std::ptr::null_mut();
     let create_status = unsafe {{
-        napi_create_external(env_raw, ptr, None, std::ptr::null_mut(), &mut external_value)
+        napi::sys::napi_create_external(env_raw, ptr, None, std::ptr::null_mut(), &mut external_value)
     }};
     if create_status != napi::sys::Status::napi_ok {{
         return Err(napi::Error::new(
@@ -178,51 +178,13 @@ pub(super) fn gen_capsule_function(
     )
 }
 
-/// Emit the FFI extern declarations used by every capsule-returning shim.
-/// Emitted once per crate when any capsule_types are configured.
-///
-/// The `#[cfg_attr(target_os = "windows", link(name = "node", kind = "raw-dylib"))]`
-/// is required for Windows MSVC: the linker needs an import-library entry for
-/// every imported symbol. `napi-build`'s generated `.def` covers only symbols in
-/// `napi-sys`'s `generate!` allowlist — `napi_create_external` and
-/// `napi_type_tag_object` are not in that list, so MSVC fails with `LNK2019:
-/// unresolved external symbol` without `kind = "raw-dylib"` (Rust 1.71+).
-/// On Linux/macOS the attribute is a no-op; Node's dynamic loader resolves the
-/// symbols at module load.
-pub(super) fn gen_ffi_declarations() -> String {
-    r#"#[repr(C)]
-struct NapiTypeTag {
-    lower: u64,
-    upper: u64,
-}
-
-#[cfg_attr(target_os = "windows", link(name = "node", kind = "raw-dylib"))]
-unsafe extern "C" {
-    fn napi_create_external(
-        env: napi::sys::napi_env,
-        data: *mut std::ffi::c_void,
-        finalize_cb: Option<
-            unsafe extern "C" fn(
-                env: napi::sys::napi_env,
-                data: *mut std::ffi::c_void,
-                hint: *mut std::ffi::c_void,
-            ),
-        >,
-        finalize_hint: *mut std::ffi::c_void,
-        result: *mut napi::sys::napi_value,
-    ) -> napi::sys::napi_status;
-    fn napi_type_tag_object(
-        env: napi::sys::napi_env,
-        value: napi::sys::napi_value,
-        type_tag: *const NapiTypeTag,
-    ) -> napi::sys::napi_status;
-}
-"#
-    .to_string()
-}
-
-/// Emit a `const __ALEF_CAPSULE_TAG_<NAME>: NapiTypeTag = ...;` for each capsule
+/// Emit a `const __ALEF_CAPSULE_TAG_<NAME>: napi::sys::napi_type_tag = ...;` for each capsule
 /// type that has a configured type_tag. Skipped for types without a tag.
+///
+/// The shims call `napi_create_external` and `napi_type_tag_object` through `napi::sys`, which
+/// resolves them from the host process when the addon loads. Linking them to `node` instead makes
+/// the Windows addon import `node.dll`, which Node.js does not ship, so it fails to load. The
+/// generated crate needs napi's `napi8` feature for `napi_type_tag_object`.
 pub(super) fn gen_type_tag_constants(capsule_types: &HashMap<String, NodeCapsuleTypeConfig>) -> String {
     let mut entries: Vec<(&String, &NodeCapsuleTypeConfig)> = capsule_types.iter().collect();
     entries.sort_by(|a, b| a.0.cmp(b.0));
@@ -378,8 +340,8 @@ mod tests {
         );
         assert!(out.contains("into_raw"), "must call into_raw(): {out}");
         assert!(
-            out.contains("napi_create_external"),
-            "must call raw napi_create_external (not bindgen_prelude::External::new): {out}"
+            out.contains("napi::sys::napi_create_external("),
+            "must call napi_create_external through napi::sys (not bindgen_prelude::External::new): {out}"
         );
         assert!(
             !out.contains("bindgen_prelude::External::new"),
@@ -408,8 +370,8 @@ mod tests {
         let capsules = capsule_map(&[("Language", cfg)]);
         let out = gen_capsule_function(&func, &capsules, "sample_pack");
         assert!(
-            out.contains("napi_type_tag_object"),
-            "must call napi_type_tag_object when type_tag set: {out}"
+            out.contains("napi::sys::napi_type_tag_object("),
+            "must call napi_type_tag_object through napi::sys when type_tag set: {out}"
         );
         assert!(
             out.contains("__ALEF_CAPSULE_TAG_LANGUAGE"),
@@ -436,35 +398,15 @@ mod tests {
             out.contains("__ALEF_CAPSULE_TAG_LANGUAGE"),
             "must emit constant for tagged entry: {out}"
         );
+        assert!(
+            out.contains(": napi::sys::napi_type_tag = napi::sys::napi_type_tag {"),
+            "must use the N-API ABI type for capsule tags: {out}"
+        );
         assert!(out.contains("0x8AF2E5212AD58ABF"), "must inline lower hex: {out}");
         assert!(out.contains("0xD5006CAD83ABBA16"), "must inline upper hex: {out}");
         assert!(
             !out.contains("__ALEF_CAPSULE_TAG_PARSER"),
             "must skip untagged entries: {out}"
-        );
-    }
-
-    /// gen_ffi_declarations exposes the two raw N-API entry points the shims need.
-    #[test]
-    fn gen_ffi_declarations_exposes_required_n_api_entry_points() {
-        let out = gen_ffi_declarations();
-        assert!(out.contains("fn napi_create_external"));
-        assert!(out.contains("fn napi_type_tag_object"));
-        assert!(out.contains("struct NapiTypeTag"));
-    }
-
-    /// gen_ffi_declarations emits a `kind = "raw-dylib"` link attribute scoped
-    /// to Windows so MSVC can synthesize import-library entries for symbols
-    /// outside napi-sys's `generate!` allowlist. Linux/macOS rely on Node's
-    /// dynamic loader and need no attribute — the cfg_attr is a no-op there.
-    #[test]
-    fn gen_ffi_declarations_emits_windows_raw_dylib_link() {
-        let out = gen_ffi_declarations();
-        assert!(
-            out.contains(r#"#[cfg_attr(target_os = "windows", link(name = "node", kind = "raw-dylib"))]"#),
-            "must gate the raw napi extern block with a Windows raw-dylib link attribute so MSVC can \
-             link against napi_create_external + napi_type_tag_object (symbols missing from napi-sys's \
-             generate! allowlist). Got: {out}"
         );
     }
 }

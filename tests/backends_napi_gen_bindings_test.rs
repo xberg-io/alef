@@ -2541,8 +2541,8 @@ fn test_capsule_types_end_to_end() {
     );
 
     assert!(
-        content.contains(r#"#[cfg_attr(target_os = "windows", link(name = "node", kind = "raw-dylib"))]"#),
-        "extern block must be gated with raw-dylib link attribute for Windows MSVC; content:\n{content}"
+        content.contains("napi::sys::napi_create_external(") && !content.contains(r#"link(name = "node""#),
+        "capsules must resolve N-API from the host process, without importing node.dll: \n{content}"
     );
 
     assert!(
@@ -2764,8 +2764,8 @@ fn test_capsule_types_method_on_opaque_rust_shim() {
     );
 
     assert!(
-        content.contains(r#"#[cfg_attr(target_os = "windows", link(name = "node", kind = "raw-dylib"))]"#),
-        "extern block must be gated with raw-dylib link attribute for Windows MSVC; content:\n{content}"
+        content.contains("napi::sys::napi_create_external(") && !content.contains(r#"link(name = "node""#),
+        "capsules must resolve N-API from the host process, without importing node.dll: \n{content}"
     );
 
     assert!(

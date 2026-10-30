@@ -868,3 +868,57 @@ default_features = false
          explicit features = [...] line, not just the wrapper's default array:\n{default_block_dep_line}"
     );
 }
+
+#[test]
+fn node_capsule_type_tags_enable_napi8_in_generated_manifest() {
+    let config = test_config_from_toml(
+        r#"
+[crates.node.capsule_types.Language]
+type = "Language"
+from_module = "tree-sitter"
+property_name = "__parser"
+[crates.node.capsule_types.Language.type_tag]
+lower = "0x1"
+upper = "0x2"
+"#,
+    );
+    let files = scaffold(&test_api(), &config, &[Language::Node]).expect("node scaffold");
+    let cargo = files
+        .iter()
+        .find(|file| file.path == Path::new("crates/my-lib-node/Cargo.toml"))
+        .expect("node manifest");
+    let manifest: toml::Value = toml::from_str(&cargo.content).expect("valid manifest");
+    let features = manifest["dependencies"]["napi"]["features"]
+        .as_array()
+        .expect("napi features");
+    assert!(features.iter().any(|feature| feature.as_str() == Some("napi8")));
+}
+
+#[test]
+fn node_capsule_type_tags_are_not_enabled_for_untagged_or_absent_capsules() {
+    for node_config in [
+        "",
+        r#"
+[crates.node.capsule_types.Language]
+type = "Language"
+from_module = "tree-sitter"
+property_name = "__parser"
+"#,
+    ] {
+        let config = test_config_from_toml(node_config);
+        let files = scaffold(&test_api(), &config, &[Language::Node]).expect("node scaffold");
+        let cargo = files
+            .iter()
+            .find(|file| file.path == Path::new("crates/my-lib-node/Cargo.toml"))
+            .expect("node manifest");
+        let manifest: toml::Value = toml::from_str(&cargo.content).expect("valid manifest");
+        let features = manifest["dependencies"]["napi"]["features"]
+            .as_array()
+            .expect("napi features");
+        assert_eq!(
+            features,
+            &vec![toml::Value::String("async".to_string())],
+            "untagged or absent capsules must retain the original N-API feature level"
+        );
+    }
+}
