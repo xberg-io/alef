@@ -398,6 +398,10 @@ mod tests {
             out.contains("__ALEF_CAPSULE_TAG_LANGUAGE"),
             "must emit constant for tagged entry: {out}"
         );
+        assert!(
+            out.contains(": napi::sys::napi_type_tag = napi::sys::napi_type_tag {"),
+            "must use the N-API ABI type for capsule tags: {out}"
+        );
         assert!(out.contains("0x8AF2E5212AD58ABF"), "must inline lower hex: {out}");
         assert!(out.contains("0xD5006CAD83ABBA16"), "must inline upper hex: {out}");
         assert!(

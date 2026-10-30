@@ -2542,7 +2542,7 @@ fn test_capsule_types_end_to_end() {
 
     assert!(
         content.contains("napi::sys::napi_create_external(") && !content.contains(r#"link(name = "node""#),
-        "N-API calls must go through napi::sys, not a node link, or the Windows addon imports node.dll; content:\n{content}"
+        "capsules must resolve N-API from the host process, without importing node.dll: \n{content}"
     );
 
     assert!(
@@ -2765,7 +2765,7 @@ fn test_capsule_types_method_on_opaque_rust_shim() {
 
     assert!(
         content.contains("napi::sys::napi_create_external(") && !content.contains(r#"link(name = "node""#),
-        "N-API calls must go through napi::sys, not a node link, or the Windows addon imports node.dll; content:\n{content}"
+        "capsules must resolve N-API from the host process, without importing node.dll: \n{content}"
     );
 
     assert!(

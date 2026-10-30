@@ -225,6 +225,13 @@ pub(crate) fn scaffold_node_cargo(
     };
 
     let mut napi_features = vec!["async"];
+    if config
+        .node
+        .as_ref()
+        .is_some_and(|node| node.capsule_types.values().any(|capsule| capsule.type_tag.is_some()))
+    {
+        napi_features.push("napi8");
+    }
     // `AlefJsReply<T>`'s fallback decode path (for any bridged-method payload/return shape
     // without a cheaper native `ToNapiValue`/`FromNapiValue`) goes through `serde_json::Value`,
     // which napi-rs's "serde-json" feature is what implements `ToNapiValue`/`FromNapiValue` for

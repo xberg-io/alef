@@ -76,6 +76,7 @@ jobs:
       setup-rust: true
       rust-use-sccache: false
       setup-python: true
+      check-adrs: true
 
   test:
     name: Test (${{ matrix.os }})

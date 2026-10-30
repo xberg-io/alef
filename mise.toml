@@ -8,7 +8,8 @@ task.run_auto_install = false
 
 [tools]
 "github:Goldziher/poly" = "0.31.2"
-"github:Goldziher/ai-rulez" = "5.9.2"
+"github:Goldziher/ai-rulez" = "5.9.3"
+"github:Goldziher/adrlint" = "0.4.0"
 python = "3.13.18"
 uv = "0.13.6"
 node = "26.12.1"
