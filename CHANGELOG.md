@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Remove four obsolete file-length lint exemptions from files already below the limit, reducing the baseline to 1,173 rule/file exemptions across 606 files.
+
 ### Fixed
 
 - Resolve Node capsule calls through the host N-API instead of importing Windows node.dll, and enable napi8 automatically for tagged capsules. (#742)
