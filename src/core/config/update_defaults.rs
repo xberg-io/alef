@@ -132,7 +132,9 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
                     // command could not run at all. ~keep
                     vec![
                         "pnpm self-update".to_string(),
-                        "pnpm up --latest -r -w --config.auto-install-peers=false --config.dedupe-peer-dependents=false"
+                        "pnpm up --latest -r --config.auto-install-peers=false --config.dedupe-peer-dependents=false"
+                            .to_string(),
+                        "pnpm up --latest -w --config.auto-install-peers=false --config.dedupe-peer-dependents=false"
                             .to_string(),
                     ],
                 ),
@@ -460,6 +462,28 @@ mod tests {
         for cmds in [&update, &upgrade] {
             assert!(cmds.contains("--config.auto-install-peers=false"));
             assert!(cmds.contains("--config.dedupe-peer-dependents=false"));
+        }
+    }
+
+    #[test]
+    fn pnpm_latest_updates_children_and_root_in_separate_guarded_steps() {
+        let guards = "--config.auto-install-peers=false --config.dedupe-peer-dependents=false";
+        for language in [Language::Node, Language::Wasm] {
+            let config = cfg(language, "packages/node");
+            assert_eq!(
+                config.upgrade.unwrap().commands(),
+                [
+                    "pnpm self-update".to_string(),
+                    format!("pnpm up --latest -r {guards}"),
+                    format!("pnpm up --latest -w {guards}"),
+                ],
+                "{language:?} must update workspace children and root"
+            );
+            assert_eq!(
+                config.update.unwrap().commands(),
+                [format!("pnpm up -r {guards}")],
+                "conservative updates must retain their current package manager"
+            );
         }
     }
 

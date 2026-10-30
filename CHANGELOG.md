@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Upgrade both child packages and the workspace root in pnpm latest plans for Node and WASM, retaining peer-dependency guards. (#747)
 - Allow embedded PyO3 fixture dependencies to resolve from an unprimed Cargo cache instead of relying on test execution order.
 
 ## [0.115.7] - 2026-10-30
