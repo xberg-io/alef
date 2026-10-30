@@ -133,6 +133,7 @@ mod language_php_dart;
 mod language_swift_kotlin_gleam_zig;
 mod licenses;
 mod marker_stamping;
+mod npm_manifest_format;
 mod package_filters;
 mod poly;
 mod poly_migrations;

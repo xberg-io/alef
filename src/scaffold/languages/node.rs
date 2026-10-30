@@ -505,7 +505,7 @@ fn generate_napi_platform_package_json(
     let package_name = napi_platform_package_name(parent_package_name, platform);
     let (os, cpu, libc) = napi_platform_os_cpu_libc(platform);
     let libc_field = libc
-        .map(|value| format!(",\n  \"libc\": [\"{value}\"]"))
+        .map(|value| format!(",\n  \"libc\": [\n    \"{value}\"\n  ]"))
         .unwrap_or_default();
     let binary_file = format!("{binary_name}.{platform}.node");
     let license_block = meta
@@ -520,11 +520,21 @@ fn generate_napi_platform_package_json(
   "name": "{package_name}",
   "version": "{version}"{license_block}{repository_block}{homepage_block}{bugs_block}{author_block}{keywords_block},
   "main": "{binary_file}",
-  "files": ["{binary_file}"],
-  "os": ["{os}"],
-  "cpu": ["{cpu}"]{libc_field},
-  "engines": {{ "node": "{node_engine}" }},
-  "publishConfig": {{ "access": "public" }}
+  "files": [
+    "{binary_file}"
+  ],
+  "os": [
+    "{os}"
+  ],
+  "cpu": [
+    "{cpu}"
+  ]{libc_field},
+  "engines": {{
+    "node": "{node_engine}"
+  }},
+  "publishConfig": {{
+    "access": "public"
+  }}
 }}
 "#,
         node_engine = tv::npm::NODE_ENGINE,
@@ -574,10 +584,11 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         "index.js"
     };
     let files_list = if has_service_api {
-        "[\"index.js\", \"binding.cjs\", \"index.mjs\", \"index-wrapper.cjs\", \"index.d.ts\", \"service.cjs\", \"*.node\"]"
+        "[\n    \"index.js\",\n    \"binding.cjs\",\n    \"index.mjs\",\n    \"index-wrapper.cjs\",\n    \"index.d.ts\",\n    \"service.cjs\",\n    \"*.node\"\n  ]"
             .to_string()
     } else {
-        "[\"index.js\", \"binding.cjs\", \"index.mjs\", \"index.d.ts\", \"*.node\"]".to_string()
+        "[\n    \"index.js\",\n    \"binding.cjs\",\n    \"index.mjs\",\n    \"index.d.ts\",\n    \"*.node\"\n  ]"
+            .to_string()
     };
     // When a service API is present, `service.cjs` is a real module (the low-level ~keep
     // service `App`); expose it as a `./service` subpath so consumers can ~keep
@@ -636,9 +647,15 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     "artifacts": "npx --yes -p @napi-rs/cli@{napi_rs_cli_crate} napi artifacts",
     "prepublishOnly": "npx --yes -p @napi-rs/cli@{napi_rs_cli_crate} napi prepublish -t npm --skip-optional-publish"
   }},
-  "engines": {{ "node": "{node_engine}" }},
-  "publishConfig": {{ "access": "public" }},
-  "devDependencies": {{ "@napi-rs/cli": "{napi_rs_cli_crate}" }}
+  "engines": {{
+    "node": "{node_engine}"
+  }},
+  "publishConfig": {{
+    "access": "public"
+  }},
+  "devDependencies": {{
+    "@napi-rs/cli": "{napi_rs_cli_crate}"
+  }}
 }}
 "#,
         package_name = package_name,
@@ -827,7 +844,10 @@ fn npm_publish_metadata_blocks(meta: &ScaffoldMeta) -> (String, String, String, 
                 primary_block
             } else {
                 let entries: Vec<String> = rest.iter().map(|a| format!("\"{a}\"")).collect();
-                format!("{primary_block},\n  \"contributors\": [{}]", entries.join(", "))
+                format!(
+                    "{primary_block},\n  \"contributors\": [\n    {}\n  ]",
+                    entries.join(",\n    ")
+                )
             }
         }
     };
@@ -835,114 +855,13 @@ fn npm_publish_metadata_blocks(meta: &ScaffoldMeta) -> (String, String, String, 
         String::new()
     } else {
         let entries: Vec<String> = meta.keywords.iter().map(|k| format!("\"{k}\"")).collect();
-        format!(",\n  \"keywords\": [{}]", entries.join(", "))
+        format!(",\n  \"keywords\": [\n    {}\n  ]", entries.join(",\n    "))
     };
     (homepage_block, bugs_block, author_block, keywords_block)
 }
 
 #[cfg(test)]
-mod migrate_tests {
-    use super::*;
-
-    fn pre_fix_service_package_json() -> String {
-        format!(
-            "{{\n  \"name\": \"@scope/example\",\n  \"version\": \"1.0.0\",\n  \"main\": \"index-wrapper.cjs\",\n  \"types\": \"index.d.ts\",\n  {STALE_SERVICE_EXPORTS_MAP}\n  \"files\": [\"index.js\", \"index-wrapper.cjs\", \"index.d.ts\", \"service.cjs\", \"*.node\"],\n  \"scripts\": {{\n    \"build\": \"napi build\"\n  }}\n}}\n"
-        )
-    }
-
-    #[test]
-    fn should_add_service_subpath_export_when_missing_from_service_api_crate() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let pkg_dir = dir.path().join("crates/example-node");
-        std::fs::create_dir_all(&pkg_dir).expect("create crates/example-node");
-        std::fs::write(pkg_dir.join("package.json"), pre_fix_service_package_json())
-            .expect("write pre-fix package.json");
-
-        let relative_path = Path::new("crates/example-node/package.json");
-        let changed =
-            migrate_node_package_json_service_export(dir.path(), relative_path).expect("migration must not error");
-        assert!(
-            changed,
-            "a service-API package.json missing ./service export must be reported as changed"
-        );
-
-        let on_disk = std::fs::read_to_string(pkg_dir.join("package.json")).expect("read migrated file");
-        let parsed: serde_json::Value = serde_json::from_str(&on_disk).expect("migrated file must be valid JSON");
-        assert_eq!(parsed["exports"]["./service"]["require"], "./service.cjs");
-        assert_eq!(
-            parsed["exports"]["."]["require"], "./index-wrapper.cjs",
-            "the root export must be preserved"
-        );
-        assert_eq!(
-            parsed["scripts"]["build"], "napi build",
-            "fields outside exports must survive untouched"
-        );
-
-        let changed_again =
-            migrate_node_package_json_service_export(dir.path(), relative_path).expect("second pass must not error");
-        assert!(
-            !changed_again,
-            "second pass over an already-migrated file must be a no-op"
-        );
-    }
-
-    #[test]
-    fn should_not_touch_a_non_service_package_json() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let pkg_dir = dir.path().join("crates/example-node");
-        std::fs::create_dir_all(&pkg_dir).expect("create crates/example-node");
-        let non_service = "{\n  \"name\": \"@scope/example\",\n  \"main\": \"index.js\",\n  \"exports\": {\n    \".\": {\n      \"types\": \"./index.d.ts\",\n      \"require\": \"./index.js\",\n      \"default\": \"./index.js\"\n    }\n  },\n  \"files\": [\"index.js\", \"index.d.ts\", \"*.node\"]\n}\n";
-        std::fs::write(pkg_dir.join("package.json"), non_service).expect("write non-service package.json");
-
-        let relative_path = Path::new("crates/example-node/package.json");
-        let changed =
-            migrate_node_package_json_service_export(dir.path(), relative_path).expect("migration must not error");
-        assert!(
-            !changed,
-            "a package.json with no service.cjs in files must never be touched"
-        );
-
-        let on_disk = std::fs::read_to_string(pkg_dir.join("package.json")).expect("read file");
-        assert_eq!(
-            on_disk, non_service,
-            "a non-service package.json must survive byte-for-byte"
-        );
-    }
-
-    #[test]
-    fn should_not_touch_a_package_json_that_already_has_the_service_export() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let pkg_dir = dir.path().join("crates/example-node");
-        std::fs::create_dir_all(&pkg_dir).expect("create crates/example-node");
-        let already_fixed = format!(
-            "{{\n  \"name\": \"@scope/example\",\n  {FIXED_SERVICE_EXPORTS_MAP}\n  \"files\": [\"index.js\", \"index-wrapper.cjs\", \"index.d.ts\", \"service.cjs\", \"*.node\"]\n}}\n"
-        );
-        std::fs::write(pkg_dir.join("package.json"), &already_fixed).expect("write already-fixed package.json");
-
-        let relative_path = Path::new("crates/example-node/package.json");
-        let changed =
-            migrate_node_package_json_service_export(dir.path(), relative_path).expect("migration must not error");
-        assert!(
-            !changed,
-            "a package.json that already has the ./service export must never be touched"
-        );
-
-        let on_disk = std::fs::read_to_string(pkg_dir.join("package.json")).expect("read file");
-        assert_eq!(
-            on_disk, already_fixed,
-            "an already-fixed package.json must survive byte-for-byte"
-        );
-    }
-
-    #[test]
-    fn migrate_node_service_export_is_a_no_op_when_file_does_not_exist() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let relative_path = Path::new("crates/example-node/package.json");
-        let changed = migrate_node_package_json_service_export(dir.path(), relative_path).expect("must not error");
-        assert!(!changed);
-        assert!(!dir.path().join(relative_path).exists());
-    }
-}
+mod migrate_tests;
 
 /// Regression for alef-task #374: an `excluded_default_features` name that gates no item in the
 /// extracted API surface (e.g. a Cargo-only feature that only affects a dependency's `build.rs`
