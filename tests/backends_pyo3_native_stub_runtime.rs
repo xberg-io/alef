@@ -9,8 +9,8 @@ use alef::e2e::config::E2eConfig;
 use std::path::Path;
 use std::process::{Command, Output};
 
-#[path = "support/mise_task.rs"]
-mod mise_task;
+#[path = "support/python_native.rs"]
+mod python_native;
 
 #[test]
 fn should_forward_instance_methods_to_public_dataclasses_and_keep_static_helpers_native() {
@@ -212,19 +212,25 @@ fn run_native(root: &Path, api: &ApiSurface, config: &ResolvedCrateConfig) {
         "sample-py/src/public_probe.py",
         include_str!("pyo3_native_stub/public_probe.py"),
     );
-    write(
-        root,
-        "sample-py/mise.toml",
-        "[tasks.test]\nrun = [\"cargo clippy --offline --quiet --lib -- -D warnings\", \"cargo test --offline --quiet --lib\"]\n",
-    );
     let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/pyo3-native-stub-probe");
-    let tested = mise_task::mise_run(&root.join("sample-py"), "test")
-        .env("CARGO_TARGET_DIR", target)
-        .env("RUSTC_WRAPPER", "")
-        .output()
-        .unwrap();
-    assert_success(&tested);
-    assert!(String::from_utf8_lossy(&tested.stdout).contains("1 passed"));
+    for args in [
+        vec!["clippy", "--offline", "--quiet", "--lib", "--", "-D", "warnings"],
+        vec!["test", "--offline", "--quiet", "--lib"],
+    ] {
+        let mut command = Command::new("cargo");
+        python_native::configure_python(&mut command);
+        let tested = command
+            .args(&args)
+            .current_dir(root.join("sample-py"))
+            .env("CARGO_TARGET_DIR", &target)
+            .env("RUSTC_WRAPPER", "")
+            .output()
+            .unwrap();
+        assert_success(&tested);
+        if args[0] == "test" {
+            assert!(String::from_utf8_lossy(&tested.stdout).contains("1 passed"));
+        }
+    }
 }
 
 fn write(root: &Path, relative: &str, content: &str) {

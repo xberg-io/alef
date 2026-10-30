@@ -63,7 +63,9 @@ pub fn run() {
     source.push_str(RUNTIME_TEST);
     std::fs::write(binding.join("src/lib.rs"), source).unwrap();
     std::fs::write(binding.join("src/runtime.py"), include_str!("runtime.py")).unwrap();
-    let output = std::process::Command::new("cargo")
+    let mut command = std::process::Command::new("cargo");
+    super::python_native::configure_python(&mut command);
+    let output = command
         .args(["test", "--quiet", "--manifest-path"])
         .arg(binding.join("Cargo.toml"))
         .current_dir(&binding)

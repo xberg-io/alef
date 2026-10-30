@@ -5,8 +5,8 @@ use alef::core::ir::{ApiSurface, FunctionDef, MethodDef, ParamDef, ReceiverKind,
 use quote::ToTokens;
 
 #[cfg(unix)]
-#[path = "support/mise_task.rs"]
-mod mise_task;
+#[path = "support/python_native.rs"]
+mod python_native;
 #[cfg(unix)]
 #[path = "backends_pyo3_capsule_gil_test/runtime.rs"]
 mod runtime;

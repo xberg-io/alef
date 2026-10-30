@@ -125,7 +125,9 @@ fn verify_mode(dir: &std::path::Path, target: &std::path::Path, mode: &str) {
         .unwrap()
         .content;
     std::fs::write(binding.join("src/service.rs"), service).unwrap();
-    let output = std::process::Command::new("cargo")
+    let mut command = std::process::Command::new("cargo");
+    super::python_native::configure_python(&mut command);
+    let output = command
         .args(["test", "--quiet", "--manifest-path"])
         .arg(binding.join("Cargo.toml"))
         .env("CARGO_TARGET_DIR", target)

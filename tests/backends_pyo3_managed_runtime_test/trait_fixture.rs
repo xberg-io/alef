@@ -104,7 +104,9 @@ fn verify_mode(directory: &std::path::Path, mode: &str) {
     let target = std::env::var_os("ALEF_LIFECYCLE_TARGET")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| directory.join("target"));
-    let output = std::process::Command::new("cargo")
+    let mut command = std::process::Command::new("cargo");
+    super::python_native::configure_python(&mut command);
+    let output = command
         .args(["test", "--quiet", "--manifest-path"])
         .arg(binding.join("Cargo.toml"))
         .env("CARGO_TARGET_DIR", target)

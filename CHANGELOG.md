@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Configure the selected Python shared library for all embedded PyO3 integration runtime fixtures on macOS.
+
 ## [0.115.7] - 2026-10-30
 
 ### Changed

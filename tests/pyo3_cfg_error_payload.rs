@@ -5,8 +5,8 @@ use alef::core::config::{NewAlefConfig, ResolvedCrateConfig};
 use alef::core::ir::ApiSurface;
 use std::path::Path;
 
-#[path = "support/mise_task.rs"]
-mod mise_task;
+#[path = "support/python_native.rs"]
+mod python_native;
 
 fn surface(root: &Path) -> (ApiSurface, ResolvedCrateConfig) {
     let source = root.join("lib.rs");
@@ -54,17 +54,19 @@ fn should_compile_and_preserve_python_payload_with_core_feature_off_and_on() {
     let root = tempfile::tempdir().unwrap();
     let (api, config) = surface(root.path());
     write_native_fixture(root.path(), &api, &config);
-    for features in ["", "--features http"] {
+    for features in [vec![], vec!["--features", "http"]] {
         let target = std::env::var("ALEF_PYTHON_CFG_NATIVE_TARGET").unwrap_or_else(|_| {
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("target/pyo3-cfg-error-payload")
                 .display()
                 .to_string()
         });
-        let task =
-            format!("[tasks.test]\nrun = \"cargo test --offline --quiet --lib --no-default-features {features}\"\n");
-        write(root.path(), "sample-py/mise.toml", &task);
-        let result = mise_task::mise_run(&root.path().join("sample-py"), "test")
+        let mut command = std::process::Command::new("cargo");
+        python_native::configure_python(&mut command);
+        let result = command
+            .args(["test", "--offline", "--quiet", "--lib", "--no-default-features"])
+            .args(&features)
+            .current_dir(root.path().join("sample-py"))
             .env("CARGO_TARGET_DIR", target)
             .env("RUSTC_WRAPPER", "")
             .output()

@@ -1,3 +1,6 @@
+#[path = "support/python_native.rs"]
+mod python_native;
+
 use alef::backends::pyo3::Pyo3Backend;
 use alef::core::backend::Backend;
 use alef::core::config::NewAlefConfig;

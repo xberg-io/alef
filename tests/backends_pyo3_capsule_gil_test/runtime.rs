@@ -26,11 +26,6 @@ fn fixture(generated: &str, enabled: bool) -> tempfile::TempDir {
     );
     write(root, "sample-py/src/lib.rs", &source);
     write(root, "sample-py/src/probe.py", include_str!("probe.py"));
-    write(
-        root,
-        "sample-py/mise.toml",
-        "[tasks.test]\nrun = \"cargo test --quiet --lib\"\n",
-    );
     directory
 }
 
@@ -38,7 +33,11 @@ pub fn run(generated: &str, enabled: bool) {
     let directory = fixture(generated, enabled);
     let root = directory.path();
     let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/pyo3-capsule-gil-probe");
-    let output = super::mise_task::mise_run(&root.join("sample-py"), "test")
+    let mut command = std::process::Command::new("cargo");
+    super::python_native::configure_python(&mut command);
+    let output = command
+        .args(["test", "--quiet", "--lib"])
+        .current_dir(root.join("sample-py"))
         .env("CARGO_TARGET_DIR", target)
         .env("RUSTC_WRAPPER", "")
         .output()
