@@ -15,6 +15,7 @@ mod isolated_process;
 pub(crate) use isolated_process::run_in_isolated_process;
 #[path = "../tests/support/mise_task.rs"]
 pub(crate) mod mise_task;
+pub(crate) mod ruby_native;
 pub(crate) mod toolchain;
 
 use std::path::{Path, PathBuf};

@@ -2,6 +2,7 @@ use super::MagnusBackend;
 use crate::core::backend::Backend;
 use crate::core::config::{NewAlefConfig, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
+use crate::test_support::ruby_native::{artifact_directory, configure_build_target, ruby_native_target};
 use crate::test_support::toolchain;
 use quote::ToTokens;
 use std::path::Path;
@@ -158,6 +159,7 @@ fn write_fixture(root: &Path, api: &ApiSurface, config: &ResolvedCrateConfig) {
         crate::core::template_versions::cargo::MAGNUS,
     );
     std::fs::write(root.join("Cargo.toml"), manifest).unwrap();
+    std::fs::write(root.join("mise.toml"), "[tasks.build]\nrun = \"cargo build --quiet\"\n").unwrap();
     let public = MagnusBackend.generate_public_api(api, config).unwrap();
     let native = public
         .iter()
@@ -203,15 +205,15 @@ fn generated_tagged_enums_reconstruct_typed_ruby_variants_and_keep_json_fallback
         .parent()
         .unwrap()
         .join("ruby-tagged-runtime-cache");
-    let output = Command::new("cargo")
-        .args(["build", "--quiet", "--manifest-path"])
-        .arg(root.path().join("Cargo.toml"))
+    let rust_target = ruby_native_target(&ruby);
+    let mut build = crate::test_support::mise_task::mise_run(root.path(), "build");
+    build
         .env("CARGO_TARGET_DIR", &target)
         .env("CARGO_BUILD_JOBS", "2")
         .env("RUSTC_WRAPPER", "")
-        .env("RB_SYS_RUBY", &ruby)
-        .output()
-        .expect("compile generated Magnus conversions");
+        .env("RUBY", &ruby);
+    configure_build_target(&mut build, rust_target);
+    let output = build.output().expect("compile generated Magnus conversions");
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     for (scenario, expected) in [
         ("missing-classes", 5),
@@ -220,8 +222,8 @@ fn generated_tagged_enums_reconstruct_typed_ruby_variants_and_keep_json_fallback
         ("fallback", 10),
     ] {
         let mut command = Command::new(
-            target
-                .join("debug/ruby-enum-reconstruction")
+            artifact_directory(&target, rust_target)
+                .join("ruby-enum-reconstruction")
                 .with_extension(std::env::consts::EXE_EXTENSION),
         );
         command.args([scenario]).arg(root.path().join("variants.rb"));
