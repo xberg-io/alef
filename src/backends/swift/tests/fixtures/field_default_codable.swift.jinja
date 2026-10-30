@@ -1,0 +1,50 @@
+import Foundation
+
+{{ budget_declaration }}
+
+{{ options_declaration }}
+
+let base: [String: Any] = ["model": "caller-selected", "retries": 2]
+var explicit = base
+explicit["budget"] = ["max_bytes": 7, "max_items": 3]
+var empty = base
+empty["budget"] = [String: Any]()
+var null = base
+null["budget"] = NSNull()
+var wrong = base
+wrong["budget"] = "invalid"
+var missingRequired = empty
+missingRequired.removeValue(forKey: "model")
+let cases: [(String, [String: Any], Bool, [UInt32])] = [
+    ("explicit values", explicit, true, [7, 3]),
+    ("nested defaults", empty, true, [512, 8]),
+    ("missing field default", base, true, [512, 8]),
+    ("null rejected", null, false, []),
+    ("wrong type rejected", wrong, false, []),
+    ("required sibling rejected", missingRequired, false, []),
+]
+var rows = [[String: Any]]()
+var failures = 0
+for (name, payload, expectedSuccess, expectedBudget) in cases {
+    do {
+        let bytes = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        let value = try JSONDecoder().decode(Options.self, from: bytes)
+        let budget = [value.budget.maxBytes, value.budget.maxItems]
+        let passed = expectedSuccess && budget == expectedBudget
+        if !passed { failures += 1 }
+        rows.append(["case": name, "passed": passed, "decoded": true, "budget": budget])
+    } catch {
+        let passed = !expectedSuccess
+        if !passed { failures += 1 }
+        rows.append(["case": name, "passed": passed, "decoded": false, "error": String(describing: error)])
+    }
+}
+let results: [String: Any] = [
+    "collected": cases.count,
+    "passed": cases.count - failures,
+    "failed": failures,
+    "cases": rows,
+]
+let output = try JSONSerialization.data(withJSONObject: results, options: [.sortedKeys])
+print(String(data: output, encoding: .utf8)!)
+exit(failures == 0 ? 0 : 1)
