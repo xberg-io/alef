@@ -352,33 +352,30 @@ mod tests {
     /// Regression: descriptive prose mentioning alef in the header (e.g.
     /// `# Test apps are driven by alef`) must NOT register as alef-owned.
     /// Before tightening, the loose `by alef` substring matched any line
-    /// containing "by alef" — including `.task/test-apps.yml`'s descriptive
-    /// header — and alef's cleanup pass deleted it on every regen, breaking
-    /// Taskfile.yml's include of the file.
+    /// containing "by alef", so a hand-written task file whose descriptive
+    /// header mentions alef was deleted by alef's cleanup pass on every regen.
     #[test]
     fn cleanup_preserves_file_with_descriptive_prose_mentioning_alef() {
         use super::has_alef_self_referential_header;
 
         let tempdir = tempfile::tempdir().expect("tempdir");
-        let task_dir = tempdir.path().join(".task");
-        fs::create_dir_all(&task_dir).expect("create .task dir");
+        let task_dir = tempdir.path().join("mise-tasks");
+        fs::create_dir_all(&task_dir).expect("create mise-tasks dir");
 
-        let descriptive = task_dir.join("test-apps.yml");
+        let descriptive = task_dir.join("test-apps.toml");
         fs::write(
             &descriptive,
-            "version: \"3\"\n\
-             \n\
-             # Test apps are driven by alef (`alef test-apps run`). The per-language\n\
+            "# Test apps are driven by alef (`alef test-apps run`). The per-language\n\
              # commands live in alef.toml; a single alef invocation exercises every\n\
              # published binding consistently. Homebrew is run separately because\n\
              # alef does not yet manage the brew tap.\n\
              \n\
-             tasks:\n  all:\n    cmds:\n      - echo hi\n",
+             [\"test-apps:all\"]\nrun = \"echo hi\"\n",
         )
         .expect("write descriptive file");
 
-        let alef_file = task_dir.join("c.yml");
-        fs::write(&alef_file, format!("# alef:hash:{TEST_HASH}\nversion: \"3\"\n")).expect("write alef file");
+        let alef_file = task_dir.join("c.toml");
+        fs::write(&alef_file, format!("# alef:hash:{TEST_HASH}\n[\"c:build\"]\n")).expect("write alef file");
 
         assert!(
             !has_alef_self_referential_header(&descriptive),
