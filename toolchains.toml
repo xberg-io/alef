@@ -1,2 +1,2 @@
-baseline = "v1.12.0"
+baseline = "v1.12.1"
 task_sets = ["governance", "governance-check", "lint-format"]
