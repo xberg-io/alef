@@ -4,7 +4,7 @@
 version = 1
 ai_rulez_version = '5.9.2'
 scope = 'all'
-tree = 'sha256:d0c3a8d9a046123e764ae6443e3bbb54309240455ed51fa9e43bfd6ca169735a'
+tree = 'sha256:add17abea94fd136b15e159dfefc41d805b3c466961d10cba8ba9125c336c0bf'
 
 [[include]]
 name = 'xberg-cicd'
@@ -46,7 +46,7 @@ digest = 'sha256:24e1e82ac9008a98e08275e25263f1b59447205d04ed0865a1e1328be76d22f
 name = 'alef'
 source = 'skills/alef'
 commit = ''
-digest = 'sha256:0209703d24d54468568b1d9f7cb677422b1088f059e7a2d91d7198f0f55b513b'
+digest = 'sha256:385deca31f0805685eeef3d79e0c9be1639fcc53e24e63eaf71502dbf4ce988e'
 
 [[served]]
 name = 'basemind-tools'
