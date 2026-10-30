@@ -167,6 +167,7 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version: "1.27"
+      # Dart/Flutter stay on their setup action (toolchain-management rule). ~keep
       - name: Set up Dart for constructor default runtime checks
         uses: dart-lang/setup-dart@v1
         with:
@@ -174,6 +175,8 @@ jobs:
       - uses: xberg-io/actions/setup-zig@v1
         with:
           version: "0.17.0"
+      # BEAM stays on its setup action until mise's Erlang/Elixir install is evaluated
+      # (toolchain-management rule). ~keep
       - uses: xberg-io/actions/setup-elixir@v1
         with:
           elixir-version: "1.19"
@@ -228,7 +231,8 @@ jobs:
         with:
           tool: wasm-bindgen-cli
       # The C# identifier-grammar oracle (`ALEF_REQUIRE_DOTNET` below) needs a real `dotnet` on
-      # PATH; nothing else in this job installed one before this step existed.
+      # PATH; nothing else in this job installed one before this step existed. dotnet stays on
+      # its setup action: mise.lock cannot lock it (toolchain-management rule). ~keep
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
