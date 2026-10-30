@@ -20,7 +20,7 @@ pub fn componentLastErrorCode() ?[]const u8 {{
 
 /// Download, verify, dynamically load, and pin a configured component.
 pub fn componentLoad(allocator: std.mem.Allocator, component: []const u8) (ComponentError || std.mem.Allocator.Error)!void {{
-    const component_z = try allocator.dupeZ(u8, component);
+    const component_z = try allocator.dupeSentinel(u8, component, 0);
     defer allocator.free(component_z);
     if (c.{prefix}_component_load(component_z.ptr) != 0) return ComponentError.ComponentOperationFailed;
 }}
@@ -31,7 +31,7 @@ pub fn componentPrefetch(
     allocator: std.mem.Allocator,
     component: ?[]const u8,
 ) (ComponentError || std.mem.Allocator.Error)![]u8 {{
-    const component_z = if (component) |value| try allocator.dupeZ(u8, value) else null;
+    const component_z = if (component) |value| try allocator.dupeSentinel(u8, value, 0) else null;
     defer if (component_z) |value| allocator.free(value);
     const raw = c.{prefix}_component_prefetch(if (component_z) |value| value.ptr else null);
     return takeComponentString(allocator, raw);
@@ -43,7 +43,7 @@ pub fn componentStatus(
     allocator: std.mem.Allocator,
     component: []const u8,
 ) (ComponentError || std.mem.Allocator.Error)![]u8 {{
-    const component_z = try allocator.dupeZ(u8, component);
+    const component_z = try allocator.dupeSentinel(u8, component, 0);
     defer allocator.free(component_z);
     return takeComponentString(allocator, c.{prefix}_component_status(component_z.ptr));
 }}
@@ -54,7 +54,7 @@ pub fn componentStatusCode(
     allocator: std.mem.Allocator,
     component: []const u8,
 ) (ComponentError || std.mem.Allocator.Error)!i32 {{
-    const component_z = try allocator.dupeZ(u8, component);
+    const component_z = try allocator.dupeSentinel(u8, component, 0);
     defer allocator.free(component_z);
     const result = c.{prefix}_component_status_code(component_z.ptr);
     if (result < 0) return ComponentError.ComponentOperationFailed;
@@ -66,7 +66,7 @@ pub fn componentCachePath(
     allocator: std.mem.Allocator,
     component: []const u8,
 ) (ComponentError || std.mem.Allocator.Error)![]u8 {{
-    const component_z = try allocator.dupeZ(u8, component);
+    const component_z = try allocator.dupeSentinel(u8, component, 0);
     defer allocator.free(component_z);
     return takeComponentString(allocator, c.{prefix}_component_cache_path(component_z.ptr));
 }}
@@ -86,6 +86,15 @@ fn takeComponentString(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn should_emit_explicit_zero_sentinels_for_component_names() {
+        let mut generated = String::new();
+        emit("sample", &mut generated);
+        assert_eq!(generated.matches("allocator.dupeSentinel(u8,").count(), 5);
+        assert!(generated.contains("allocator.dupeSentinel(u8, value, 0) else null"));
+        assert!(!generated.contains(".dupeZ("));
+    }
 
     #[test]
     fn emits_zig_wrappers_over_shared_c_manager() {

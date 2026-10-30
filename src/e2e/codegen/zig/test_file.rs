@@ -722,7 +722,7 @@ fn render_test_fn(
                 // Build a sentinel-terminated request string.
                 let _ = writeln!(
                     out,
-                    "    const _req_z = try std.heap.c_allocator.dupeZ(u8, {args_str});"
+                    "    const _req_z = try std.heap.c_allocator.dupeSentinel(u8, {args_str}, 0);"
                 );
                 let _ = writeln!(out, "    defer std.heap.c_allocator.free(_req_z);");
                 let _ = writeln!(

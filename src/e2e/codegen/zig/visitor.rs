@@ -130,7 +130,7 @@ pub(super) fn emit_visitor_test_body(
     let escaped_options = escape_zig(&options_json);
     let _ = writeln!(
         out,
-        "    const _options_z = try std.heap.c_allocator.dupeZ(u8, \"{escaped_options}\");"
+        "    const _options_z = try std.heap.c_allocator.dupeSentinel(u8, \"{escaped_options}\", 0);"
     );
     let _ = writeln!(out, "    defer std.heap.c_allocator.free(_options_z);");
     let _ = writeln!(
@@ -153,7 +153,7 @@ pub(super) fn emit_visitor_test_body(
     let escaped_html = escape_zig(html);
     let _ = writeln!(
         out,
-        "    const _html_z = try std.heap.c_allocator.dupeZ(u8, \"{escaped_html}\");"
+        "    const _html_z = try std.heap.c_allocator.dupeSentinel(u8, \"{escaped_html}\", 0);"
     );
     let _ = writeln!(out, "    defer std.heap.c_allocator.free(_html_z);");
     let _ = writeln!(
@@ -307,6 +307,29 @@ mod zig_visitor_tests {
             &HashSet::new(),
         );
         (symbols, visitor_spec, resolver)
+    }
+
+    #[test]
+    fn should_emit_explicit_zero_sentinels_for_visitor_inputs() {
+        let (symbols, visitor_spec, resolver) = default_test_fixtures();
+        let mut generated = String::new();
+        emit_visitor_test_body(
+            &mut generated,
+            "sentinels",
+            "<p>sample</p>",
+            None,
+            &visitor_spec,
+            "sample",
+            &symbols,
+            &[],
+            false,
+            &resolver,
+            true,
+        );
+        assert_eq!(generated.matches("std.heap.c_allocator.dupeSentinel(u8,").count(), 2);
+        assert!(generated.contains("std.heap.c_allocator.dupeSentinel(u8, \"{}\", 0)"));
+        assert!(generated.contains("std.heap.c_allocator.dupeSentinel(u8, \"<p>sample</p>\", 0)"));
+        assert!(!generated.contains(".dupeZ("));
     }
 
     // Regression test for the generated Zig snippet compile failure: Zig errors on an

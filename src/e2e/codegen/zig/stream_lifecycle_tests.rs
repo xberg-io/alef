@@ -98,6 +98,20 @@ fn render_stream_shape(assertion: Option<&str>, function: &str, json_result: boo
 }
 
 #[test]
+fn should_emit_explicit_zero_sentinels_for_stream_tests() {
+    for assertion in [None, Some("not_empty")] {
+        let rendered = render_stream(assertion);
+        let allocation = rendered
+            .lines()
+            .find(|line| line.contains("const _req_z ="))
+            .expect("stream request allocation");
+        assert!(allocation.contains("std.heap.c_allocator.dupeSentinel(u8,"));
+        assert!(allocation.ends_with(", 0);"), "{allocation}");
+        assert!(!rendered.contains(".dupeZ("));
+    }
+}
+
+#[test]
 fn stream_without_field_assertions_is_drained_and_freed() {
     for assertion in [None, Some("not_error")] {
         let rendered = render_stream(assertion);

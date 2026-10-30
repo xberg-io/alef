@@ -151,7 +151,7 @@ fn callback_body(method: &str, action: &CallbackAction) -> String {
             let escaped = escape_zig_string(output);
             let _ = writeln!(
                 out,
-                "        const _buf = std.heap.c_allocator.dupeZ(u8, \"{escaped}\") catch return 0;"
+                "        const _buf = std.heap.c_allocator.dupeSentinel(u8, \"{escaped}\", 0) catch return 0;"
             );
             let _ = writeln!(out, "        if (out_custom != null) out_custom.* = _buf.ptr;");
             let _ = writeln!(out, "        if (out_len != null) out_len.* = _buf.len;");
@@ -358,9 +358,23 @@ pub(super) fn build_zig_visitor(
 
 #[cfg(test)]
 mod tests {
-    use super::{ZigVisitorCTypes, build_zig_visitor};
+    use super::{ZigVisitorCTypes, build_zig_visitor, callback_body};
     use crate::e2e::fixture::{CallbackAction, VisitorSpec};
     use std::collections::BTreeMap;
+
+    #[test]
+    fn should_emit_explicit_zero_sentinels_for_custom_visitor_output() {
+        let generated = callback_body(
+            "visit_text",
+            &CallbackAction::Custom {
+                output: "sample".into(),
+            },
+        );
+        assert!(generated.contains("std.heap.c_allocator.dupeSentinel(u8, \"sample\", 0)"));
+        assert!(generated.contains("out_custom.* = _buf.ptr"));
+        assert!(generated.contains("out_len.* = _buf.len"));
+        assert!(!generated.contains(".dupeZ("));
+    }
 
     #[test]
     fn visitor_callbacks_use_configured_c_type_names() {

@@ -664,7 +664,7 @@ mod snippet_module_tests {
     }
 
     /// Net brace depth of `source`, ignoring braces inside string literals and line comments —
-    /// a generated Zig snippet is full of both (`dupeZ(u8, "{}")`, `.{}` in format calls).
+    /// a generated Zig snippet is full of both (`dupeSentinel(u8, "{}", 0)`, `.{}` in format calls).
     fn brace_depth(source: &str) -> i32 {
         let mut depth = 0;
         let mut in_string = false;

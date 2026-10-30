@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Emit explicit zero-sentinel Zig allocations with `dupeSentinel`, retaining Zig 0.16 compatibility and supporting Zig 0.17. (#744)
 - Pin the ai-rulez validation hook to 5.9.3, matching the locked toolchain CLI.
 - Resolve the selected Python shared library for embedded PyO3 runtime fixtures on macOS without changing the parent loader environment.
 - Refresh the Android Gradle snapshot for the configured AGP 9.5.0 version.
