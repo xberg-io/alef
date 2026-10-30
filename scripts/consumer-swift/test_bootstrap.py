@@ -17,8 +17,6 @@ class InstallFailureError(RuntimeError):
 
 class RecordingGate:
     def __init__(self, fail_install=False):
-        self.actions = Path("/owned/actions")
-        self.poly = Path("/owned/poly")
         self.alef = Path("/owned/alef")
         self.env = {"RUSTUP_TOOLCHAIN": "1.99.1", "RUSTUP_AUTO_INSTALL": "1"}
         self.calls = []

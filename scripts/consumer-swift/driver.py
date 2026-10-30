@@ -18,7 +18,6 @@ import native_receipts
 import negative
 import receipts
 import runtime
-import tool_assets
 from contracts import immutable_ref, safe_test_census
 from strict_flags import strict_flags
 
@@ -30,7 +29,6 @@ class Gate:
         self.python = sys.executable
         self.evidence = self.root / "consumer-evidence"
         self.alef, self.xberg = self.root / "alef", self.root / "xberg"
-        self.actions, self.poly = self.root / "actions", self.root / "poly-installer"
         self.tools = self.evidence / "tools"
         self.bin = self.tools / "bin"
         self.bin.mkdir(parents=True)
@@ -261,8 +259,19 @@ class Gate:
             shutil.copy2(raw_source, destination)
         if receipts.sha(self.xberg / "Cargo.lock") != lock:
             raise RuntimeError("source Cargo.lock changed")
-        positive = self.command("canonical-safe-package-tests", ["task", "swift:test"], self.xberg, 2 * 1024**3, 900)
-        output = (positive / "stdout.log").read_text() + (positive / "stderr.log").read_text()
+        # xberg's mise tasks define no Swift package test: `swift:e2e` runs the separate e2e package and
+        # `test:bindings` every language. These are the steps of its former `swift:test` task, which alef.toml
+        # `[crates.test.swift]` still declares as `cd packages/swift && swift test`. ~keep
+        output = ""
+        for name, argv in [
+            (
+                "canonical-swift-binding-build",
+                ["cargo", "build", "--locked", "--release", "--manifest-path", "rust/Cargo.toml"],
+            ),
+            ("canonical-safe-package-tests", ["swift", "test"]),
+        ]:
+            stage = self.command(name, argv, package, 2 * 1024**3, 900)
+            output += (stage / "stdout.log").read_text() + (stage / "stderr.log").read_text()
         tests = receipts.tests_passed(output)
         if "dynamic_lookup" in output or "warning:" in output:
             raise RuntimeError("strict positive contains global allowance or compiler/linker warning")
@@ -291,7 +300,7 @@ def harness_controls():
     root = Path(os.environ["GITHUB_WORKSPACE"])
     evidence = Path(os.environ.get("SWIFT_GATE_CONTROL_EVIDENCE", str(root / "consumer-controls-evidence")))
     suite = unittest.defaultTestLoader.discover(str(Path(__file__).parent), pattern="test_*.py")
-    expected = 45
+    expected = 47
     actual = suite.countTestCases()
     if actual != expected:
         (evidence / "census-refusal.json").write_text(json.dumps({"expected": expected, "discovered": actual}))
@@ -312,45 +321,21 @@ def harness_controls():
         raise RuntimeError("required harness controls failed or were skipped")
 
 
-def bootstrap_task():
-    destination = Path(os.environ["RUNNER_TEMP"]).resolve(strict=True) / "consumer-task-bin"
-    destination.mkdir()
-    executable = destination / "task"
-    receipt = tool_assets.install_task(executable)
-    receipt_path = Path(os.environ["GITHUB_WORKSPACE"]) / "consumer-task-bootstrap/task-asset.json"
-    receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
-    if "\n" in str(executable) or "\n" in str(receipt_path):
-        raise ValueError("newline in hosted environment output path")
-    with Path(os.environ["GITHUB_PATH"]).open("a") as output:
-        output.write(str(destination) + "\n")
-    with Path(os.environ["GITHUB_ENV"]).open("a") as output:
-        output.write("SWIFT_GATE_BOOTSTRAP_TASK=" + str(executable) + "\n")
-        output.write("SWIFT_GATE_BOOTSTRAP_RECEIPT=" + str(receipt_path) + "\n")
-
-
 def main():
     if sys.argv[1:] == ["--controls"]:
         return harness_controls()
-    if sys.argv[1:] == ["--bootstrap-task"]:
-        return bootstrap_task()
     if sys.argv[1:]:
         raise ValueError("unknown hosted driver mode")
     gate = Gate()
     for name, repository, revision in [
         ("alef", "xberg-io/alef", os.environ["ALEF_REF"]),
         ("xberg", "xberg-io/xberg", os.environ["XBERG_REF"]),
-        ("actions", "xberg-io/actions", "fdddc35399a9eb87cb9c35ae87346ef38e7bbc29"),
-        ("poly-installer", "Goldziher/poly", "8a85d746736986ce80ae4a2315c15c27e5844d28"),
     ]:
         gate.checkout(name, repository, revision)
     bootstrap.bootstrap(gate)
     gate.install_adapters()
     gate.configure_strict_flags()
     cli = gate.build_cli()
-    task = Path(gate.which("task"))
-    (gate.evidence / "canonical-task-identity.json").write_text(
-        json.dumps({"task": str(task), "sha256": receipts.sha(task)})
-    )
     result = gate.consumer(cli)
     (gate.evidence / "qualified-consumer.json").write_text(json.dumps(result, indent=2) + "\n")
     return None

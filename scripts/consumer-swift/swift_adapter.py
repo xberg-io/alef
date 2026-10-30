@@ -1,4 +1,4 @@
-"""Capture strict SwiftPM build/test output while preserving canonical Task invocation."""
+"""Capture strict SwiftPM build/test output while preserving the canonical package test invocation."""
 
 import os
 import subprocess

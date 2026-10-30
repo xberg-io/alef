@@ -3,7 +3,6 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 import bootstrap
 from test_formatter_bootstrap import FormatterGate
@@ -34,8 +33,7 @@ class MacosDeployment(unittest.TestCase):
             config.parent.mkdir()
             original = b"[build]\njobs = 1\n[env]\nCFLAGS_x86_64_pc_windows_gnu = '-Wa,-mbig-obj'\n"
             config.write_bytes(original)
-            with patch.object(bootstrap, "install_task", lambda _gate: None):
-                bootstrap.bootstrap(gate)
+            bootstrap.bootstrap(gate)
             assert gate.env.get("MACOSX_DEPLOYMENT_TARGET") == "11.0"
             assert gate.env["CFLAGS"] == "-O2"
             assert config.read_bytes() == original
@@ -52,8 +50,7 @@ class MacosDeployment(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             gate = DeploymentGate(Path(directory), report="MACOSX_DEPLOYMENT_TARGET=12.3.0\n")
             gate.env["MACOSX_DEPLOYMENT_TARGET"] = "12.3"
-            with patch.object(bootstrap, "install_task", lambda _gate: None):
-                bootstrap.bootstrap(gate)
+            bootstrap.bootstrap(gate)
             assert gate.env["MACOSX_DEPLOYMENT_TARGET"] == "12.3"
             rows = [row for row in gate.observed if row["name"] == "qualified-macos-deployment-target"]
             assert len(rows) == 1
@@ -118,13 +115,12 @@ class MacosDeployment(unittest.TestCase):
                     config.write_text(scenario["config"])
                 if scenario.get("relative_home"):
                     gate.env["CARGO_HOME"] = "relative-cargo-home"
-                with patch.object(bootstrap, "install_task", lambda _gate: None):
-                    try:
-                        bootstrap.bootstrap(gate)
-                    except RuntimeError as error:
-                        message = str(error)
-                    else:
-                        raise AssertionError("invalid deployment selection was accepted")
+                try:
+                    bootstrap.bootstrap(gate)
+                except RuntimeError as error:
+                    message = str(error)
+                else:
+                    raise AssertionError("invalid deployment selection was accepted")
                 assert message == scenario["message"], message
                 names = [row["name"] for row in gate.calls]
                 assert "install-cargo-sort" not in names

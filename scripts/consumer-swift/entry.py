@@ -1,4 +1,4 @@
-"""The one admitted session spans bootstrap, cache allocation, Tasks and fixture copies."""
+"""The one admitted session spans bootstrap, cache allocation, consumer stages and fixture copies."""
 
 import hashlib
 import json
@@ -18,20 +18,16 @@ def main():
     root = Path(os.environ.get("GITHUB_WORKSPACE", str(Path(__file__).resolve().parents[2]))).resolve(strict=True)
     os.environ.setdefault("GITHUB_WORKSPACE", str(root))
     mode = sys.argv[1] if len(sys.argv) == 2 else "verify"
-    if mode not in {"verify", "--controls", "--bootstrap-task"} or len(sys.argv) > 2:
-        raise ValueError("expected verify, --controls or --bootstrap-task mode")
+    if mode not in {"verify", "--controls"} or len(sys.argv) > 2:
+        raise ValueError("expected verify or --controls mode")
     if mode != "--controls" and os.environ.get("GITHUB_ACTIONS") != "true":
-        raise RuntimeError("consumer proof/bootstrap requires the admitted hosted workflow")
+        raise RuntimeError("consumer proof requires the admitted hosted workflow")
     if mode != "--controls":
         immutable_ref(os.environ["ALEF_REF"])
         immutable_ref(os.environ["XBERG_REF"])
     if "RUNNER_TEMP" not in os.environ:
         os.environ["RUNNER_TEMP"] = tempfile.mkdtemp(prefix="alef-consumer-local-")
-    names = {
-        "verify": "consumer-evidence",
-        "--controls": "consumer-controls-evidence",
-        "--bootstrap-task": "consumer-task-bootstrap",
-    }
+    names = {"verify": "consumer-evidence", "--controls": "consumer-controls-evidence"}
     evidence_root = Path(os.environ["RUNNER_TEMP"]).resolve(strict=True) if mode == "--controls" else root
     evidence = evidence_root / names[mode]
     evidence.mkdir(exist_ok=False)
@@ -43,7 +39,7 @@ def main():
         raise RuntimeError("reviewed whole-SID guard changed")
     paths = execution_paths(root)
     before = free_receipt(paths)
-    cap = {"verify": 16 * 1024**3, "--controls": 128 * 1024**2, "--bootstrap-task": 256 * 1024**2}[mode]
+    cap = {"verify": 16 * 1024**3, "--controls": 128 * 1024**2}[mode]
     if min(row["free"] for row in before.values()) < FLOOR + cap:
         (evidence / "refusal.json").write_text(json.dumps(before, indent=2))
         return 86
@@ -77,7 +73,7 @@ def main():
         command = [sys.executable, str(Path(__file__).with_name("driver.py"))]
         if mode != "verify":
             command.append(mode)
-        wall = {"verify": 10200, "--controls": 60, "--bootstrap-task": 180}[mode]
+        wall = {"verify": 10200, "--controls": 60}[mode]
         code = supervise(command, root, emit, floor=FLOOR, wall=wall, sampler=sample, interval=0.2)
     (evidence / "volume-samples.json").write_text(json.dumps(records))
     (evidence / "terminal.json").write_text(

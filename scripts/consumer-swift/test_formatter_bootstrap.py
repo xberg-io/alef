@@ -2,12 +2,14 @@
 
 import json
 import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 import bootstrap
+
+DECLARED = {"github:Goldziher/poly": "0.31.2", "github:DevinR528/cargo-sort": "2.1.4"}
 
 
 class FormatterGate:
@@ -15,12 +17,16 @@ class FormatterGate:
         root = root.resolve(strict=True)
         self.alef = root / "alef"
         self.xberg = root / "xberg"
-        self.actions = root / "actions"
-        self.poly = root / "poly"
         self.evidence = root / "evidence"
         self.tools = self.evidence / "tools"
         self.bin = self.tools / "bin"
-        self.env = {"PATH": "/owned/ambient", "CARGO_HOME": str(root / "cargo-home")}
+        self.runner_temp = root / "runner-temp"
+        self.ambient = root / "ambient"
+        self.env = {
+            "PATH": str(self.ambient),
+            "CARGO_HOME": str(root / "cargo-home"),
+            "RUNNER_TEMP": str(self.runner_temp),
+        }
         self.real_cargo = "/owned/cargo"
         self.python = "/owned/python"
         self.paths = []
@@ -28,8 +34,16 @@ class FormatterGate:
         self.wrong_version = wrong_version
         self.wrong_path = wrong_path
         self.invalid_report = invalid_report
-        for path in [self.alef, self.xberg, self.evidence, self.bin, root / "sysroot/lib", root / "brew-cache"]:
+        for path in [self.alef, self.xberg, self.evidence, self.bin, self.runner_temp, self.ambient]:
             path.mkdir(parents=True, exist_ok=True)
+        for path in [root / "sysroot/lib", root / "brew-cache"]:
+            path.mkdir(parents=True, exist_ok=True)
+        (self.xberg / "mise.toml").write_text('[tools]\n"github:Goldziher/poly" = "0.31.2"\n')
+        (self.alef / "mise.toml").write_text('[tools]\n"github:DevinR528/cargo-sort" = "2.1.4"\n')
+        for checkout in [self.alef, self.xberg]:
+            (checkout / "mise.lock").write_text("# owned boundary fixture\n")
+        executable(self.ambient / "mise")
+        self.selected = {}
 
     def require_head(self, _root, _sha):
         pass
@@ -39,7 +53,7 @@ class FormatterGate:
 
     def which(self, tool):
         if tool != "clang-format":
-            return "/owned/" + tool
+            return shutil.which(tool, path=self.env["PATH"]) or "/owned/" + tool
         binary = self.tools / "clang-format/bin/clang-format"
         if self.wrong_path:
             return "/foreign/clang-format"
@@ -58,13 +72,21 @@ class FormatterGate:
             output = str(self.alef.parent / "sysroot")
         elif name == "actual-homebrew-cache":
             output = str(self.alef.parent / "brew-cache")
+        elif name == "mise-identity":
+            output = "2026.10.24 macos-arm64 (2026-10-29)"
+        elif name.startswith("install-") and argv[:2] == ["mise", "install"]:
+            tool, version = argv[-1].rsplit("@", 1)
+            program = name.removeprefix("install-")
+            installs = Path(self.env["MISE_DATA_DIR"]) / "installs"
+            self.selected[program] = executable(installs / tool.replace(":", "-").replace("/", "-") / version / program)
+        elif name.startswith("mise-which-"):
+            output = str(self.selected[name.removeprefix("mise-which-")])
         elif name.startswith("version-"):
             output = {
-                "task": "3.54.0",
-                "poly": "0.24.0",
-                "cargo-sort": "2.0.2",
-                "rustc": "1.99.1",
-                "cargo": "1.99.1",
+                "poly": "poly 0.31.2 (release build v0.31.2, release)",
+                "cargo-sort": "cargo-sort 2.1.4",
+                "rustc": "rustc 1.99.1",
+                "cargo": "cargo 1.99.1",
                 "clang-format": "clang-format version " + ("18.1.8" if self.wrong_version else "22.1.8"),
             }[name.removeprefix("version-")]
         elif name == "install-clang-format":
@@ -96,15 +118,21 @@ class FormatterGate:
         return result
 
 
+def executable(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"owned boundary fixture, not a native executable")
+    path.chmod(0o755)
+    return path
+
+
 class FormatterBootstrap(unittest.TestCase):
     def test_missing_ambient_formatter_is_installed_pinned_and_selected_before_strict_check(self):
         with tempfile.TemporaryDirectory() as directory:
             gate = FormatterGate(Path(directory))
-            with patch.object(bootstrap, "install_task", lambda _gate: None):
-                try:
-                    bootstrap.bootstrap(gate)
-                except RuntimeError as error:
-                    self.fail("pinned formatter setup did not complete: " + str(error))
+            try:
+                bootstrap.bootstrap(gate)
+            except RuntimeError as error:
+                self.fail("pinned formatter setup did not complete: " + str(error))
             calls = {row["name"]: row for row in gate.calls}
             install = calls["install-clang-format"]
             assert "clang-format==22.1.8" in install["argv"]
@@ -118,13 +146,12 @@ class FormatterBootstrap(unittest.TestCase):
     def test_wrong_formatter_version_is_rejected_after_actual_version_command(self):
         with tempfile.TemporaryDirectory() as directory:
             gate = FormatterGate(Path(directory), wrong_version=True)
-            with patch.object(bootstrap, "install_task", lambda _gate: None):
-                try:
-                    bootstrap.bootstrap(gate)
-                except RuntimeError as error:
-                    message = str(error)
-                else:
-                    raise AssertionError("wrong formatter version was accepted")
+            try:
+                bootstrap.bootstrap(gate)
+            except RuntimeError as error:
+                message = str(error)
+            else:
+                raise AssertionError("wrong formatter version was accepted")
             assert message == "installed clang-format version differs", message
             assert gate.calls[-1]["name"] == "version-clang-format"
 
@@ -132,13 +159,12 @@ class FormatterBootstrap(unittest.TestCase):
         for scenario in ["path", "digest", "host", "suffix"]:
             with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as directory:
                 gate = FormatterGate(Path(directory), wrong_path=scenario == "path", invalid_report=scenario)
-                with patch.object(bootstrap, "install_task", lambda _gate: None):
-                    try:
-                        bootstrap.bootstrap(gate)
-                    except RuntimeError as error:
-                        message = str(error)
-                    else:
-                        raise AssertionError("foreign formatter executable was accepted")
+                try:
+                    bootstrap.bootstrap(gate)
+                except RuntimeError as error:
+                    message = str(error)
+                else:
+                    raise AssertionError("foreign formatter executable was accepted")
                 expected = (
                     "pinned clang-format executable is not selected on the generation PATH"
                     if scenario == "path"

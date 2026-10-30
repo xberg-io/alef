@@ -3,16 +3,20 @@
 import json
 import os
 import re
-import shutil
 import tomllib
 from pathlib import Path
 
 from receipts import sha
 
+# Generation formatters, each installed from the mise config that pins it: the consumer's poly, and
+# cargo-sort from the candidate, as xberg's mise.toml pins no cargo-sort. ~keep
+MISE_TOOLS = [
+    ("xberg", "github:Goldziher/poly", "poly"),
+    ("alef", "github:DevinR528/cargo-sort", "cargo-sort"),
+]
+
 
 def bootstrap(gate):
-    gate.require_head(gate.actions, "fdddc35399a9eb87cb9c35ae87346ef38e7bbc29")
-    gate.require_head(gate.poly, "8a85d746736986ce80ae4a2315c15c27e5844d28")
     gate.env["RUSTUP_AUTO_INSTALL"] = "0"
     gate.command(
         "rust-toolchain",
@@ -39,30 +43,8 @@ def bootstrap(gate):
     )
     gate.command("rustup-identity", ["rustup", "--version"], gate.alef, 0, 10)
     configure_rust_native_environment(gate)
-    install_task(gate)
-    gate.env["POLY_INSTALL_DIR"] = str(gate.bin)
-    gate.command(
-        "install-poly",
-        ["bash", str(gate.poly / "install.sh"), "--no-modify-path", "0.24.0"],
-        gate.poly,
-        512 * 1024**2,
-        600,
-    )
-    gate.command(
-        "install-cargo-sort",
-        [gate.real_cargo, "install", "cargo-sort", "--version", "2.0.2", "--locked", "--root", str(gate.tools)],
-        gate.alef,
-        2 * 1024**3,
-        600,
-    )
-    expected = [
-        ("task", "3.54.0"),
-        ("poly", "0.24.0"),
-        ("cargo-sort", "2.0.2"),
-        ("rustc", "1.99.1"),
-        ("cargo", "1.99.1"),
-    ]
-    for program, version in expected:
+    install_mise_tools(gate)
+    for program, version in [("rustc", "1.99.1"), ("cargo", "1.99.1")]:
         output = gate.command("version-" + program, [program, "--version"], gate.alef, 0, 15)
         if version not in (output / "stdout.log").read_text():
             raise RuntimeError("installed tool version differs: " + program)
@@ -97,29 +79,64 @@ def configure_rust_native_environment(gate):
     gate.env["DYLD_FALLBACK_LIBRARY_PATH"] = str(library) + (os.pathsep + ambient if ambient else "")
 
 
-def install_task(gate):
-    source = gate.env.get("SWIFT_GATE_BOOTSTRAP_TASK")
-    receipt_path = gate.env.get("SWIFT_GATE_BOOTSTRAP_RECEIPT")
-    if source and receipt_path:
-        expected = Path(gate.env["RUNNER_TEMP"]).resolve(strict=True) / "consumer-task-bin/task"
-        source = Path(source)
-        receipt = json.loads(Path(receipt_path).read_text())
-        if source.is_symlink() or source.resolve(strict=True) != expected or receipt.get("version") != "3.54.0":
-            raise RuntimeError("unexpected bootstrap Task source/version")
-        if sha(source) != receipt["executable_sha256"]:
-            raise RuntimeError("bootstrap Task bytes changed after official asset verification")
-        shutil.copy2(source, gate.bin / "task")
-        (gate.evidence / "reused-task-asset.json").write_text(json.dumps(receipt, indent=2) + "\n")
-    elif source or receipt_path:
-        raise RuntimeError("incomplete bootstrap Task receipt")
-    else:
+def install_mise_tools(gate):
+    home = Path(gate.env["RUNNER_TEMP"]).resolve(strict=True) / "consumer-mise"
+    home.mkdir()
+    data = home / "data"
+    gate.env.update(
+        {
+            "MISE_DATA_DIR": str(data),
+            "MISE_CACHE_DIR": str(home / "cache"),
+            "MISE_TRUSTED_CONFIG_PATHS": os.pathsep.join([str(gate.alef), str(gate.xberg)]),
+            "MISE_LOCKED": "1",
+            "MISE_YES": "1",
+        }
+    )
+    mise = gate.which("mise")
+    if not mise:
+        raise RuntimeError("mise executable unavailable; the workflow installs it before the guarded session")
+    identity = gate.command("mise-identity", ["mise", "--version"], gate.alef, 0, 15)
+    receipt = {
+        "mise": str(Path(mise).resolve(strict=True)),
+        "mise_sha256": sha(Path(mise)),
+        "mise_version": (identity / "stdout.log").read_text().strip(),
+        "tools": [],
+    }
+    for checkout, tool, program in MISE_TOOLS:
+        root = getattr(gate, checkout)
+        config, lock = root / "mise.toml", root / "mise.lock"
+        declared = tomllib.loads(config.read_text()).get("tools", {}).get(tool)
+        if (
+            not isinstance(declared, str)
+            or re.fullmatch(r"[0-9]+(?:\.[0-9]+)*", declared) is None
+            or not lock.is_file()
+        ):
+            raise RuntimeError("mise config must pin and lock generation tool: " + tool)
         gate.command(
-            "install-task",
-            [gate.python, str(gate.source / "tool_assets.py"), str(gate.bin / "task")],
-            gate.actions,
-            256 * 1024**2,
-            120,
+            "install-" + program, ["mise", "install", "--locked", tool + "@" + declared], root, 512 * 1024**2, 600
         )
+        selection = gate.command("mise-which-" + program, ["mise", "which", program], root, 0, 15)
+        binary = Path((selection / "stdout.log").read_text().strip()).resolve(strict=True)
+        if not binary.is_file() or not binary.is_relative_to(data.resolve(strict=True)):
+            raise RuntimeError("mise selected an executable outside its private data directory: " + program)
+        gate.env["PATH"] = str(binary.parent) + os.pathsep + gate.env["PATH"]
+        if Path(gate.which(program) or "").resolve() != binary:
+            raise RuntimeError("mise-installed executable is not selected on the generation PATH: " + program)
+        version = gate.command("version-" + program, [binary, "--version"], gate.alef, 0, 15)
+        if declared not in (version / "stdout.log").read_text():
+            raise RuntimeError("installed tool version differs: " + program)
+        receipt["tools"].append(
+            {
+                "tool": tool,
+                "version": declared,
+                "config": str(config),
+                "config_sha256": sha(config),
+                "lock_sha256": sha(lock),
+                "selected": str(binary),
+                "executable_sha256": sha(binary),
+            }
+        )
+    (gate.evidence / "mise-tools.json").write_text(json.dumps(receipt, indent=2) + "\n")
 
 
 def install_clang_format(gate):

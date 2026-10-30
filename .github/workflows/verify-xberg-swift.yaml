@@ -9,7 +9,7 @@ on:
       xberg_ref:
         description: Immutable public Xberg consumer commit
         required: true
-        default: d67fe72b2281653f0d7629e4d3c2b8012abb9f8d
+        default: 9b0a9387654c592b97b418b4fbf62856ec7fbcbb
         type: string
 permissions:
   contents: read
@@ -23,15 +23,16 @@ jobs:
           ref: ${{ github.sha }}
           path: gate
           persist-credentials: false
-      - name: Bootstrap verified Task under resource and process guards
-        env:
-          ALEF_REF: ${{ inputs.alef_ref }}
-          XBERG_REF: ${{ inputs.xberg_ref }}
-          PYTHONDONTWRITEBYTECODE: "1"
-        run: python3 gate/scripts/consumer-swift/entry.py --bootstrap-task
-      # `mise run consumer-swift:controls`, then the qualification itself. The bootstrapped go-task binary drives
-      # the pinned Xberg consumer, whose own tasks are still go-task at that commit. ~keep
-      - name: Qualify real consumer under guarded Task stages
+      # Only the mise binary: the guarded session installs each locked tool into a private data
+      # directory itself. ~keep
+      - name: Install mise
+        uses: xberg-io/actions/setup-mise@v1
+        with:
+          working-directory: gate
+          install: "false"
+          cache: "false"
+      # `mise run consumer-swift:controls`, then the qualification itself. ~keep
+      - name: Qualify real consumer under guarded stages
         env:
           ALEF_REF: ${{ inputs.alef_ref }}
           XBERG_REF: ${{ inputs.xberg_ref }}
@@ -44,6 +45,5 @@ jobs:
           name: xberg-swift-consumer-receipts
           path: |
             consumer-evidence
-            consumer-task-bootstrap
             ${{ runner.temp }}/consumer-controls-evidence
           if-no-files-found: error
