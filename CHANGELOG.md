@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Preserve field-level serde defaults in Swift DTOs without a type-level default, while keeping explicit null and required sibling fields strict.
+- Honor field-level serde defaults in newly supported Swift DTO decoders, preserving explicit null values
+  and required sibling fields while retaining existing decoder policies.
 
 ## [0.115.7] - 2026-10-30
 

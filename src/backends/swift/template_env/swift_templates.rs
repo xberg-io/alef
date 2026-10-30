@@ -64,6 +64,10 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/swift_decode_missing_default_assignment.swift.jinja"),
     ),
     (
+        "swift_decode_missing_optional_default_assignment.swift.jinja",
+        include_str!("../templates/swift_decode_missing_optional_default_assignment.swift.jinja"),
+    ),
+    (
         "swift_decode_required_assignment.swift.jinja",
         include_str!("../templates/swift_decode_required_assignment.swift.jinja"),
     ),

@@ -7,7 +7,7 @@ use crate::backends::swift::type_map::SwiftMapper;
 use crate::codegen::shared::binding_fields;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::ir::{ApiSurface, DefaultValue, FieldDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
-use field_defaults::{default_assignment_template, non_optional_fallback};
+use field_defaults::{default_assignment_template, non_optional_fallback, optional_default_assignment_template};
 use heck::{AsSnakeCase, ToLowerCamelCase, ToSnakeCase};
 use std::collections::HashSet;
 
@@ -474,12 +474,9 @@ pub(crate) fn swift_type_based_default(ty: &TypeRef) -> Option<String> {
     }
 }
 
-/// Emits a custom `public init(from decoder: any Decoder) throws` body that uses
-/// `decodeIfPresent + ?? <fallback>` for every field whose Rust default has a Swift literal or
-/// (via `zero_arg_named_default`) a zero-arg `Named` initializer (Optional fields included —
-/// `Some(x)` reaches the IR as the literal for `x`), `decodeIfPresent ?? nil` for Optional fields
-/// with no such fallback, and plain `decode(T.self, ...)` for non-Optional fields with none
-/// (e.g. an enum, or the defaults whose value alef cannot see at all).
+/// Decodes absent keys through proven field defaults while preserving required siblings.
+/// Existing owner decoders retain their null policy; newly supported decoders distinguish
+/// absent defaults from present null values. Unknown required defaults keep required decoding.
 pub(crate) fn emit_decoder_init(
     mapper: &SwiftMapper,
     visible_fields: &[&FieldDef],
@@ -487,6 +484,8 @@ pub(crate) fn emit_decoder_init(
     every_field_may_be_absent: bool,
     out: &mut String,
 ) {
+    let had_owner_decoder =
+        every_field_may_be_absent || visible_fields.iter().any(|field| field.serde_skip_serializing_if);
     out.push_str("    public init(from decoder: any Decoder) throws {\n");
     out.push_str("        let container = try decoder.container(keyedBy: CodingKeys.self)\n");
     for field in visible_fields {
@@ -504,7 +503,7 @@ pub(crate) fn emit_decoder_init(
             // produces. Only a genuinely absent literal keeps the `?? nil` rendering. ~keep
             match &literal {
                 Some(fb) => out.push_str(&crate::backends::swift::template_env::render(
-                    "swift_decode_default_assignment.swift.jinja",
+                    optional_default_assignment_template(had_owner_decoder),
                     crate::alef_context! {
                         field => camel,
                         ty => inner_ty,
@@ -532,7 +531,7 @@ pub(crate) fn emit_decoder_init(
         match fallback {
             Some(fb) => {
                 out.push_str(&crate::backends::swift::template_env::render(
-                    default_assignment_template(field, every_field_may_be_absent),
+                    default_assignment_template(field, every_field_may_be_absent, had_owner_decoder),
                     crate::alef_context! {
                         field => camel,
                         ty => swift_ty,
