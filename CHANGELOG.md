@@ -7,12 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- Enable explicit by-value extraction for cloneable configured opaque Python wrappers under PyO3 0.30, preserving unsendable classes. (#746)
-- Install the project-locked AI-Rulez CLI in governance CI so strict regeneration uses the committed generator version.
-- Configure the selected Python shared library for all embedded PyO3 integration runtime fixtures on macOS.
-
 ## [0.115.7] - 2026-10-30
 
 ### Changed
@@ -23,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Enable explicit by-value extraction for cloneable configured opaque Python wrappers under PyO3 0.30, preserving unsendable classes. (#746)
+- Install the project-locked AI-Rulez CLI in governance CI so strict regeneration uses the committed generator version.
+- Configure the selected Python shared library for all embedded PyO3 integration runtime fixtures on macOS.
 - Emit explicit zero-sentinel Zig allocations with `dupeSentinel`, retaining Zig 0.16 compatibility and supporting Zig 0.17. (#744)
 - Pin the ai-rulez validation hook to 5.9.3, matching the locked toolchain CLI.
 - Resolve the selected Python shared library for embedded PyO3 runtime fixtures on macOS without changing the parent loader environment.
