@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Let main CI finish while the latest update queues, retaining cancellation for superseded pull-request runs.
 - Emit formatter-clean Node and WASM package manifests, including platform packages, optional publish metadata, and service exports.
 - Repair cross-platform CI fixtures: scope generated-output serialization checks to the maintained mise task, resolve embedded Ruby libraries on Linux, and compile the PyO3 runtime fixture only on Unix.
 
