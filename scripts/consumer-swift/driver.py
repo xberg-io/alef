@@ -216,7 +216,9 @@ class Gate:
             "extract-current-consumer",
             [*common, "extract", "--output", self.evidence / "ir.json"],
             self.xberg,
-            512 * 1024**2,
+            # Extracting xberg 9b0a9387 drew 524 MiB of shared volume (run 41115788579); 512 MiB fit only the
+            # older consumer.
+            1024 * 1024**2,
             300,
         )
         ir = json.loads((self.evidence / "ir.json").read_text())
