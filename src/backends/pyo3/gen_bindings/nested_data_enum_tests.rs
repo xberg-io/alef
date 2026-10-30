@@ -153,7 +153,9 @@ fn nested_data_enum_dtos_compile_and_round_trip() {
     let mut source = generated[0].content.clone();
     source.push_str(ROUND_TRIP_TEST);
     std::fs::write(binding.join("src/lib.rs"), &source).unwrap();
-    let output = std::process::Command::new("cargo")
+    let mut command = std::process::Command::new("cargo");
+    crate::test_support::python_native::configure_python(&mut command);
+    let output = command
         .args(["test", "--quiet", "--manifest-path"])
         .arg(binding.join("Cargo.toml"))
         .env("CARGO_TARGET_DIR", temporary_directory.path().join("target"))
