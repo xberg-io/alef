@@ -7,11 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- Preserve FRB-owned Dart error type names across display metadata, codecs and assertion helpers so reserved names such as `Error` restore and run correctly. (#749)
-- Refresh changed Mix lockfiles from each affected project directory during version sync, retaining best-effort behavior. (#748)
-
 ## [0.115.7] - 2026-10-30
 
 ### Changed
@@ -23,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve FRB-owned Dart error type names across display metadata, codecs and assertion helpers so reserved names such as `Error` restore and run correctly. (#749)
+- Refresh changed Mix lockfiles from each affected project directory during version sync, retaining best-effort behavior. (#748)
 - Upgrade both child packages and the workspace root in pnpm latest plans for Node and WASM, retaining peer-dependency guards. (#747)
 - Allow embedded PyO3 fixture dependencies to resolve from an unprimed Cargo cache instead of relying on test execution order.
 - Enable explicit by-value extraction for cloneable configured opaque Python wrappers under PyO3 0.30, preserving unsendable classes. (#746)
