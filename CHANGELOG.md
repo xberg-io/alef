@@ -7,28 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- Refresh cached READMEs when rendered templates, partials, snippets, external YAML, migration-file predicates, or selected languages change, while retaining cache integrity checks and avoiding unchanged writes. (#750)
-
 ## [0.115.7] - 2026-10-30
 
 ### Changed
 
-- Refresh shared governance and toolchain baselines to agent-conventions v1.5.0 and toolchains v1.12.0.
+- Refresh shared governance and toolchain baselines to agent-conventions v1.6.0 and toolchains v1.12.1.
 - Refresh encoding_rs to 0.8.43.
 - Refresh compatible Rust dependency lock entries after checking all three crates for incompatible upgrades.
 - Remove four obsolete file-length lint exemptions from files already below the limit, reducing the baseline to 1,173 rule/file exemptions across 606 files.
 
 ### Fixed
 
+- Refresh cached READMEs when rendered templates, partials, snippets, external YAML, migration-file predicates, or selected languages change, while retaining cache integrity checks and avoiding unchanged writes. (#750)
 - Preserve FRB-owned Dart error type names across display metadata, codecs and assertion helpers so reserved names such as `Error` restore and run correctly. (#749)
 - Refresh changed Mix lockfiles from each affected project directory during version sync, retaining best-effort behavior. (#748)
 - Upgrade both child packages and the workspace root in pnpm latest plans for Node and WASM, retaining peer-dependency guards. (#747)
 - Allow embedded PyO3 fixture dependencies to resolve from an unprimed Cargo cache instead of relying on test execution order.
 - Enable explicit by-value extraction for cloneable configured opaque Python wrappers under PyO3 0.30, preserving unsendable classes. (#746)
 - Follow the organisation’s floating AI-Rulez policy in governance CI and validation hooks, and refresh generated governance files and context budgets.
-- Configure the selected Python shared library for all embedded PyO3 integration runtime fixtures on macOS.
 - Emit explicit zero-sentinel Zig allocations with `dupeSentinel`, retaining Zig 0.16 compatibility and supporting Zig 0.17. (#744)
 - Resolve the selected Python shared library for embedded PyO3 runtime fixtures on macOS without changing the parent loader environment.
 - Refresh the Android Gradle snapshot for the configured AGP 9.5.0 version.
