@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Verify generated tagged Node capsules compile and load natively in CI on Linux, macOS and Windows.
 - Resolve Node capsule calls through the host N-API instead of importing Windows node.dll, and enable napi8 automatically for tagged capsules. (#742)
 - Let main CI finish while the latest update queues, retaining cancellation for superseded pull-request runs.
 - Emit formatter-clean Node and WASM package manifests, including platform packages, optional publish metadata, and service exports.

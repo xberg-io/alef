@@ -98,7 +98,7 @@ jobs:
       - name: Install uv and Bats
         uses: xberg-io/actions/setup-mise@v1
         with:
-          install-args: ${{ runner.os == 'Windows' && 'uv' || 'uv bats' }}
+          install-args: ${{ runner.os == 'Windows' && 'uv node' || 'uv bats node' }}
       - name: Hosted Swift consumer harness controls
         if: runner.os == 'macOS'
         run: mise run consumer-swift:controls
@@ -293,6 +293,8 @@ jobs:
         # `ci_poly_pin_gate` across two releases that way -- the log showed one red test and
         # looked complete. Run every target and report every failure. ~keep
         run: mise run test:run -- --no-fail-fast
+      - name: Verify generated Node capsules load natively
+        run: mise run test:run -- --test napi_capsule_native -- --ignored --exact generated_tagged_capsule_builds_and_loads_in_node --nocapture
       - name: Verify emitted Swift callback policy
         if: runner.os == 'macOS'
         timeout-minutes: 10
