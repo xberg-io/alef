@@ -1,0 +1,72 @@
+import Foundation
+
+{{ scalar_declaration }}
+{{ optional_declaration }}
+{{ legacy_declaration }}
+{{ skipped_declaration }}
+
+func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
+    try JSONDecoder().decode(type, from: Data(json.utf8))
+}
+
+struct Checks {
+    var rows = [[String: Any]]()
+    mutating func accepts(_ name: String, _ check: () throws -> Bool) {
+        do {
+            rows.append(["case": name, "passed": try check()])
+        } catch {
+            rows.append(["case": name, "passed": false, "error": String(describing: error)])
+        }
+    }
+    mutating func rejects(_ name: String, _ operation: () throws -> Void) {
+        do {
+            try operation()
+            rows.append(["case": name, "passed": false, "error": "unexpected successful decode"])
+        } catch {
+            rows.append(["case": name, "passed": true])
+        }
+    }
+}
+
+var checks = Checks()
+checks.accepts("scalar missing uses function default") {
+    try decode(ScalarOptions.self, #"{"model":"caller"}"#).retries == 3
+}
+checks.rejects("scalar null remains invalid") {
+    _ = try decode(ScalarOptions.self, #"{"model":"caller","retries":null}"#)
+}
+checks.rejects("scalar wrong type remains invalid") {
+    _ = try decode(ScalarOptions.self, #"{"model":"caller","retries":"bad"}"#)
+}
+checks.accepts("scalar explicit value wins") {
+    try decode(ScalarOptions.self, #"{"model":"caller","retries":7}"#).retries == 7
+}
+checks.accepts("optional missing uses Some default") {
+    try decode(OptionalOptions.self, #"{"model":"caller"}"#).limit == 5
+}
+checks.accepts("optional explicit null remains None") {
+    try decode(OptionalOptions.self, #"{"model":"caller","limit":null}"#).limit == nil
+}
+checks.rejects("optional wrong type remains invalid") {
+    _ = try decode(OptionalOptions.self, #"{"model":"caller","limit":"bad"}"#)
+}
+checks.accepts("optional explicit value wins") {
+    try decode(OptionalOptions.self, #"{"model":"caller","limit":7}"#).limit == 7
+}
+checks.accepts("existing type-default decoder policy stays unchanged") {
+    let value = try decode(LegacyOptions.self, #"{"retries":null,"limit":null}"#)
+    return value.retries == 3 && value.limit == 5
+}
+checks.accepts("existing visible-skip decoder policy stays unchanged") {
+    let value = try decode(SkippedOptions.self, #"{"values":[],"retries":null,"limit":null}"#)
+    return value.retries == 3 && value.limit == 5
+}
+let failures = checks.rows.filter { !($0["passed"] as! Bool) }.count
+let results: [String: Any] = [
+    "collected": checks.rows.count,
+    "passed": checks.rows.count - failures,
+    "failed": failures,
+    "cases": checks.rows,
+]
+print(String(data: try JSONSerialization.data(withJSONObject: results, options: [.sortedKeys]), encoding: .utf8)!)
+exit(failures == 0 ? 0 : 1)
