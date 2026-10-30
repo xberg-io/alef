@@ -26,17 +26,19 @@ impl SurfaceOffsets {
 /// Resolve the directory that owns a module file's *children* -- the files backing any
 /// `mod x;` declarations with no inline body found inside it.
 ///
-/// For `mod.rs`/`lib.rs`/`main.rs`, children live directly beside the file (in its own parent
-/// directory). For any other file -- a 2018-edition "sibling" module file such as `ssrf.rs` or
+/// For `mod.rs` and actual crate-entry `lib.rs`/`main.rs` files, children live beside the file.
+/// Nested modules named `lib.rs` or `main.rs` own same-named directories like any other sibling
+/// module. For any other file -- a 2018-edition "sibling" module file such as `ssrf.rs` or
 /// `config.rs` -- children live in a same-named subdirectory beside it (`ssrf/`, `config/`).
 /// Every caller that resolves a `mod x;` declaration's file must go through this function:
-/// using `source.parent()` directly is only correct for the `mod.rs`/`lib.rs` case, and silently
+/// using `source.parent()` directly is only correct for `mod.rs` or a crate entry, and silently
 /// searches the wrong directory (one level too shallow) for a sibling-style file, missing the
 /// module entirely. ~keep
-pub(super) fn module_children_dir(source: &Path) -> PathBuf {
+pub(super) fn module_children_dir(source: &Path, source_is_crate_root: bool) -> PathBuf {
     let parent = source.parent().unwrap_or_else(|| Path::new("."));
     match source.file_name().and_then(|n| n.to_str()) {
-        Some("mod.rs") | Some("lib.rs") | Some("main.rs") => parent.to_path_buf(),
+        Some("mod.rs") => parent.to_path_buf(),
+        Some("lib.rs") | Some("main.rs") if source_is_crate_root => parent.to_path_buf(),
         _ => match source.file_stem().and_then(|s| s.to_str()) {
             Some(stem) if !stem.is_empty() => parent.join(stem),
             _ => parent.to_path_buf(),
@@ -202,6 +204,7 @@ pub(super) fn apply_parent_reexport_shortening(
 /// For `lib.rs` (the root), returns `""`.
 /// For `src/cache/core.rs` relative to `src/`, returns `"cache::core"`.
 /// For `src/types/mod.rs` relative to `src/`, returns `"types"`.
+/// Nested `lib.rs`/`main.rs` files retain their module names.
 /// Falls back to `""` if the path can't be derived (e.g. file is outside the crate tree).
 pub(super) fn derive_module_path(source: &Path, crate_src_dir: Option<&Path>) -> String {
     let Some(root) = crate_src_dir else {
@@ -215,12 +218,13 @@ pub(super) fn derive_module_path(source: &Path, crate_src_dir: Option<&Path>) ->
         return String::new();
     };
 
+    if relative.components().count() == 1 && matches!(relative.to_str(), Some("lib.rs" | "main.rs")) {
+        return String::new();
+    }
     let mut segments = Vec::new();
     for component in relative.iter() {
         let s = component.to_string_lossy();
-        if s == "lib.rs" || s == "main.rs" {
-            return String::new();
-        } else if s == "mod.rs" {
+        if s == "mod.rs" {
             continue;
         } else if let Some(stem) = s.strip_suffix(".rs") {
             segments.push(stem.to_string());
@@ -300,4 +304,24 @@ pub(super) fn validate_no_private_path_leaks(
          every module on its path, or exclude it explicitly:\n  {}",
         offenders.join("\n  ")
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_only_omit_entry_basenames_at_the_crate_source_root() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("src");
+        std::fs::create_dir_all(root.join("nested")).unwrap();
+        for basename in ["main", "lib"] {
+            let entry = root.join(format!("{basename}.rs"));
+            let nested = root.join(format!("nested/{basename}.rs"));
+            std::fs::write(&entry, "").unwrap();
+            std::fs::write(&nested, "").unwrap();
+            assert_eq!(derive_module_path(&entry, Some(&root)), "");
+            assert_eq!(derive_module_path(&nested, Some(&root)), format!("nested::{basename}"));
+        }
+    }
 }

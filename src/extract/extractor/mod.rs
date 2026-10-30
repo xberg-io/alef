@@ -100,6 +100,7 @@ pub fn extract(
         extract_items(
             &file.items,
             source,
+            module_path.is_empty(),
             crate_name,
             &module_path,
             &mut surface,
@@ -202,6 +203,7 @@ fn unsupported_public_item(
 fn extract_items(
     items: &[syn::Item],
     source_path: &Path,
+    source_is_crate_root: bool,
     crate_name: &str,
     module_path: &str,
     surface: &mut ApiSurface,
@@ -535,6 +537,7 @@ fn extract_items(
                     extract_module(
                         item_mod,
                         source_path,
+                        source_is_crate_root,
                         crate_name,
                         module_path,
                         &reexport_map,

@@ -92,6 +92,7 @@ fn resolve_external_use(
     super::extract_items(
         &file.items,
         &canonical,
+        true,
         crate_name,
         "",
         &mut ext_surface,
@@ -328,6 +329,7 @@ fn apply_named_reexports(
 pub(crate) fn extract_module(
     item_mod: &syn::ItemMod,
     source_path: &Path,
+    source_is_crate_root: bool,
     crate_name: &str,
     module_path: &str,
     reexport_map: &ahash::AHashMap<String, ReexportKind>,
@@ -379,6 +381,7 @@ pub(crate) fn extract_module(
         super::extract_items(
             items,
             source_path,
+            source_is_crate_root,
             crate_name,
             &new_module_path,
             surface,
@@ -395,7 +398,7 @@ pub(crate) fn extract_module(
         // against THAT subdirectory, not against the sibling file's own parent. Using the plain
         // parent directory here silently searched one level too shallow, so any `mod` declared
         // inside a sibling-style file was never found at all (issue #466). ~keep
-        let parent_dir = super::paths::module_children_dir(source_path);
+        let parent_dir = super::paths::module_children_dir(source_path, source_is_crate_root);
 
         let file_name = mod_name.strip_prefix("r#").unwrap_or(&mod_name);
 
@@ -422,6 +425,7 @@ pub(crate) fn extract_module(
                 super::extract_items(
                     &file.items,
                     candidate,
+                    false,
                     crate_name,
                     &new_module_path,
                     surface,

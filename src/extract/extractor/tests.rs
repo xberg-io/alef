@@ -29,6 +29,7 @@ fn extract_from_source(source: &str) -> ApiSurface {
     extract_items(
         &file.items,
         Path::new("test.rs"),
+        true,
         "test_crate",
         "",
         &mut surface,
