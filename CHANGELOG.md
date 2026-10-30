@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Enable explicit by-value extraction for cloneable configured opaque Python wrappers under PyO3 0.30, preserving unsendable classes. (#746)
 - Install the project-locked AI-Rulez CLI in governance CI so strict regeneration uses the committed generator version.
 - Configure the selected Python shared library for all embedded PyO3 integration runtime fixtures on macOS.
 
