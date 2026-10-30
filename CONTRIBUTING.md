@@ -29,7 +29,6 @@ This will setup the dependencies, and pre-commit hooks via `poly`.
 | `mise run lint`   | Run all linters (with auto-fix)                 |
 | `mise run format` | Format all code                                 |
 | `mise run check`  | Combined lint + format check (no modifications) |
-| `mise run bench`  | Run benchmarks                                  |
 
 ## What to keep in mind
 

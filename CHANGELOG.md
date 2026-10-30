@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Node capsule shims call `napi_create_external` and `napi_type_tag_object` through `napi::sys` instead of an extern block linked to `node`, which made Windows addons import `node.dll` and fail to load under Node.js. Crates with capsule type tags need napi's `napi8` feature.
+- Let main CI finish while the latest update queues, retaining cancellation for superseded pull-request runs.
+- Emit formatter-clean Node and WASM package manifests, including platform packages, optional publish metadata, and service exports.
+- Repair cross-platform CI fixtures: scope generated-output serialization checks to the maintained mise task, resolve embedded Ruby libraries on Linux, and compile the PyO3 runtime fixture only on Unix.
 
 ## [0.115.6] - 2026-10-29
 

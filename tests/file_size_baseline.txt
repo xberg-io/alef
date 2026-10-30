@@ -6,7 +6,7 @@
 # deleting its line here, which is how the ratchet tightens.
 #
 # Never raise a number in this file to make a build pass. Split the file instead.
-# Regenerate after a split with: task lint:file-size:tighten
+# Regenerate after a split with: UPDATE_FILE_SIZE_BASELINE=1 cargo test --test file_size_ratchet -- --ignored
 #
 # THE RATCHET IS CURRENTLY DISABLED -- every test in tests/file_size_ratchet.rs carries an
 # #[ignore]. While it was off this file drifted badly: on 2026-09-28, 54 of its 82 entries had

@@ -170,6 +170,25 @@ fn write_fixture(root: &Path, api: &ApiSurface, config: &ResolvedCrateConfig) {
     std::fs::write(root.join("variants.rb"), &native.content[start..]).unwrap();
 }
 
+fn ruby_library_dir(ruby: &Path) -> std::path::PathBuf {
+    let output = Command::new(ruby)
+        .args(["-rrbconfig", "-e", "print RbConfig::CONFIG.fetch('libdir')"])
+        .output()
+        .expect("read the selected Ruby's shared library directory");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let directory = String::from_utf8(output.stdout).expect("Ruby library directory must be UTF-8");
+    assert!(!directory.is_empty(), "Ruby reported an empty shared library directory");
+    directory.into()
+}
+
+fn set_ruby_library_path(command: &mut Command, directory: &Path, inherited: Option<&std::ffi::OsStr>) {
+    let paths = std::iter::once(directory.to_path_buf()).chain(inherited.into_iter().flat_map(std::env::split_paths));
+    command.env(
+        "LD_LIBRARY_PATH",
+        std::env::join_paths(paths).expect("Ruby shared library paths must form a valid loader path"),
+    );
+}
+
 #[test]
 fn generated_tagged_enums_reconstruct_typed_ruby_variants_and_keep_json_fallbacks() {
     let Some(ruby) = toolchain::RUBY.open() else { return };
@@ -190,7 +209,7 @@ fn generated_tagged_enums_reconstruct_typed_ruby_variants_and_keep_json_fallback
         .env("CARGO_TARGET_DIR", &target)
         .env("CARGO_BUILD_JOBS", "2")
         .env("RUSTC_WRAPPER", "")
-        .env("RB_SYS_RUBY", ruby)
+        .env("RB_SYS_RUBY", &ruby)
         .output()
         .expect("compile generated Magnus conversions");
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -200,15 +219,22 @@ fn generated_tagged_enums_reconstruct_typed_ruby_variants_and_keep_json_fallback
         ("missing-variants", 5),
         ("fallback", 10),
     ] {
-        let output = Command::new(
+        let mut command = Command::new(
             target
                 .join("debug/ruby-enum-reconstruction")
                 .with_extension(std::env::consts::EXE_EXTENSION),
-        )
-        .args([scenario])
-        .arg(root.path().join("variants.rb"))
-        .output()
-        .expect("run generated Magnus conversions in embedded Ruby");
+        );
+        command.args([scenario]).arg(root.path().join("variants.rb"));
+        if cfg!(target_os = "linux") {
+            set_ruby_library_path(
+                &mut command,
+                &ruby_library_dir(&ruby),
+                std::env::var_os("LD_LIBRARY_PATH").as_deref(),
+            );
+        }
+        let output = command
+            .output()
+            .expect("run generated Magnus conversions in embedded Ruby");
         assert!(
             output.status.success(),
             "{scenario}: {}",
@@ -219,4 +245,34 @@ fn generated_tagged_enums_reconstruct_typed_ruby_variants_and_keep_json_fallback
             format!("{expected} runtime cases passed")
         );
     }
+}
+
+#[test]
+fn should_prepend_the_selected_ruby_library_without_losing_inherited_paths() {
+    let library = std::path::PathBuf::from("selected Ruby/lib");
+    let inherited = std::env::join_paths(["previous/lib", "another/lib"]).unwrap();
+    let mut command = Command::new("fixture");
+    set_ruby_library_path(&mut command, &library, Some(&inherited));
+    let value = command
+        .get_envs()
+        .find(|(key, _)| *key == "LD_LIBRARY_PATH")
+        .and_then(|(_, value)| value)
+        .expect("the child must receive its Ruby library path");
+    assert_eq!(
+        std::env::split_paths(value).collect::<Vec<_>>(),
+        [library, "previous/lib".into(), "another/lib".into()]
+    );
+}
+
+#[test]
+fn should_set_the_ruby_library_when_no_loader_path_is_inherited() {
+    let library = std::path::PathBuf::from("selected Ruby/lib");
+    let mut command = Command::new("fixture");
+    set_ruby_library_path(&mut command, &library, None);
+    let value = command
+        .get_envs()
+        .find(|(key, _)| *key == "LD_LIBRARY_PATH")
+        .and_then(|(_, value)| value)
+        .expect("the child must receive its Ruby library path");
+    assert_eq!(std::env::split_paths(value).collect::<Vec<_>>(), [library]);
 }

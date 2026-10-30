@@ -7,6 +7,7 @@ use quote::ToTokens;
 #[cfg(unix)]
 #[path = "support/mise_task.rs"]
 mod mise_task;
+#[cfg(unix)]
 #[path = "backends_pyo3_capsule_gil_test/runtime.rs"]
 mod runtime;
 

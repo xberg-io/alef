@@ -68,9 +68,9 @@ pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     // A single-target package publishes just that target's dir; a multi-target ~keep
     // package keeps the broad glob for backward compatibility. ~keep
     let files_block = if targets.len() == 1 {
-        format!("[\"pkg/{}\", \"README.md\"]", targets[0])
+        format!("[\n    \"pkg/{}\",\n    \"README.md\"\n  ]", targets[0])
     } else {
-        "[\"pkg\", \"*.wasm\", \"*.d.ts\", \"README.md\"]".to_string()
+        "[\n    \"pkg\",\n    \"*.wasm\",\n    \"*.d.ts\",\n    \"README.md\"\n  ]".to_string()
     };
 
     let per_target_scripts: String = targets

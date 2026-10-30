@@ -70,20 +70,18 @@ cargo run -q --manifest-path <polyrepo-root>/alef/Cargo.toml -- all --clean
 
 ## Consumer Tasks
 
-Every consumer repo defines these tasks; read each before running it, since the flags differ by
-repo (all pass `--skip-snippet-validation`; crawlberg omits `--skip-compile`):
+Consumer repos wrap these commands in their own tasks, whose names and flags differ by repo and
+change over time. List them with `mise tasks ls` and read one before running it; when no task
+fits, run the Alef command directly:
 
-- `mise run alef:generate` regenerates all Alef-managed output. In crawlberg (no `--skip-compile`) it
-  also compiles the Swift bridge and the FFI header gate, so a subagent without build scope must
-  not run it there.
-- `mise run alef:verify` checks that generated output is fresh; fast regeneration does not run it.
-- `mise run e2e:generate`, then `mise run e2e:test`, is the e2e loop.
-- `mise run build` builds the Rust core only; `alef build` builds the language bindings.
-
-Only some repos define `alef:build` (`alef build`) and `test:bindings` (not liter-llm), `e2e:build`
-(crawlberg, xberg) and `e2e:verify` (crawlberg, liter-llm, xberg), and only crawlberg and
-tree-sitter-language-pack define `alef:format` (`alef fmt`); elsewhere `mise run format` formats
-generated output. Check `mise tasks ls`.
+- `alef all --clean` regenerates all Alef-managed output. Without `--skip-compile` it also
+  compiles the Swift bridge and runs the FFI header gate, so a subagent without build scope must
+  pass `--skip-compile` or leave regeneration to the orchestrator.
+- `alef verify` checks that generated output is fresh; regeneration does not run it.
+- `alef e2e generate`, then `alef test --e2e` (which also runs each language's own suite), is the
+  e2e loop.
+- `alef build` builds the language bindings; `cargo build` builds the Rust core only.
+- `alef fmt` formats generated output.
 
 ## Regeneration Is an Audit
 

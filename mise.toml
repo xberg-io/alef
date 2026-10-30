@@ -77,25 +77,9 @@ run = [
   "cargo test --test generated_output_downstream_gate -- --ignored --nocapture --test-threads=1",
 ]
 
-[tasks.bench]
-description = "Run codegen benchmarks (criterion)"
-run = "cargo bench"
-
 [tasks.check]
 description = "Type-check all crates"
 run = "cargo check --workspace"
-
-[tasks."lint:file-size"]
-description = "Enforce the 1,000-line file cap: over-cap files may shrink, never grow"
-run = "cargo test --test file_size_ratchet"
-
-[tasks."lint:file-size:tighten"]
-description = "Rewrite tests/file_size_baseline.txt from the working tree (run after splitting a file)"
-# `--ignored` is load-bearing while the ratchet's tests carry #[ignore]: without it this task
-# reports `test result: ok. 0 passed; 4 ignored` and rewrites nothing, which is indistinguishable
-# from a successful regeneration (alef#482). ~keep
-env = { UPDATE_FILE_SIZE_BASELINE = "1" }
-run = "cargo test --test file_size_ratchet -- --ignored --nocapture"
 
 [tasks."gate:publish-verify"]
 description = "Verify package task arguments and archive guards with synthetic Cargo output"
@@ -104,11 +88,6 @@ run = "python3 scripts/test_publish_verify.py"
 [tasks.clean]
 description = "Clean build artifacts"
 run = ["cargo clean", "rm -rf .alef/"]
-
-[tasks."consumer-swift:verify"]
-description = "Qualify the pinned Xberg Swift consumer on an admitted hosted macOS executor"
-env = { PYTHONDONTWRITEBYTECODE = "1" }
-run = [{ task = "consumer-swift:controls" }, "python3 scripts/consumer-swift/entry.py"]
 
 [tasks."consumer-swift:controls"]
 description = "Run all 45 hosted consumer harness controls with resource and process cleanup guards"
