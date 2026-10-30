@@ -4,7 +4,7 @@
 version = 1
 ai_rulez_version = '5.9.2'
 scope = 'all'
-tree = 'sha256:d691872c7646dbc7ce11364b508bed926781721b4b74cf230769fab20942aaa0'
+tree = 'sha256:d0c3a8d9a046123e764ae6443e3bbb54309240455ed51fa9e43bfd6ca169735a'
 
 [[include]]
 name = 'xberg-cicd'
@@ -232,7 +232,7 @@ digest = 'sha256:b15cd8562858cfd7c0b30acf4bf214cc27b1ecac5ff9bd3d69aef5a55b4ef6d
 kind = 'rule'
 id = 'file-modularization'
 path = 'rules/file-modularization.md'
-digest = 'sha256:56fddeb24b95555435f08d09828eecfd3c84006821c821ec4184b8be8c79cb79'
+digest = 'sha256:ebabde3cca9591d8138e6585568e219195a4546173cc9b7b16ba111c73f1e4aa'
 
 [[item]]
 kind = 'rule'

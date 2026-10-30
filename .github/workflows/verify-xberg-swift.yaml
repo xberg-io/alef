@@ -29,7 +29,7 @@ jobs:
           XBERG_REF: ${{ inputs.xberg_ref }}
           PYTHONDONTWRITEBYTECODE: "1"
         run: python3 gate/scripts/consumer-swift/entry.py --bootstrap-task
-      # The steps of alef's consumer-swift:verify mise task. The bootstrapped go-task binary drives
+      # `mise run consumer-swift:controls`, then the qualification itself. The bootstrapped go-task binary drives
       # the pinned Xberg consumer, whose own tasks are still go-task at that commit. ~keep
       - name: Qualify real consumer under guarded Task stages
         env:

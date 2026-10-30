@@ -15,11 +15,11 @@
 //! improvement.
 //!
 //! Where it runs: nowhere new. This is an ordinary integration test, so CI's `test` job picks it
-//! up through `cargo test --workspace` on all three platforms, and `mise run lint:file-size` runs it
-//! alone. It is deliberately *not* a separate `ci.yml` step — an integration test target forces a
+//! up through `cargo test --workspace` on all three platforms, and `cargo test --test file_size_ratchet`
+//! runs it alone. It is deliberately *not* a separate `ci.yml` step — an integration test target forces a
 //! full build of the `alef` lib (~2 min), and paying that twice to move a 0.5 s check earlier in
-//! the pipeline is a bad trade. After an actual split, `mise run lint:file-size:tighten` rewrites the
-//! baseline.
+//! the pipeline is a bad trade. After an actual split,
+//! `UPDATE_FILE_SIZE_BASELINE=1 cargo test --test file_size_ratchet -- --ignored` rewrites the baseline.
 //!
 //! Design note — why a checked-in ceiling and not a merge-base diff: comparing `HEAD` against
 //! `origin/main` needs full history (CI checkouts are shallow), a fetched remote (agents work
@@ -42,8 +42,11 @@ const MAX_LINES: usize = 1_000;
 const BASELINE: &str = "tests/file_size_baseline.txt";
 
 /// Set to any value to rewrite [`BASELINE`] from the working tree instead of asserting against
-/// it. Exposed as `mise run lint:file-size:tighten`.
+/// it. `--ignored` is load-bearing while the tests carry #[ignore]: without it nothing is rewritten.
 const UPDATE_ENV: &str = "UPDATE_FILE_SIZE_BASELINE";
+
+/// The command that rewrites [`BASELINE`]; the error messages below point to it.
+const TIGHTEN: &str = "UPDATE_FILE_SIZE_BASELINE=1 cargo test --test file_size_ratchet -- --ignored";
 
 /// The rule's scope: `src/**/*.rs`, `src/**/*.jinja`, `tests/**/*.rs`. Expressed as git
 /// pathspecs, whose leading `dir/` already means "at any depth below".
@@ -166,12 +169,8 @@ fn baseline_path() -> PathBuf {
 
 fn read_baseline() -> BTreeMap<String, usize> {
     let path = baseline_path();
-    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| {
-        panic!(
-            "reading {}: {e}\nRegenerate it with `mise run lint:file-size:tighten`.",
-            path.display()
-        )
-    });
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("reading {}: {e}\nRegenerate it with `{TIGHTEN}`.", path.display()));
     text.lines()
         .map(str::trim)
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
@@ -204,7 +203,7 @@ const HEADER: &str = "\
 # deleting its line here, which is how the ratchet tightens.
 #
 # Never raise a number in this file to make a build pass. Split the file instead.
-# Regenerate after a split with: mise run lint:file-size:tighten
+# Regenerate after a split with: UPDATE_FILE_SIZE_BASELINE=1 cargo test --test file_size_ratchet -- --ignored
 #
 # THE RATCHET IS CURRENTLY DISABLED -- every test in tests/file_size_ratchet.rs carries an
 # #[ignore]. While it was off this file drifted badly: on 2026-09-28, 54 of its 82 entries had
@@ -268,7 +267,7 @@ fn over_cap_files_must_not_grow() {
          to shrink but never to grow. Move the new code into a sibling module (split by concern,\n\
          not by line count) so the touched file ends at or below its ceiling in {BASELINE}.\n\n\
          Do not raise the ceiling to make this pass. After an actual split, run:\n\
-         \x20   mise run lint:file-size:tighten\n"
+         \x20   {TIGHTEN}\n"
     );
     panic!("{message}");
 }
@@ -337,7 +336,7 @@ fn baseline_must_not_outlive_the_files_it_excuses() {
     panic!(
         "{} stale entries in {BASELINE}:\n\n{}\n\nDelete these lines. Left in place they are a\n\
          standing licence for the file to grow back to its old size, which undoes the split that\n\
-         just happened. Run `mise run lint:file-size:tighten` to drop them mechanically.\n",
+         just happened. Run `{TIGHTEN}` to drop them mechanically.\n",
         stale.len(),
         stale.join("\n")
     );
