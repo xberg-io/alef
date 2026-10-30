@@ -23,8 +23,13 @@ cargo-deny = "0.20.2"
 [tasks.setup]
 description = "Set up the development environment"
 # Tools come from mise.toml and mise.lock; rust-toolchain.toml installs Rust on first use. Not --locked:
-# bats has no Windows lock entry and cargo-sort none for linux-arm64. ~keep
-run = ["mise install", "cargo install cargo-edit || true", { task = "governance:hooks:install" }]
+# bats has no Windows lock entry and cargo-sort none for linux-arm64. cargo-edit publishes no
+# release binaries, so it stays a pinned cargo install. ~keep
+run = [
+  "mise install",
+  "cargo install cargo-edit --version 0.13.13 --locked || true",
+  { task = "governance:hooks:install" },
+]
 
 [tasks.update]
 description = "Update dependencies"
