@@ -1,0 +1,42 @@
+version = 1
+canonical = 1
+
+[adrs."adrs/0000-record-architecture-decisions.md"]
+number = 0
+status = "accepted"
+blake3 = "636796fa22fad6aa8ad3eac540ee19f64df42758351691e1397addb7b5b19e92"
+
+[adrs."adrs/0001-extract-the-rust-api-into-an-ir-with-syn.md"]
+number = 1
+status = "accepted"
+blake3 = "207862f91780276407b729b48dd004037f7ce195c5f91cf2eff7236b97e6def2"
+
+[adrs."adrs/0002-structured-values-cross-the-c-ffi-as-serde-json.md"]
+number = 2
+status = "accepted"
+blake3 = "c4252b3578849fdc9e8bb911c0513c4c90df95fc4067f9f7990524562bf6b9e7"
+
+[adrs."adrs/0003-file-ownership-by-an-embedded-alef-marker.md"]
+number = 3
+status = "accepted"
+blake3 = "d05afd93ac9cabac04f58fc264aa52884f35c62f01902aad7a6235850863e06b"
+
+[adrs."adrs/0004-generated-code-goes-through-minijinja-templates.md"]
+number = 4
+status = "accepted"
+blake3 = "f6850c423bd4f227a06c7210dbad4e4667f2e94ed4d2307da0f4edb5471ace54"
+
+[adrs."adrs/0005-one-root-crate-for-the-generator.md"]
+number = 5
+status = "accepted"
+blake3 = "e3b9fbbbe5d675282ff4f50d8479b4858af92ce924cfc13f9716fc52a75b0e71"
+
+[adrs."adrs/0006-a-project-agnostic-generator.md"]
+number = 6
+status = "accepted"
+blake3 = "837dfa2893721faa094abf5286c0d668d2f3263de236845dbfa0e18738b102a4"
+
+[adrs."adrs/0007-generational-handles-across-the-c-abi.md"]
+number = 7
+status = "accepted"
+blake3 = "2e8ae828aa896c44f8baee988c235bb0d0956e70afbb5d2d0061f8f86586375c"
