@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Pin the ai-rulez validation hook to 5.9.3, matching the locked toolchain CLI.
 - Refresh the Android Gradle snapshot for the configured AGP 9.5.0 version.
 - Build embedded Ruby runtime fixtures for the selected Ruby ABI on Windows and load binaries from the matching target directory.
 - Resolve children of nested `main.rs` and `lib.rs` modules from their own directories, retaining crate-entry resolution and public reexports. (#743)
