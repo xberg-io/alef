@@ -92,9 +92,9 @@ erl_crash.dump
 .codex/agents/
 .opencode/agents/
 .opencode/commands/
-AGENTS.md
-CLAUDE.md
-opencode.json
+/AGENTS.md
+/CLAUDE.md
+/opencode.json
 # END ai-rulez
 
 # Agent harness output outside the ai-rulez managed block: the machine-local overlay,
