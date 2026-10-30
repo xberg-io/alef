@@ -214,8 +214,8 @@ fn run_native(root: &Path, api: &ApiSurface, config: &ResolvedCrateConfig) {
     );
     let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/pyo3-native-stub-probe");
     for args in [
-        vec!["clippy", "--offline", "--quiet", "--lib", "--", "-D", "warnings"],
-        vec!["test", "--offline", "--quiet", "--lib"],
+        vec!["clippy", "--quiet", "--lib", "--", "-D", "warnings"],
+        vec!["test", "--quiet", "--lib"],
     ] {
         let mut command = Command::new("cargo");
         python_native::configure_python(&mut command);

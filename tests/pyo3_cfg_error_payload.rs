@@ -64,7 +64,7 @@ fn should_compile_and_preserve_python_payload_with_core_feature_off_and_on() {
         let mut command = std::process::Command::new("cargo");
         python_native::configure_python(&mut command);
         let result = command
-            .args(["test", "--offline", "--quiet", "--lib", "--no-default-features"])
+            .args(["test", "--quiet", "--lib", "--no-default-features"])
             .args(&features)
             .current_dir(root.path().join("sample-py"))
             .env("CARGO_TARGET_DIR", target)
