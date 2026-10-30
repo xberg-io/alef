@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Refresh cached READMEs when rendered templates, partials, snippets, external YAML, migration-file predicates, or selected languages change, while retaining cache integrity checks and avoiding unchanged writes. (#750)
+
 ## [0.115.7] - 2026-10-30
 
 ### Changed

@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::PathBuf;
 use std::process;
 
@@ -11,6 +11,7 @@ use super::verify_orphans;
 
 mod docs;
 mod generate;
+mod readme_cache;
 mod verify;
 mod verify_dart_bridge;
 mod verify_flags;
@@ -212,7 +213,14 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 );
                 let api = pipeline::extract(resolved_cfg, config_path, false)?;
                 let ir_json = serde_json::to_string(&api)?;
-                let stage_hash = cache::compute_stage_hash(&ir_json, "readme", &config_toml, &[]);
+                // Render on cache hits too: dynamic includes, snippets and filesystem predicates
+                // can change without changing config or IR. Cache the rendered identity to avoid
+                // writes while still observing those external inputs. ~keep
+                let files = pipeline::readme(&api, resolved_cfg, &languages).with_context(|| {
+                    format!("Failed to render README cache inputs for crate '{}'", resolved_cfg.name)
+                })?;
+                let inputs = readme_cache::inputs(&languages, &files)?;
+                let stage_hash = cache::compute_stage_hash(&ir_json, "readme", &config_toml, &inputs);
                 let sources_hash = cache::sources_hash(&resolved_cfg.sources)?;
                 let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
                 if cache::is_stage_cached(&resolved_cfg.name, "readme", &stage_hash) {
@@ -232,7 +240,6 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 } else {
                     tracing::info!("Generating READMEs for: {}", format_languages(&languages));
                 }
-                let files = pipeline::readme(&api, resolved_cfg, &languages)?;
                 let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
                 let output_paths: Vec<PathBuf> = files
                     .iter()
