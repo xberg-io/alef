@@ -1,0 +1,8 @@
+[package]
+name = "wide-codec"
+version = "1.0.0"
+edition = "2024"
+[dependencies]
+parking_lot = "=0.12.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt"] }

@@ -1,0 +1,11 @@
+[tasks.sdk]
+run = "dart --version"
+
+[tasks.setup]
+run = "cd packages/dart && dart pub get --offline"
+
+[tasks.build]
+run = "cargo build --offline --jobs 1 --manifest-path packages/dart/rust/Cargo.toml"
+
+[tasks.test]
+run = "cd packages/dart && dart run check.dart"
