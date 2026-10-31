@@ -139,8 +139,8 @@ pub struct BuildCommandConfig {
     /// took that escape hatch away: the only remaining way to set this field is this crate's own
     /// `#[cfg(test)]` build-orchestration hook (see
     /// [`crate::core::config::ResolvedCrateConfig::build_commands`]), so every real build is now
-    /// bound by that one hardcoded ceiling with no override -- which is why it was raised to
-    /// 3600s after a consumer's Swift post-build landed 60 seconds inside the old 1800s. Only
+    /// bound by that one ceiling unless `ALEF_RUN_COMMAND_TIMEOUT_SECS` overrides it -- it was
+    /// raised to 3600s after a consumer's Swift post-build landed 60 seconds inside the old 1800s. Only
     /// governs a post-build
     /// `RunCommand` step; the `build`/`build_release` commands above run unbounded. ~keep
     pub timeout_seconds: Option<u64>,

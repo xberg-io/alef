@@ -24,6 +24,30 @@ fn run_command_timeout_leaves_headroom_over_the_longest_measured_post_build() {
 }
 
 #[test]
+fn run_command_timeout_defaults_to_the_built_in_ceiling_and_honors_the_override() {
+    assert_eq!(super::run_command_timeout(None).unwrap(), super::RUN_COMMAND_TIMEOUT);
+    assert_eq!(
+        super::run_command_timeout(Some("8400")).unwrap(),
+        std::time::Duration::from_secs(8400)
+    );
+    assert_eq!(
+        super::run_command_timeout(Some(" 7200\n")).unwrap(),
+        std::time::Duration::from_secs(7200)
+    );
+}
+
+#[test]
+fn run_command_timeout_rejects_a_value_that_is_not_positive_whole_seconds() {
+    for raw in ["", "0", "-5", "1.5", "1h", "18446744073709551616"] {
+        let error = super::run_command_timeout(Some(raw)).unwrap_err().to_string();
+        assert!(
+            error.contains("ALEF_RUN_COMMAND_TIMEOUT_SECS must be a positive whole number of seconds"),
+            "{raw:?} must be refused, got: {error}"
+        );
+    }
+}
+
+#[test]
 fn run_run_command_succeeds_for_echo() {
     let _guard = SkipCommandsGuard::set("");
     let dir = std::env::temp_dir();

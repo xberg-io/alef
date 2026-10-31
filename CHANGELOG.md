@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ALEF_RUN_COMMAND_TIMEOUT_SECS` overrides the 3600 s ceiling on post-build commands such as the
+  Swift `cargo build --release`.
+
 ### Changed
 
 - Generate manifests with the latest @napi-rs/cli 3.10.9, vitest 5.0.5, @types/node 26.6.6,

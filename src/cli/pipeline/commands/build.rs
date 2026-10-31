@@ -634,11 +634,10 @@ fn run_post_build_with_spawn(
                 // doc comment for why a language-scoped override exists (alef #364: a cold
                 // Swift `cargo build --release` in a large workspace legitimately exceeds 30
                 // minutes while still making progress). ~keep
-                let timeout = config
-                    .build_command_config_for_language(lang)
-                    .timeout_seconds
-                    .map(std::time::Duration::from_secs)
-                    .unwrap_or(RUN_COMMAND_TIMEOUT);
+                let timeout = match config.build_command_config_for_language(lang).timeout_seconds {
+                    Some(seconds) => std::time::Duration::from_secs(seconds),
+                    None => run_command_timeout(std::env::var(RUN_COMMAND_TIMEOUT_ENV).ok().as_deref())?,
+                };
                 let result =
                     if *cmd == frb_version_check::FLUTTER_RUST_BRIDGE_CODEGEN && args.first() == Some(&"generate") {
                         let no_op = |_: &mut std::process::Command| Ok(());
@@ -853,9 +852,27 @@ fn rewrite_wasm_package_json_name(path: &Path, new_name: &str) -> anyhow::Result
 /// the ceiling sits on top of it. 3600s leaves that headroom.
 ///
 /// `[build_commands.<lang>].timeout_seconds` was the per-language escape hatch (alef #364), but
-/// 0.82.0 removed that table from the schema, so no real `alef.toml` can raise this any more --
-/// this constant is the only ceiling a consumer actually gets. ~keep
+/// 0.82.0 removed that table from the schema, so no real `alef.toml` can raise this any more;
+/// [`RUN_COMMAND_TIMEOUT_ENV`] is the override a consumer gets instead. ~keep
 const RUN_COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3600);
+
+/// Environment override for [`RUN_COMMAND_TIMEOUT`], in whole seconds. A fat-LTO release build of
+/// a large consumer on a single Cargo job runs past an hour while still making progress, and
+/// since 0.82.0 no `alef.toml` setting can raise the ceiling. ~keep
+const RUN_COMMAND_TIMEOUT_ENV: &str = "ALEF_RUN_COMMAND_TIMEOUT_SECS";
+
+/// The post-build `RunCommand` ceiling: `raw` (the value of [`RUN_COMMAND_TIMEOUT_ENV`]) when
+/// set, else [`RUN_COMMAND_TIMEOUT`]. A value that is not a positive whole number of seconds is
+/// an error rather than a silent fallback to the default.
+fn run_command_timeout(raw: Option<&str>) -> anyhow::Result<std::time::Duration> {
+    let Some(raw) = raw else {
+        return Ok(RUN_COMMAND_TIMEOUT);
+    };
+    match raw.trim().parse::<u64>() {
+        Ok(seconds) if seconds > 0 => Ok(std::time::Duration::from_secs(seconds)),
+        _ => anyhow::bail!("{RUN_COMMAND_TIMEOUT_ENV} must be a positive whole number of seconds, got '{raw}'"),
+    }
+}
 
 /// Execute a `RunCommand` post-build step.
 ///
