@@ -158,9 +158,9 @@ jobs:
       # 2026-08-31 (the commit that added them) onward while `ALEF_REQUIRE_GO` below turned the
       # skip into a panic. Installing it explicitly on all three legs is far cheaper than
       # weakening the fixtures, and it is what makes `--require go` in the census step below
-      # honest. Pinned to the minor line alef itself emits into generated `go.mod` files
-      # (`go 1.26`, see `e2e::codegen::go`), so the toolchain CI compiles the output with can
-      # never be older than the directive that output declares. ~keep
+      # honest. mise.toml's Go must stay at or above the `go 1.26` directive alef emits into
+      # generated `go.mod` files (see `e2e::codegen::go`), so the toolchain CI compiles the output
+      # with is never older than the directive that output declares. ~keep
       - name: Set up Go
         uses: xberg-io/actions/setup-mise@v1
         with:
@@ -188,12 +188,12 @@ jobs:
         uses: xberg-io/actions/setup-mise@v1
         with:
           tools: ruby
-      # Ruby on Windows is a mise lock gap (toolchain-management rule). ~keep
+      # Ruby on Windows is a mise lock gap (toolchain-management rule); keep it on mise.toml's version. ~keep
       - name: Set up Ruby for generated Data regression (Windows)
         if: runner.os == 'Windows'
         uses: ruby/setup-ruby@v1.336.0
         with:
-          ruby-version: "3.4"
+          ruby-version: "3.4.12"
       - name: Install Steep for generated Ruby signature regression
         if: runner.os != 'Windows'
         run: gem install steep --version 2.1.0 --no-document
