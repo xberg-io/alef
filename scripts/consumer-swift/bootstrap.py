@@ -213,7 +213,7 @@ def install_clang_format(gate):
 
 
 def swift_package_macos_floor(xberg):
-    """The `.macOS(...)` platform floor the shipped Swift manifests declare, as `major.minor`."""
+    """The shared `.macOS(...)` floor, with two components and a nonzero patch when present."""
     floors = set()
     for manifest in [xberg / "packages/swift/Package.swift", xberg / "Package.swift"]:
         if not manifest.is_file():
@@ -222,10 +222,11 @@ def swift_package_macos_floor(xberg):
         if len(found) != 1:
             raise RuntimeError("Swift manifest must declare exactly one macOS platform floor: " + manifest.name)
         major, minor, text = found[0]
-        floors.add(text or major + "." + (minor or "0"))
+        floors.add(normalized_version(text or major + "." + (minor or "0")))
     if len(floors) != 1:
         raise RuntimeError("shipped Swift manifests must declare one shared macOS platform floor")
-    return floors.pop()
+    major, minor, patch = floors.pop()
+    return f"{major}.{minor}" + (f".{patch}" if patch else "")
 
 
 def normalized_version(text):

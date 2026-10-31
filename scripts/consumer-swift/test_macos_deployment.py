@@ -163,6 +163,20 @@ class MacosDeployment(unittest.TestCase):
             for declared, floor in [(".v14", "14.0"), (".v10_15", "10.15"), ('"13.4"', "13.4")]:
                 (xberg / "packages/swift/Package.swift").write_text(f"platforms: [.macOS({declared}), .iOS(.v16)]")
                 assert bootstrap.swift_package_macos_floor(xberg) == floor
-            (xberg / "packages/swift/Package.swift").unlink()
+            for declared, mirrored, floor in [
+                (".v14", '"14.0"', "14.0"),
+                (".v14", '"14.0.0"', "14.0"),
+                ('"13.4"', '"13.4.0"', "13.4"),
+                ('"13.4.1"', '"13.4.1"', "13.4.1"),
+            ]:
+                with self.subTest(declared=declared, mirrored=mirrored):
+                    (xberg / "packages/swift/Package.swift").write_text(f"platforms: [.macOS({declared})]")
+                    (xberg / "Package.swift").write_text(f"platforms: [.macOS({mirrored})]")
+                    assert bootstrap.swift_package_macos_floor(xberg) == floor
+            (xberg / "Package.swift").write_text('platforms: [.macOS("13.4.2")]')
+            with raises(RuntimeError, "must declare one shared macOS platform floor"):
+                bootstrap.swift_package_macos_floor(xberg)
+            for manifest in [xberg / "packages/swift/Package.swift", xberg / "Package.swift"]:
+                manifest.unlink()
             with raises(RuntimeError, "must declare one shared macOS platform floor"):
                 bootstrap.swift_package_macos_floor(xberg)
