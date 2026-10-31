@@ -28,7 +28,10 @@ def strict_flags(environment, configured):
                 raise ValueError("unrecognized global allowance spelling requires explicit review")
             result.append(flags[index])
             index += 1
-    fatal = ["-C", "link-arg=-Wl,-fatal_warnings"]
-    if not any(result[i : i + 2] == fatal for i in range(len(result))):
-        result.extend(fatal)
+    # rustc repeats `-lc++`/`-lobjc` once per native crate, and Xcode 15+ ld reports the repeats, so every
+    # cdylib in the consumer graph (xberg-ffi) would fail on rustc's own link line. Only that warning is
+    # silenced; the SwiftPM duplicate-library control in negative.py still runs fatal. ~keep
+    for strict in (["-C", "link-arg=-Wl,-fatal_warnings"], ["-C", "link-arg=-Wl,-no_warn_duplicate_libraries"]):
+        if not any(result[i : i + 2] == strict for i in range(len(result))):
+            result.extend(strict)
     return result, removed
