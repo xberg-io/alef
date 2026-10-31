@@ -85,7 +85,7 @@ Future<void> main(List<String> args) async {
     final oracle = args.length > 1 && index == 0 ? value + BigInt.one : value;
     sameUnsigned(await WideSampleBridge.scalarForCase(index), oracle, 'core return'); checked++;
     sameUnsigned(await WideSampleBridge.echoScalar(value), value, 'scalar roundtrip'); checked++;
-    sameUnsigned(await WideSampleBridge.echoOptional(value), value, 'optional roundtrip'); checked++;
+    sameUnsigned(await WideSampleBridge.echoOptional(value: value), value, 'optional roundtrip'); checked++;
     final vector = await WideSampleBridge.echoVector(frb.Uint64List.fromList([value]));
     if (vector is! frb.Uint64List) throw StateError('unsigned list lost FRB BigInt representation');
     sameUnsigned(vector.single, value, 'vector roundtrip'); checked++;
@@ -96,12 +96,12 @@ Future<void> main(List<String> args) async {
     sameRecord(record, value); checked++;
     sameRecord(await WideSampleBridge.echoRecord(record), value); checked++;
   }
-  if (await WideSampleBridge.echoOptional(null) != null) throw StateError('optional null changed'); checked++;
+  if (await WideSampleBridge.echoOptional(value: null) != null) throw StateError('optional null changed'); checked++;
   if ((await WideSampleBridge.echoSigned(-1)).toString() != '-1') throw StateError('signed -1 changed'); checked++;
   if ((await WideSampleBridge.echoU32(4294967295)).toString() != '4294967295') throw StateError('u32 changed'); checked++;
   for (final invalid in [-BigInt.one, BigInt.one << 64]) {
     await rejects(() => WideSampleBridge.echoScalar(invalid), 'scalar $invalid'); checked++;
-    await rejects(() => WideSampleBridge.echoOptional(invalid), 'optional $invalid'); checked++;
+    await rejects(() => WideSampleBridge.echoOptional(value: invalid), 'optional $invalid'); checked++;
     await rejects(() => WideSampleBridge.echoMap({'item': invalid}), 'map $invalid'); checked++;
     await rejects(() => createWideRecordFromJson(json: encodedRecord(invalid)), 'JSON $invalid'); checked++;
   }
