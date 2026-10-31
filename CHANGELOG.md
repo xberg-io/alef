@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Share one exception class among unrelated error families that declare a variant of the same name,
+  and make it a member of every such family: Python lists each family as a base, Ruby gives every
+  family a `<Family>::Family` module so `rescue` of the family or its `exception_base` ancestors
+  matches, and PHP, C# and Java families get marker interfaces (`SchemaErrorInterface`,
+  `ISchemaError`) that every class of the family implements, including a Java infrastructure class
+  standing in for a family base. The class carries the union of the families' payload fields and
+  introspection values, including those a family inherits through `exception_base`, so PHP
+  generation no longer fails on differing payloads and no binding fails to build on differing
+  introspection methods. A value the raising family lacks is the type's default in PHP and `null`
+  in Java and C#, which fill it only for that family's native codes. A field or method two
+  families type differently, or a marker interface name another generated type takes, is
+  rejected. No class names change.
+
 ## [0.115.11] - 2026-10-31
 
 ### Added
@@ -26,7 +41,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Keep the alef skill description within the 250-character context-exposure limit.
-
 - Publish source-bound CLI archives to a draft, verify every requested crate before promotion,
   and preserve historical Latest selection and public releases during retries. (#761)
 - Share immutable snippet metadata within each render session while preserving custom resolvers

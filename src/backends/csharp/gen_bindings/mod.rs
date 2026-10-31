@@ -342,14 +342,30 @@ impl Backend for CsharpBackend {
         }
 
         if !api.errors.is_empty() {
+            crate::codegen::error_gen::validate_family_interface_names(
+                api,
+                "C#",
+                crate::codegen::error_gen::family_interface_type_name,
+            )?;
             let mut seen_exception_files: HashSet<String> = HashSet::new();
             let last_error_getters = crate::codegen::error_gen::last_error_fields(&api.errors);
             for family in
                 crate::codegen::error_gen::exception_families(api, crate::codegen::error_gen::ExceptionNaming::Nominal)?
             {
                 let parent = family.parent.as_ref().map(|parent| format!("{parent}Exception"));
+                let (interface_name, interface) = crate::codegen::error_gen::gen_csharp_family_interface(
+                    &family.error.name,
+                    family.parent.as_deref(),
+                    &namespace,
+                );
+                files.push(GeneratedFile {
+                    path: base_path.join(format!("{interface_name}.cs")),
+                    content: interface,
+                    generated_header: false,
+                });
                 let error_files = crate::codegen::error_gen::gen_csharp_error_types(
                     &family.error,
+                    &api.errors,
                     &namespace,
                     Some(parent.as_deref().unwrap_or(&exception_class_name)),
                     &last_error_getters,

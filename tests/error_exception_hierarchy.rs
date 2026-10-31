@@ -151,7 +151,7 @@ fn cyclic_exception_parents_are_rejected_before_emitting_code() {
 }
 
 #[test]
-fn unrelated_shared_variant_parents_are_rejected_when_opted_in() {
+fn sibling_families_share_one_class_that_belongs_to_both_when_opted_in() {
     let mut value = serde_json::to_value(surface()).unwrap();
     for error in value["errors"].as_array_mut().unwrap() {
         error["exception_base"] = serde_json::json!("RootError");
@@ -161,8 +161,27 @@ fn unrelated_shared_variant_parents_are_rejected_when_opted_in() {
         .unwrap()
         .push(serde_json::json!({"name": "RootError", "rust_path": "fixture::RootError", "variants": [], "doc": ""}));
     let api = serde_json::from_value(value).unwrap();
-    let error = Pyo3Backend.generate_bindings(&api, &config()).unwrap_err();
-    assert!(error.to_string().contains("incompatible exception parents"), "{error}");
+    let source = Pyo3Backend
+        .generate_bindings(&api, &config())
+        .unwrap()
+        .iter()
+        .map(|file| file.content.clone())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert_eq!(
+        source
+            .matches("create_exception!(_fixture, TooManyRedirectsError, PolicyError)")
+            .count(),
+        1,
+        "{source}"
+    );
+    assert!(
+        source.contains(
+            "m.py().get_type::<TooManyRedirectsError>().setattr(\"__bases__\", \
+             (m.py().get_type::<PolicyError>(), m.py().get_type::<RequestError>(),))?;"
+        ),
+        "{source}"
+    );
 }
 
 #[test]
@@ -173,7 +192,7 @@ fn generated_java_runtime_keeps_legacy_and_new_generic_catches() {
     let mut sources = Vec::new();
     for file in JavaBackend.generate_bindings(&surface(), &config()).unwrap() {
         let name = file.path.file_name().unwrap().to_string_lossy();
-        if name.ends_with("Exception.java") {
+        if name.ends_with("Exception.java") || (name.starts_with('I') && name.ends_with("Error.java")) {
             let path = package.join(name.as_ref());
             std::fs::write(&path, file.content).unwrap();
             sources.push(path);

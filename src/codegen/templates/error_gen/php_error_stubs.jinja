@@ -1,5 +1,10 @@
-{% for class in classes %}{% if not class.root %}
-class {{ class.name }} extends {{ class.parent or '\\Exception' }}
+{% for interface in interfaces %}
+/** Implemented by every exception class of the `{{ interface.family }}` family: catching it covers all of the family's errors. */
+interface {{ interface.name }} extends {{ interface.parent or '\\Throwable' }}
+{
+}
+{% endfor %}{% for class in classes %}{% if not class.root %}
+class {{ class.name }} extends {{ class.parent or '\\Exception' }}{{ (' implements ' ~ class.interfaces | join(', ')) if class.interfaces else '' }}
 {
 {% for field in class.fields %}    public {{ field.php_type }} ${{ field.php_name }};
 {% endfor %}{% for field in class.info %}    /** {{ field.doc }} */

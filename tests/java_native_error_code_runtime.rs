@@ -65,7 +65,10 @@ fn generated_dispatch_preserves_shared_variant_native_codes_and_legacy_construct
     let mut sources = Vec::new();
     for file in JavaBackend.generate_bindings(&surface(), &config()).unwrap() {
         let name = file.path.file_name().unwrap().to_string_lossy();
-        if name.ends_with("Exception.java") || name == "NativeLib.java" {
+        if name.ends_with("Exception.java")
+            || name == "NativeLib.java"
+            || (name.starts_with('I') && name.ends_with("Error.java"))
+        {
             let content = if name == "NativeLib.java" {
                 [
                     "package fixture;\nclass NativeLib {\n",
@@ -81,7 +84,11 @@ fn generated_dispatch_preserves_shared_variant_native_codes_and_legacy_construct
             sources.push(path);
         }
     }
-    assert_eq!(sources.len(), 9, "eight emitted exceptions and the actual dispatch");
+    assert_eq!(
+        sources.len(),
+        11,
+        "eight emitted exceptions, two family interfaces and the actual dispatch"
+    );
     let probe = package.join("CodeProbe.java");
     std::fs::write(&probe, include_str!("fixtures/java_native_error_code_probe.java")).unwrap();
     sources.push(probe);

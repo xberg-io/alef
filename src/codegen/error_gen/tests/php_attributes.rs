@@ -14,8 +14,8 @@ fn should_preserve_static_string_error_fields_as_php_attributes() {
         errors: vec![error.clone()],
         ..Default::default()
     };
-    let generated =
-        gen_php_error_types(&api, "Sample", None).unwrap() + &gen_php_error_converter(&error, "sample_markup_rs");
+    let generated = gen_php_error_types(&api, "Sample", None).unwrap()
+        + &gen_php_error_converter(&error, std::slice::from_ref(&error), "sample_markup_rs");
     let stubs = gen_php_error_stubs(&api, None).unwrap();
     assert!(stubs.contains("public string $reason;"), "{stubs}");
     assert!(generated.contains("pub reason: String"), "{generated}");
@@ -52,7 +52,7 @@ fn should_own_borrowed_and_owned_php_error_strings_at_runtime() {
             fields: vec![named_field("vendor"), body, status],
             ..Default::default()
         }];
-        let generated = gen_php_error_converter(&error, "sample");
+        let generated = gen_php_error_converter(&error, std::slice::from_ref(&error), "sample");
         let assignments = ["vendor", "body", "status"]
             .map(|name| {
                 let prefix = format!("{name}:");
@@ -186,8 +186,8 @@ fn assert_nullable_payloads(normalized: bool) {
         errors: vec![error.clone()],
         ..Default::default()
     };
-    let output =
-        gen_php_error_types(&api, "Sample", None).unwrap() + &gen_php_error_converter(&error, "sample_markup_rs");
+    let output = gen_php_error_types(&api, "Sample", None).unwrap()
+        + &gen_php_error_converter(&error, std::slice::from_ref(&error), "sample_markup_rs");
     let stubs = gen_php_error_stubs(&api, None).unwrap();
     assert!(stubs.contains("public ?int $status;"), "{stubs}");
     assert!(stubs.contains("public ?string $body;"), "{stubs}");

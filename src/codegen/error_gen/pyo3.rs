@@ -401,3 +401,75 @@ fn scalar_error_attribute_type(ty: &crate::core::ir::TypeRef) -> bool {
         _ => false,
     }
 }
+
+/// The attributes of the Python class of `class`, with whether each is nullable.
+///
+/// A class shared by unrelated families carries the union of their variants' attributes. One some
+/// family lacks is nullable, and a converter that does not set it leaves the `None` class default
+/// [`gen_pyo3_shared_exception_setup`] installs. Two families declaring one attribute with
+/// different types is an error.
+pub fn pyo3_class_attributes(
+    errors: &[ErrorDef],
+    class: &str,
+) -> anyhow::Result<Vec<(crate::core::ir::FieldDef, bool)>> {
+    let declared: Vec<(&ErrorDef, &crate::core::ir::ErrorVariant)> = errors
+        .iter()
+        .flat_map(|error| error.variants.iter().map(move |variant| (error, variant)))
+        .filter(|(error, variant)| super::python_exception_name(&variant.name, &error.name) == class)
+        .collect();
+    let mut union: Vec<(crate::core::ir::FieldDef, String)> = Vec::new();
+    for (error, variant) in &declared {
+        for field in pyo3_error_attribute_fields(variant) {
+            let owner = format!("{}::{}", error.name, variant.name);
+            match union.iter().find(|(existing, _)| existing.name == field.name) {
+                Some((existing, first)) => anyhow::ensure!(
+                    (&existing.ty, existing.optional) == (&field.ty, field.optional),
+                    "incompatible Python attribute {} of {class}: {first} and {owner} declare different types",
+                    field.name
+                ),
+                None => union.push((field.clone(), owner)),
+            }
+        }
+    }
+    Ok(union
+        .into_iter()
+        .map(|(field, _)| {
+            let everywhere = declared.iter().all(|(_, variant)| {
+                pyo3_error_attribute_fields(variant)
+                    .iter()
+                    .any(|declared| declared.name == field.name)
+            });
+            (field, !everywhere)
+        })
+        .collect())
+}
+
+/// Module-init statements that make each variant class shared by unrelated families a subclass of
+/// every one of them, and default the attributes only some of them set to `None`.
+///
+/// `create_exception!` declares a class with one base, the first family's. Assigning `__bases__`
+/// before the module returns adds the others, so `except SchemaError` also catches the class it
+/// shares with `GraphQLError`. The families are unrelated by construction, so the C3 order exists.
+pub fn gen_pyo3_shared_exception_setup(api: &crate::core::ir::ApiSurface) -> Vec<String> {
+    let mut lines = Vec::new();
+    for (class, members) in super::shared_exception_classes(&api.errors, super::ExceptionNaming::Python) {
+        let bases = members
+            .families
+            .iter()
+            .map(|family| format!("m.py().get_type::<{family}>()"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        lines.push(format!(
+            "    m.py().get_type::<{class}>().setattr(\"__bases__\", ({bases},))?;"
+        ));
+        for (field, nullable) in pyo3_class_attributes(&api.errors, &class).unwrap_or_default() {
+            if nullable {
+                lines.push(format!(
+                    "    m.py().get_type::<{class}>().setattr(\"{}\", m.py().None())?;",
+                    public_field_name(Language::Python, &field.name, None)
+                ));
+            }
+        }
+    }
+    lines
+}

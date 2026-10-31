@@ -178,6 +178,7 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
             lines.push(format!("    m.add_function(wrap_pyfunction!({info_fn}, m)?)?;"));
         }
     }
+    lines.extend(crate::codegen::error_gen::gen_pyo3_shared_exception_setup(api));
 
     lines.push("    Ok(())".to_string());
     lines.push("}".to_string());

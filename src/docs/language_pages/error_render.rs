@@ -33,6 +33,52 @@ fn error_variant_identifier(
     }
 }
 
+/// How to catch every error of the `family` family where a variant class it shares with another
+/// family does not extend it: the marker interface every class of the family implements (PHP, C#,
+/// Java), or the `Family` module every class of the family includes (Ruby).
+fn family_interface_note(family: &str, lang: Language) -> Option<String> {
+    let interface = crate::codegen::error_gen::family_interface_type_name(family);
+    let (member, catch) = match lang {
+        Language::Php => (
+            format!("implements `{family}Interface`"),
+            format!("`catch ({family}Interface $e)`"),
+        ),
+        Language::Csharp => (
+            format!("implements `{interface}`"),
+            format!("`catch (Exception e) when (e is {interface})`"),
+        ),
+        Language::Java => (
+            format!("implements `{interface}`"),
+            format!("`e instanceof {interface}`"),
+        ),
+        Language::Ruby => (
+            format!("is a `{family}::Family`"),
+            format!("`rescue {family}` or `error.is_a?({family}::Family)`"),
+        ),
+        _ => return None,
+    };
+    let missing = match lang {
+        Language::Php => {
+            " An introspection value the raising family does not report reads as the type's default \
+             (0, `''` or `false`)."
+        }
+        Language::Java => {
+            " On a shared class, an introspection value the raising family does not report is `null` when it \
+             adds the value, or the type's default when its base family declares it."
+        }
+        Language::Csharp => {
+            " On a shared class, an introspection value the raising family does not report is the type's \
+             default when its base family declares it; one the class adds is `null`, or the native default \
+             when the raising variant has no stable error code."
+        }
+        _ => "",
+    };
+    Some(format!(
+        "Every exception of this family {member}, including a variant class it shares with another family; \
+         {catch} covers all of them.{missing}"
+    ))
+}
+
 pub(super) fn render_error(err: &ErrorDef, all_errors: &[ErrorDef], lang: Language, ffi_prefix: &str) -> String {
     let mut out = String::new();
     let ename = type_name(&err.name, lang, ffi_prefix);
@@ -57,6 +103,11 @@ pub(super) fn render_error(err: &ErrorDef, all_errors: &[ErrorDef], lang: Langua
 
     if matches!(lang, Language::Node | Language::Wasm) {
         out.push_str("Errors are thrown as plain `Error` objects with descriptive messages.\n\n");
+    }
+
+    if let Some(note) = family_interface_note(&err.name, lang) {
+        out.push_str(&note);
+        out.push_str("\n\n");
     }
 
     if lang == Language::Python {
@@ -224,5 +275,40 @@ mod tests {
             "Kotlin's real `data class` name is the bare variant name, unlike C#/Java/Go/Swift; \
              got:\n{rendered}"
         );
+    }
+
+    #[test]
+    fn family_pages_name_the_type_that_covers_every_class_of_the_family() {
+        let error = make_error("SchemaError", &["Invalid"]);
+        let errors = std::slice::from_ref(&error);
+        for (lang, expected) in [
+            (
+                Language::Ruby,
+                "Every exception of this family is a `SchemaError::Family`, including a variant class it shares \
+                 with another family; `rescue SchemaError` or `error.is_a?(SchemaError::Family)` covers all of them.",
+            ),
+            (Language::Php, "`catch (SchemaErrorInterface $e)`"),
+            (
+                Language::Php,
+                "An introspection value the raising family does not report reads as the type's default \
+                 (0, `''` or `false`).",
+            ),
+            (Language::Csharp, "`catch (Exception e) when (e is ISchemaError)`"),
+            (
+                Language::Csharp,
+                "one the class adds is `null`, or the native default when the raising variant has no stable error \
+                 code.",
+            ),
+            (Language::Java, "`e instanceof ISchemaError`"),
+            (
+                Language::Java,
+                "is `null` when it adds the value, or the type's default when its base family declares it.",
+            ),
+        ] {
+            let rendered = render_error(&error, errors, lang, TEST_PREFIX);
+            assert!(rendered.contains(expected), "{lang:?}:\n{rendered}");
+        }
+        let python = render_error(&error, errors, Language::Python, TEST_PREFIX);
+        assert!(!python.contains("Family") && !python.contains("Interface"), "{python}");
     }
 }

@@ -12,7 +12,7 @@ namespace {{ namespace }};
 {% endfor %}
 /// </summary>
 {% endif %}
-public class {{ base_name }} : {{ base_parent }}
+public class {{ base_name }} : {{ ([base_parent] + interfaces) | join(", ") }}
 {
 {% if has_methods %}
 {% for m in methods %}

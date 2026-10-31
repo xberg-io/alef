@@ -1,12 +1,13 @@
 use crate::backends::pyo3::type_map::python_type;
 use crate::codegen::error_gen::{
-    ExceptionNaming, exception_families, pyo3_error_attribute_fields, python_exception_name,
+    ExceptionNaming, exception_families, pyo3_class_attributes, python_exception_name, shared_exception_classes,
 };
 use crate::codegen::naming::public_field_name;
 use crate::core::config::Language;
-use crate::core::ir::{ApiSurface, ErrorVariant};
+use crate::core::ir::{ApiSurface, FieldDef};
 
 pub(super) fn gen_error_stubs(api: &ApiSurface) -> anyhow::Result<Vec<String>> {
+    let shared = shared_exception_classes(&api.errors, ExceptionNaming::Python);
     let mut seen = std::collections::HashSet::new();
     let mut lines = Vec::new();
     for family in exception_families(api, ExceptionNaming::Python)? {
@@ -15,13 +16,20 @@ pub(super) fn gen_error_stubs(api: &ApiSurface) -> anyhow::Result<Vec<String>> {
             lines.push(render_exception(
                 &error.name,
                 family.parent.as_deref().unwrap_or("Exception"),
-                None,
+                &[],
             ));
         }
         for variant in &error.variants {
             let name = python_exception_name(&variant.name, &error.name);
             if seen.insert(name.clone()) {
-                lines.push(render_exception(&name, &error.name, Some(variant)));
+                let bases = shared
+                    .get(&name)
+                    .map_or_else(|| error.name.clone(), |members| members.families.join(", "));
+                lines.push(render_exception(
+                    &name,
+                    &bases,
+                    &pyo3_class_attributes(&api.errors, &name)?,
+                ));
             }
         }
     }
@@ -31,13 +39,12 @@ pub(super) fn gen_error_stubs(api: &ApiSurface) -> anyhow::Result<Vec<String>> {
     Ok(lines)
 }
 
-fn render_exception(name: &str, base: &str, variant: Option<&ErrorVariant>) -> String {
-    let fields = variant.map(pyo3_error_attribute_fields).unwrap_or_default();
+fn render_exception(name: &str, base: &str, fields: &[(FieldDef, bool)]) -> String {
     let fields = fields
         .iter()
-        .map(|field| {
+        .map(|(field, nullable)| {
             let mut field_type = python_type(&field.ty);
-            if field.optional && !field_type.contains("| None") {
+            if (field.optional || *nullable) && !field_type.contains("| None") {
                 field_type.push_str(" | None");
             }
             crate::alef_context! {
