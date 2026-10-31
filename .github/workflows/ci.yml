@@ -145,15 +145,13 @@ jobs:
         uses: Goldziher/poly@v0
         with:
           version: v0.31.2
+      # Matches `template_versions::toolchain::JAVA_JVM_TARGET`: alef's generated Java service
+      # bindings use the `java.lang.foreign` FFM API, stable only from JDK 22. This JDK is also
+      # `javac`, the oracle `ALEF_REQUIRE_JAVAC` below requires. ~keep
       - name: Set up JDK
-        uses: actions/setup-java@v6
+        uses: xberg-io/actions/setup-mise@v1
         with:
-          distribution: temurin
-          # Matches `template_versions::toolchain::JAVA_JVM_TARGET`: alef's generated Java
-          # service bindings use the `java.lang.foreign` FFM API, stable only from JDK 22. This
-          # JDK is also `javac`, the oracle `ALEF_REQUIRE_JAVAC` below requires.
-          # Temurin 25.0.5+8 has no Windows binaries yet; retain 25.0.4.1+1 there. ~keep
-          java-version: ${{ runner.os == 'Windows' && '25.0.4+101.0.LTS' || '25.0.5+8.0.LTS' }}
+          tools: java
       - uses: xberg-io/actions/setup-maven@v1
       # Go is NOT preinstalled on every GitHub-hosted image. The arm64 macOS images carry none,
       # which is why `Test (macos-latest)` failed nine generated-Go fixtures on every run from
@@ -164,9 +162,9 @@ jobs:
       # (`go 1.26`, see `e2e::codegen::go`), so the toolchain CI compiles the output with can
       # never be older than the directive that output declares. ~keep
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: xberg-io/actions/setup-mise@v1
         with:
-          go-version: "1.27"
+          tools: go
       # Dart/Flutter stay on their setup action (toolchain-management rule). ~keep
       - name: Set up Dart for constructor default runtime checks
         uses: dart-lang/setup-dart@v1
@@ -186,9 +184,16 @@ jobs:
       # step proves the fixture executed rather than skipped. `sorbet-runtime` is pinned to the
       # exact gem the fixture was measured against. ~keep
       - name: Set up Ruby for generated Data regression
+        if: runner.os != 'Windows'
+        uses: xberg-io/actions/setup-mise@v1
+        with:
+          tools: ruby
+      # Ruby on Windows is a mise lock gap (toolchain-management rule). ~keep
+      - name: Set up Ruby for generated Data regression (Windows)
+        if: runner.os == 'Windows'
         uses: ruby/setup-ruby@v1.336.0
         with:
-          ruby-version: "4.0"
+          ruby-version: "3.4"
       - name: Install Steep for generated Ruby signature regression
         if: runner.os != 'Windows'
         run: gem install steep --version 2.1.0 --no-document
@@ -224,12 +229,12 @@ jobs:
       # wasm-bindgen actually EMITS for alef's output rather than the Rust source alef wrote --
       # the defect it guards (a by-value exported-struct argument lowered through
       # `__destroy_into_raw()`) compiles cleanly and is invisible to every string assertion.
-      # No version is pinned here on purpose: the fixture reads this binary's own version and
-      # pins its generated crate to it, because the CLI aborts on a schema mismatch. ~keep
+      # mise.toml keeps it on Cargo.lock's wasm-bindgen; the fixture reads this binary's own version
+      # and pins its generated crate to it, because the CLI aborts on a schema mismatch. ~keep
       - name: Install the wasm-bindgen CLI
-        uses: taiki-e/install-action@v2
+        uses: xberg-io/actions/setup-mise@v1
         with:
-          tool: wasm-bindgen-cli
+          tools: github:wasm-bindgen/wasm-bindgen
       # The C# identifier-grammar oracle (`ALEF_REQUIRE_DOTNET` below) needs a real `dotnet` on
       # PATH; nothing else in this job installed one before this step existed. dotnet stays on
       # its setup action: mise.lock cannot lock it (toolchain-management rule). ~keep

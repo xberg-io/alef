@@ -416,7 +416,7 @@ fn required_kotlinc_mode_fails_when_toolchain_is_unavailable() {
 #[test]
 fn ci_installs_and_requires_javac_for_runtime_regressions() {
     let workflow = include_str!("../.github/workflows/ci.yml");
-    assert!(workflow.contains("uses: actions/setup-java@v6"));
+    assert!(workflow.lines().any(|line| line.trim() == "tools: java"));
     assert!(workflow.contains("ALEF_REQUIRE_JAVAC: \"1\""));
 }
 
