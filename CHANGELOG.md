@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Add extraction-driven Dart caller regressions for exact unsigned literals and numeric Rust JSON payloads.
+
 - Dart FRB callback serialization failures use the existing callback error transport instead of escaping
   asynchronously and leaving native callers waiting. Reject out-of-range callback `u64` returns through
   the existing warned default-value policy, and reject unsupported callback serializer shapes during generation.
