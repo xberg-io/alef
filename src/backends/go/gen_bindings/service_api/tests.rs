@@ -552,14 +552,14 @@ func use(config Config) error {{
 /// claim is now enforced rather than assumed. ~keep
 #[test]
 fn ci_requires_go_for_runtime_regressions() {
-    let workflow = include_str!("../../../../../.github/workflows/ci.yml");
+    let workflow = crate::test_support::ci_workflow::CI_WORKFLOW;
 
     assert!(
         workflow.contains("ALEF_REQUIRE_GO: \"1\""),
         "the test job must make a missing Go toolchain a hard failure"
     );
     assert!(
-        workflow.contains("uses: actions/setup-go@"),
+        crate::test_support::ci_workflow::job_installs_with_mise(workflow, "test", "go"),
         "`ALEF_REQUIRE_GO` needs an explicit Go install on every leg of the matrix: the arm64 \
          macOS runner image does not preinstall one, so without this step the variable only \
          turns a skip into a permanently red leg"

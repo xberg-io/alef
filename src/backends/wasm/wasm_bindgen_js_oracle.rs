@@ -465,14 +465,15 @@ fn generated_bindings_do_not_destroy_handles_the_caller_still_owns() {
 /// executed rather than skipped. All three halves have to be present together. ~keep
 #[test]
 fn ci_requires_the_wasm_bindgen_cli_for_the_js_glue_oracle() {
-    let workflow = include_str!("../../../.github/workflows/ci.yml");
+    let workflow = crate::test_support::ci_workflow::CI_WORKFLOW;
 
     assert!(
         workflow.contains("ALEF_REQUIRE_WASM_BINDGEN: \"1\""),
         "the test job must make a missing wasm-bindgen CLI a hard failure"
     );
+    let cli = "github:wasm-bindgen/wasm-bindgen";
     assert!(
-        workflow.contains("tool: wasm-bindgen-cli"),
+        crate::test_support::ci_workflow::job_installs_with_mise(workflow, "test", cli),
         "`ALEF_REQUIRE_WASM_BINDGEN` needs an explicit CLI install on every leg of the matrix"
     );
     assert!(

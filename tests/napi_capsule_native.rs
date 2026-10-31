@@ -164,6 +164,6 @@ fn native_capsule_ci_gate_collects_the_runtime_test_and_installs_node() {
         .expect("mise tool setup");
     assert_eq!(
         setup["with"]["install-args"].as_str(),
-        Some("${{ runner.os == 'Windows' && 'uv node' || 'uv bats node' }}")
+        Some("${{ runner.os == 'Windows' && 'python uv node' || 'python uv bats node' }}")
     );
 }
