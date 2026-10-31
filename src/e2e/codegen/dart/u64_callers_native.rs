@@ -1,6 +1,7 @@
 use crate::backends::dart::DartBackend;
 use crate::cli::pipeline::{StagingProfile, run_post_build};
 use crate::snippets::validators::{CapturedStreams, run_command_streams};
+use crate::test_support::mise_task;
 use std::path::Path;
 
 mod dart_sdk {
@@ -9,8 +10,6 @@ mod dart_sdk {
 }
 #[path = "u64_callers_native/emission.rs"]
 mod emission;
-#[path = "../../../../tests/support/mise_task.rs"]
-mod mise_task;
 #[path = "u64_callers_native/setup.rs"]
 mod setup;
 
@@ -31,6 +30,10 @@ fn successful(root: &Path, name: &str, arguments: &[&str], timeout: u64) -> Capt
 
 #[test]
 #[ignore = "requires managed Dart 3.13.7, FRB 2.13, cached Pub/Cargo dependencies and native Rust tools"]
+#[allow(
+    clippy::print_stderr,
+    reason = "report the native fixture path for diagnosing toolchain failures"
+)]
 fn actual_emitted_u64_callers_roundtrip_through_frb() {
     assert!(
         std::env::var("ALEF_SKIP_COMMANDS")
@@ -109,6 +112,10 @@ fn actual_emitted_u64_callers_roundtrip_through_frb() {
     verify_receipts(&positive);
 }
 
+#[allow(
+    clippy::print_stderr,
+    reason = "report verified native runtime receipts for the qualification census"
+)]
 fn verify_receipts(positive: &CapturedStreams) {
     let receipts: Vec<serde_json::Value> = positive
         .stdout

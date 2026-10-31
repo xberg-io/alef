@@ -60,14 +60,14 @@ fn field_type(source: &str, field: &str) -> String {
         .items
         .into_iter()
         .find_map(|item| {
-            if let syn::Item::Struct(item) = item {
-                if item.ident == "WideRecord" {
-                    return item
-                        .fields
-                        .iter()
-                        .find(|item| item.ident.as_ref().is_some_and(|name| name == field))
-                        .map(|item| item.ty.to_token_stream().to_string());
-                }
+            if let syn::Item::Struct(item) = item
+                && item.ident == "WideRecord"
+            {
+                return item
+                    .fields
+                    .iter()
+                    .find(|item| item.ident.as_ref().is_some_and(|name| name == field))
+                    .map(|item| item.ty.to_token_stream().to_string());
             }
             None
         })

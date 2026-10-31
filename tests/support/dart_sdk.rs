@@ -1,5 +1,9 @@
 use alef::snippets::validators::CapturedStreams;
 
+#[allow(
+    clippy::print_stderr,
+    reason = "report the verified SDK version used by native qualification"
+)]
 pub(crate) fn assert_pinned_sdk(output: &CapturedStreams, scope: &str) {
     assert!(
         format!("{}{}", output.stdout, output.stderr).contains("Dart SDK version: 3.13.7 (stable)"),

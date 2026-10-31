@@ -21,6 +21,10 @@ pub(super) fn write(root: &Path, name: &str, content: &str) {
     std::fs::write(destination, content).unwrap();
 }
 
+#[allow(
+    clippy::print_stderr,
+    reason = "report extraction input hashes for native qualification evidence"
+)]
 pub(super) fn fixture(root: &Path) -> (ApiSurface, ResolvedCrateConfig, String) {
     let core = format!("{CORE}{ENDPOINT}");
     assert_eq!(&core.as_bytes()[..CORE.len()], CORE.as_bytes());
@@ -106,6 +110,10 @@ fn write_sources(root: &Path, core: &str) {
     );
 }
 
+#[allow(
+    clippy::print_stderr,
+    reason = "report the generated facade selected by native qualification"
+)]
 fn write_bindings(root: &Path, api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     let mut written = 0;
     let mut public_libraries = Vec::new();

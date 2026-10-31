@@ -202,6 +202,10 @@ fn check_case(mode: &str, output: &CapturedStreams) -> Result<serde_json::Value,
 
 #[test]
 #[ignore = "requires pinned FRB 2.13, Dart 3.13.7, cached Pub/Cargo dependencies and native Rust tools"]
+#[allow(
+    clippy::print_stderr,
+    reason = "report native fixture diagnostics and verified qualification receipts"
+)]
 fn canonical_frb_u64_raw_and_callback_writers_enforce_bounds() {
     assert!(
         std::env::var("ALEF_SKIP_COMMANDS")

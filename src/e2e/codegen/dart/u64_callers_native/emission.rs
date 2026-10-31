@@ -88,6 +88,10 @@ fn case(id: &str, kind: &str, body: &str, check: &str) -> String {
     format!("{{\n{body}\n{check}\nreceipt('{id}', '{kind}');\n}}\n")
 }
 
+#[allow(
+    clippy::print_stderr,
+    reason = "report emitted positive and negative native qualification case counts"
+)]
 pub(super) fn programs(api: &ApiSurface, config: &ResolvedCrateConfig, public_library: &str) -> (String, String) {
     let mut cases = Vec::new();
     for (index, value) in VALUES.iter().enumerate() {
