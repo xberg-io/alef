@@ -32,7 +32,18 @@ def swift_content(text, core):
 
 def c_tokens(text):
     text = re.sub(r"/\*.*?\*/|//[^\n]*", "", text, flags=re.DOTALL)
-    return re.findall(r"[A-Za-z_$][A-Za-z0-9_$]*|\d+|[^\s]", text)
+    lines, block = [], []
+    # The shipped header is clang-formatted and SortIncludes reorders each run of adjacent
+    # #include lines, so only the order within such a run is ignored; every other token keeps its
+    # position.
+    for line in [*text.splitlines(), ""]:
+        if line.strip().startswith("#include"):
+            block.append(line.strip())
+            continue
+        lines.extend(sorted(block))
+        block = []
+        lines.append(line)
+    return re.findall(r"[A-Za-z_$][A-Za-z0-9_$]*|\d+|[^\s]", "\n".join(lines))
 
 
 def verify(out, package):

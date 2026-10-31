@@ -3,7 +3,7 @@ import unittest
 import receipts
 from assertions import raises
 from contracts import SAFE_TESTS
-from materialized import swift_content
+from materialized import c_tokens, swift_content
 
 
 class Outcomes(unittest.TestCase):
@@ -33,6 +33,17 @@ class Outcomes(unittest.TestCase):
         assert "public var isOwned:" in result
         assert result.startswith("// swift-format-ignore-file\nimport RustBridgeC\n\n")
         assert result != raw
+
+    def test_header_tokens_ignore_only_sorted_include_runs(self):
+        raw = "#include <stdint.h>\n#include <stdbool.h> \ntypedef struct RustStr { uint8_t* const start; } RustStr;\n"
+        formatted = "// generated\n#include <stdbool.h>\n#include <stdint.h>\ntypedef struct RustStr {\n  uint8_t *const start;\n} RustStr;\n"
+        assert c_tokens(formatted) == c_tokens(raw)
+        moved = "#include <stdbool.h>\ntypedef struct RustStr { uint8_t* const start; } RustStr;\n#include <stdint.h>\n"
+        assert c_tokens(moved) != c_tokens(raw)
+        swapped = (
+            "#include <stdint.h>\n#include <stdbool.h>\ntypedef struct RustStr { const uint8_t* start; } RustStr;\n"
+        )
+        assert c_tokens(swapped) != c_tokens(raw)
 
 
 if __name__ == "__main__":
