@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.115.10] - 2026-10-31
+
+### Changed
+
+- Generate Java projects with Maven Enforcer 3.7.0.
+
+### Fixed
+
+- Sync core dependency requirements in extra Cargo manifests, preserving inherited versions and
+  external package aliases. (#754)
+- Avoid redundant result-metadata construction when rendering ordinary documentation snippets,
+  preserving caller-supplied PHP and Swift resolvers. (#753)
+
 ## [0.115.9] - 2026-10-31
 
 ### Fixed
