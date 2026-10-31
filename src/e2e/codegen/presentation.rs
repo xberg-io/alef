@@ -1,7 +1,11 @@
+#[path = "presentation/resolver_factory.rs"]
+mod resolver_factory;
+
 use crate::e2e::config::E2eConfig;
 use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::{Fixture, FixtureDocsOperation};
 use heck::ToLowerCamelCase;
+use resolver_factory::{ResolverFactory, resolve_from_factory, resolve_with_factory};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct PresentationOperation {
@@ -117,21 +121,8 @@ pub(crate) fn resolve(
     enums: &[crate::core::ir::EnumDef],
     functions: &[crate::core::ir::FunctionDef],
 ) -> Vec<PresentationOperation> {
-    if fixture.docs.is_none() {
-        return Vec::new();
-    }
-    let call = e2e_config.resolve_call_for_fixture(
-        fixture.call.as_deref(),
-        &fixture.id,
-        &fixture.resolved_category(),
-        &fixture.tags,
-        &fixture.input,
-    );
-    if returns_native_bytes(call, language, type_defs, functions) {
-        return Vec::new();
-    }
-    let resolver = build_resolver(e2e_config, call, language, type_defs, enums, functions);
-    resolve_with(fixture, e2e_config, language, &resolver, type_defs, enums, functions)
+    let factory = ResolverFactory::new(type_defs, enums, functions);
+    resolve_from_factory(fixture, e2e_config, language, &factory)
 }
 
 pub(crate) fn stream_item_binding(fixture: &Fixture, config: &E2eConfig, language: &str) -> Option<String> {
@@ -368,6 +359,18 @@ pub(crate) fn resolve_with(
     enums: &[crate::core::ir::EnumDef],
     functions: &[crate::core::ir::FunctionDef],
 ) -> Vec<PresentationOperation> {
+    let factory = ResolverFactory::new(type_defs, enums, functions);
+    resolve_with_factory(fixture, e2e_config, language, resolver, &factory)
+}
+
+fn resolve_anchored(
+    fixture: &Fixture,
+    e2e_config: &E2eConfig,
+    language: &str,
+    resolver: &FieldResolver,
+    factory: &ResolverFactory<'_>,
+) -> Vec<PresentationOperation> {
+    let (type_defs, enums, functions) = (factory.types, factory.enums, factory.functions);
     let Some(docs) = fixture.docs.as_ref() else {
         return Vec::new();
     };
@@ -378,10 +381,6 @@ pub(crate) fn resolve_with(
         &fixture.tags,
         &fixture.input,
     );
-    // The two callers that supply their own resolver (php's getter map, swift's first-class map)
-    // build it from config alone, so the anchoring has to be applied here rather than at each
-    // construction site -- one place decides what a snippet knows about its result type. ~keep
-    let resolver = &anchor_to_declared_result_type(resolver.clone(), call, language, type_defs, enums, functions);
     if returns_native_bytes(call, language, type_defs, functions) {
         return Vec::new();
     }
@@ -982,3 +981,7 @@ mod namespace_prefixed_optional_tests;
 #[cfg(test)]
 #[path = "presentation/stream_and_bytes_tests.rs"]
 mod stream_and_bytes_tests;
+
+#[cfg(test)]
+#[path = "presentation/resolver_reuse_tests.rs"]
+mod resolver_reuse_tests;
