@@ -8,6 +8,13 @@ use std::path::Path;
 const CORE: &str = include_str!("../fixtures/u64_callers.rs");
 const ENDPOINT: &str = "\n// Test-only identity endpoint exercises the complete recursive native DTO argument.\npub fn echo_envelope(req: Envelope) -> Envelope { req }\n";
 
+fn sha256_hex(source: &str) -> String {
+    Sha256::digest(source)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 pub(super) fn write(root: &Path, name: &str, content: &str) {
     let destination = root.join(name);
     std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
@@ -18,9 +25,9 @@ pub(super) fn fixture(root: &Path) -> (ApiSurface, ResolvedCrateConfig) {
     let core = format!("{CORE}{ENDPOINT}");
     assert_eq!(&core.as_bytes()[..CORE.len()], CORE.as_bytes());
     eprintln!(
-        "caller_immutable_source_sha256={:x}\ncaller_combined_source_sha256={:x}",
-        Sha256::digest(CORE),
-        Sha256::digest(&core)
+        "caller_immutable_source_sha256={}\ncaller_combined_source_sha256={}",
+        sha256_hex(CORE),
+        sha256_hex(&core)
     );
     write_sources(root, &core);
     let source = root.join("core/src/lib.rs");

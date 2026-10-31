@@ -1,11 +1,12 @@
 use crate::backends::dart::DartBackend;
 use crate::cli::pipeline::{StagingProfile, run_post_build};
-use crate::core::backend::Backend;
 use crate::snippets::validators::{CapturedStreams, run_command_streams};
 use std::path::Path;
 
-#[path = "../../../../tests/support/dart_sdk.rs"]
-mod dart_sdk;
+mod dart_sdk {
+    use crate as alef;
+    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/dart_sdk.rs"));
+}
 #[path = "u64_callers_native/emission.rs"]
 mod emission;
 #[path = "../../../../tests/support/mise_task.rs"]
