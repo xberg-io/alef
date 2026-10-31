@@ -27,6 +27,7 @@ pub(crate) fn emit_decoder_init(
             strict: deny_unknown_fields,
             aliases: None,
             wire_key_type: "AlefWireKey",
+            skipped_assignments: "",
         },
     );
 }
@@ -35,6 +36,7 @@ pub(super) struct DecoderKeys<'a> {
     pub(super) strict: bool,
     pub(super) aliases: Option<&'a super::aliases::AliasDecoding>,
     pub(super) wire_key_type: &'a str,
+    pub(super) skipped_assignments: &'a str,
 }
 
 impl DecoderKeys<'_> {
@@ -48,6 +50,7 @@ impl DecoderKeys<'_> {
 
 fn emit_preamble(keys: &DecoderKeys<'_>, out: &mut String) {
     out.push_str("    public init(from decoder: any Decoder) throws {\n");
+    out.push_str(keys.skipped_assignments);
     if let Some(aliases) = keys.aliases {
         out.push_str(&aliases.preamble);
     } else {

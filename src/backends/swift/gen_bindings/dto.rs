@@ -3,6 +3,7 @@ mod decoder;
 pub(super) mod ffi_initializer;
 mod field_defaults;
 mod serde_policy;
+mod skipped_fields;
 #[cfg(test)]
 pub(crate) use decoder::emit_decoder_init;
 
@@ -276,7 +277,6 @@ pub(super) fn emit_first_class_struct(
             },
         ));
     }
-
     let params = super::constructors::parameters(ty, mapper, &visible_fields);
     let init_params = params.join(", ");
     let legacy_init = super::constructors::recorded_initializers(ty, &visible_fields, &params)?;
@@ -300,7 +300,7 @@ pub(super) fn emit_first_class_struct(
         });
     let mut coding_keys = String::new();
     if needs_coding_keys {
-        for field in &visible_fields {
+        for field in visible_fields.iter().filter(|field| !field.serde_skip) {
             let camel = swift_case_ident(&field.name.to_lower_camel_case());
             // `call_type` with `#[serde(rename = "type")]` must decode from `"type"`, not `"call_type"`).
             let wire_key = crate::codegen::naming::wire_field_name(

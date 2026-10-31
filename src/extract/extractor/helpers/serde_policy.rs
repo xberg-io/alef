@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::core::ir::SerdeDeserializationPolicy;
 
-use super::attributes::for_each_serde_meta_list;
+use super::attributes::{extract_serde_skip, for_each_serde_meta_list};
 
 fn serde_entries(attrs: &[syn::Attribute]) -> Vec<syn::Meta> {
     let mut entries = Vec::new();
@@ -33,7 +33,7 @@ pub(crate) fn extract_serde_deserialization_policy(item: &syn::ItemStruct) -> Se
     let deny_unknown_fields = container
         .iter()
         .any(|meta| matches!(meta, syn::Meta::Path(path) if path.is_ident("deny_unknown_fields")));
-    let unsupported: BTreeSet<_> = container
+    let mut unsupported: BTreeSet<_> = container
         .iter()
         .filter_map(unsupported_attribute)
         .chain(item.fields.iter().flat_map(|field| {
@@ -44,6 +44,13 @@ pub(crate) fn extract_serde_deserialization_policy(item: &syn::ItemStruct) -> Se
         }))
         .map(str::to_string)
         .collect();
+    if item.fields.iter().any(|field| extract_serde_skip(&field.attrs))
+        && container
+            .iter()
+            .any(|meta| matches!(meta, syn::Meta::NameValue(value) if value.path.is_ident("default")))
+    {
+        unsupported.insert("skipped container default function".to_owned());
+    }
     let field_aliases = extract_field_aliases(item);
     SerdeDeserializationPolicy {
         field_aliases,

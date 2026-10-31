@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve public Swift properties for fully skipped serde caches while omitting their wire keys and aliases.
+  Decode only proven skipped-field defaults; retain strict unknown-key and directional-skip validation.
+
 - Reject qualified Swift field exclusions that would violate strict serde keys, and allocate private
   decoding helper names against public Swift types, errors, aliases and services without renaming source types.
 

@@ -40,6 +40,9 @@ impl AliasDecoding {
             return Ok(None);
         }
         for name in ty.serde_deserialization.field_aliases.keys() {
+            if ty.fields.iter().any(|field| &field.name == name && field.serde_skip) {
+                continue;
+            }
             if !fields.iter().any(|field| &field.name == name) {
                 anyhow::bail!("Swift DTO '{}' has an unexposed alias target '{name}'", ty.name);
             }
@@ -91,10 +94,12 @@ pub(super) fn emit_decoder_init(
     out: &mut String,
     wire_key_type: &str,
 ) -> anyhow::Result<()> {
-    let aliases = AliasDecoding::new(ty, fields, wire_key_type)?;
+    let skipped_assignments = super::skipped_fields::assignments(ty, fields)?;
+    let fields: Vec<_> = fields.iter().copied().filter(|field| !field.serde_skip).collect();
+    let aliases = AliasDecoding::new(ty, &fields, wire_key_type)?;
     super::decoder::emit_decoder_init_with_aliases(
         mapper,
-        fields,
+        &fields,
         zero_arg_names,
         ty.has_default,
         out,
@@ -102,6 +107,7 @@ pub(super) fn emit_decoder_init(
             strict: ty.serde_deserialization.deny_unknown_fields,
             aliases: aliases.as_ref(),
             wire_key_type,
+            skipped_assignments: &skipped_assignments,
         },
     );
     Ok(())

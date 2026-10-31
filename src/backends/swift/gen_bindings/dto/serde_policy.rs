@@ -6,14 +6,21 @@ use crate::core::ir::TypeDef;
 
 pub(super) fn validate(ty: &TypeDef, exclude_fields: &HashSet<String>) -> anyhow::Result<()> {
     let policy = &ty.serde_deserialization;
-    if !policy.deny_unknown_fields && policy.field_aliases.is_empty() {
+    let has_skipped_fields = ty.fields.iter().any(|field| field.serde_skip);
+    if !policy.deny_unknown_fields && policy.field_aliases.is_empty() && !has_skipped_fields {
         return Ok(());
     }
-    if !policy.unsupported_field_attributes.is_empty() {
+    let unsupported: Vec<_> = policy
+        .unsupported_field_attributes
+        .iter()
+        .filter(|attribute| attribute.as_str() != "skip" || !has_skipped_fields)
+        .cloned()
+        .collect();
+    if !unsupported.is_empty() {
         anyhow::bail!(
             "Swift DTO '{}' cannot preserve serde(deny_unknown_fields) with unsupported {} attributes",
             ty.name,
-            policy.unsupported_field_attributes.join(", ")
+            unsupported.join(", ")
         );
     }
     if ty.serde_container_conversion.is_present() {
@@ -22,11 +29,20 @@ pub(super) fn validate(ty: &TypeDef, exclude_fields: &HashSet<String>) -> anyhow
             ty.name
         );
     }
+    validate_exposure(ty, exclude_fields)?;
+    if ty.fields.iter().any(|field| field.serde_flatten) {
+        anyhow::bail!("Swift DTO '{}' has an unsupported strict serde(flatten) field", ty.name);
+    }
+    Ok(())
+}
+
+fn validate_exposure(ty: &TypeDef, exclude_fields: &HashSet<String>) -> anyhow::Result<()> {
     if ty.has_private_fields
         || ty.fields.iter().any(|field| {
-            field.binding_excluded
-                || exclude_fields.contains(&field.name)
-                || exclude_fields.contains(&format!("{}.{}", ty.name, field.name.to_snake_case()))
+            !field.serde_skip
+                && (field.binding_excluded
+                    || exclude_fields.contains(&field.name)
+                    || exclude_fields.contains(&format!("{}.{}", ty.name, field.name.to_snake_case())))
         })
     {
         anyhow::bail!(
@@ -34,12 +50,8 @@ pub(super) fn validate(ty: &TypeDef, exclude_fields: &HashSet<String>) -> anyhow
             ty.name
         );
     }
-    if let Some(field) = ty.fields.iter().find(|field| field.serde_flatten || field.serde_skip) {
-        let attribute = if field.serde_flatten { "flatten" } else { "skip" };
-        anyhow::bail!(
-            "Swift DTO '{}' has an unsupported strict serde({attribute}) field",
-            ty.name
-        );
+    if ty.fields.iter().all(|field| field.serde_skip || field.binding_excluded) {
+        anyhow::bail!("Swift DTO '{}' has no representable Codable wire fields", ty.name);
     }
     Ok(())
 }
