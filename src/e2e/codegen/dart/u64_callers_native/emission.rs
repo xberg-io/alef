@@ -47,13 +47,14 @@ fn statements(
     }
     let first_class = crate::e2e::codegen::dart::values::build_dart_first_class_map(&api.types, &api.enums, &e2e);
     let mut rendered = String::new();
+    let bridge_class = config.dart_bridge_class_name();
     crate::e2e::codegen::dart::test_case::render_test_case(
         &mut rendered,
         &fixture,
         crate::e2e::codegen::dart::test_case::DartTestCaseContext {
             e2e_config: &e2e,
             lang: "dart",
-            bridge_class: "WideCodecBridge",
+            bridge_class: &bridge_class,
             dart_first_class_map: &first_class,
             adapters: &[],
             config,
@@ -87,7 +88,7 @@ fn case(id: &str, kind: &str, body: &str, check: &str) -> String {
     format!("{{\n{body}\n{check}\nreceipt('{id}', '{kind}');\n}}\n")
 }
 
-pub(super) fn programs(api: &ApiSurface, config: &ResolvedCrateConfig) -> (String, String) {
+pub(super) fn programs(api: &ApiSurface, config: &ResolvedCrateConfig, public_library: &str) -> (String, String) {
     let mut cases = Vec::new();
     for (index, value) in VALUES.iter().enumerate() {
         let call = statements(api, config, "echo_u64", (*value).into(), "scalar");
@@ -141,6 +142,8 @@ pub(super) fn programs(api: &ApiSurface, config: &ResolvedCrateConfig) -> (Strin
     ));
     assert_eq!(cases.len(), 15);
     let template = include_str!("program.dart.jinja");
+    assert_eq!(template.matches("@@PUBLIC_LIBRARY@@").count(), 1);
+    let template = template.replace("@@PUBLIC_LIBRARY@@", public_library);
     assert_eq!(template.matches("@@CASES@@").count(), 1);
     let positive = template.replace("@@CASES@@", &cases.join("\n"));
     let poison = statements(api, config, "echo_u64", 17.into(), "scalar");

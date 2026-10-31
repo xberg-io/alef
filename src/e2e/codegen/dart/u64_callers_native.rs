@@ -51,7 +51,7 @@ fn actual_emitted_u64_callers_roundtrip_through_frb() {
         Some(directory)
     };
     eprintln!("caller_fixture_root={}", root.display());
-    let (api, config) = setup::fixture(&root);
+    let (api, config, public_library) = setup::fixture(&root);
     let core_before = std::fs::read(root.join("core/src/lib.rs")).unwrap();
     let parent = run_command_streams(std::process::Command::new("dart").arg("--version"), 30).unwrap();
     assert!(parent.success, "{}", parent.stderr);
@@ -73,7 +73,7 @@ fn actual_emitted_u64_callers_roundtrip_through_frb() {
         "{:?}",
         outcome.skipped_missing_tools
     );
-    let (program, poisoned) = emission::programs(&api, &config);
+    let (program, poisoned) = emission::programs(&api, &config, &public_library);
     setup::write(&root, "packages/dart/check.dart", &program);
     setup::write(&root, "packages/dart/poison.dart", &poisoned);
     successful(&root, "build", &[], 600);

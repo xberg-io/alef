@@ -21,7 +21,7 @@ pub(super) fn write(root: &Path, name: &str, content: &str) {
     std::fs::write(destination, content).unwrap();
 }
 
-pub(super) fn fixture(root: &Path) -> (ApiSurface, ResolvedCrateConfig) {
+pub(super) fn fixture(root: &Path) -> (ApiSurface, ResolvedCrateConfig, String) {
     let core = format!("{CORE}{ENDPOINT}");
     assert_eq!(&core.as_bytes()[..CORE.len()], CORE.as_bytes());
     eprintln!(
@@ -49,8 +49,8 @@ pub(super) fn fixture(root: &Path) -> (ApiSurface, ResolvedCrateConfig) {
         frb_version: Some("2.13.0".into()),
         ..Default::default()
     });
-    write_bindings(root, &api, &config);
-    (api, config)
+    let library = write_bindings(root, &api, &config);
+    (api, config, library)
 }
 
 fn write_sources(root: &Path, core: &str) {
@@ -106,9 +106,22 @@ fn write_sources(root: &Path, core: &str) {
     );
 }
 
-fn write_bindings(root: &Path, api: &ApiSurface, config: &ResolvedCrateConfig) {
+fn write_bindings(root: &Path, api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     let mut written = 0;
+    let mut public_libraries = Vec::new();
     for file in DartBackend.generate_bindings(api, config).unwrap() {
+        if file.path.parent() == Some(Path::new("packages/dart/lib"))
+            && file.path.extension().is_some_and(|extension| extension == "dart")
+        {
+            public_libraries.push(
+                file.path
+                    .strip_prefix("packages/dart")
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_owned(),
+            );
+        }
         if file.path.starts_with("packages/dart/lib")
             || [
                 "packages/dart/rust/src/lib.rs",
@@ -123,9 +136,21 @@ fn write_bindings(root: &Path, api: &ApiSurface, config: &ResolvedCrateConfig) {
         }
     }
     assert!(written >= 5, "actual Dart facade, DTOs, FRB config and Rust bridge");
+    assert_eq!(public_libraries.len(), 1, "select one actual generated public library");
+    let library = public_libraries.pop().unwrap();
+    assert!(
+        std::fs::read_to_string(root.join("packages/dart").join(&library))
+            .unwrap()
+            .contains("export ")
+    );
+    eprintln!(
+        "caller_public_library={library} caller_facade_class={}",
+        config.dart_bridge_class_name()
+    );
     assert!(
         std::fs::read_to_string(root.join("packages/dart/rust/src/lib.rs"))
             .unwrap()
             .contains("pub fn echo_envelope(")
     );
+    library
 }
