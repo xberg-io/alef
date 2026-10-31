@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fetch locked Swift consumer dependencies before extraction and count the new verification control.
 - Sync core dependency requirements in extra Cargo manifests, preserving inherited versions and
   external package aliases. (#754)
 - Avoid redundant result-metadata construction when rendering ordinary documentation snippets,
