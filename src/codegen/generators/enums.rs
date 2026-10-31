@@ -8,7 +8,7 @@ use ahash::AHashSet;
 use std::collections::HashSet;
 
 mod payload_names;
-pub(crate) use payload_names::dict_getter_py_name;
+pub(crate) use payload_names::{dict_getter_py_name, dict_getter_py_names};
 
 /// Returns true if any variant of the enum has data fields.
 /// These enums cannot be represented as flat integer enums in bindings.

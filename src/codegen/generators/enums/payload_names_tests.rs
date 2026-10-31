@@ -1,4 +1,4 @@
-use super::{dict_getter_py_name, gen_pyo3_data_enum_with_mapper};
+use super::{dict_getter_py_name, dict_getter_py_names, gen_pyo3_data_enum_with_mapper};
 use crate::codegen::type_mapper::IdentityMapper;
 use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeRef};
 
@@ -132,4 +132,55 @@ fn typed_tuple_getters_share_collision_allocations_with_the_stub() {
     );
     let stub = stub_content(&definition);
     assert!(stub.contains("from_text_2: SampleValue | None"), "{stub}");
+}
+
+fn naming_definition(names: &[&str]) -> EnumDef {
+    EnumDef {
+        name: "SamplePart".to_string(),
+        variants: names.iter().map(|name| data_variant(name)).collect(),
+        serde_tag: Some("kind".to_string()),
+        has_serde: true,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn ordered_payload_names_preserve_collision_suffixes_and_variant_order() {
+    for (variants, expected) in [
+        (
+            vec!["Text", "TextPayload", "TextPayload_2"],
+            vec!["text_payload_3", "text_payload_payload", "text_payload_2_payload"],
+        ),
+        (
+            vec!["TextPayload_2", "Text", "TextPayload"],
+            vec!["text_payload_2_payload", "text_payload_3", "text_payload_payload"],
+        ),
+        (
+            vec!["Text", "Text", "TextPayload"],
+            vec!["text_payload_2", "text_payload_2", "text_payload_payload"],
+        ),
+    ] {
+        let definition = naming_definition(&variants);
+        let names: Vec<_> = definition
+            .variants
+            .iter()
+            .map(|variant| dict_getter_py_name(&definition, variant))
+            .collect();
+        assert_eq!(names, expected);
+        assert_eq!(dict_getter_py_names(&definition), expected);
+    }
+}
+
+#[test]
+fn payload_names_preserve_absent_variant_fallback_after_all_allocations() {
+    let definition = naming_definition(&["Text", "Text", "TextPayload"]);
+    assert_eq!(dict_getter_py_name(&definition, &data_variant("Missing")), "missing");
+    assert_eq!(
+        dict_getter_py_name(&definition, &data_variant("TextPayload_2")),
+        "text_payload_2_2"
+    );
+    assert_eq!(
+        dict_getter_py_name(&naming_definition(&[]), &data_variant("Type")),
+        "type_"
+    );
 }

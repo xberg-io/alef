@@ -23,6 +23,10 @@ use super::parse::{parse_path, segment_name};
 use super::types::PathSegment;
 use super::types::{IrEnumMap, TaggedEnumWire, VariantShape};
 
+#[cfg(test)]
+#[path = "ir_enum_payload_names_tests.rs"]
+mod payload_names_tests;
+
 /// Build the `(type, field) -> is-enum` / `(type, field) -> next type` maps [`IrEnumMap`]
 /// needs, by inspecting every field of every `TypeDef` this crate declares.
 ///
@@ -98,13 +102,27 @@ pub(super) fn build_ir_enum_map(type_defs: &[TypeDef], enums: &[EnumDef]) -> IrE
 /// the dict-shaped one, so the e2e generator and the binding cannot disagree about which
 /// variants return JSON. ~keep
 fn build_variant_shapes(enums: &[EnumDef]) -> HashMap<String, Vec<VariantShape>> {
+    build_variant_shapes_with_names(enums, crate::codegen::generators::enums::dict_getter_py_names)
+}
+
+fn build_variant_shapes_with_names(
+    enums: &[EnumDef],
+    mut getter_names: impl FnMut(&EnumDef) -> Vec<String>,
+) -> HashMap<String, Vec<VariantShape>> {
     enums
         .iter()
         .map(|enum_def| {
+            let getters = getter_names(enum_def);
+            assert_eq!(
+                getters.len(),
+                enum_def.variants.len(),
+                "payload getter count must match enum variants"
+            );
             let shapes = enum_def
                 .variants
                 .iter()
-                .map(|variant| VariantShape {
+                .zip(getters)
+                .map(|(variant, python_getter)| VariantShape {
                     name: variant.name.clone(),
                     is_tuple: variant.is_tuple,
                     fields: variant
@@ -113,7 +131,7 @@ fn build_variant_shapes(enums: &[EnumDef]) -> HashMap<String, Vec<VariantShape>>
                         .map(|field| (field.name.clone(), named_type(&field.ty).map(str::to_string)))
                         .collect(),
                     python_json_getter: crate::codegen::generators::enums::variant_accessor(variant).is_none(),
-                    python_getter: crate::codegen::generators::enums::dict_getter_py_name(enum_def, variant),
+                    python_getter,
                     python_wire_prefix: super::python_wire_shapes::variant_prefix(enum_def, variant),
                     python_wire_fields: super::python_wire_shapes::variant_fields(enum_def, variant),
                     wire_kinds: super::python_wire_shapes::variant_kinds(variant),
