@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   json_serializable 6.15.2.
 - Pin the Elixir NIF brotli-decompressor to 6.2.0, which brotli 9.1 requires.
 - Install PIE 1.5.5 in generated PHP e2e setup scripts.
+- Pin Dart 3.13.7 for reproducible native codec verification with the consumer CI SDK.
 
 - Dart FRB bindings preserve Rust `u64` as `BigInt` and `Vec<u64>` as FRB `Uint64List`, including
   DTOs, transparent newtypes, containers and callback carriers. This is a breaking API change
