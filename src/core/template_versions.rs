@@ -419,7 +419,7 @@ pub mod maven {
     pub const VERSIONS_MAVEN_PLUGIN: &str = "2.23.0";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-enforcer-plugin
-    pub const MAVEN_ENFORCER_PLUGIN: &str = "3.6.3";
+    pub const MAVEN_ENFORCER_PLUGIN: &str = "3.7.0";
 
     // renovate: datasource=maven depName=org.jacoco:jacoco-maven-plugin
     pub const JACOCO_MAVEN_PLUGIN: &str = "0.8.16";
