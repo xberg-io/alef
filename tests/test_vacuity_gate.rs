@@ -48,8 +48,10 @@ const CI_WORKFLOW: &str = ".github/workflows/ci.yml";
 const MISE_CONFIG: &str = "mise.toml";
 
 /// `test:run`'s whole command; the darwin-only `--config` shrinks the unit-test binary only.
-const TEST_RUN_COMMAND: &str =
-    "cargo {% if os() == \"macos\" %}--config profile.test.package.alef.opt-level=1 {% endif %}test --workspace";
+const TEST_RUN_COMMAND: &str = concat!(
+    "python scripts/run_test_cargo.py cargo ",
+    "{% if os() == \"macos\" %}--config profile.test.package.alef.opt-level=1 {% endif %}test --workspace"
+);
 
 /// The job key in [`CI_WORKFLOW`] that runs the Rust test suite.
 const TEST_JOB: &str = "test";
@@ -333,6 +335,82 @@ fn unfiltered_arguments(arguments: &str) -> bool {
     arguments
         .split_whitespace()
         .all(|argument| matches!(argument, "--no-fail-fast" | "--locked" | "--offline"))
+}
+
+fn test_job_installs_python(workflow: &str) -> bool {
+    let Ok(workflow) = serde_saphyr::from_str::<serde_json::Value>(workflow) else {
+        return false;
+    };
+    workflow["jobs"][TEST_JOB]["steps"].as_array().is_some_and(|steps| {
+        steps.iter().any(|step| {
+            step["uses"] == "xberg-io/actions/setup-mise@v1"
+                && step["with"]["install-args"]
+                    == "${{ runner.os == 'Windows' && 'python uv node' || 'python uv bats node' }}"
+        }) && ["java", "go", "ruby", "github:wasm-bindgen/wasm-bindgen"]
+            .iter()
+            .all(|tool| {
+                steps
+                    .iter()
+                    .any(|step| step["uses"] == "xberg-io/actions/setup-mise@v1" && step["with"]["tools"] == *tool)
+            })
+    })
+}
+
+#[test]
+fn ci_test_job_installs_the_pinned_python_runner_on_every_platform() {
+    let workflow = std::fs::read_to_string(repo_root().join(CI_WORKFLOW)).expect("read workflow");
+    assert!(test_job_installs_python(&workflow));
+    for tools in ["'python uv node'", "'python uv bats node'"] {
+        let mutant = workflow.replace(tools, &tools.replacen("python ", "", 1));
+        assert_ne!(workflow, mutant, "Python removal changed nothing");
+        assert!(
+            !test_job_installs_python(&mutant),
+            "Python must be installed on every leg"
+        );
+    }
+    for tool in ["java", "go", "ruby", "github:wasm-bindgen/wasm-bindgen"] {
+        let mutant = workflow.replace(&format!("tools: {tool}\n"), "tools: missing-tool\n");
+        assert_ne!(workflow, mutant, "required tool removal changed nothing");
+        assert!(!test_job_installs_python(&mutant), "lost required tool {tool}");
+    }
+}
+
+#[test]
+fn canonical_runner_forwards_cargo_arguments_at_the_process_boundary() {
+    let output = Command::new("python")
+        .args(["scripts/test_run_test_cargo.py", "-v"])
+        .current_dir(repo_root())
+        .output()
+        .expect("run offline recording-Cargo controls with the pinned Python");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "recording-Cargo controls failed:\n{stderr}");
+    assert!(
+        recording_controls_passed(&stderr),
+        "expected ten passing controls:\n{stderr}"
+    );
+}
+
+fn recording_controls_passed(stderr: &str) -> bool {
+    stderr.lines().any(|line| line.starts_with("Ran 10 tests in ")) && stderr.lines().any(|line| line == "OK")
+}
+
+#[test]
+fn recording_controls_accept_both_line_endings_and_reject_incomplete_or_failed_reports() {
+    for ending in ["\n", "\r\n"] {
+        let report = format!("Ran 10 tests in 1.0s{ending}{ending}OK{ending}");
+        assert!(recording_controls_passed(&report), "rejected {ending:?} report");
+    }
+    for report in [
+        "Ran 0 tests in 0.0s\n\nOK\n",
+        "Ran 10 tests in 1.0s\n\nFAILED (failures=1)\n",
+        "Ran 10 tests in 1.0s\n",
+        "OK\n",
+    ] {
+        assert!(
+            !recording_controls_passed(report),
+            "accepted incomplete or failed report"
+        );
+    }
 }
 
 #[test]

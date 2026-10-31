@@ -59,7 +59,7 @@ run = ['rm -rf "$(scripts/toolchain-census-dir.sh)"', { task = "test:run" }, { t
 description = "Run Rust tests with platform-specific test profile settings"
 # Apple's compact-unwind offsets overflow for the unoptimized unit-test executable. Optimize only
 # alef's test profile to shrink it while retaining panic unwinding. Arguments are appended. ~keep
-run = 'cargo {% if os() == "macos" %}--config profile.test.package.alef.opt-level=1 {% endif %}test --workspace'
+run = 'python scripts/run_test_cargo.py cargo {% if os() == "macos" %}--config profile.test.package.alef.opt-level=1 {% endif %}test --workspace'
 
 [tasks."gate:swift-callback-policy"]
 description = "Compile and verify emitted Swift callback link policy"
@@ -100,7 +100,7 @@ description = "Clean build artifacts"
 run = ["cargo clean", "rm -rf .alef/"]
 
 [tasks."consumer-swift:controls"]
-description = "Run all 50 hosted consumer harness controls with resource and process cleanup guards"
+description = "Run all 51 hosted consumer harness controls with resource and process cleanup guards"
 env = { PYTHONDONTWRITEBYTECODE = "1" }
 run = "python3 scripts/consumer-swift/entry.py --controls"
 

@@ -95,10 +95,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       # Bats has no Windows build in mise.lock; the Windows leg skips the Bats runtime tests. ~keep
-      - name: Install uv and Bats
+      - name: Install Python, uv and Bats
         uses: xberg-io/actions/setup-mise@v1
         with:
-          install-args: ${{ runner.os == 'Windows' && 'uv node' || 'uv bats node' }}
+          install-args: ${{ runner.os == 'Windows' && 'python uv node' || 'python uv bats node' }}
       - name: Hosted Swift consumer harness controls
         if: runner.os == 'macOS'
         run: mise run consumer-swift:controls
