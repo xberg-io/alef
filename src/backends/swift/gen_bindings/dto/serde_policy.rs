@@ -21,10 +21,11 @@ pub(super) fn validate(ty: &TypeDef, exclude_fields: &HashSet<String>) -> anyhow
         );
     }
     if ty.has_private_fields
-        || ty
-            .fields
-            .iter()
-            .any(|field| field.binding_excluded || exclude_fields.contains(&field.name))
+        || ty.fields.iter().any(|field| {
+            field.binding_excluded
+                || exclude_fields.contains(&field.name)
+                || exclude_fields.contains(&format!("{}.{}", ty.name, field.name))
+        })
     {
         anyhow::bail!(
             "Swift DTO '{}' cannot preserve strict keys with unexposed fields",
@@ -41,6 +42,19 @@ pub(super) fn validate(ty: &TypeDef, exclude_fields: &HashSet<String>) -> anyhow
     Ok(())
 }
 
-pub(super) fn key_type() -> String {
-    crate::backends::swift::template_env::render("swift_strict_wire_key.swift.jinja", crate::alef_context! {})
+pub(super) fn key_name(public_names: &HashSet<String>) -> String {
+    let mut name = "AlefWireKey".to_owned();
+    let mut suffix = 0;
+    while public_names.contains(&name) {
+        suffix += 1;
+        name = format!("AlefWireKey{suffix}");
+    }
+    name
+}
+
+pub(super) fn key_type(name: &str) -> String {
+    crate::backends::swift::template_env::render(
+        "swift_strict_wire_key.swift.jinja",
+        crate::alef_context! { wire_key_type => name },
+    )
 }

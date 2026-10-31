@@ -293,9 +293,10 @@ pub(super) fn emit_first_class_struct(
         }
     }
 
+    let wire_key_type = serde_policy::key_name(known_dto_names);
     let decoder_helper =
         if ty.serde_deserialization.deny_unknown_fields || !ty.serde_deserialization.field_aliases.is_empty() {
-            serde_policy::key_type()
+            serde_policy::key_type(&wire_key_type)
         } else {
             String::new()
         };
@@ -307,6 +308,7 @@ pub(super) fn emit_first_class_struct(
             &visible_fields,
             zero_arg_constructible_names,
             &mut decoder_init,
+            &wire_key_type,
         )?;
     }
 

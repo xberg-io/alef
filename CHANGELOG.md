@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reject qualified Swift field exclusions that would violate strict serde keys, and allocate private
+  decoding helper names against the emitted DTO/enum inventory without renaming source types.
+
 - Preserve missing-versus-null serde defaults in every Swift DTO decoder and reject unknown keys for
   strict source structs; diagnose unsupported strict flatten and skipped-input key contracts.
   Keep strict decoder helper types in DTO scope and preserve collection-default producer controls.

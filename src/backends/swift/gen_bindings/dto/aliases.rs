@@ -35,7 +35,7 @@ fn wire_names(ty: &TypeDef, field: &FieldDef) -> Vec<String> {
 }
 
 impl AliasDecoding {
-    fn new(ty: &TypeDef, fields: &[&FieldDef]) -> anyhow::Result<Option<Self>> {
+    fn new(ty: &TypeDef, fields: &[&FieldDef], wire_key_type: &str) -> anyhow::Result<Option<Self>> {
         if ty.serde_deserialization.field_aliases.is_empty() {
             return Ok(None);
         }
@@ -61,7 +61,7 @@ impl AliasDecoding {
             let key = if names.len() > 1 {
                 format!("alefKey{index}")
             } else {
-                format!("AlefWireKey(stringValue: {})!", literal(&names[0]))
+                format!("{wire_key_type}(stringValue: {})!", literal(&names[0]))
             };
             keys.insert(field.name.clone(), key);
             selections.push(serde_json::json!({
@@ -76,6 +76,7 @@ impl AliasDecoding {
                 strict => ty.serde_deserialization.deny_unknown_fields,
                 known_keys => known,
                 fields => selections,
+                wire_key_type => wire_key_type,
             },
         );
         Ok(Some(Self { preamble, keys }))
@@ -88,29 +89,20 @@ pub(super) fn emit_decoder_init(
     fields: &[&FieldDef],
     zero_arg_names: &HashSet<String>,
     out: &mut String,
+    wire_key_type: &str,
 ) -> anyhow::Result<()> {
-    let aliases = AliasDecoding::new(ty, fields)?;
-    if let Some(aliases) = aliases {
-        super::decoder::emit_decoder_init_with_aliases(
-            mapper,
-            fields,
-            zero_arg_names,
-            ty.has_default,
-            out,
-            super::decoder::DecoderKeys {
-                strict: ty.serde_deserialization.deny_unknown_fields,
-                aliases: Some(&aliases),
-            },
-        );
-    } else {
-        super::emit_decoder_init(
-            mapper,
-            fields,
-            zero_arg_names,
-            ty.has_default,
-            ty.serde_deserialization.deny_unknown_fields,
-            out,
-        );
-    }
+    let aliases = AliasDecoding::new(ty, fields, wire_key_type)?;
+    super::decoder::emit_decoder_init_with_aliases(
+        mapper,
+        fields,
+        zero_arg_names,
+        ty.has_default,
+        out,
+        super::decoder::DecoderKeys {
+            strict: ty.serde_deserialization.deny_unknown_fields,
+            aliases: aliases.as_ref(),
+            wire_key_type,
+        },
+    );
     Ok(())
 }

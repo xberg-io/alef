@@ -25,6 +25,7 @@ pub(crate) fn emit_decoder_init(
         DecoderKeys {
             strict: deny_unknown_fields,
             aliases: None,
+            wire_key_type: "AlefWireKey",
         },
     );
 }
@@ -32,6 +33,7 @@ pub(crate) fn emit_decoder_init(
 pub(super) struct DecoderKeys<'a> {
     pub(super) strict: bool,
     pub(super) aliases: Option<&'a super::aliases::AliasDecoding>,
+    pub(super) wire_key_type: &'a str,
 }
 
 impl DecoderKeys<'_> {
@@ -51,7 +53,7 @@ fn emit_preamble(keys: &DecoderKeys<'_>, out: &mut String) {
         if keys.strict {
             out.push_str(&crate::backends::swift::template_env::render(
                 "swift_strict_unknown_keys.swift.jinja",
-                crate::alef_context! {},
+                crate::alef_context! { wire_key_type => keys.wire_key_type },
             ));
         }
         out.push_str("        let container = try decoder.container(keyedBy: CodingKeys.self)\n");

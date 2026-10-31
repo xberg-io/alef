@@ -1,4 +1,4 @@
-        let allFields = try decoder.container(keyedBy: AlefWireKey.self)
+        let allFields = try decoder.container(keyedBy: {{ wire_key_type }}.self)
         if let key = allFields.allKeys.first(where: { CodingKeys(rawValue: $0.stringValue) == nil }) {
             throw DecodingError.dataCorruptedError(forKey: key, in: allFields, debugDescription: "Unknown field")
         }

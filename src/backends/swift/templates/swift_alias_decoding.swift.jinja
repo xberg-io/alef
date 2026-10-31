@@ -1,9 +1,9 @@
-        let container = try decoder.container(keyedBy: AlefWireKey.self)
+        let container = try decoder.container(keyedBy: {{ wire_key_type }}.self)
 {% if strict %}        let knownKeys: Set<String> = [{{ known_keys | join(", ") }}]
         if let key = container.allKeys.first(where: { !knownKeys.contains($0.stringValue) }) {
             throw DecodingError.dataCorruptedError(forKey: key, in: container, debugDescription: "Unknown field")
         }
-{% endif %}{% for field in fields %}{% if field.has_aliases %}        let alefKeys{{ field.index }} = [{{ field.names | join(", ") }}].map { AlefWireKey(stringValue: $0)! }
+{% endif %}{% for field in fields %}{% if field.has_aliases %}        let alefKeys{{ field.index }} = [{{ field.names | join(", ") }}].map { {{ wire_key_type }}(stringValue: $0)! }
         let alefPresentKeys{{ field.index }} = alefKeys{{ field.index }}.filter { container.contains($0) }
         if alefPresentKeys{{ field.index }}.count > 1 {
             throw DecodingError.dataCorruptedError(forKey: alefPresentKeys{{ field.index }}[0], in: container, debugDescription: "Duplicate field")
