@@ -26,6 +26,8 @@ MAX_JSON_BYTES = 2 * 1024 * 1024
 MAX_ARCHIVE_BYTES = 256 * 1024 * 1024
 MAX_UNPACKED_BYTES = 512 * 1024 * 1024
 READ_CHUNK_BYTES = 1024 * 1024
+RELEASE_PAGE_SIZE = 10
+MAX_RELEASE_PAGES = 10_000 // RELEASE_PAGE_SIZE
 MARKER = re.compile(r"<!-- alef-release-state:v1 (\{[^\n]*\}) -->")
 
 
@@ -164,7 +166,7 @@ class GithubApi:
         if not self.token:
             raise ReleaseError("GH_TOKEN or GITHUB_TOKEN is required")
 
-    def _request(self, url, method="GET", payload=None, content=None, authenticated=True):
+    def _request(self, url, method="GET", payload=None, content=None, *, authenticated=True, response_type=dict):
         headers = {"Accept": "application/vnd.github+json", "User-Agent": "alef-publisher"}
         if authenticated:
             headers["Authorization"] = "Bearer " + self.token
@@ -186,8 +188,8 @@ class GithubApi:
             raise ReleaseError("Publication API response exceeds limit")
         try:
             value = json.loads(body)
-            if not isinstance(value, dict):
-                raise ReleaseError("Publication API returned a non-object response")
+            if not isinstance(value, response_type):
+                raise ReleaseError("Publication API returned an unexpected JSON type")
             return value
         except (ValueError, UnicodeError):
             raise ReleaseError("Publication API returned invalid JSON") from None
@@ -195,6 +197,10 @@ class GithubApi:
     def request(self, method, endpoint, payload=None, content=None):
         host = "uploads.github.com" if content is not None else "api.github.com"
         return self._request(f"https://{host}/repos/{REPOSITORY}{endpoint}", method, payload, content)
+
+    def release_page(self, page):
+        query = urlencode({"per_page": RELEASE_PAGE_SIZE, "page": page})
+        return self._request(f"https://api.github.com/repos/{REPOSITORY}/releases?{query}", response_type=list)
 
     def registry_version(self, name, version):
         return self._request(f"https://crates.io/api/v1/crates/{name}/{quote(version, safe='')}", authenticated=False)
@@ -209,6 +215,7 @@ class ReleaseState:
         self.api = api
         self.dry_run = dry_run
         self._canonical_spec = None
+        self._admitted_release_id = None
 
     def check_tag(self):
         ref = self.api.request("GET", "/git/ref/tags/" + quote(self.spec["tag"], safe=""))
@@ -272,16 +279,47 @@ class ReleaseState:
             verified[name] = digest
         return verified
 
+    def find_release(self):
+        if self._admitted_release_id is not None:
+            return self.api.request("GET", f"/releases/{self._admitted_release_id}")
+        try:
+            return self.api.request("GET", "/releases/tags/" + quote(self.spec["tag"], safe=""))
+        except ReleaseError as error:
+            if error.status != 404:
+                raise
+        match = None
+        for page in range(1, MAX_RELEASE_PAGES + 1):
+            releases = self.api.release_page(page)
+            if not isinstance(releases, list) or len(releases) > RELEASE_PAGE_SIZE:
+                raise ReleaseError("Publication API returned an invalid release page")
+            for release in releases:
+                if (
+                    not isinstance(release, dict)
+                    or type(release.get("id")) is not int
+                    or release["id"] <= 0
+                    or not isinstance(release.get("tag_name"), str)
+                ):
+                    raise ReleaseError("Publication API returned an invalid release identity")
+                if release["tag_name"] == self.spec["tag"]:
+                    if match is not None:
+                        raise ReleaseError("Ambiguous releases for the admitted tag")
+                    match = release["id"]
+            if len(releases) < RELEASE_PAGE_SIZE:
+                if match is None:
+                    return None
+                release = self.api.request("GET", f"/releases/{match}")
+                if release.get("id") != match or release.get("tag_name") != self.spec["tag"]:
+                    raise ReleaseError("Discovered release identity changed during verification")
+                return release
+        raise ReleaseError("Release discovery page limit exceeded; absence is unverified")
+
     def inspect(self):
         self.check_tag()
         if self.dry_run:
             return {"release": None, "assets": {}, "build_needed": True, "public_ready": False}
-        try:
-            release = self.api.request("GET", "/releases/tags/" + quote(self.spec["tag"], safe=""))
-        except ReleaseError as error:
-            if error.status == 404:
-                return {"release": None, "assets": {}, "build_needed": True, "public_ready": False}
-            raise
+        release = self.find_release()
+        if release is None:
+            return {"release": None, "assets": {}, "build_needed": True, "public_ready": False}
         matches = MARKER.findall(release.get("body") or "")
         if len(matches) != 1 or json.loads(matches[0]) != self.spec:
             raise ReleaseError("Existing release is legacy/unbound or belongs to a different source")
@@ -290,6 +328,8 @@ class ReleaseState:
             or release.get("target_commitish") != self.spec["source_sha"]
             or type(release.get("draft")) is not bool
             or type(release.get("id")) is not int
+            or release["id"] <= 0
+            or (self._admitted_release_id is not None and release["id"] != self._admitted_release_id)
             or release.get("prerelease") is not ("-" in self.spec["version"])
         ):
             raise ReleaseError("Existing release identity does not match the source")
@@ -297,6 +337,7 @@ class ReleaseState:
         complete = set(assets) == set(self.spec["assets"])
         if not release["draft"] and not complete:
             raise ReleaseError("Incomplete public release requires separately reviewed repair")
+        self._admitted_release_id = release["id"]
         return {
             "release": release,
             "assets": assets,
@@ -309,7 +350,7 @@ class ReleaseState:
         if self.dry_run or state["release"] is not None:
             return state
         self.check_tag()
-        self.api.request(
+        created = self.api.request(
             "POST",
             "/releases",
             {
@@ -322,7 +363,10 @@ class ReleaseState:
                 "prerelease": "-" in self.spec["version"],
             },
         )
-        return self.inspect()
+        state = self.inspect()
+        if state["release"] is None or state["release"]["id"] != created.get("id") or not state["release"]["draft"]:
+            raise ReleaseError("The prepared source-bound draft could not be verified")
+        return state
 
     def upload(self, directory, build_result):
         if build_result != "success":
