@@ -1,3 +1,4 @@
+use anyhow::Context as _;
 use std::collections::HashSet;
 use std::path::Path;
 use tracing::debug;
@@ -6,6 +7,28 @@ use crate::cli::git::IgnoreFilter;
 use crate::core::config::ResolvedCrateConfig;
 
 use super::version_core::{patch_cargo_crates_io_version, patch_workspace_dep_versions, write_version_to_cargo_toml};
+
+pub(super) fn sync_extra_cargo_manifest_version(
+    path: &str,
+    content: &str,
+    version: &str,
+    crate_name: &str,
+) -> anyhow::Result<bool> {
+    let document: toml::Value = toml::from_str(content).with_context(|| format!("failed to parse {path}"))?;
+    let package_version = document.get("package").and_then(|package| package.get("version"));
+    let workspace_version = document
+        .get("workspace")
+        .and_then(|workspace| workspace.get("package"))
+        .and_then(|package| package.get("version"));
+    let has_literal_version = [package_version, workspace_version]
+        .into_iter()
+        .flatten()
+        .any(toml::Value::is_str);
+    let package_changed = has_literal_version && write_version_to_cargo_toml(path, version)?;
+    let core_member = std::iter::once(crate_name.to_owned()).collect();
+    let dependency_changed = patch_workspace_dep_versions(path, version, &core_member)?;
+    Ok(package_changed || dependency_changed)
+}
 
 /// Sync `[package] version` AND the self-referential dependency pin (`<crate> = {
 /// version = "...", ... }`, with or without a `package = "..."` rename key) in every

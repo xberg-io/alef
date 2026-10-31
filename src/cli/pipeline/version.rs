@@ -22,7 +22,9 @@ use super::version_text::{
     sync_docs_version_badges, sync_e2e_dart_pubspec_lock, sync_e2e_go_mod, sync_e2e_java_pom, sync_gemfile_lock,
     sync_go_cmd_setup_version_ident, sync_go_native_setup_sentinel, sync_swift_binary_release_url,
 };
-use super::version_workspace::{sync_rust_test_app_version, sync_workspace_cargo_toml_versions};
+use super::version_workspace::{
+    sync_extra_cargo_manifest_version, sync_rust_test_app_version, sync_workspace_cargo_toml_versions,
+};
 use crate::core::version::{to_go_version_ident, to_r_version, to_rubygems_prerelease};
 
 /// Regex for matching semantic version strings.
@@ -837,9 +839,14 @@ fn write_extra_path_rewrite(path: &std::path::Path, new_content: Option<String>,
 /// Apply a single `sync.extra_paths` glob match. The writability check happens in the caller
 /// (glob entries are filtered before this runs); this dispatches on the well-known filenames
 /// (contract, unguarded) before falling back to the marker-gated catch-all. ~keep
-fn apply_extra_path_rewrite(path: &std::path::Path, version: &str, updated: &mut Vec<String>) {
+fn apply_extra_path_rewrite(
+    path: &std::path::Path,
+    version: &str,
+    crate_name: &str,
+    updated: &mut Vec<String>,
+) -> anyhow::Result<()> {
     let Ok(content) = std::fs::read_to_string(path) else {
-        return;
+        return Ok(());
     };
     let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
     let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -847,32 +854,32 @@ fn apply_extra_path_rewrite(path: &std::path::Path, version: &str, updated: &mut
     if file_name == "package.json" {
         let new_content = replace_version_pattern(&content, r#""version":\s*"[^"]*""#, version);
         write_extra_path_rewrite(path, new_content, updated);
-        return;
+        return Ok(());
     }
     if file_name == "Cargo.toml" {
         let path_str = path.to_string_lossy().to_string();
-        if let Ok(true) = write_version_to_cargo_toml(&path_str, version) {
+        if sync_extra_cargo_manifest_version(&path_str, &content, version, crate_name)? {
             updated.push(path_str);
         }
-        return;
+        return Ok(());
     }
     if file_name == "pyproject.toml" {
         let py_ver = to_pep440(version);
         let new_content = replace_version_pattern(&content, r#"version = "[^"]*""#, &py_ver);
         write_extra_path_rewrite(path, new_content, updated);
-        return;
+        return Ok(());
     }
     if file_name == "version.rb" {
         let rb_ver = to_rubygems_prerelease(version);
         let new_content = replace_version_pattern(&content, r#"VERSION\s*=\s*['"][^'"]*['"]"#, &rb_ver);
         write_extra_path_rewrite(path, new_content, updated);
-        return;
+        return Ok(());
     }
     if extension == "gemspec" {
         let rb_ver = to_rubygems_prerelease(version);
         let new_content = replace_version_pattern(&content, r#"spec\.version\s*=\s*['"][^'"]*['"]"#, &rb_ver);
         write_extra_path_rewrite(path, new_content, updated);
-        return;
+        return Ok(());
     }
     if file_name == "gleam.toml" {
         let mut new_content = content.clone();
@@ -881,20 +888,22 @@ fn apply_extra_path_rewrite(path: &std::path::Path, version: &str, updated: &mut
         }
         new_content = restore_gleam_dep_ranges(&new_content);
         write_extra_path_rewrite(path, (new_content != content).then_some(new_content), updated);
-        return;
+        return Ok(());
     }
     if catch_all_rewrite_is_permitted(path, &content) {
         let new_content = SEMVER_RE.replace_all(&content, version).to_string();
         write_extra_path_rewrite(path, (new_content != content).then_some(new_content), updated);
     }
+    Ok(())
 }
 
 fn apply_sync_extra_paths(
     extra_paths: &[String],
     version: &str,
+    crate_name: &str,
     writable: &crate::cli::git::IgnoreFilter,
     updated: &mut Vec<String>,
-) {
+) -> anyhow::Result<()> {
     for pattern in extra_paths {
         let paths = match glob::glob(pattern) {
             Ok(paths) => paths,
@@ -916,10 +925,11 @@ fn apply_sync_extra_paths(
                 refused += 1;
                 continue;
             }
-            apply_extra_path_rewrite(&path, version, updated);
+            apply_extra_path_rewrite(&path, version, crate_name, updated)?;
         }
         warn_refused_matches("sync.extra_paths", pattern, refused);
     }
+    Ok(())
 }
 
 /// Apply one declared `sync.text_replacements` rule to a single glob-matched path. Writability
@@ -1044,7 +1054,13 @@ fn sync_citation_and_extra_paths(
     sync_citation_file(config, version, release_date_override, &mut state.updated)?;
 
     if let Some(sync_config) = &config.sync {
-        apply_sync_extra_paths(&sync_config.extra_paths, version, writable, &mut state.updated);
+        apply_sync_extra_paths(
+            &sync_config.extra_paths,
+            version,
+            &config.name,
+            writable,
+            &mut state.updated,
+        )?;
         apply_sync_text_replacements(
             &sync_config.text_replacements,
             version,

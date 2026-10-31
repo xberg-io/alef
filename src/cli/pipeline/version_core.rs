@@ -222,12 +222,12 @@ pub(crate) fn patch_workspace_dep_versions(
         };
         let mut any = false;
         for (key, item) in table.iter_mut() {
-            let is_member = workspace_members.contains(key.get())
-                || item
-                    .as_table_like()
-                    .and_then(|t| t.get("package"))
-                    .and_then(|v| v.as_str())
-                    .is_some_and(|pkg| workspace_members.contains(pkg));
+            let package_name = item
+                .as_table_like()
+                .and_then(|table| table.get("package"))
+                .and_then(|value| value.as_str())
+                .unwrap_or(key.get());
+            let is_member = workspace_members.contains(package_name);
             if !is_member {
                 continue;
             }

@@ -90,3 +90,98 @@ fn sync_versions_bumps_ruby_native_package_version_field() {
          byte-identical, got:\n{out}"
     );
 }
+
+#[test]
+fn extra_cargo_manifest_syncs_core_requirement_without_touching_external_versions() {
+    for old_package_version in ["2.0.0", "1.23.0"] {
+        for dependency_key in ["demo", "renamed"] {
+            check_extra_cargo_manifest(old_package_version, dependency_key);
+        }
+    }
+}
+
+fn check_extra_cargo_manifest(old_package_version: &str, dependency_key: &str) {
+    let _guard = CWD_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let original_cwd = std::env::current_dir().expect("cwd");
+    let temporary = tempfile::tempdir().expect("tempdir");
+    let root = temporary.path();
+    std::fs::write(root.join("Cargo.toml"), "[workspace.package]\nversion = \"1.23.0\"\n").expect("root manifest");
+    let native = root.join("packages/elixir/native/demo_nif");
+    std::fs::create_dir_all(&native).expect("native directory");
+    let manifest = format!(
+        "[package]\nname = \"demo_nif\"\nversion = \"{old_package_version}\"\n\n\
+         [dependencies]\n{dependency_key} = {{ package = \"demo\", version = \"2.0.0\", path = \"../../../../crates/demo\" }}\n\
+         external = {{ version = \"2.0.0\", path = \"../../../../vendor/external\" }}\n"
+    );
+    std::fs::write(native.join("Cargo.toml"), &manifest).expect("native manifest");
+    let config_text = concat!(
+        "[workspace]\nlanguages = [\"elixir\"]\n",
+        "[workspace.sync]\nextra_paths = [\"packages/elixir/native/demo_nif/Cargo.toml\"]\n",
+        "[[crates]]\nname = \"demo\"\nsources = []\nversion_from = \"Cargo.toml\"\n"
+    );
+    std::fs::write(root.join("alef.toml"), config_text).expect("write config");
+    let config: crate::core::config::NewAlefConfig = toml::from_str(config_text).expect("config");
+    let resolved = config.resolve().expect("resolve config").remove(0);
+    std::env::set_current_dir(root).expect("fixture cwd");
+    let result = sync_versions(&resolved, &root.join("alef.toml"), None, true, true, None);
+    std::env::set_current_dir(original_cwd).expect("restore cwd");
+    result.expect("sync versions");
+    let output = std::fs::read_to_string(native.join("Cargo.toml")).expect("updated manifest");
+    let document: toml::Value = toml::from_str(&output).expect("valid TOML");
+    assert_eq!(document["package"]["version"].as_str(), Some("1.23.0"));
+    assert_eq!(
+        document["dependencies"][dependency_key]["version"].as_str(),
+        Some("1.23.0")
+    );
+    assert_eq!(document["dependencies"]["external"]["version"].as_str(), Some("2.0.0"));
+    assert_eq!(
+        document["dependencies"][dependency_key]["path"].as_str(),
+        Some("../../../../crates/demo")
+    );
+}
+
+#[test]
+fn extra_cargo_manifest_accepts_inherited_and_virtual_package_versions() {
+    for (header, dependency_table) in [
+        (
+            "[package]\nname = \"demo_nif\"\nversion.workspace = true\n",
+            "dependencies",
+        ),
+        ("[workspace]\n", "workspace.dependencies"),
+    ] {
+        let temporary = tempfile::tempdir().expect("tempdir");
+        let path = temporary.path().join("Cargo.toml");
+        let input = format!("{header}[{dependency_table}]\ndemo = {{ version = \"2.0.0\", path = \"../demo\" }}\n");
+        std::fs::write(&path, input).expect("manifest");
+        let mut updated = Vec::new();
+        apply_extra_path_rewrite(&path, "1.23.0", "demo", &mut updated).expect("sync inherited manifest");
+        let output = std::fs::read_to_string(&path).expect("output");
+        assert!(output.starts_with(header));
+        let document: toml::Value = toml::from_str(&output).expect("TOML");
+        let dependency_owner = if dependency_table == "workspace.dependencies" {
+            &document["workspace"]
+        } else {
+            &document
+        };
+        assert_eq!(
+            dependency_owner["dependencies"]["demo"]["version"].as_str(),
+            Some("1.23.0")
+        );
+        assert_eq!(updated, vec![path.to_string_lossy().to_string()]);
+    }
+}
+
+#[test]
+fn extra_cargo_manifest_preserves_external_package_alias_shadowing_core_name() {
+    let temporary = tempfile::tempdir().expect("tempdir");
+    let path = temporary.path().join("Cargo.toml");
+    let input = concat!(
+        "[package]\nname = \"demo_nif\"\nversion = \"1.23.0\"\n",
+        "[dependencies]\ndemo = { package = \"external\", version = \"2.0.0\", path = \"../external\" }\n"
+    );
+    std::fs::write(&path, input).expect("manifest");
+    let mut updated = Vec::new();
+    apply_extra_path_rewrite(&path, "1.23.0", "demo", &mut updated).expect("sync external alias");
+    assert_eq!(std::fs::read_to_string(path).expect("output"), input);
+    assert!(updated.is_empty());
+}
