@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Dart FRB callback serialization failures use the existing callback error transport instead of escaping
+  asynchronously and leaving native callers waiting. Reject out-of-range callback `u64` returns through
+  the existing warned default-value policy, and reject unsupported callback serializer shapes during generation.
+
 - Dart Rust facades reconstruct newtype arguments and unwrap returned newtypes from extracted conversion metadata.
   Preserve function container paths and borrowed inner values; reject mutable newtype references requiring writeback.
   Keep nested optional layers and the source map collection and hasher when rebuilding arguments.

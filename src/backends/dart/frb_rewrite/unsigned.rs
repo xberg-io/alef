@@ -5,7 +5,15 @@ pub(super) fn check_unsigned_before_encoding(source: &str) -> String {
         "serializer.buffer.putBigUint64(self);",
         "serializer.buffer.putBigUint64(_alefCheckU64BeforeEncode(self));",
     );
-    if rewritten == source || source.contains("BigInt _alefCheckU64BeforeEncode(BigInt value)") {
+    let has_unsigned_writer = rewritten.contains("putBigUint64(_alefCheckU64BeforeEncode(self))");
+    let rewritten = if has_unsigned_writer {
+        super::callback_errors::catch_callback_serialization(&rewritten)
+    } else {
+        rewritten
+    };
+    if !source.contains("serializer.buffer.putBigUint64(self);")
+        || source.contains("BigInt _alefCheckU64BeforeEncode(BigInt value)")
+    {
         return rewritten;
     }
     let helper = crate::backends::dart::template_env::render("dart_u64_codec_guard.jinja", crate::alef_context! {});

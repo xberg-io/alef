@@ -229,6 +229,13 @@ fn canonical_frb_u64_raw_and_callback_writers_enforce_bounds() {
     let config = fixture(&root);
     let sdk = successful(&root, "sdk", &[], 30);
     dart_sdk::assert_pinned_sdk(&sdk, "canonical");
+    let parent_sdk = run_command_streams(std::process::Command::new("dart").arg("--version"), 30).unwrap();
+    assert!(
+        parent_sdk.success,
+        "parent Dart SDK: {}\n{}",
+        parent_sdk.stdout, parent_sdk.stderr
+    );
+    dart_sdk::assert_pinned_sdk(&parent_sdk, "canonical_parent");
     successful(&root, "setup", &[], 600);
     let canonical = DartBackend.build_config_for(&config).unwrap();
     assert_eq!(canonical.post_build.len(), 15, "full canonical FRB pipeline");

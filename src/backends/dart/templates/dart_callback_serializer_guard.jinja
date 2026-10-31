@@ -1,0 +1,22 @@
+SseSerializer? serializer;
+try {
+  rawOutput = Box({{ invoke }});
+  serializer = SseSerializer({{ binding }});
+  serializer.buffer.putUint8(0);
+  {{ encode }}
+} catch (e, s) {
+  rawOutput = null;
+  rawError = Box(AnyhowException("$e\n\n$s"));
+  if (serializer != null) {
+    final failed = serializer.intoRaw();
+    // The partial success buffer owns a native Vec until explicitly released. ~keep
+    if (!const bool.fromEnvironment('dart.library.js_interop')) {
+      ({{ binding }} as dynamic).rustVecU8Free(failed.ptr, failed.rustVecLen);
+    }
+  }
+  serializer = SseSerializer({{ binding }});
+  serializer.buffer.putUint8(1);
+  sse_encode_AnyhowException(rawError.value, serializer);
+}
+assert((rawOutput != null) ^ (rawError != null));
+final output = serializer!.intoRaw();
