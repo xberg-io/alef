@@ -244,14 +244,14 @@ pub(crate) enum Commands {
         /// Report drift without returning a failure status.
         #[arg(long)]
         report_only: bool,
-        /// Also run compilation check.
-        #[arg(long)]
+        /// Unsupported compatibility flag; always rejected. Use `alef build` to compile.
+        #[arg(long, hide = true)]
         compile: bool,
-        /// Also run lint check.
-        #[arg(long)]
+        /// Unsupported compatibility flag; always rejected. Use `alef lint` to lint.
+        #[arg(long, hide = true)]
         lint: bool,
-        /// Comma-separated list of languages.
-        #[arg(long, value_delimiter = ',')]
+        /// Unsupported compatibility flag; always rejected. Verification covers all configured languages.
+        #[arg(long, value_delimiter = ',', hide = true)]
         lang: Option<Vec<String>>,
     },
     /// Show diff of what would change without writing.

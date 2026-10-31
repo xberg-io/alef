@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+<<<<<<< HEAD
 ## [0.115.8] - 2026-10-31
 
 ### Changed
@@ -20,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and required sibling fields while retaining existing decoder policies.
 
 - Keep isolated FRB test processes in owned working directories during parallel test execution.
+=======
+### Fixed
+
+- Stop advertising unsupported `verify --compile`, `--lint` and `--lang` flags while retaining explicit rejection. (#755)
+>>>>>>> 48b41595e (fix(cli): hide unsupported verification flags)
 
 ## [0.115.7] - 2026-10-30
 

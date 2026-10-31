@@ -126,8 +126,8 @@ For the full local generation pass, use:
 alef all --format
 ```
 
-Use `--lang python,node` to restrict commands to selected targets and `--crate <name>` to restrict
-commands to one configured crate.
+Use `--lang python,node` on language-aware commands such as `generate` and `build` to select targets.
+`verify` checks the complete generated surface. Use `--crate <name>` to restrict commands to one configured crate.
 
 ## Supported Targets
 
@@ -375,7 +375,7 @@ The full extension walkthrough covers trait references and per-language emission
 | `alef fmt` / `alef lint` | Run configured formatters, linters, and type checks. |
 | `alef test` | Run configured unit, integration, e2e, or coverage test commands. |
 | `alef build` | Build language bindings using native tools. |
-| `alef verify` | Check generated files and optional compile/lint state for CI. |
+| `alef verify` | Check generated output freshness and completeness for CI; use `alef build` and `alef lint` separately. |
 | `alef diff` | Show what generation would change without writing files. |
 | `alef schema` | Write or `--check` a vendored copy of the `alef.toml` JSON Schema. |
 | `alef e2e` | Initialize, scaffold, validate, list, or generate local e2e suites. |

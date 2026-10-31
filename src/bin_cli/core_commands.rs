@@ -468,11 +468,9 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             lang,
         } => {
             // ~keep `exit_code` is deliberately ignored: it is `hide = true` and documented as a
-            // deprecated no-op because verification fails by default now. These three are not.
-            // They are visible, documented as doing extra work ("Also run compilation check"),
-            // and were destructured away — so `alef verify --compile` exited 0 having compiled
-            // nothing, which is indistinguishable from a passing compile check. Refuse instead:
-            // a flag that cannot be honored must not report success.
+            // deprecated no-op because verification fails by default now. The other hidden
+            // compatibility flags remain parsed so this diagnostic can name the unsupported
+            // operation; silently discarding them would report success without doing the work.
             refuse_unimplemented_verify_flags(compile, lint, lang.as_deref())?;
             verify::run(context, report_only)
         }
