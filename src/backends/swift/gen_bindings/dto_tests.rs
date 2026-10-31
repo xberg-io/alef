@@ -39,6 +39,7 @@ fn first_class_struct_skips_nullary_method_colliding_with_a_property() {
         "DemoError",
         &std::collections::HashSet::new(),
         &Default::default(),
+        "AlefWireKey",
         &mut out,
     )
     .unwrap();
@@ -96,6 +97,7 @@ fn first_class_struct_keeps_method_with_params_despite_same_base_name() {
         "DemoError",
         &std::collections::HashSet::new(),
         &Default::default(),
+        "AlefWireKey",
         &mut out,
     )
     .unwrap();
@@ -222,6 +224,7 @@ fn the_memberwise_init_carries_the_rust_default() {
         "DemoError",
         &std::collections::HashSet::new(),
         &Default::default(),
+        "AlefWireKey",
         &mut out,
     )
     .unwrap();
@@ -417,6 +420,7 @@ fn should_render_a_map_field_as_a_swift_dictionary_property() {
         "DemoError",
         &std::collections::HashSet::new(),
         &Default::default(),
+        "AlefWireKey",
         &mut out,
     )
     .unwrap();
@@ -549,6 +553,7 @@ fn should_render_a_json_valued_map_field_using_the_json_value_stand_in() {
         "DemoError",
         &std::collections::HashSet::new(),
         &Default::default(),
+        "AlefWireKey",
         &mut out,
     )
     .unwrap();

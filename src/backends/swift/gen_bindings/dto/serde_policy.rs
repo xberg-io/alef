@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use heck::ToSnakeCase;
+
 use crate::core::ir::TypeDef;
 
 pub(super) fn validate(ty: &TypeDef, exclude_fields: &HashSet<String>) -> anyhow::Result<()> {
@@ -24,7 +26,7 @@ pub(super) fn validate(ty: &TypeDef, exclude_fields: &HashSet<String>) -> anyhow
         || ty.fields.iter().any(|field| {
             field.binding_excluded
                 || exclude_fields.contains(&field.name)
-                || exclude_fields.contains(&format!("{}.{}", ty.name, field.name))
+                || exclude_fields.contains(&format!("{}.{}", ty.name, field.name.to_snake_case()))
         })
     {
         anyhow::bail!(

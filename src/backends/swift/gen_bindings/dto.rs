@@ -204,6 +204,29 @@ pub(crate) fn compute_first_class_dto_names(api: &ApiSurface, exclude_types: &Ha
     known
 }
 
+pub(super) fn decoder_key_name(api: &ApiSurface, exclude_types: &HashSet<String>, module_name: &str) -> String {
+    let public_names = api
+        .types
+        .iter()
+        .map(|ty| &ty.name)
+        .chain(api.enums.iter().map(|en| &en.name))
+        .filter(|name| !exclude_types.contains(*name))
+        .cloned()
+        .chain(
+            api.errors
+                .iter()
+                .map(|error| super::errors::swift_error_name(error, module_name)),
+        )
+        .chain(
+            api.services
+                .iter()
+                .filter(|service| !service.registrations.is_empty())
+                .map(|service| service.name.clone()),
+        )
+        .collect();
+    serde_policy::key_name(&public_names)
+}
+
 /// Emits a first-class Swift struct (`public struct Foo: Codable, Sendable, Hashable`)
 /// for a non-opaque DTO that has serde derives and at least one field.
 ///
@@ -225,6 +248,7 @@ pub(super) fn emit_first_class_struct(
     error_type_name: &str,
     configured_features: &std::collections::HashSet<&str>,
     text_variants: &ffi_initializer::TextVariants,
+    wire_key_type: &str,
     out: &mut String,
 ) -> anyhow::Result<()> {
     serde_policy::validate(ty, exclude_fields)?;
@@ -293,10 +317,9 @@ pub(super) fn emit_first_class_struct(
         }
     }
 
-    let wire_key_type = serde_policy::key_name(known_dto_names);
     let decoder_helper =
         if ty.serde_deserialization.deny_unknown_fields || !ty.serde_deserialization.field_aliases.is_empty() {
-            serde_policy::key_type(&wire_key_type)
+            serde_policy::key_type(wire_key_type)
         } else {
             String::new()
         };
@@ -308,7 +331,7 @@ pub(super) fn emit_first_class_struct(
             &visible_fields,
             zero_arg_constructible_names,
             &mut decoder_init,
-            &wire_key_type,
+            wire_key_type,
         )?;
     }
 
