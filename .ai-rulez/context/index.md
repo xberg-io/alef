@@ -1,3 +1,3 @@
 # Concepts
 
-* [Architecture](architecture.md)
+- [Architecture](architecture.md)
