@@ -70,6 +70,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>, has_serde: bool) -> TypeDef {
         serde_rename_all: None,
         has_serde,
         serde_container_default: false,
+        serde_deserialization: Default::default(),
         serde_container_conversion: Default::default(),
         super_traits: vec![],
         binding_excluded: false,

@@ -50,7 +50,13 @@ fn should_retain_real_container_unknown_field_policy_in_extracted_metadata() {
     for (name, expected) in [("Budget", true), ("Options", true), ("Permissive", false)] {
         let ty = api.types.iter().find(|ty| ty.name == name).unwrap();
         let metadata = serde_json::to_value(ty).unwrap();
-        assert_eq!(metadata["serde_deny_unknown_fields"], expected, "{name}: {metadata}");
+        assert_eq!(
+            metadata["serde_deserialization"]["deny_unknown_fields"]
+                .as_bool()
+                .unwrap_or(false),
+            expected,
+            "{name}: {metadata}"
+        );
     }
 }
 

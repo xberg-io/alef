@@ -3,6 +3,7 @@ mod metadata;
 mod ordered_serde;
 mod service;
 mod surface;
+mod type_def;
 mod type_ref;
 
 pub(crate) use items::ADAPTER_HANDLED_REASON_PREFIX;
@@ -11,7 +12,7 @@ pub use items::{
 };
 pub use metadata::{
     CoreWrapper, DefaultValue, DeprecationInfo, ErrorTaxonomy, NewtypeContainer, NewtypeConversion, NewtypeWrapper,
-    NewtypeWrapperMetadata, SerdeContainerConversion, VersionAnnotation,
+    NewtypeWrapperMetadata, SerdeContainerConversion, SerdeDeserializationPolicy, VersionAnnotation,
 };
 pub use service::{
     EntrypointDef, EntrypointKind, HandlerContractDef, HandlerShape, ParameterConstraint, RegistrationDef,

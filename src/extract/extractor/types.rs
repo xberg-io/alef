@@ -12,9 +12,10 @@ use super::helpers::{
     build_rust_path, detect_core_wrapper, extract_alef_error_code, extract_alef_transparent_string,
     extract_cfg_condition, extract_doc_comments, extract_enum_variant, extract_error_message_template, extract_field,
     extract_field_binding_exclusion_reason, extract_field_type_rust_path, extract_serde_container_conversion,
-    extract_serde_rename_all, extract_serde_rename_all_fields, extract_serde_skip, extract_serde_skip_serializing_if,
-    extract_version_annotation, has_alef_sensitive, has_cfg_attribute, has_container_serde_default, has_derive,
-    has_field_attr, has_serde_untagged, is_pub, is_static_str_ref, parse_alef_transparent_string, syn_type_is_boxed,
+    extract_serde_deserialization_policy, extract_serde_rename_all, extract_serde_rename_all_fields,
+    extract_serde_skip, extract_serde_skip_serializing_if, extract_version_annotation, has_alef_sensitive,
+    has_cfg_attribute, has_container_serde_default, has_derive, has_field_attr, has_serde_untagged, is_pub,
+    is_static_str_ref, parse_alef_transparent_string, syn_type_is_boxed,
 };
 
 pub(crate) fn validate_transparent_string_struct(item: &syn::ItemStruct) -> Result<Option<(String, String)>, String> {
@@ -207,6 +208,7 @@ pub(crate) fn extract_struct(
         serde_rename_all,
         has_serde,
         serde_container_default,
+        serde_deserialization: extract_serde_deserialization_policy(item),
         serde_container_conversion,
         super_traits: vec![],
         binding_excluded,

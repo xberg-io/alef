@@ -907,6 +907,7 @@ fn auto_detected_enum_fields_from_type_defs_route_through_get_value() {
         serde_rename_all: None,
         has_serde: true,
         serde_container_default: false,
+        serde_deserialization: Default::default(),
         serde_container_conversion: Default::default(),
         super_traits: vec![],
         binding_excluded: false,

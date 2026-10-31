@@ -146,6 +146,7 @@ fn test_gen_magnus_kwargs_constructor_hash_path_for_many_fields() {
         serde_rename_all: None,
         has_serde: false,
         serde_container_default: false,
+        serde_deserialization: Default::default(),
         serde_container_conversion: Default::default(),
         super_traits: vec![],
         binding_excluded: false,

@@ -29,7 +29,7 @@ fn decode_body(name: &str, ty: TypeRef, typed_default: DefaultValue) -> String {
         ..Default::default()
     };
     let mut out = String::new();
-    emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), true, &mut out);
+    emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), true, false, &mut out);
     out
 }
 
@@ -155,13 +155,20 @@ fn a_named_field_defaulting_to_type_default_uses_the_zero_arg_initializer() {
     let zero_arg_constructible_names: HashSet<String> = ["NgramRange".to_string()].into_iter().collect();
 
     let mut out = String::new();
-    emit_decoder_init(&SwiftMapper, &[&field], &zero_arg_constructible_names, true, &mut out);
+    emit_decoder_init(
+        &SwiftMapper,
+        &[&field],
+        &zero_arg_constructible_names,
+        true,
+        false,
+        &mut out,
+    );
 
     assert_eq!(
         out,
         "    public init(from decoder: any Decoder) throws {\n        \
          let container = try decoder.container(keyedBy: CodingKeys.self)\n        \
-         self.ngramRange = try container.decodeIfPresent(NgramRange.self, forKey: .ngramRange) ?? NgramRange()\n    }\n",
+         if container.contains(.ngramRange) {\n            self.ngramRange = try container.decode(NgramRange.self, forKey: .ngramRange)\n        } else {\n            self.ngramRange = NgramRange()\n        }\n    }\n",
         "an absent key must fall back to the type's own zero-arg initializer:\n{out}"
     );
 }
@@ -184,7 +191,7 @@ fn an_enum_field_defaulting_to_type_default_stays_required() {
     };
 
     let mut out = String::new();
-    emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), true, &mut out);
+    emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), true, false, &mut out);
 
     assert!(
         out.contains("self.algorithm = try container.decode(KeywordAlgorithm.self, forKey: .algorithm)"),

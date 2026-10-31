@@ -1,5 +1,13 @@
 pub(super) static TEMPLATES: &[(&str, &str)] = &[
     (
+        "swift_strict_wire_key.swift.jinja",
+        include_str!("../templates/swift_strict_wire_key.swift.jinja"),
+    ),
+    (
+        "swift_strict_unknown_keys.swift.jinja",
+        include_str!("../templates/swift_strict_unknown_keys.swift.jinja"),
+    ),
+    (
         "swift_owned_array_suffix.swift.jinja",
         include_str!("../templates/swift_owned_array_suffix.swift.jinja"),
     ),
@@ -54,10 +62,6 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
     (
         "swift_decode_optional_assignment.swift.jinja",
         include_str!("../templates/swift_decode_optional_assignment.swift.jinja"),
-    ),
-    (
-        "swift_decode_default_assignment.swift.jinja",
-        include_str!("../templates/swift_decode_default_assignment.swift.jinja"),
     ),
     (
         "swift_decode_missing_default_assignment.swift.jinja",

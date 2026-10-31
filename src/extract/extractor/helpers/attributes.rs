@@ -271,7 +271,7 @@ pub(crate) fn extract_serde_rename_all_fields(attrs: &[syn::Attribute]) -> Optio
 /// including ones nested inside `#[cfg_attr(...)]` (recursively, and regardless of how
 /// complex the gating condition is — Alef never evaluates `cfg`/`cfg_attr` predicates, so a
 /// gated `serde(...)` attribute is treated the same as a bare one). ~keep
-fn for_each_serde_meta_list(attrs: &[syn::Attribute], mut visit: impl FnMut(&syn::MetaList)) {
+pub(super) fn for_each_serde_meta_list(attrs: &[syn::Attribute], mut visit: impl FnMut(&syn::MetaList)) {
     for attr in attrs {
         if attr.path().is_ident("serde") {
             if let Ok(list) = attr.meta.require_list() {

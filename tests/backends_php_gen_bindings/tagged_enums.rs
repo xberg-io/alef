@@ -256,6 +256,7 @@ fn test_tagged_data_enum_generates_flat_class_not_string_constants() {
         serde_rename_all: None,
         has_serde: true,
         serde_container_default: false,
+        serde_deserialization: Default::default(),
         serde_container_conversion: Default::default(),
         super_traits: vec![],
         doc: String::new(),

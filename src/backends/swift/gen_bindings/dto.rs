@@ -1,5 +1,8 @@
+mod decoder;
 pub(super) mod ffi_initializer;
 mod field_defaults;
+mod serde_policy;
+pub(crate) use decoder::emit_decoder_init;
 
 use crate::backends::swift::gen_rust_crate::default_construction::EnumKinds;
 use crate::backends::swift::naming::{swift_rust_shim_ident as swift_ident, swift_source_ident as swift_case_ident};
@@ -7,7 +10,6 @@ use crate::backends::swift::type_map::SwiftMapper;
 use crate::codegen::shared::binding_fields;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::ir::{ApiSurface, DefaultValue, FieldDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
-use field_defaults::{default_assignment_template, non_optional_fallback, optional_default_assignment_template};
 use heck::{AsSnakeCase, ToLowerCamelCase, ToSnakeCase};
 use std::collections::HashSet;
 
@@ -224,6 +226,7 @@ pub(super) fn emit_first_class_struct(
     text_variants: &ffi_initializer::TextVariants,
     out: &mut String,
 ) -> anyhow::Result<()> {
+    serde_policy::validate(ty, exclude_fields)?;
     let type_name = &ty.name;
     let type_snake = AsSnakeCase(type_name.as_str()).to_string();
 
@@ -289,8 +292,9 @@ pub(super) fn emit_first_class_struct(
         }
     }
 
-    // Custom `init(from decoder:)` when the Rust source has `#[derive(Default)]` or
-    // `#[serde(default)]` / `#[serde(skip_serializing_if = ...)]` decode successfully.
+    if ty.serde_deserialization.deny_unknown_fields {
+        coding_keys.push_str(&serde_policy::key_type());
+    }
     let mut decoder_init = String::new();
     if super::decoder_gate::needs_decoder_init(ty) {
         emit_decoder_init(
@@ -298,6 +302,7 @@ pub(super) fn emit_first_class_struct(
             &visible_fields,
             zero_arg_constructible_names,
             ty.has_default,
+            ty.serde_deserialization.deny_unknown_fields,
             &mut decoder_init,
         );
     }
@@ -472,85 +477,6 @@ pub(crate) fn swift_type_based_default(ty: &TypeRef) -> Option<String> {
         TypeRef::Optional(_) => Some("nil".to_string()),
         _ => None,
     }
-}
-
-/// Decodes absent keys through proven field defaults while preserving required siblings.
-/// Existing owner decoders retain their null policy; newly supported decoders distinguish
-/// absent defaults from present null values. Unknown required defaults keep required decoding.
-pub(crate) fn emit_decoder_init(
-    mapper: &SwiftMapper,
-    visible_fields: &[&FieldDef],
-    zero_arg_constructible_names: &HashSet<String>,
-    every_field_may_be_absent: bool,
-    out: &mut String,
-) {
-    let had_owner_decoder =
-        every_field_may_be_absent || visible_fields.iter().any(|field| field.serde_skip_serializing_if);
-    out.push_str("    public init(from decoder: any Decoder) throws {\n");
-    out.push_str("        let container = try decoder.container(keyedBy: CodingKeys.self)\n");
-    for field in visible_fields {
-        let camel = swift_case_ident(&field.name.to_lower_camel_case());
-        let already_optional = matches!(&field.ty, TypeRef::Optional(_));
-        let is_optional = field.optional || already_optional;
-        let swift_ty = swift_field_type(mapper, &field.ty);
-
-        let literal = field.typed_default.as_ref().and_then(swift_typed_default_literal);
-
-        if is_optional {
-            let inner_ty = swift_ty.strip_suffix('?').unwrap_or(&swift_ty);
-            // `Option<T>` defaulting to `Some(x)` reaches the IR as the bare literal for `x`, so
-            // decoding an absent key as `nil` would substitute a value the source crate never
-            // produces. Only a genuinely absent literal keeps the `?? nil` rendering. ~keep
-            match &literal {
-                Some(fb) => out.push_str(&crate::backends::swift::template_env::render(
-                    optional_default_assignment_template(had_owner_decoder),
-                    crate::alef_context! {
-                        field => camel,
-                        ty => inner_ty,
-                        fallback => fb,
-                    },
-                )),
-                None => out.push_str(&crate::backends::swift::template_env::render(
-                    "swift_decode_optional_assignment.swift.jinja",
-                    crate::alef_context! {
-                        field => camel,
-                        ty => inner_ty,
-                    },
-                )),
-            }
-            continue;
-        }
-
-        let fallback = non_optional_fallback(
-            field,
-            &swift_ty,
-            zero_arg_constructible_names,
-            every_field_may_be_absent,
-        );
-
-        match fallback {
-            Some(fb) => {
-                out.push_str(&crate::backends::swift::template_env::render(
-                    default_assignment_template(field, every_field_may_be_absent, had_owner_decoder),
-                    crate::alef_context! {
-                        field => camel,
-                        ty => swift_ty,
-                        fallback => fb,
-                    },
-                ));
-            }
-            None => {
-                out.push_str(&crate::backends::swift::template_env::render(
-                    "swift_decode_required_assignment.swift.jinja",
-                    crate::alef_context! {
-                        field => camel,
-                        ty => swift_ty,
-                    },
-                ));
-            }
-        }
-    }
-    out.push_str("    }\n");
 }
 
 /// Returns the Swift body of `intoRust()` as a direct `RustBridge.{Type}(...)` call when

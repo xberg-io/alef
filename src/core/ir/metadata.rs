@@ -411,6 +411,22 @@ pub struct VersionAnnotation {
     pub deprecated: Option<DeprecationInfo>,
 }
 
+/// Decoder policy retained separately from field defaults and container conversions.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct SerdeDeserializationPolicy {
+    #[serde(default)]
+    pub deny_unknown_fields: bool,
+    /// Field attributes whose input-key semantics are not yet modeled by the Swift decoder.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unsupported_field_attributes: Vec<String>,
+}
+
+impl SerdeDeserializationPolicy {
+    pub fn is_empty(&self) -> bool {
+        !self.deny_unknown_fields && self.unsupported_field_attributes.is_empty()
+    }
+}
+
 /// A struct's container-level `#[serde(from/into/try_from/transparent)]`, when present.
 ///
 /// One cohesive fact -- "how does this container convert for serde" -- kept as one `TypeDef`
@@ -441,6 +457,33 @@ impl SerdeContainerConversion {
     /// "no container conversion" without each caller re-deriving that from four field checks.
     pub fn is_present(&self) -> bool {
         self.from.is_some() || self.into.is_some() || self.try_from.is_some() || self.transparent
+    }
+}
+
+#[cfg(test)]
+mod deserialization_policy_tests {
+    use crate::core::ir::{SerdeDeserializationPolicy, TypeDef};
+
+    #[test]
+    fn old_ir_without_policy_deserializes_as_permissive() {
+        let old = serde_json::to_value(TypeDef::default()).unwrap();
+        assert!(old.get("serde_deserialization").is_none());
+        let decoded: TypeDef = serde_json::from_value(old).unwrap();
+        assert!(decoded.serde_deserialization.is_empty());
+    }
+
+    #[test]
+    fn strict_source_policy_survives_ir_roundtrip() {
+        let source = TypeDef {
+            serde_deserialization: SerdeDeserializationPolicy {
+                deny_unknown_fields: true,
+                unsupported_field_attributes: vec!["alias".to_string()],
+            },
+            ..Default::default()
+        };
+        let encoded = serde_json::to_value(&source).unwrap();
+        let decoded: TypeDef = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded.serde_deserialization, source.serde_deserialization);
     }
 }
 

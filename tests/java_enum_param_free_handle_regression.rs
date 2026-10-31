@@ -54,6 +54,7 @@ fn param_type_with_serde_emits_free_handle_in_native_lib() {
         serde_rename_all: None,
         has_serde: true,
         serde_container_default: false,
+        serde_deserialization: Default::default(),
         serde_container_conversion: Default::default(),
         super_traits: vec![],
         doc: "Synthetic type for testing".to_string(),
