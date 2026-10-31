@@ -1,5 +1,7 @@
 #[path = "bridge_fn/borrowed_error_inputs.rs"]
 pub(super) mod borrowed_error_inputs;
+#[path = "bridge_fn/newtypes.rs"]
+mod newtypes;
 
 use crate::codegen::mut_writeback;
 use crate::core::ir::{FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
@@ -146,7 +148,9 @@ pub(crate) fn emit_bridge_fn(
             {
                 return format!("&mut {}", plan.core_var);
             }
-            if let TypeRef::Map(_, _) = &p.ty {
+            if let TypeRef::Map(_, _) = &p.ty
+                && p.newtype_wrapper.is_none()
+            {
                 if p.map_is_ahash && p.map_key_is_cow {
                     let bound_name = format!("__{}_ahash", p.name);
                     pre_call_bindings.push(format!(
@@ -216,13 +220,17 @@ pub(crate) fn emit_bridge_fn(
             },
         )
     } else {
-        let ret_transform = return_transform(
-            &f.return_type,
-            source_crate_name,
-            type_paths,
-            opaque_type_names,
-            f.returns_ref,
-        );
+        let ret_transform = if let Some(wrapper) = &f.return_newtype_wrapper {
+            RetTransform::Newtype(f.return_type.clone(), wrapper.clone())
+        } else {
+            return_transform(
+                &f.return_type,
+                source_crate_name,
+                type_paths,
+                opaque_type_names,
+                f.returns_ref,
+            )
+        };
 
         let result_cast = if matches!(ret_transform, RetTransform::None) {
             build_primitive_result_cast(&f.return_type, f.returns_ref)
@@ -297,6 +305,21 @@ fn dart_call_arg_with_mirror_transmute(
     opaque_type_names: &std::collections::HashSet<String>,
     checked: bool,
 ) -> String {
+    if p.newtype_wrapper.is_some() {
+        let mut primitive = p.clone();
+        primitive.newtype_wrapper = None;
+        primitive.is_ref = false;
+        primitive.is_mut = false;
+        let inner = dart_call_arg_with_mirror_transmute(
+            &primitive,
+            source_crate_name,
+            type_paths,
+            types_needing_from_conversion,
+            opaque_type_names,
+            checked,
+        );
+        return newtypes::argument(p, &inner);
+    }
     let name = &p.name;
     let original = p.original_type.as_deref().unwrap_or("");
     let stripped_orig = original
@@ -665,6 +688,8 @@ pub(crate) enum RetTransform {
     /// `Option<Named>` returns so the emitted Rust never wraps a closure literal
     /// around the call site.
     Suffix(String),
+    /// Unwrap core newtypes before converting their primitive/container representation.
+    Newtype(TypeRef, String),
 }
 
 /// Decide how to convert the core-fn return into the bridge return.
@@ -879,6 +904,10 @@ fn build_body(
         RetTransform::Map(callable) => (callable.clone(), call_callable(callable, &call)),
         RetTransform::Suffix(suffix) => (format!("|v| v{suffix}"), format!("{call}{suffix}")),
         RetTransform::None => (format!("|v| v{result_cast}"), format!("{call}{result_cast}")),
+        RetTransform::Newtype(ty, wrapper) => (
+            format!("|v| {}", newtypes::result("v", ty, wrapper)),
+            newtypes::result(&call, ty, wrapper),
+        ),
     };
     crate::backends::dart::template_env::render(
         "rust_bridge_result_body.jinja",
