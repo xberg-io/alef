@@ -1,0 +1,6 @@
+[net]
+offline = true
+
+[build]
+jobs = 1
+rustc-wrapper = ""

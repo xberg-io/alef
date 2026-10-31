@@ -68,7 +68,7 @@ impl Client {
     pub async fn scalar_records(
         &self,
     ) -> Result<impl futures_util::Stream<Item = Result<u64, StreamError>>, StreamError> {
-        Ok(futures_util::stream::iter([Ok(42)]))
+        Ok(futures_util::stream::iter([Ok(42), Ok(u64::MAX)]))
     }
     pub async fn optional_records(
         &self,

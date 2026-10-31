@@ -19,8 +19,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   json_serializable 6.15.2.
 - Pin the Elixir NIF brotli-decompressor to 6.2.0, which brotli 9.1 requires.
 - Install PIE 1.5.5 in generated PHP e2e setup scripts.
+- Pin Dart 3.13.7 for reproducible native codec verification with the consumer CI SDK.
+
+- Dart FRB bindings preserve Rust `u64` as `BigInt` and `Vec<u64>` as FRB `Uint64List`, including
+  DTOs, transparent newtypes, containers and callback carriers. This is a breaking API change
+  intended for the next major release; narrower integers and signed `i64` keep their existing types.
+  Reject out-of-range scalar and recursive DTO arguments before native entry. A value already
+  truncated by construction of a typed `Uint64List` cannot be recovered or rejected afterward.
 
 ### Fixed
+
+- Generate exact `BigInt.parse` literals for declared `u64` scalar and nested DTO callers in the next-major
+  Dart API, preserving narrower integers and numeric JSON passed through Rust constructors.
+  Add a native qualification gate for emitted scalar calls, recursive DTOs and JSON constructor payloads.
+
+- Dart FRB callback serialization failures use the existing callback error transport instead of escaping
+  asynchronously and leaving native callers waiting. Reject out-of-range callback `u64` returns through
+  the existing warned default-value policy, and reject unsupported callback serializer shapes during generation.
+
+- Dart Rust facades reconstruct newtype arguments and unwrap returned newtypes from extracted conversion metadata.
+  Preserve function container paths and borrowed inner values; reject mutable newtype references requiring writeback.
+  Keep nested optional layers and the source map collection and hasher when rebuilding arguments.
+  Borrow opaque handles according to the core function signature, preserve optional-reference order,
+  infer nested argument collections from the core type, and reject unsupported interior references.
+  Convert argument map keys into the inferred core key type, including nested owned `Cow<str>` keys.
+
+- Extract the unsigned Dart native fixture from its actual crate root so generated paths match the compiled core.
 
 - Keep the alef skill description within the 250-character context-exposure limit.
 

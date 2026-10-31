@@ -16,7 +16,8 @@ use super::external_library_loader::apply_loader_fix_from_stem;
 /// no-op for files without the loader config. `package_name` is the resolved
 /// `[dart] pubspec_name`, used to build the `package:` URIs that loader emits.
 pub fn rewrite_frb_sealed_variants(source: &str, package_name: &str) -> String {
-    let source = apply_loader_fix_from_stem(source, package_name);
+    let source = super::unsigned::check_unsigned_before_encoding(source);
+    let source = apply_loader_fix_from_stem(&source, package_name);
     let source = source.as_str();
     let variant_re = variant_regex();
 

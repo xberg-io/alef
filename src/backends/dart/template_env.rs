@@ -6,6 +6,22 @@ mod static_error_registry_tests;
 
 static TEMPLATES: &[(&str, &str)] = &[
     (
+        "dart_callback_serializer_guard.jinja",
+        include_str!("templates/dart_callback_serializer_guard.jinja"),
+    ),
+    (
+        "dart_u64_argument_check.jinja",
+        include_str!("templates/dart_u64_argument_check.jinja"),
+    ),
+    (
+        "dart_u64_argument_guard.jinja",
+        include_str!("templates/dart_u64_argument_guard.jinja"),
+    ),
+    (
+        "dart_u64_codec_guard.jinja",
+        include_str!("templates/dart_u64_codec_guard.jinja"),
+    ),
+    (
         "rust_error_display_metadata.jinja",
         include_str!("templates/rust_error_display_metadata.jinja"),
     ),

@@ -68,7 +68,7 @@ pub(super) fn build_args_and_setup(setup_lines: &mut Vec<String>, args: &mut Vec
         let arg_value = resolve_field(&ctx.fixture.input, &arg_def.field);
         match arg_def.arg_type.as_str() {
             "bytes" | "file_path" => render_bytes_or_file_path_arg(args, arg_def, arg_value, ctx),
-            "int" | "integer" | "i64" | "u32" => render_int_arg(args, arg_def, arg_value, ctx),
+            "int" | "integer" | "i64" | "u32" => render_int_arg(args, arg_def, arg_index, arg_value, ctx),
             "float" | "number" => render_float_arg(args, arg_def, arg_value, ctx),
             "bool" | "boolean" => render_bool_arg(args, arg_def, arg_value, ctx),
             "string" => render_string_arg(args, arg_def, arg_index, arg_value, ctx),
@@ -282,17 +282,23 @@ fn render_bytes_or_file_path_arg(
 fn render_int_arg(
     args: &mut Vec<String>,
     arg_def: &ArgMapping,
+    arg_index: usize,
     arg_value: &serde_json::Value,
     ctx: &DartArgContext<'_>,
 ) {
     // Scalar integer argument. Direct FRB calls use named parameters.
     let dart_param_name = underscore_camel_case(&arg_def.name);
+    let declared = ctx
+        .target_params
+        .param_for(&arg_def.name, arg_index)
+        .map(|param| &param.ty);
     match arg_value {
         serde_json::Value::Number(n) => {
+            let literal = super::super::values::render_numeric_value(n, declared);
             if ctx.is_frb_bridge_call {
-                args.push(format!("{dart_param_name}: {}", n));
+                args.push(format!("{dart_param_name}: {literal}"));
             } else {
-                args.push(n.to_string());
+                args.push(literal);
             }
         }
         serde_json::Value::Null if arg_def.optional => {
@@ -301,11 +307,11 @@ fn render_int_arg(
             }
         }
         _ => {
-            // Required int with no fixture value: emit 0 as default.
+            let literal = super::super::values::render_numeric_value(&serde_json::Number::from(0), declared);
             if ctx.is_frb_bridge_call {
-                args.push(format!("{dart_param_name}: 0"));
+                args.push(format!("{dart_param_name}: {literal}"));
             } else {
-                args.push("0".to_string());
+                args.push(literal);
             }
         }
     }

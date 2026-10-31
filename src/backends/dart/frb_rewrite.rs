@@ -29,6 +29,8 @@
 
 #[path = "frb_rewrite/bridge_coverage.rs"]
 mod bridge_coverage;
+#[path = "frb_rewrite/callback_errors.rs"]
+mod callback_errors;
 #[path = "frb_rewrite/cfg_gates.rs"]
 mod cfg_gates;
 #[path = "frb_rewrite/external_library_loader.rs"]
@@ -44,6 +46,10 @@ mod single_variant_copy_with;
 mod tests;
 #[path = "frb_rewrite/text_transformations.rs"]
 mod text_transformations;
+#[path = "frb_rewrite/unsigned.rs"]
+mod unsigned;
+
+pub(crate) use callback_errors::validate_callback_serialization;
 
 pub use bridge_coverage::{missing_bridge_functions, missing_bridge_struct_fields, undeclared_gate_features};
 pub use cfg_gates::{carry_lib_rs_cfg_gates_into_frb_generated, cfg_gated_free_functions, inject_frb_cfg_gates};

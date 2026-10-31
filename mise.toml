@@ -13,6 +13,8 @@ python = "3.13.18"
 uv = "0.13.6"
 node = "26.12.1"
 go = "1.27.3"
+# Repository-owned: the shared baseline omits Dart; native codec probes match the consumer CI SDK. ~keep
+dart = "3.13.7"
 java = "temurin-25.0.5+8.0.LTS"
 maven = "3.10.0"
 zig = "0.17.0"

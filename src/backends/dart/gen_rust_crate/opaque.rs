@@ -695,7 +695,7 @@ fn build_opaque_return_wrap(ty: &TypeRef, returns_ref: bool) -> String {
             _ => String::new(),
         },
         TypeRef::Primitive(prim) => match prim {
-            PrimitiveType::I64 | PrimitiveType::F64 | PrimitiveType::Bool => String::new(),
+            PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::F64 | PrimitiveType::Bool => String::new(),
             PrimitiveType::F32 => "|v| v as f64".to_string(),
             _ => "|v| v as i64".to_string(),
         },

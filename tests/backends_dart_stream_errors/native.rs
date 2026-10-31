@@ -2,6 +2,9 @@ use super::{CORE, bridge};
 use alef::snippets::validators::{CapturedStreams, run_command_streams};
 use std::path::Path;
 
+#[path = "../support/dart_sdk.rs"]
+mod dart_sdk;
+
 const BUILD_TIMEOUT_SECONDS: u64 = 600;
 const RUNTIME_TIMEOUT_SECONDS: u64 = 60;
 
@@ -36,6 +39,7 @@ fn write_fixture(root: &Path) {
             include_str!("../fixtures/dart_stream_errors/bridge_Cargo.toml"),
         ),
         ("mise.toml", include_str!("../fixtures/dart_stream_errors/mise.toml")),
+        ("mise.lock", include_str!("../fixtures/dart_stream_errors/mise.lock")),
         (
             "pubspec.yaml",
             include_str!("../fixtures/dart_stream_errors/pubspec.yaml"),
@@ -63,6 +67,8 @@ fn typed_stream_errors_survive_the_actual_frb_dart_runtime() {
     };
     let path = root.as_path();
     write_fixture(path);
+    let sdk = successful(path, "sdk", &[]);
+    dart_sdk::assert_pinned_sdk(&sdk, "stream");
     let source = bridge(path, true);
     let native = path.join("rust/target/debug").join(format!(
         "{}stream_sample_dart{}",
@@ -77,7 +83,7 @@ fn typed_stream_errors_survive_the_actual_frb_dart_runtime() {
     successful(path, "build", &[]);
     let output = successful(path, "test", &["--", native.to_str().unwrap()]);
     assert!(
-        output.stdout.contains("stream_cases=11"),
+        output.stdout.contains("stream_cases=12"),
         "{}\n{}",
         output.stdout,
         output.stderr
@@ -115,7 +121,7 @@ pub(super) fn assert_disabled_transport_compiles(root: &Path, source: &str) {
         .expect("generated records wire enum");
     std::fs::write(
         root.join("mise.toml"),
-        include_str!("../fixtures/dart_stream_errors/mise.toml"),
+        include_str!("../fixtures/dart_stream_errors/cfg_mise.toml"),
     )
     .unwrap();
     std::fs::write(root.join("cfg_probe.rs"), wire.to_token_stream().to_string()).unwrap();

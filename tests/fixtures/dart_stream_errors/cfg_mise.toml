@@ -1,0 +1,2 @@
+[tasks.compile-cfg]
+run = "rustc --crate-type=lib --edition=2024 cfg_probe.rs --out-dir ."

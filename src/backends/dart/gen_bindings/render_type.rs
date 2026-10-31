@@ -6,22 +6,21 @@ use std::collections::BTreeSet;
 use crate::backends::dart::ident::dart_safe_ident;
 use crate::backends::dart::type_map::DartMapper;
 
-/// Map `Vec<T>` to the matching `dart:typed_data` typed list when `T` is a
-/// primitive numeric. Mirrors alef's FRB-widening in `gen_rust_crate`: every
-/// Rust integer is widened to `i64` (→ `Int64List`), every float to `f64`
-/// (→ `Float64List`); `Vec<u8>` is preserved as `Uint8List`. Trait abstract
+/// Map numeric vectors to FRB's typed lists: full-width `u64` uses generalized
+/// `Uint64List`; other integers widen to `i64` (`Int64List`) and floats to `f64`
+/// (`Float64List`). `Vec<u8>` is preserved as `Uint8List`. Trait abstract
 /// method declarations must use these typed names to satisfy the
 /// FRB-generated `create_*_dart_impl` factory signatures.
 fn dart_typed_list_for(inner: &TypeRef) -> Option<&'static str> {
     if let TypeRef::Primitive(p) = inner {
         match p {
             PrimitiveType::U8 => Some("Uint8List"),
+            PrimitiveType::U64 => Some("Uint64List"),
             PrimitiveType::I8
             | PrimitiveType::U16
             | PrimitiveType::I16
             | PrimitiveType::U32
             | PrimitiveType::I32
-            | PrimitiveType::U64
             | PrimitiveType::I64
             | PrimitiveType::Usize
             | PrimitiveType::Isize => Some("Int64List"),
@@ -44,7 +43,12 @@ pub(super) fn render_type(ty: &TypeRef, imports: &mut BTreeSet<String>) -> Strin
         }
         TypeRef::Vec(inner) => {
             if let Some(typed) = dart_typed_list_for(inner) {
-                imports.insert("import 'dart:typed_data';".to_string());
+                let library = if typed == "Uint64List" {
+                    "package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart"
+                } else {
+                    "dart:typed_data"
+                };
+                imports.insert(format!("import '{library}';"));
                 typed.to_string()
             } else {
                 format!("List<{}>", render_type(inner, imports))
