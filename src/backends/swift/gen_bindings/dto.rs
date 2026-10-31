@@ -292,9 +292,11 @@ pub(super) fn emit_first_class_struct(
         }
     }
 
-    if ty.serde_deserialization.deny_unknown_fields {
-        coding_keys.push_str(&serde_policy::key_type());
-    }
+    let decoder_helper = if ty.serde_deserialization.deny_unknown_fields {
+        serde_policy::key_type()
+    } else {
+        String::new()
+    };
     let mut decoder_init = String::new();
     if super::decoder_gate::needs_decoder_init(ty) {
         emit_decoder_init(
@@ -380,6 +382,7 @@ pub(super) fn emit_first_class_struct(
             init_assignments => init_assignments,
             legacy_init => legacy_init,
             coding_keys => coding_keys,
+            decoder_helper => decoder_helper,
             decoder_init => decoder_init,
             ffi_init_assignments => ffi_init_assignments,
             into_rust_body => into_rust_body,
