@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.115.12] - 2026-11-01
+
 ### Fixed
+
+- Preserve legacy public error-generator signatures and Java message/cause constructors while
+  supporting shared error-family introspection. (#771)
+- Keep locked Mise settings isolated from intentionally lockless native test fixtures. (#769)
+- Render newly scaffolded Node loaders in canonical formatter form. (#770)
+- Discover draft releases within GitHub response and request limits, preserving source-bound
+  asset validation and atomic promotion. (#768)
+- Include the fixes from 0.115.11, whose publication did not complete.
 
 - Share one exception class among unrelated error families that declare a variant of the same name,
   and make it a member of every such family: Python lists each family as a base, Ruby gives every
@@ -19,8 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generation no longer fails on differing payloads and no binding fails to build on differing
   introspection methods. A value the raising family lacks is the type's default in PHP and `null`
   in Java and C#, which fill it only for that family's native codes. A field or method two
-  families type differently, or a marker interface name another generated type takes, is
-  rejected. No class names change.
+  families type differently is rejected. Family markers receive collision-free names without
+  reserving existing user symbols. No class names change.
 
 ## [0.115.11] - 2026-10-31
 
