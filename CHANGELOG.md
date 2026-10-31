@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pin the Elixir NIF brotli-decompressor to 6.2.0, which brotli 9.1 requires.
 - Install PIE 1.5.5 in generated PHP e2e setup scripts.
 
+### Fixed
+
+- Keep the alef skill description within the 250-character context-exposure limit.
+
 ## [0.115.10] - 2026-10-31
 
 ### Changed

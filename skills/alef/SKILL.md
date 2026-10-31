@@ -1,6 +1,6 @@
 ---
 name: alef
-description: "Alef Rust-to-polyglot binding generation: alef.toml, bindings, READMEs, API/CLI/MCP docs and e2e suites, safe command order, generated-output rules. Use when configuring Alef, running mise run alef:* or e2e:*, bumping versions, or debugging stale output."
+description: "Alef Rust-to-polyglot bindings: alef.toml, READMEs, API/CLI/MCP docs, e2e suites, safe command order, generated-output rules. Use when configuring Alef, running mise run alef:* or e2e:*, bumping versions, or debugging stale output."
 license: MIT
 metadata:
   author: xberg-io
