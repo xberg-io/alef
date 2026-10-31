@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -39,7 +40,7 @@ class ResourceAndCleanup(unittest.TestCase):
                 check=False,
             )
             assert result.returncode == 1
-            assert json.loads((evidence / "census-refusal.json").read_text()) == {"expected": 53, "discovered": 0}
+            assert json.loads((evidence / "census-refusal.json").read_text()) == {"expected": 55, "discovered": 0}
             assert b"control census changed or examined zero cases" in result.stderr
 
     def test_actual_read_only_sink_failure_is_recorded_and_owned_child_killed(self):
@@ -71,6 +72,33 @@ class ResourceAndCleanup(unittest.TestCase):
                     child.kill()
                 child.wait(timeout=2)
                 child.stdout.close()
+
+    def test_partial_stage_output_reaches_the_log_while_the_child_still_runs(self):
+        with tempfile.TemporaryDirectory() as name:
+            path = Path(name) / "stage.log"
+            child = subprocess.Popen(
+                [sys.executable, "-c", "import os,time; os.write(1,b'Compiling xberg'); time.sleep(30)"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+            )
+            errors = []
+            try:
+                with path.open("wb") as sink:
+                    reader = threading.Thread(
+                        target=runtime.capture_stream, args=(child.stdout, sink, child, errors), daemon=True
+                    )
+                    reader.start()
+                    deadline = time.monotonic() + 5
+                    while path.read_bytes() != b"Compiling xberg" and time.monotonic() < deadline:
+                        time.sleep(0.05)
+                    assert path.read_bytes() == b"Compiling xberg"
+                    assert child.poll() is None
+            finally:
+                child.kill()
+                child.wait(timeout=2)
+                reader.join(timeout=2)
+                child.stdout.close()
+            assert errors == []
 
     def test_real_cache_paths_are_counted_and_empty_inventory_rejected(self):
         with tempfile.TemporaryDirectory() as name:

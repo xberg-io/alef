@@ -19,7 +19,8 @@ if not 0 < LIMIT <= 64 * 1024 * 1024:
 def relay(source, destination, log, child, failures):
     size = 0
     try:
-        while block := source.read(65536):
+        # read() waits for a full block, so a killed stage lost up to 64 KiB of its last output. ~keep
+        while block := source.read1(65536):
             size += len(block)
             if size > LIMIT:
                 raise ValueError("Cargo stream exceeded bounded evidence allowance")

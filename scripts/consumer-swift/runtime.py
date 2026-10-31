@@ -38,7 +38,8 @@ def free_receipt(paths):
 def capture_stream(source, destination, child, errors):
     total = 0
     try:
-        while block := source.read(65536):
+        # read() waits for a full block, so a killed stage lost up to 64 KiB of its last output. ~keep
+        while block := source.read1(65536):
             total += len(block)
             if total > LOG_LIMIT:
                 errors.append("bounded stage log exceeded")

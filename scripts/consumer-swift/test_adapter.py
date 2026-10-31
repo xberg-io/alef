@@ -1,10 +1,14 @@
 import json
 import os
+import select
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+
+import cargo_adapter
 
 
 class ActualAdapter(unittest.TestCase):
@@ -83,6 +87,34 @@ class ActualAdapter(unittest.TestCase):
         assert result.returncode == 0
         assert result.stdout == b"o" * 262144
         assert result.stderr == b"e" * 262144
+
+    def test_partial_cargo_output_is_relayed_while_cargo_still_runs(self):
+        read_end, write_end = os.pipe()
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import os,time; os.write(1,b'Running rustc'); time.sleep(30)"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        failures = []
+        with tempfile.TemporaryDirectory() as name, (Path(name) / "log").open("wb") as log:
+            destination = os.fdopen(write_end, "wb")
+            relay = threading.Thread(
+                target=cargo_adapter.relay, args=(child.stdout, destination, log, child, failures), daemon=True
+            )
+            relay.start()
+            try:
+                ready, _, _ = select.select([read_end], [], [], 5)
+                assert ready == [read_end]
+                assert os.read(read_end, 64) == b"Running rustc"
+                assert child.poll() is None
+            finally:
+                child.kill()
+                child.wait(timeout=2)
+                relay.join(timeout=2)
+                child.stdout.close()
+                destination.close()
+                os.close(read_end)
+        assert failures == []
 
 
 if __name__ == "__main__":
