@@ -25,6 +25,7 @@ def recording_cargo(root):
         "    'argv': sys.argv[1:],\n"
         "    'platform': sys.platform,\n"
         "    'target': os.environ.get('CARGO_TARGET_DIR'),\n"
+        "    'msys_env_excl': os.environ.get('MSYS2_ENV_CONV_EXCL'),\n"
         "    'sentinel': os.environ.get('CARGO_TEST_SENTINEL'),\n"
         "}))\n"
         "sys.exit(int(os.environ['CARGO_TEST_EXIT']))\n"
@@ -42,6 +43,11 @@ def prepare_fixture(root, wrapper_source, trace_target=False):
         + json.dumps(config["tools"]["python"])
         + '\n[tasks."test:run"]\nrun='
         + json.dumps(command)
+        + '\n[tasks."test:run".env]\n'
+        + "\n".join(
+            f"{json.dumps(key)} = {json.dumps(value)}"
+            for key, value in config["tasks"]["test:run"].get("env", {}).items()
+        )
         + "\n"
     )
     wrapper = REPO / "scripts/run_test_cargo.py"
@@ -69,7 +75,7 @@ def prepare_fixture(root, wrapper_source, trace_target=False):
             destination.write_text(wrapper_source)
 
 
-def invoke_task(arguments=(), target="outer target", exit_code=0, wrapper_source=None):
+def invoke_task(arguments=(), target="outer target", exit_code=0, wrapper_source=None, msys_exclusions=None):
     parent_environment = dict(os.environ)
     with tempfile.TemporaryDirectory(prefix="alef-test-runner-") as directory:
         root = Path(directory).resolve()
@@ -88,6 +94,9 @@ def invoke_task(arguments=(), target="outer target", exit_code=0, wrapper_source
         }
         environment.pop("MISE_ENV", None)
         environment.pop("CARGO_TARGET_DIR", None)
+        environment.pop("MSYS2_ENV_CONV_EXCL", None)
+        if msys_exclusions is not None:
+            environment["MSYS2_ENV_CONV_EXCL"] = msys_exclusions
         if target is not None:
             environment["CARGO_TARGET_DIR"] = target
         result = subprocess.run(
@@ -153,15 +162,25 @@ class CargoTestRunner(unittest.TestCase):
         assert captured["argv"] == canonical_arguments()
 
     def test_target_values_are_forwarded_as_one_unmodified_argument(self):
+        exclusions = [
+            (None, "CARGO_TARGET_DIR="),
+            ("", "CARGO_TARGET_DIR="),
+            ("KEEP;OTHER=", "KEEP;OTHER=;CARGO_TARGET_DIR="),
+            ("*", "*"),
+        ]
         for target in ["relative/target", "/absolute target/with spaces", "unicode-λ", ""]:
-            with self.subTest(target=target):
-                result, captured = invoke_task(target=target)
-                assert result.returncode == 0, result.stderr
-                assert captured["target"] is None
-                expected = canonical_arguments("--target-dir", target)
-                assert captured["argv"] == expected, json.dumps(
-                    {"expected_argv": expected, "received": captured}, ensure_ascii=True, sort_keys=True
-                )
+            for previous, excluded in exclusions:
+                with self.subTest(target=target, msys_exclusions=previous):
+                    result, captured = invoke_task(target=target, msys_exclusions=previous)
+                    assert result.returncode == 0, result.stderr
+                    assert captured["target"] is None
+                    assert captured["msys_env_excl"] == excluded
+                    expected = canonical_arguments("--target-dir", target)
+                    assert captured["argv"] == expected, json.dumps(
+                        {"expected_argv": expected, "received": captured}, ensure_ascii=True, sort_keys=True
+                    )
+                    if "diagnostic" in captured:
+                        assert captured["diagnostic"]["wrapper"]["entry"]["target"] == target
 
     def test_both_explicit_target_forms_override_the_outer_target(self):
         for arguments in [["--target-dir", "explicit target"], ["--target-dir=explicit target"]]:
