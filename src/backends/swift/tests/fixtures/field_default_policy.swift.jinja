@@ -53,13 +53,17 @@ checks.rejects("optional wrong type remains invalid") {
 checks.accepts("optional explicit value wins") {
     try decode(OptionalOptions.self, #"{"model":"caller","limit":7}"#).limit == 7
 }
-checks.accepts("existing type-default decoder policy stays unchanged") {
-    let value = try decode(LegacyOptions.self, #"{"retries":null,"limit":null}"#)
-    return value.retries == 3 && value.limit == 5
+checks.rejects("existing type-default scalar null rejected") {
+    _ = try decode(LegacyOptions.self, #"{"retries":null}"#)
 }
-checks.accepts("existing visible-skip decoder policy stays unchanged") {
-    let value = try decode(SkippedOptions.self, #"{"values":[],"retries":null,"limit":null}"#)
-    return value.retries == 3 && value.limit == 5
+checks.accepts("existing type-default optional null remains None") {
+    try decode(LegacyOptions.self, #"{"limit":null}"#).limit == nil
+}
+checks.rejects("existing visible-skip scalar null rejected") {
+    _ = try decode(SkippedOptions.self, #"{"values":[],"retries":null}"#)
+}
+checks.accepts("existing visible-skip optional null remains None") {
+    try decode(SkippedOptions.self, #"{"values":[],"limit":null}"#).limit == nil
 }
 let failures = checks.rows.filter { !($0["passed"] as! Bool) }.count
 let results: [String: Any] = [
