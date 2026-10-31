@@ -79,7 +79,10 @@ mod tests {
         std::fs::write(directory.path().join("sentinel.zig"), source).unwrap();
         std::fs::write(
             directory.path().join("mise.toml"),
-            "[tasks.test]\nrun = 'zig test sentinel.zig -lc --cache-dir cache --global-cache-dir global-cache'\n",
+            crate::test_support::mise_task::fixture_config_with_tools(
+                "[tasks.test]\nrun = 'zig test sentinel.zig -lc --cache-dir cache --global-cache-dir global-cache'\n",
+                &["zig"],
+            ),
         )
         .unwrap();
         let output = crate::test_support::mise_task::mise_run(directory.path(), "test")

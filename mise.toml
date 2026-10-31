@@ -134,7 +134,7 @@ description = "Clean build artifacts"
 run = ["cargo clean", "rm -rf .alef/"]
 
 [tasks."consumer-swift:controls"]
-description = "Run all 51 hosted consumer harness controls with resource and process cleanup guards"
+description = "Run all 57 hosted consumer harness controls with resource and process cleanup guards"
 env = { PYTHONDONTWRITEBYTECODE = "1" }
 run = "python3 scripts/consumer-swift/entry.py --controls"
 

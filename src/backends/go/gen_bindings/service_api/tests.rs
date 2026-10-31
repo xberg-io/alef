@@ -540,28 +540,232 @@ func use(config Config) error {{
     );
 }
 
-/// Keeps required mode wired to a job that actually has `go` on `PATH`.
-///
-/// The env var alone is not enough, and assuming it was is exactly how this went wrong: the
-/// previous version of this test asserted only `ALEF_REQUIRE_GO`, on the stated grounds that
-/// "GitHub-hosted runner images preinstall a Go LTS toolchain, so unlike
-/// `ALEF_REQUIRE_JAVAC`/`ALEF_REQUIRE_DOTNET`/`ALEF_REQUIRE_KOTLINC` this needs no dedicated
-/// `uses:` setup step". That is false for the arm64 macOS images, which carry no Go at all, so
-/// setting the variable there only converted a silent skip into a permanent, ignored red on
-/// `Test (macos-latest)` from 2026-08-31 onward. Requiring the explicit setup step means the
-/// claim is now enforced rather than assumed. ~keep
+fn go_ci_step_runs(step: &serde_json::Value) -> bool {
+    (step["continue-on-error"].is_null() || step["continue-on-error"] == false)
+        && (step["if"].is_null() || step["if"] == true || matches!(step["if"].as_str(), Some("true" | "${{ true }}")))
+}
+
+fn go_ci_census_command_matches(command: &str, expected: &[&str]) -> bool {
+    let mut words = command.split_whitespace();
+    if words.next() != Some("scripts/toolchain-census.sh") {
+        return false;
+    }
+    let arguments: Vec<_> = words.collect();
+    if arguments.len() != expected.len() * 2 {
+        return false;
+    }
+    let mut tools = Vec::new();
+    for pair in arguments.as_chunks::<2>().0 {
+        if pair[0] != "--require" || tools.contains(&pair[1]) {
+            return false;
+        }
+        tools.push(pair[1]);
+    }
+    expected.iter().all(|tool| tools.contains(tool))
+}
+
+fn go_ci_census_script_runs(script: &str) -> bool {
+    let lines: Vec<_> = script.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
+    lines.len() == 5
+        && lines[0] == "if [ \"$RUNNER_OS\" = \"macOS\" ]; then"
+        && lines[2] == "else"
+        && lines[4] == "fi"
+        && go_ci_census_command_matches(lines[1], &["go", "ruby", "swift", "wasm-bindgen"])
+        && go_ci_census_command_matches(lines[3], &["go", "ruby", "wasm-bindgen"])
+}
+
+fn go_ci_census_runs(steps: &[serde_json::Value]) -> bool {
+    steps.iter().any(|step| {
+        let enabled = go_ci_step_runs(step) || step["if"] == "${{ !cancelled() }}";
+        enabled
+            && step["name"] == "Toolchain fixture census"
+            && step["shell"] == "bash"
+            && (step["continue-on-error"].is_null() || step["continue-on-error"] == false)
+            && step["run"].as_str().is_some_and(go_ci_census_script_runs)
+    })
+}
+
+fn go_ci_requirement_is_enforced(workflow: &serde_json::Value) -> bool {
+    let job = &workflow["jobs"]["test"];
+    let Some(steps) = job["steps"].as_array() else {
+        return false;
+    };
+    let Some(run) = steps.iter().position(|step| step["name"] == "Run tests") else {
+        return false;
+    };
+    let required = &steps[run];
+    go_ci_step_runs(job)
+        && go_ci_census_runs(&steps[run + 1..])
+        && go_ci_step_runs(required)
+        && required["env"]["ALEF_REQUIRE_GO"] == "1"
+        && required["run"].as_str().is_some_and(|run| {
+            run.trim().lines().count() == 1
+                && run
+                    .split_whitespace()
+                    .eq(["mise", "run", "test:run", "--", "--no-fail-fast"])
+        })
+        && steps[..run].iter().any(|step| {
+            let tools = step["with"]["tools"]
+                .as_str()
+                .filter(|tools| !tools.trim().is_empty())
+                .or_else(|| step["with"]["install-args"].as_str())
+                .unwrap_or("");
+            go_ci_step_runs(step)
+                && step["uses"]
+                    .as_str()
+                    .is_some_and(|action| action.starts_with("xberg-io/actions/setup-mise@"))
+                && step["with"]["install"] != false
+                && step["with"]["install"] != "false"
+                && tools
+                    .split_whitespace()
+                    .any(|tool| tool.split(['=', '@']).next() == Some("go"))
+        })
+}
+
 #[test]
 fn ci_requires_go_for_runtime_regressions() {
-    let workflow = crate::test_support::ci_workflow::CI_WORKFLOW;
+    let workflow = serde_saphyr::from_str(crate::test_support::ci_workflow::CI_WORKFLOW).expect("CI workflow YAML");
+    assert!(
+        go_ci_requirement_is_enforced(&workflow),
+        "Test must install Go before its required-mode suite"
+    );
+}
 
-    assert!(
-        workflow.contains("ALEF_REQUIRE_GO: \"1\""),
-        "the test job must make a missing Go toolchain a hard failure"
-    );
-    assert!(
-        crate::test_support::ci_workflow::job_installs_with_mise(workflow, "test", "go"),
-        "`ALEF_REQUIRE_GO` needs an explicit Go install on every leg of the matrix: the arm64 \
-         macOS runner image does not preinstall one, so without this step the variable only \
-         turns a skip into a permanently red leg"
-    );
+fn go_ci_mutant(workflow: &serde_json::Value, setup: usize, mode: &str) -> serde_json::Value {
+    let mut mutant = workflow.clone();
+    let steps = mutant["jobs"]["test"]["steps"].as_array_mut().unwrap();
+    match mode {
+        "remove" => {
+            steps.remove(setup);
+        }
+        "other-job" => {
+            let moved = steps.remove(setup);
+            mutant["jobs"]["unrelated"]["steps"] = serde_json::json!([moved]);
+        }
+        "after-tests" => {
+            let moved = steps.remove(setup);
+            steps.push(moved);
+        }
+        "disabled" => steps[setup]["if"] = serde_json::json!(false),
+        "no-install" => steps[setup]["with"]["install"] = serde_json::json!(false),
+        _ => {
+            let run = steps.iter_mut().find(|step| step["name"] == "Run tests").unwrap();
+            run["env"]["ALEF_REQUIRE_GO"] = serde_json::json!("0");
+        }
+    }
+    mutant
+}
+
+#[test]
+fn go_ci_guard_rejects_missing_displaced_and_disabled_provisioning() {
+    let workflow: serde_json::Value =
+        serde_saphyr::from_str(include_str!("../../../../../.github/workflows/ci.yml")).unwrap();
+    let steps = workflow["jobs"]["test"]["steps"].as_array().unwrap();
+    let setup = steps.iter().position(|step| step["with"]["tools"] == "go").unwrap();
+    for mode in [
+        "remove",
+        "other-job",
+        "after-tests",
+        "disabled",
+        "no-install",
+        "no-required-mode",
+    ] {
+        let mutant = go_ci_mutant(&workflow, setup, mode);
+        assert!(!go_ci_requirement_is_enforced(&mutant), "accepted {mode}");
+    }
+    let mut equivalent = workflow;
+    equivalent["jobs"]["test"]["steps"][setup]["with"]["tools"] = serde_json::json!("node go uv");
+    assert!(go_ci_requirement_is_enforced(&equivalent));
+}
+
+#[test]
+fn go_ci_guard_rejects_narrowed_suites() {
+    let workflow: serde_json::Value =
+        serde_saphyr::from_str(include_str!("../../../../../.github/workflows/ci.yml")).unwrap();
+    for command in [
+        "mise run test:run -- --lib no_such_test",
+        "mise\nrun test:run -- --no-fail-fast",
+        "mise run test:run -- --help",
+        "mise run test:run -- --no-fail-fast --lib no_such_test",
+        "echo mise run test:run -- --no-fail-fast",
+        "mise run test:run -- --no-fail-fast; true",
+    ] {
+        let mut mutant = workflow.clone();
+        let run = mutant["jobs"]["test"]["steps"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|step| step["name"] == "Run tests")
+            .unwrap();
+        run["run"] = serde_json::json!(command);
+        assert_ne!(mutant, workflow);
+        assert!(
+            !go_ci_requirement_is_enforced(&mutant),
+            "accepted narrowed suite: {command}"
+        );
+    }
+}
+
+#[test]
+fn go_ci_guard_rejects_unreachable_census_text() {
+    let workflow: serde_json::Value =
+        serde_saphyr::from_str(include_str!("../../../../../.github/workflows/ci.yml")).unwrap();
+    let census = workflow["jobs"]["test"]["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|step| step["name"] == "Toolchain fixture census")
+        .unwrap()["run"]
+        .as_str()
+        .unwrap();
+    for script in [
+        format!("cat <<'CENSUS'\n{census}\nCENSUS"),
+        format!("if false; then\n{census}\nfi"),
+        census.replace("if [ \"$RUNNER_OS\" = \"macOS\" ]; then", "if false; then"),
+        census.replacen("--require go", "", 1),
+        census.replace("--require go", ""),
+    ] {
+        let mut mutant = workflow.clone();
+        let step = mutant["jobs"]["test"]["steps"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|step| step["name"] == "Toolchain fixture census")
+            .unwrap();
+        step["run"] = serde_json::json!(script);
+        assert_ne!(mutant, workflow);
+        assert!(
+            !go_ci_requirement_is_enforced(&mutant),
+            "accepted unreachable or incomplete census: {script}"
+        );
+    }
+}
+
+#[test]
+fn go_ci_guard_rejects_ignored_failures_and_conditional_execution() {
+    let workflow: serde_json::Value =
+        serde_saphyr::from_str(include_str!("../../../../../.github/workflows/ci.yml")).unwrap();
+    for name in ["job", "Run tests", "Set up Go", "Toolchain fixture census"] {
+        for (field, value) in [
+            ("continue-on-error", serde_json::json!(true)),
+            ("if", serde_json::json!(false)),
+            ("if", serde_json::json!("${{ runner.os == 'Linux' }}")),
+        ] {
+            let mut mutant = workflow.clone();
+            let job = &mut mutant["jobs"]["test"];
+            let target = if name == "job" {
+                job
+            } else {
+                job["steps"]
+                    .as_array_mut()
+                    .unwrap()
+                    .iter_mut()
+                    .find(|step| step["name"] == name)
+                    .unwrap()
+            };
+            target[field] = value;
+            assert_ne!(mutant, workflow);
+            assert!(!go_ci_requirement_is_enforced(&mutant), "accepted {name}: {field}");
+        }
+    }
 }

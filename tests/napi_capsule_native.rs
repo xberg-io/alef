@@ -144,26 +144,322 @@ fn native_capsule_ci_gate_collects_the_runtime_test_and_installs_node() {
         String::from_utf8_lossy(&collected.stdout).replace("\r\n", "\n"),
         "generated_tagged_capsule_builds_and_loads_in_node: test\n\n1 test, 0 benchmarks\n"
     );
-    let workflow: serde_json::Value =
-        serde_saphyr::from_str(include_str!("../.github/workflows/ci.yml")).expect("CI workflow YAML");
-    let steps = workflow["jobs"]["test"]["steps"].as_array().expect("test job steps");
-    let gate: Vec<_> = steps
+    let workflow = serde_saphyr::from_str(include_str!("../.github/workflows/ci.yml")).expect("CI workflow YAML");
+    assert!(
+        node_ci_requirement_is_enforced(&workflow),
+        "required tools and the collected native gate must run on every OS"
+    );
+}
+
+fn node_ci_step_runs(step: &serde_json::Value) -> bool {
+    (step["continue-on-error"].is_null() || step["continue-on-error"] == false)
+        && (step["if"].is_null() || step["if"] == true || matches!(step["if"].as_str(), Some("true" | "${{ true }}")))
+}
+
+fn node_ci_selected_tools<'a>(step: &'a serde_json::Value, os: &str) -> Option<&'a str> {
+    let value = step["with"]["tools"]
+        .as_str()
+        .filter(|tools| !tools.trim().is_empty())
+        .or_else(|| step["with"]["install-args"].as_str())?
+        .trim();
+    if !value.contains("${{") {
+        return Some(value);
+    }
+    let expression = value.strip_prefix("${{")?.strip_suffix("}}")?.trim();
+    let (condition, alternatives) = expression.split_once("&&")?;
+    if condition.split_whitespace().collect::<Vec<_>>() != ["runner.os", "==", "'Windows'"] {
+        return None;
+    }
+    let (windows, other) = alternatives.split_once("||")?;
+    let selected = if os == "Windows" { windows } else { other };
+    let literal = selected.trim().strip_prefix('\'')?.strip_suffix('\'')?;
+    (!literal.contains(['\'', '"', '&', '|', '$', '{', '}'])).then_some(literal)
+}
+
+fn node_ci_tools_cover_platforms(steps: &[serde_json::Value]) -> bool {
+    ["Windows", "Linux", "macOS"].into_iter().all(|os| {
+        let required = ["python", "uv", "node", "go", "github:wasm-bindgen/wasm-bindgen"];
+        required
+            .into_iter()
+            .chain((os != "Windows").then_some("bats"))
+            .all(|required| {
+                steps.iter().any(|step| {
+                    node_ci_step_runs(step)
+                        && step["uses"]
+                            .as_str()
+                            .is_some_and(|action| action.starts_with("xberg-io/actions/setup-mise@"))
+                        && step["with"]["install"] != false
+                        && step["with"]["install"] != "false"
+                        && node_ci_selected_tools(step, os).is_some_and(|tools| {
+                            tools
+                                .split_whitespace()
+                                .any(|tool| tool.split(['=', '@']).next() == Some(required))
+                        })
+                })
+            })
+    })
+}
+
+fn node_ci_gate_command_matches(step: &serde_json::Value) -> bool {
+    let expected = [
+        "mise",
+        "run",
+        "test:run",
+        "--",
+        "--test",
+        "napi_capsule_native",
+        "--",
+        "--ignored",
+        "--exact",
+        "generated_tagged_capsule_builds_and_loads_in_node",
+        "--nocapture",
+    ];
+    step["run"]
+        .as_str()
+        .is_some_and(|command| command.trim().lines().count() == 1 && command.split_whitespace().eq(expected))
+}
+
+fn node_ci_platforms_are_executed(job: &serde_json::Value) -> bool {
+    let Some(matrix) = job["strategy"]["matrix"].as_object() else {
+        return false;
+    };
+    let Some(operating_systems) = job["strategy"]["matrix"]["os"].as_array() else {
+        return false;
+    };
+    let expected = ["ubuntu-latest", "macos-26", "windows-latest"];
+    matrix.len() == 1
+        && operating_systems.len() == expected.len()
+        && expected
+            .into_iter()
+            .all(|os| operating_systems.iter().filter(|value| **value == os).count() == 1)
+        && job["runs-on"] == "${{ matrix.os }}"
+}
+
+fn node_ci_requirement_is_enforced(workflow: &serde_json::Value) -> bool {
+    let job = &workflow["jobs"]["test"];
+    let Some(steps) = job["steps"].as_array() else {
+        return false;
+    };
+    let Some(run) = steps.iter().position(|step| step["name"] == "Run tests") else {
+        return false;
+    };
+    let gates: Vec<_> = steps
         .iter()
-        .filter(|step| step["name"].as_str() == Some("Verify generated Node capsules load natively"))
+        .enumerate()
+        .filter(|(_, step)| step["name"] == "Verify generated Node capsules load natively")
         .collect();
-    assert_eq!(gate.len(), 1, "exactly one native capsule gate");
-    assert_eq!(
-        gate[0]["run"].as_str(),
-        Some(
-            "mise run test:run -- --test napi_capsule_native -- --ignored --exact generated_tagged_capsule_builds_and_loads_in_node --nocapture"
-        )
-    );
+    node_ci_platforms_are_executed(job)
+        && node_ci_step_runs(job)
+        && node_ci_step_runs(&steps[run])
+        && steps[run]["run"].as_str().is_some_and(|run| {
+            run.trim().lines().count() == 1
+                && run
+                    .split_whitespace()
+                    .eq(["mise", "run", "test:run", "--", "--no-fail-fast"])
+        })
+        && node_ci_tools_cover_platforms(&steps[..run])
+        && gates.len() == 1
+        && gates[0].0 > run
+        && node_ci_step_runs(gates[0].1)
+        && node_ci_gate_command_matches(gates[0].1)
+}
+
+fn node_ci_workflow() -> serde_json::Value {
+    serde_saphyr::from_str(include_str!("../.github/workflows/ci.yml")).expect("CI workflow YAML")
+}
+
+#[test]
+fn node_ci_guard_rejects_a_missing_tool_on_either_platform_branch() {
+    for tool in ["python", "uv", "node", "go", "github:wasm-bindgen/wasm-bindgen", "bats"] {
+        let mut mutant = node_ci_workflow();
+        let steps = mutant["jobs"]["test"]["steps"].as_array_mut().unwrap();
+        let step = steps
+            .iter_mut()
+            .find(|step| {
+                node_ci_selected_tools(step, "Windows")
+                    .into_iter()
+                    .chain(node_ci_selected_tools(step, "Linux"))
+                    .any(|tools| tools.split_whitespace().any(|value| value == tool))
+            })
+            .expect("the actual setup provisions this tool");
+        let key = if step["with"]["tools"].is_string() {
+            "tools"
+        } else {
+            "install-args"
+        };
+        let old = step["with"][key].as_str().unwrap();
+        let removed = old.replacen(tool, "", 1);
+        assert_ne!(removed, old);
+        step["with"][key] = serde_json::json!(removed);
+        assert!(!node_ci_requirement_is_enforced(&mutant), "accepted missing {tool}");
+    }
+    let mut equivalent = node_ci_workflow();
+    let steps = equivalent["jobs"]["test"]["steps"].as_array_mut().unwrap();
     let setup = steps
-        .iter()
-        .find(|step| step["uses"].as_str() == Some("xberg-io/actions/setup-mise@v1"))
-        .expect("mise tool setup");
-    assert_eq!(
-        setup["with"]["install-args"].as_str(),
-        Some("${{ runner.os == 'Windows' && 'python uv node' || 'python uv bats node' }}")
-    );
+        .iter_mut()
+        .find(|step| step["with"]["install-args"].is_string())
+        .unwrap();
+    setup["with"]["install-args"] =
+        serde_json::json!("${{ runner.os == 'Windows' && 'node python uv' || 'node bats python uv' }}");
+    assert!(node_ci_requirement_is_enforced(&equivalent));
+}
+
+#[test]
+fn node_ci_guard_rejects_displaced_and_disabled_setup_and_runtime_steps() {
+    for mode in [
+        "setup-other-job",
+        "setup-after-tests",
+        "setup-disabled",
+        "setup-no-install",
+        "gate-other-job",
+        "gate-disabled",
+        "gate-narrowed",
+    ] {
+        let mut mutant = node_ci_workflow();
+        let steps = mutant["jobs"]["test"]["steps"].as_array_mut().unwrap();
+        let index = if mode.starts_with("setup-") {
+            steps
+                .iter()
+                .position(|step| step["with"]["install-args"].is_string())
+                .unwrap()
+        } else {
+            steps
+                .iter()
+                .position(|step| step["name"] == "Verify generated Node capsules load natively")
+                .unwrap()
+        };
+        if mode.ends_with("other-job") {
+            let moved = steps.remove(index);
+            mutant["jobs"]["unrelated"]["steps"] = serde_json::json!([moved]);
+        } else if mode == "setup-after-tests" {
+            let moved = steps.remove(index);
+            steps.push(moved);
+        } else if mode == "setup-no-install" {
+            steps[index]["with"]["install"] = serde_json::json!(false);
+        } else if mode == "gate-narrowed" {
+            let command = steps[index]["run"].as_str().unwrap().replace("--ignored", "");
+            steps[index]["run"] = serde_json::json!(command);
+        } else {
+            steps[index]["if"] = serde_json::json!(false);
+        }
+        assert!(!node_ci_requirement_is_enforced(&mutant), "accepted {mode}");
+    }
+}
+
+#[test]
+fn node_ci_guard_rejects_compound_selector_branches() {
+    let workflow = node_ci_workflow();
+    for expression in [
+        "${{ runner.os == 'Windows' && 'python uv node unused' && 'not-a-tool' || 'python uv bats node' }}",
+        "${{ runner.os == 'Windows' && 'python uv node' && 'uv' || 'python uv bats node' }}",
+        "${{ runner.os == 'Windows' && 'python uv node' || 'python uv bats node' && 'uv' }}",
+        "${{ runner.os == 'Windows' && 'python uv node' || 'python uv bats node' || 'uv' }}",
+    ] {
+        let mut mutant = workflow.clone();
+        let setup = mutant["jobs"]["test"]["steps"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|step| step["with"]["install-args"].is_string())
+            .unwrap();
+        setup["with"]["install-args"] = serde_json::json!(expression);
+        assert_ne!(mutant, workflow);
+        assert!(
+            !node_ci_requirement_is_enforced(&mutant),
+            "accepted compound selector: {expression}"
+        );
+    }
+}
+
+#[test]
+fn node_ci_guard_rejects_narrowed_full_suite() {
+    let workflow = node_ci_workflow();
+    let mut mutant = workflow.clone();
+    let run = mutant["jobs"]["test"]["steps"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|step| step["name"] == "Run tests")
+        .unwrap();
+    run["run"] = serde_json::json!("mise run test:run -- --lib no_such_test");
+    assert_ne!(mutant, workflow);
+    assert!(!node_ci_requirement_is_enforced(&mutant));
+}
+
+#[test]
+fn node_ci_guard_rejects_ignored_failures_and_conditional_execution() {
+    let workflow: serde_json::Value = serde_saphyr::from_str(include_str!("../.github/workflows/ci.yml")).unwrap();
+    for name in [
+        "job",
+        "Run tests",
+        "Verify generated Node capsules load natively",
+        "Install Python, uv and Bats",
+        "Set up Go",
+        "Install the wasm-bindgen CLI",
+    ] {
+        for (field, value) in [
+            ("continue-on-error", serde_json::json!(true)),
+            ("if", serde_json::json!(false)),
+            ("if", serde_json::json!("${{ runner.os == 'Linux' }}")),
+        ] {
+            let mut mutant = workflow.clone();
+            let job = &mut mutant["jobs"]["test"];
+            let target = if name == "job" {
+                job
+            } else {
+                job["steps"]
+                    .as_array_mut()
+                    .unwrap()
+                    .iter_mut()
+                    .find(|step| step["name"] == name)
+                    .unwrap()
+            };
+            target[field] = value;
+            assert_ne!(mutant, workflow);
+            assert!(!node_ci_requirement_is_enforced(&mutant), "accepted {name}: {field}");
+        }
+    }
+}
+
+#[test]
+fn node_ci_guard_rejects_retired_or_rebound_platform_coverage() {
+    let workflow = node_ci_workflow();
+    for mode in [
+        "static-runner",
+        "dynamic-runner",
+        "exclude",
+        "include",
+        "duplicate",
+        "unsupported-runner",
+        "missing-os",
+        "extra-axis",
+    ] {
+        let mut mutant = workflow.clone();
+        let job = &mut mutant["jobs"]["test"];
+        match mode {
+            "static-runner" => job["runs-on"] = serde_json::json!("ubuntu-latest"),
+            "dynamic-runner" => job["runs-on"] = serde_json::json!("${{ false && matrix.os || 'ubuntu-latest' }}"),
+            "exclude" => job["strategy"]["matrix"]["exclude"] = serde_json::json!([{"os": "windows-latest"}]),
+            "include" => job["strategy"]["matrix"]["include"] = serde_json::json!([{"os": "ubuntu-latest"}]),
+            "extra-axis" => job["strategy"]["matrix"]["other"] = serde_json::json!(["extra"]),
+            _ => {
+                let systems = job["strategy"]["matrix"]["os"].as_array_mut().unwrap();
+                let windows = systems.iter().position(|os| *os == "windows-latest").unwrap();
+                if mode == "missing-os" {
+                    systems.remove(windows);
+                } else {
+                    systems[windows] = serde_json::json!(if mode == "duplicate" {
+                        "ubuntu-latest"
+                    } else {
+                        "windows-imaginary"
+                    });
+                }
+            }
+        }
+        assert_ne!(mutant, workflow);
+        assert!(
+            !node_ci_requirement_is_enforced(&mutant),
+            "accepted coverage change: {mode}"
+        );
+    }
 }

@@ -125,11 +125,17 @@ fn nonstream_error_paths_should_still_assert_the_call_error() {
 }
 
 fn run_task(directory: &std::path::Path, command: &str) {
-    std::fs::write(
-        directory.join("mise.toml"),
-        format!("[tasks.probe]\nrun = {}\n", toml::Value::String(command.into())),
-    )
-    .unwrap();
+    run_task_with_tools(directory, command, &[]);
+}
+
+fn run_task_with_tools(directory: &std::path::Path, command: &str, tools: &[&str]) {
+    let config = format!("[tasks.probe]\nrun = {}\n", toml::Value::String(command.into()));
+    let config = if tools.is_empty() {
+        config
+    } else {
+        mise_task::fixture_config_with_tools(&config, tools)
+    };
+    std::fs::write(directory.join("mise.toml"), config).unwrap();
     let output = mise_task::mise_run(directory, "probe")
         .env("RUSTC_WRAPPER", "")
         .env("CARGO_INCREMENTAL", "0")
@@ -212,7 +218,7 @@ fn go_generated_test_should_accept_only_actual_expected_stream_failures() {
     )
     .unwrap();
     let filename = format!("probe{}", std::env::consts::EXE_SUFFIX);
-    run_task(directory.path(), &format!("go test -c -o {filename}"));
+    run_task_with_tools(directory.path(), &format!("go test -c -o {filename}"), &["go"]);
     let executable = directory.path().join(filename);
     assert_controls(|| std::process::Command::new(&executable));
 }

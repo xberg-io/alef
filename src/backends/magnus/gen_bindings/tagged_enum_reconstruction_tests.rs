@@ -151,14 +151,24 @@ fn runtime_source(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
 
 fn write_fixture(root: &Path, api: &ApiSurface, config: &ResolvedCrateConfig) {
     std::fs::create_dir(root.join("src")).unwrap();
-    std::fs::write(root.join("src/main.rs"), runtime_source(api, config)).unwrap();
+    std::fs::write(root.join("src/lib.rs"), runtime_source(api, config)).unwrap();
     let manifest = format!(
         "[package]\nname='ruby-enum-reconstruction'\nversion='0.0.0'\nedition='2024'\n\
-         [dependencies]\nmagnus={{version='{}',features=['embed']}}\n\
+         [lib]\ncrate-type=['cdylib']\n[dependencies]\nmagnus='{}'\n\
          serde={{version='1',features=['derive']}}\nserde_json='1'\n[profile.dev]\ndebug=0\n[workspace]\n",
         crate::core::template_versions::cargo::MAGNUS,
     );
     std::fs::write(root.join("Cargo.toml"), manifest).unwrap();
+    std::fs::write(
+        root.join("build.rs"),
+        r#"fn main() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        println!("cargo:rustc-link-arg-cdylib=-Wl,-undefined,dynamic_lookup");
+    }
+}
+"#,
+    )
+    .unwrap();
     std::fs::write(root.join("mise.toml"), "[tasks.build]\nrun = \"cargo build --quiet\"\n").unwrap();
     let public = MagnusBackend.generate_public_api(api, config).unwrap();
     let native = public
@@ -183,6 +193,21 @@ fn ruby_library_dir(ruby: &Path) -> std::path::PathBuf {
     directory.into()
 }
 
+fn ruby_extension_suffix(ruby: &Path) -> String {
+    let output = Command::new(ruby)
+        .args(["-rrbconfig", "-e", "print RbConfig::CONFIG.fetch('DLEXT')"])
+        .output()
+        .expect("read the selected Ruby's extension suffix");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let suffix = String::from_utf8(output.stdout).expect("Ruby extension suffix must be UTF-8");
+    assert_ne!(suffix, "");
+    assert!(
+        suffix.chars().all(|character| character.is_ascii_alphanumeric()),
+        "unsafe Ruby extension suffix"
+    );
+    suffix
+}
+
 fn set_ruby_library_path(command: &mut Command, directory: &Path, inherited: Option<&std::ffi::OsStr>) {
     let paths = std::iter::once(directory.to_path_buf()).chain(inherited.into_iter().flat_map(std::env::split_paths));
     command.env(
@@ -193,7 +218,9 @@ fn set_ruby_library_path(command: &mut Command, directory: &Path, inherited: Opt
 
 #[test]
 fn generated_tagged_enums_reconstruct_typed_ruby_variants_and_keep_json_fallbacks() {
-    let Some(ruby) = toolchain::RUBY.open() else { return };
+    let Some(ruby) = toolchain::RUBY.open() else {
+        return;
+    };
     let (api, config) = fixture();
     assert_eq!(api.enums.len(), 6);
     let root = tempfile::tempdir().unwrap();
@@ -215,18 +242,39 @@ fn generated_tagged_enums_reconstruct_typed_ruby_variants_and_keep_json_fallback
     configure_build_target(&mut build, rust_target);
     let output = build.output().expect("compile generated Magnus conversions");
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let library = artifact_directory(&target, rust_target).join(format!(
+        "{}ruby_enum_reconstruction{}",
+        std::env::consts::DLL_PREFIX,
+        std::env::consts::DLL_SUFFIX,
+    ));
+    assert!(library.is_file(), "native Ruby fixture library must exist");
+    assert!(
+        std::fs::metadata(&library).unwrap().len() > 0,
+        "native Ruby fixture library must be nonempty"
+    );
+    let extension = root
+        .path()
+        .join(format!("ruby_enum_reconstruction.{}", ruby_extension_suffix(&ruby)));
+    std::fs::copy(&library, &extension).expect("copy the built fixture to its Ruby load suffix");
+    let mut scenario_count = 0;
+    let mut case_count = 0;
     for (scenario, expected) in [
         ("missing-classes", 5),
         ("reconstruction", 5),
         ("missing-variants", 5),
         ("fallback", 10),
     ] {
-        let mut command = Command::new(
-            artifact_directory(&target, rust_target)
-                .join("ruby-enum-reconstruction")
-                .with_extension(std::env::consts::EXE_EXTENSION),
-        );
-        command.args([scenario]).arg(root.path().join("variants.rb"));
+        let mut command = Command::new(&ruby);
+        command
+            .arg("-r")
+            .arg(&extension)
+            .args([
+                "-e",
+                "ruby_enum_reconstruction_run(ARGV.fetch(0), ARGV.fetch(1))",
+                "--",
+                scenario,
+            ])
+            .arg(root.path().join("variants.rb"));
         if cfg!(target_os = "linux") {
             set_ruby_library_path(
                 &mut command,
@@ -236,7 +284,7 @@ fn generated_tagged_enums_reconstruct_typed_ruby_variants_and_keep_json_fallback
         }
         let output = command
             .output()
-            .expect("run generated Magnus conversions in embedded Ruby");
+            .expect("run generated Magnus conversions in a fresh hosting Ruby");
         assert!(
             output.status.success(),
             "{scenario}: {}",
@@ -246,7 +294,14 @@ fn generated_tagged_enums_reconstruct_typed_ruby_variants_and_keep_json_fallback
             String::from_utf8_lossy(&output.stdout).trim(),
             format!("{expected} runtime cases passed")
         );
+        scenario_count += 1;
+        case_count += expected;
     }
+    assert_eq!(
+        scenario_count, 4,
+        "every scenario must use a fresh hosting Ruby process"
+    );
+    assert_eq!(case_count, 25, "every original generated-boundary case must execute");
 }
 
 #[test]
@@ -277,4 +332,50 @@ fn should_set_the_ruby_library_when_no_loader_path_is_inherited() {
         .and_then(|(_, value)| value)
         .expect("the child must receive its Ruby library path");
     assert_eq!(std::env::split_paths(value).collect::<Vec<_>>(), [library]);
+}
+
+#[test]
+fn hosted_fixture_uses_a_plain_magnus_cdylib_with_only_the_bridge_initializer() {
+    let (api, config) = fixture();
+    let root = tempfile::tempdir().unwrap();
+    write_fixture(root.path(), &api, &config);
+    let manifest: toml::Value =
+        toml::from_str(&std::fs::read_to_string(root.path().join("Cargo.toml")).unwrap()).unwrap();
+    assert_eq!(
+        manifest["lib"]["crate-type"].as_array().unwrap(),
+        &[toml::Value::String("cdylib".into())]
+    );
+    assert_eq!(
+        manifest["dependencies"]["magnus"].as_str(),
+        Some(crate::core::template_versions::cargo::MAGNUS)
+    );
+    let source = std::fs::read_to_string(root.path().join("src/lib.rs")).unwrap();
+    let parsed = syn::parse_file(&source).expect("the emitted hosted fixture must be valid Rust");
+    assert_eq!(
+        parsed
+            .items
+            .iter()
+            .filter(|item| matches!(item, syn::Item::Enum(_)))
+            .count(),
+        6
+    );
+    assert!(!source.contains("magnus::embed"));
+    let initializer = parsed
+        .items
+        .iter()
+        .find_map(|item| match item {
+            syn::Item::Fn(function) if function.sig.ident == "init" => Some(function),
+            _ => None,
+        })
+        .expect("exported Ruby initializer");
+    let body = initializer.block.to_token_stream().to_string();
+    assert!(body.contains("define_global_function"));
+    assert!(!body.contains("define_module"));
+    assert!(!body.contains("define_class"));
+    assert!(initializer.attrs.iter().any(|attribute| {
+        attribute
+            .to_token_stream()
+            .to_string()
+            .contains("ruby_enum_reconstruction")
+    }));
 }

@@ -2,7 +2,7 @@
 //!
 //! Shared by the crate's unit tests (`src/test_support.rs` includes this file by path) and by any
 //! integration test that declares `#[path = "support/mise_task.rs"] mod mise_task;`, so it depends
-//! on `std` and `which` only.
+//! on `std`, `which` and `toml` only.
 //!
 //! A fixture directory is untrusted to mise and sits below other mise configs: the alef checkout
 //! when it is a committed fixture, and whatever encloses the system temp directory otherwise
@@ -30,6 +30,27 @@ pub(crate) fn mise_run(directory: &Path, task: &str) -> Command {
     command
 }
 
+/// Add only the fixture's required tools, using their exact committed repository declarations.
+pub(crate) fn fixture_config_with_tools(tasks: &str, tools: &[&str]) -> String {
+    let canonical: toml::Value = toml::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/mise.toml")))
+        .expect("committed Mise configuration");
+    let selected: toml::Table = tools
+        .iter()
+        .map(|tool| {
+            let pin = canonical["tools"]
+                .get(*tool)
+                .unwrap_or_else(|| panic!("fixture tool {tool} must have a committed pin"));
+            ((*tool).to_owned(), pin.clone())
+        })
+        .collect();
+    let header = toml::to_string(&toml::Table::from_iter([(
+        "tools".into(),
+        toml::Value::Table(selected),
+    )]))
+    .expect("fixture tool declarations");
+    format!("{header}\n{tasks}")
+}
+
 /// Trust exactly `directory`'s config and stop the config search above it.
 fn isolate(command: &mut Command, directory: &Path) {
     let mut trusted = vec![directory.to_path_buf()];
@@ -48,6 +69,7 @@ fn isolate(command: &mut Command, directory: &Path) {
         .env("MISE_CEILING_PATHS", join(&ceilings))
         // Tests read a step's output verbatim, so mise must not prefix it with the task name. ~keep
         .env("MISE_TASK_OUTPUT", "interleave")
+        .env("MISE_TASK_RUN_AUTO_INSTALL", "false")
         // ~keep a developer's global config or profile must not add tools, env or settings to a fixture.
         .env("MISE_GLOBAL_CONFIG_FILE", directory.join(".no-global-mise.toml"))
         .env_remove("MISE_ENV");

@@ -48,19 +48,20 @@ where
     check::<T>(ruby, wire, "Hash");
 }
 
-fn main() {
-    // SAFETY: This executable initializes Ruby once on its main thread and retains the guard.
-    let ruby = unsafe { magnus::embed::init() };
+fn run(ruby: &Ruby, scenario: String, variants_path: String) -> Result<(), magnus::Error> {
     ruby.eval::<magnus::Value>("require 'json'; require 'sorbet-runtime'")
         .unwrap();
-    let scenario = std::env::args().nth(1).unwrap();
+    assert!(matches!(
+        scenario.as_str(),
+        "missing-classes" | "reconstruction" | "missing-variants" | "fallback"
+    ));
     let reconstruct = scenario == "reconstruction";
     if scenario != "missing-classes" {
         let module = ruby.define_module("Fixture").unwrap();
         module.define_class("Payload", ruby.class_object()).unwrap();
     }
     if reconstruct || scenario == "fallback" {
-        let source = std::fs::read_to_string(std::env::args().nth(2).unwrap()).unwrap();
+        let source = std::fs::read_to_string(variants_path).unwrap();
         ruby.eval::<magnus::Value>(&source).unwrap();
     }
     if scenario == "fallback" {
@@ -70,7 +71,7 @@ fn main() {
         fallbacks::<BoxedAdjacent>(&ruby, true);
         fallbacks::<RecordOnly>(&ruby, false);
         println!("10 runtime cases passed");
-        return;
+        return Ok(());
     }
     record::<PlainInternal>(
         &ruby,
@@ -119,4 +120,11 @@ fn main() {
         reconstruct,
     );
     println!("5 runtime cases passed");
+    Ok(())
+}
+
+#[magnus::init(name = "ruby_enum_reconstruction")]
+fn init(ruby: &Ruby) -> Result<(), magnus::Error> {
+    ruby.define_global_function("ruby_enum_reconstruction_run", magnus::function!(run, 2))?;
+    Ok(())
 }

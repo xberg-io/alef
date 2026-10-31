@@ -458,28 +458,260 @@ fn generated_bindings_do_not_destroy_handles_the_caller_still_owns() {
     );
 }
 
-/// Keeps required mode wired to a job that actually has the CLI on `PATH`.
-///
-/// `ALEF_REQUIRE_WASM_BINDGEN` alone only turns a silent skip into a permanently red leg when no
-/// step installs the binary, and the census `--require wasm-bindgen` is what proves this fixture
-/// executed rather than skipped. All three halves have to be present together. ~keep
+fn wasm_ci_step_runs(step: &serde_json::Value) -> bool {
+    (step["continue-on-error"].is_null() || step["continue-on-error"] == false)
+        && (step["if"].is_null() || step["if"] == true || matches!(step["if"].as_str(), Some("true" | "${{ true }}")))
+}
+
+fn wasm_ci_is_provisioned(steps: &[serde_json::Value]) -> bool {
+    steps.iter().any(|step| {
+        let tools = step["with"]["tools"]
+            .as_str()
+            .filter(|tools| !tools.trim().is_empty())
+            .or_else(|| step["with"]["install-args"].as_str())
+            .unwrap_or("");
+        wasm_ci_step_runs(step)
+            && step["uses"]
+                .as_str()
+                .is_some_and(|action| action.starts_with("xberg-io/actions/setup-mise@"))
+            && step["with"]["install"] != false
+            && step["with"]["install"] != "false"
+            && tools
+                .split_whitespace()
+                .any(|tool| tool.split(['=', '@']).next() == Some("github:wasm-bindgen/wasm-bindgen"))
+    })
+}
+
+fn wasm_ci_census_command_matches(command: &str, expected: &[&str]) -> bool {
+    let mut words = command.split_whitespace();
+    if words.next() != Some("scripts/toolchain-census.sh") {
+        return false;
+    }
+    let arguments: Vec<_> = words.collect();
+    if arguments.len() != expected.len() * 2 {
+        return false;
+    }
+    let mut tools = Vec::new();
+    for pair in arguments.as_chunks::<2>().0 {
+        if pair[0] != "--require" || tools.contains(&pair[1]) {
+            return false;
+        }
+        tools.push(pair[1]);
+    }
+    expected.iter().all(|tool| tools.contains(tool))
+}
+
+fn wasm_ci_census_script_runs(script: &str) -> bool {
+    let lines: Vec<_> = script.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
+    lines.len() == 5
+        && lines[0] == "if [ \"$RUNNER_OS\" = \"macOS\" ]; then"
+        && lines[2] == "else"
+        && lines[4] == "fi"
+        && wasm_ci_census_command_matches(lines[1], &["go", "ruby", "swift", "wasm-bindgen"])
+        && wasm_ci_census_command_matches(lines[3], &["go", "ruby", "wasm-bindgen"])
+}
+
+fn wasm_ci_census_runs(steps: &[serde_json::Value]) -> bool {
+    steps.iter().any(|step| {
+        let enabled = wasm_ci_step_runs(step) || step["if"] == "${{ !cancelled() }}";
+        enabled
+            && step["name"] == "Toolchain fixture census"
+            && step["shell"] == "bash"
+            && (step["continue-on-error"].is_null() || step["continue-on-error"] == false)
+            && step["run"].as_str().is_some_and(wasm_ci_census_script_runs)
+    })
+}
+
+fn wasm_ci_requirement_is_enforced(workflow: &serde_json::Value) -> bool {
+    let job = &workflow["jobs"]["test"];
+    let Some(steps) = job["steps"].as_array() else {
+        return false;
+    };
+    let Some(run) = steps.iter().position(|step| step["name"] == "Run tests") else {
+        return false;
+    };
+    wasm_ci_step_runs(job)
+        && wasm_ci_is_provisioned(&steps[..run])
+        && wasm_ci_census_runs(&steps[run + 1..])
+        && wasm_ci_step_runs(&steps[run])
+        && steps[run]["env"]["ALEF_REQUIRE_WASM_BINDGEN"] == "1"
+        && steps[run]["run"].as_str().is_some_and(|run| {
+            run.trim().lines().count() == 1
+                && run
+                    .split_whitespace()
+                    .eq(["mise", "run", "test:run", "--", "--no-fail-fast"])
+        })
+}
+
 #[test]
 fn ci_requires_the_wasm_bindgen_cli_for_the_js_glue_oracle() {
-    let workflow = crate::test_support::ci_workflow::CI_WORKFLOW;
+    let workflow = serde_saphyr::from_str(include_str!("../../../.github/workflows/ci.yml")).expect("CI workflow YAML");
+    assert!(
+        wasm_ci_requirement_is_enforced(&workflow),
+        "Test must provision and count the required wasm oracle"
+    );
+}
 
-    assert!(
-        workflow.contains("ALEF_REQUIRE_WASM_BINDGEN: \"1\""),
-        "the test job must make a missing wasm-bindgen CLI a hard failure"
-    );
-    let cli = "github:wasm-bindgen/wasm-bindgen";
-    assert!(
-        crate::test_support::ci_workflow::job_installs_with_mise(workflow, "test", cli),
-        "`ALEF_REQUIRE_WASM_BINDGEN` needs an explicit CLI install on every leg of the matrix"
-    );
-    assert!(
-        workflow.contains("--require wasm-bindgen"),
-        "the toolchain census must require wasm-bindgen so a skipped fixture fails the leg"
-    );
+fn wasm_ci_mutant(workflow: &serde_json::Value, setup: usize, mode: &str) -> serde_json::Value {
+    let mut mutant = workflow.clone();
+    let steps = mutant["jobs"]["test"]["steps"].as_array_mut().unwrap();
+    match mode {
+        "remove" => {
+            steps.remove(setup);
+        }
+        "other-job" => {
+            let moved = steps.remove(setup);
+            mutant["jobs"]["unrelated"]["steps"] = serde_json::json!([moved]);
+        }
+        "after-tests" => {
+            let moved = steps.remove(setup);
+            steps.push(moved);
+        }
+        "disabled" => steps[setup]["if"] = serde_json::json!(false),
+        "no-install" => steps[setup]["with"]["install"] = serde_json::json!(false),
+        "no-required-mode" => {
+            let run = steps.iter_mut().find(|step| step["name"] == "Run tests").unwrap();
+            run["env"]["ALEF_REQUIRE_WASM_BINDGEN"] = serde_json::json!("0");
+        }
+        _ => {
+            let census = steps
+                .iter_mut()
+                .find(|step| step["name"] == "Toolchain fixture census")
+                .unwrap();
+            if mode == "census" {
+                census["if"] = serde_json::json!(false);
+            } else {
+                let run = census["run"]
+                    .as_str()
+                    .unwrap()
+                    .replacen("--require wasm-bindgen", "", 1);
+                census["run"] = serde_json::json!(run);
+            }
+        }
+    }
+    mutant
+}
+
+#[test]
+fn wasm_ci_guard_rejects_displaced_disabled_and_uncounted_oracles() {
+    let workflow: serde_json::Value =
+        serde_saphyr::from_str(include_str!("../../../.github/workflows/ci.yml")).unwrap();
+    let setup = workflow["jobs"]["test"]["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|step| step["with"]["tools"] == "github:wasm-bindgen/wasm-bindgen")
+        .unwrap();
+    for mode in [
+        "remove",
+        "other-job",
+        "after-tests",
+        "disabled",
+        "no-install",
+        "census",
+        "census-branch",
+        "no-required-mode",
+    ] {
+        let mutant = wasm_ci_mutant(&workflow, setup, mode);
+        assert!(!wasm_ci_requirement_is_enforced(&mutant), "accepted {mode}");
+    }
+}
+
+#[test]
+fn wasm_ci_guard_rejects_narrowed_suites() {
+    let workflow: serde_json::Value =
+        serde_saphyr::from_str(include_str!("../../../.github/workflows/ci.yml")).unwrap();
+    for command in [
+        "mise run test:run -- --lib no_such_test",
+        "mise\nrun test:run -- --no-fail-fast",
+        "mise run test:run -- --help",
+        "mise run test:run -- --no-fail-fast --lib no_such_test",
+        "echo mise run test:run -- --no-fail-fast",
+        "mise run test:run -- --no-fail-fast; true",
+    ] {
+        let mut mutant = workflow.clone();
+        let run = mutant["jobs"]["test"]["steps"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|step| step["name"] == "Run tests")
+            .unwrap();
+        run["run"] = serde_json::json!(command);
+        assert_ne!(mutant, workflow);
+        assert!(
+            !wasm_ci_requirement_is_enforced(&mutant),
+            "accepted narrowed suite: {command}"
+        );
+    }
+}
+
+#[test]
+fn wasm_ci_guard_rejects_unreachable_census_text() {
+    let workflow: serde_json::Value =
+        serde_saphyr::from_str(include_str!("../../../.github/workflows/ci.yml")).unwrap();
+    let census = workflow["jobs"]["test"]["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|step| step["name"] == "Toolchain fixture census")
+        .unwrap()["run"]
+        .as_str()
+        .unwrap();
+    for script in [
+        format!("cat <<'CENSUS'\n{census}\nCENSUS"),
+        format!("if false; then\n{census}\nfi"),
+        census.replace("if [ \"$RUNNER_OS\" = \"macOS\" ]; then", "if false; then"),
+        census.replacen("--require go", "", 1),
+        census.replace("--require go", ""),
+    ] {
+        let mut mutant = workflow.clone();
+        let step = mutant["jobs"]["test"]["steps"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|step| step["name"] == "Toolchain fixture census")
+            .unwrap();
+        step["run"] = serde_json::json!(script);
+        assert_ne!(mutant, workflow);
+        assert!(
+            !wasm_ci_requirement_is_enforced(&mutant),
+            "accepted unreachable or incomplete census: {script}"
+        );
+    }
+}
+
+#[test]
+fn wasm_ci_guard_rejects_ignored_failures_and_conditional_execution() {
+    let workflow: serde_json::Value =
+        serde_saphyr::from_str(include_str!("../../../.github/workflows/ci.yml")).unwrap();
+    for name in [
+        "job",
+        "Run tests",
+        "Install the wasm-bindgen CLI",
+        "Toolchain fixture census",
+    ] {
+        for (field, value) in [
+            ("continue-on-error", serde_json::json!(true)),
+            ("if", serde_json::json!(false)),
+            ("if", serde_json::json!("${{ runner.os == 'Linux' }}")),
+        ] {
+            let mut mutant = workflow.clone();
+            let job = &mut mutant["jobs"]["test"];
+            let target = if name == "job" {
+                job
+            } else {
+                job["steps"]
+                    .as_array_mut()
+                    .unwrap()
+                    .iter_mut()
+                    .find(|step| step["name"] == name)
+                    .unwrap()
+            };
+            target[field] = value;
+            assert_ne!(mutant, workflow);
+            assert!(!wasm_ci_requirement_is_enforced(&mutant), "accepted {name}: {field}");
+        }
+    }
 }
 
 #[cfg(test)]
