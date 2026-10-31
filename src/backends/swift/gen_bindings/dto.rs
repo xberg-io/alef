@@ -3,6 +3,7 @@ mod decoder;
 pub(super) mod ffi_initializer;
 mod field_defaults;
 mod serde_policy;
+#[cfg(test)]
 pub(crate) use decoder::emit_decoder_init;
 
 use crate::backends::swift::gen_rust_crate::default_construction::EnumKinds;

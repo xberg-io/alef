@@ -8,6 +8,7 @@ use std::collections::HashSet;
 
 /// Decodes absent keys through proven field defaults while preserving required siblings.
 /// Absent defaults and explicit null values are distinct, including for existing owner decoders.
+#[cfg(test)]
 pub(crate) fn emit_decoder_init(
     mapper: &SwiftMapper,
     visible_fields: &[&FieldDef],
