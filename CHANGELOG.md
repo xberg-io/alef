@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.115.11] - 2026-10-31
+
 ### Added
 
 - `ALEF_RUN_COMMAND_TIMEOUT_SECS` overrides the 3600 s ceiling on post-build commands such as the
@@ -19,10 +21,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   json_serializable 6.15.2.
 - Pin the Elixir NIF brotli-decompressor to 6.2.0, which brotli 9.1 requires.
 - Install PIE 1.5.5 in generated PHP e2e setup scripts.
+- Generate JVM projects with Checkstyle 14.4.0 and the Gradle versions plugin 0.67.0.
 
 ### Fixed
 
 - Keep the alef skill description within the 250-character context-exposure limit.
+
+- Publish source-bound CLI archives to a draft, verify every requested crate before promotion,
+  and preserve historical Latest selection and public releases during retries. (#761)
+- Share immutable snippet metadata within each render session while preserving custom resolvers
+  and identical template output. (#753)
+- Detect ARM64 musl from its shared libraries when generating the Node loader seed. (#760)
+- Keep isolated native fixtures on their managed toolchains and configure their native library paths. (#762)
+- Preserve outer Cargo target paths across Git Bash while retaining existing environment-conversion exclusions. (#756)
+- Match hosted Swift deployment targets to the package floor, including equivalent version spellings. (#765)
+- Preserve explicit commit SHA source checkouts in release metadata. (#763)
 
 ## [0.115.10] - 2026-10-31
 
