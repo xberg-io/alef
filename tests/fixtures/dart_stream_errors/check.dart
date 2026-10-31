@@ -49,7 +49,7 @@ Future<void> main(List<String> args) async {
     throw StateError('early stream cancellation lost the first item');
   }
   checked++;
-  final scalar = await client.scalarRecords().single.timeout(deadline);
+  final scalar = await client.scalarRecords().first.timeout(deadline);
   if (scalar != BigInt.from(42)) throw StateError('u64 changed its Dart type: $scalar');
   checked++;
   final optional = await client.optionalRecords().toList().timeout(deadline);
@@ -66,6 +66,13 @@ Future<void> main(List<String> args) async {
   final units = await client.unitRecords().toList().timeout(deadline);
   if (units.length != 1) throw StateError('unit stream changed');
   checked++;
-  if (checked != 11) throw StateError('expected eleven stream cases: $checked');
+  final unsignedBoundaries = await client.scalarRecords().toList().timeout(deadline);
+  final maximum = (BigInt.one << 64) - BigInt.one;
+  if (unsignedBoundaries.length != 2 || unsignedBoundaries.first != BigInt.from(42) ||
+    unsignedBoundaries.last is! BigInt || unsignedBoundaries.last != maximum) {
+    throw StateError('u64 MAX lost full range in stream: $unsignedBoundaries');
+  }
+  checked++;
+  if (checked != 12) throw StateError('expected twelve stream cases: $checked');
   print('stream_cases=$checked');
 }

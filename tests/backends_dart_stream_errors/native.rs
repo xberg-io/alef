@@ -77,7 +77,7 @@ fn typed_stream_errors_survive_the_actual_frb_dart_runtime() {
     successful(path, "build", &[]);
     let output = successful(path, "test", &["--", native.to_str().unwrap()]);
     assert!(
-        output.stdout.contains("stream_cases=11"),
+        output.stdout.contains("stream_cases=12"),
         "{}\n{}",
         output.stdout,
         output.stderr

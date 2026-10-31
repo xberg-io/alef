@@ -53,3 +53,46 @@ pub fn echo_signed(value: i64) -> i64 {
 pub fn echo_u32(value: u32) -> u32 {
     value
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WideNested {
+    pub record: WideRecord,
+    pub optional: Option<WideRecord>,
+    pub records: Vec<WideRecord>,
+    pub named: HashMap<String, WideRecord>,
+}
+
+#[derive(Clone)]
+pub struct Probe {
+    calls: std::sync::Arc<std::sync::atomic::AtomicU32>,
+}
+
+pub fn create_probe() -> Probe {
+    Probe {
+        calls: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
+    }
+}
+
+pub fn probe_reset(probe: &Probe) {
+    probe.calls.store(0, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn probe_calls(probe: &Probe) -> u32 {
+    probe.calls.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+pub fn checked_newtype(probe: &Probe, value: Wide) -> Wide {
+    probe.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    value
+}
+
+pub fn checked_record(probe: &Probe, value: WideRecord) -> WideRecord {
+    probe.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    value
+}
+
+pub fn checked_nested(probe: &Probe, value: WideNested) -> WideNested {
+    probe.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    value
+}

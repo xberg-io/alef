@@ -173,3 +173,32 @@ fn dart_unsigned_callback_carriers_preserve_u64() {
         "unsigned callback narrowed: {source}"
     );
 }
+
+#[test]
+fn dart_unsigned_nested_record_fields_survive_real_extraction() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = emitted(directory.path(), "rust/src/lib.rs");
+    let parsed = syn::parse_file(&source).unwrap();
+    let nested = parsed
+        .items
+        .iter()
+        .find_map(|item| match item {
+            syn::Item::Struct(item) if item.ident == "WideNested" => Some(item),
+            _ => None,
+        })
+        .unwrap();
+    let actual = nested
+        .fields
+        .iter()
+        .map(|field| field.ty.to_token_stream().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actual,
+        vec![
+            "WideRecord",
+            "Option < WideRecord >",
+            "Vec < WideRecord >",
+            "std :: collections :: HashMap < String , WideRecord >",
+        ]
+    );
+}

@@ -66,7 +66,7 @@ fn dart_u64_boundaries_survive_the_actual_native_codec_in_both_directions() {
     ));
     let native = native.to_str().unwrap();
     let output = successful(&root, "test", &["--", native]);
-    assert!(output.stdout.contains("u64_cases=54"), "{}", output.stdout);
+    assert!(output.stdout.contains("u64_cases=121"), "{}", output.stdout);
     let negative = task(&root, "test", &["--", native, "wrong-oracle"]);
     assert!(!negative.success, "a poisoned unsigned boundary oracle must fail");
     assert!(
