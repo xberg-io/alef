@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, HashSet};
 
 use crate::backends::swift::SwiftBackend;
 use crate::core::backend::Backend;
@@ -94,20 +94,35 @@ fn assert_serialized_keys(declaration: &str) {
         .split("enum CodingKeys:")
         .nth(1)
         .expect("real generated wire keys");
-    let keys: BTreeSet<_> = keys
+    let cases: Vec<_> = keys
         .split("\n    }")
         .next()
         .unwrap()
         .lines()
         .map(str::trim)
-        .filter(|line| line.starts_with("case "))
+        .filter_map(|line| line.strip_prefix("case "))
+        .collect();
+    assert_eq!(cases.len(), 3, "exactly three actual CodingKey declarations");
+    let keys: BTreeMap<_, _> = cases
+        .into_iter()
+        .map(|case| match case.split_once('=') {
+            Some((name, value)) => (
+                name.trim(),
+                value
+                    .trim()
+                    .strip_prefix('"')
+                    .and_then(|value| value.strip_suffix('"'))
+                    .expect("explicit string CodingKey wire value"),
+            ),
+            None => (case, case),
+        })
         .collect();
     assert_eq!(
         keys,
-        BTreeSet::from([
-            "case enabled",
-            "case enabledProcessors = \"enabled_processors\"",
-            "case disabledProcessors = \"disabled_processors\""
+        BTreeMap::from([
+            ("enabled", "enabled"),
+            ("enabledProcessors", "enabled_processors"),
+            ("disabledProcessors", "disabled_processors")
         ])
     );
 }
