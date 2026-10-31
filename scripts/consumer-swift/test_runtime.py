@@ -39,7 +39,7 @@ class ResourceAndCleanup(unittest.TestCase):
                 check=False,
             )
             assert result.returncode == 1
-            assert json.loads((evidence / "census-refusal.json").read_text()) == {"expected": 51, "discovered": 0}
+            assert json.loads((evidence / "census-refusal.json").read_text()) == {"expected": 53, "discovered": 0}
             assert b"control census changed or examined zero cases" in result.stderr
 
     def test_actual_read_only_sink_failure_is_recorded_and_owned_child_killed(self):
@@ -98,6 +98,36 @@ class ResourceAndCleanup(unittest.TestCase):
                     )
                 spawn.assert_not_called()
             assert (root / "refused/refusal.json").is_file()
+
+    def test_stage_budget_beyond_remaining_session_cap_is_refused_by_name(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            free = FLOOR + 64 * 1024**3
+            session = {
+                "SWIFT_GATE_GUARDED": "1",
+                "SWIFT_GATE_SESSION_CAP": str(16 * 1024**3),
+                "SWIFT_GATE_SESSION_BASELINE": json.dumps({str(root): {"free": free + 10 * 1024**3}}),
+            }
+            with (
+                patch.dict(os.environ, session),
+                patch.object(runtime, "free_receipt", return_value={str(root): {"free": free}}),
+                patch.object(runtime.subprocess, "Popen") as spawn,
+            ):
+                with raises(RuntimeError, "remaining whole-session cap: release"):
+                    runtime.run(
+                        "release",
+                        ["never-run"],
+                        root,
+                        env={},
+                        evidence=root,
+                        paths=[root],
+                        budget=8 * 1024**3,
+                        timeout=1,
+                    )
+                spawn.assert_not_called()
+            refusal = json.loads((root / "release/refusal.json").read_text())
+            assert refusal["session"] == {"cap": 16 * 1024**3, "spent": 10 * 1024**3}
+            assert refusal["budget"] == 8 * 1024**3
 
     def test_reviewed_guard_reaps_descendant_that_changes_process_group(self):
         with tempfile.TemporaryDirectory() as name:

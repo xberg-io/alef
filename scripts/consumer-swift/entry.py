@@ -39,11 +39,15 @@ def main():
         raise RuntimeError("reviewed whole-SID guard changed")
     paths = execution_paths(root)
     before = free_receipt(paths)
-    cap = {"verify": 16 * 1024**3, "--controls": 128 * 1024**2}[mode]
+    # Run 41179947459 spent 9.5 GiB before the release build, 5.9 GiB once the check target is released;
+    # the release build and the stages after it budget 18.7 GiB more. ~keep
+    cap = {"verify": 28 * 1024**3, "--controls": 128 * 1024**2}[mode]
     if min(row["free"] for row in before.values()) < FLOOR + cap:
         (evidence / "refusal.json").write_text(json.dumps(before, indent=2))
         return 86
     os.environ["SWIFT_GATE_GUARDED"] = "1"
+    os.environ["SWIFT_GATE_SESSION_CAP"] = str(cap)
+    os.environ["SWIFT_GATE_SESSION_BASELINE"] = json.dumps(before)
     records = []
 
     def sample():

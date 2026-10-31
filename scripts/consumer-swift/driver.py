@@ -246,13 +246,16 @@ class Gate:
         package_id = self.metadata("actual-check-metadata", manifest, check_target)
         check = receipts.binding_receipt(check_calls, manifest, package_id, check_target, False)
         materialized.verify(Path(check["out_dir"]), package)
+        release_check_target(self.evidence, self.paths, check, check_target)
         release_target = self.xberg / "target"
         release_calls = self.phase("release", self.xberg, release_target)
+        # Run 41179947459 had spent 7.4 GiB of this stage with xberg-gliner, xberg and the fat-LTO
+        # static archive still to build. ~keep
         self.command(
             "sanctioned-current-build",
             [*common, "build", "--lang", "swift", "--release", "--strict"],
             self.xberg,
-            8 * 1024**3,
+            12 * 1024**3,
             3600,
         )
         package_id = self.metadata("actual-release-metadata", manifest, release_target)
@@ -305,6 +308,29 @@ class Gate:
             raise RuntimeError("actual link map and verbose linker argv do not prove static archive")
 
 
+def release_check_target(evidence, paths, check, target):
+    # The debug check target (3.6 GiB in run 41179947459, 2 GiB of it tree-sitter-language-pack's
+    # OUT_DIR) is not read after its receipt; keeping it beside the release target spent the
+    # session cap. Its raw bridge inputs are frozen first so the check evidence survives. ~keep
+    if target.parent != evidence or target.name != "check-target":
+        raise RuntimeError("only the evidence-owned check phase target may be released")
+    out_dir = Path(check["out_dir"])
+    frozen = evidence / "frozen-check"
+    frozen.mkdir()
+    for source, digest in check["raw_inputs"].items():
+        destination = frozen / Path(source).relative_to(out_dir)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        if receipts.sha(destination) != digest:
+            raise RuntimeError("frozen check bridge input differs from its receipt")
+    before = runtime.free_receipt(paths)
+    shutil.rmtree(target)
+    after = runtime.free_receipt(paths)
+    (evidence / "check-target-released.json").write_text(
+        json.dumps({"target": str(target), "before": before, "after": after}, indent=2) + "\n"
+    )
+
+
 def re_search_rust_dylib(text):
     return re.search(r"lib(?:xberg|alef)[^\s]*\.dylib", text) is not None
 
@@ -313,7 +339,7 @@ def harness_controls():
     root = Path(os.environ["GITHUB_WORKSPACE"])
     evidence = Path(os.environ.get("SWIFT_GATE_CONTROL_EVIDENCE", str(root / "consumer-controls-evidence")))
     suite = unittest.defaultTestLoader.discover(str(Path(__file__).parent), pattern="test_*.py")
-    expected = 51
+    expected = 53
     actual = suite.countTestCases()
     if actual != expected:
         (evidence / "census-refusal.json").write_text(json.dumps({"expected": expected, "discovered": actual}))

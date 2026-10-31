@@ -14,6 +14,16 @@ from contracts import FLOOR
 LOG_LIMIT = 64 * 1024**2
 
 
+def session_allocation(current):
+    """Bytes the enclosing session has spent so far against its whole-volume decline cap."""
+    cap = int(os.environ["SWIFT_GATE_SESSION_CAP"])
+    baseline = json.loads(os.environ["SWIFT_GATE_SESSION_BASELINE"])
+    declines = [baseline[path]["free"] - row["free"] for path, row in current.items() if path in baseline]
+    if cap <= 0 or not declines:
+        raise ValueError("session cap and a shared monitored baseline path required")
+    return {"cap": cap, "spent": max(declines)}
+
+
 def free_receipt(paths):
     result = {}
     for path in paths:
@@ -51,6 +61,14 @@ def run(name, argv, cwd, *, env, evidence, paths, budget, timeout, expected=0):
     if min(row["free"] for row in before.values()) < FLOOR + budget:
         (stage / "refusal.json").write_text(json.dumps(before, indent=2))
         raise RuntimeError("stage admission floor plus explicit allocation cap not met")
+    # The session guard reports a crossed cap as zero free bytes and kills every stage unattributed,
+    # so a stage whose own budget no longer fits under the cap is refused here, by name. ~keep
+    session = session_allocation(before)
+    if session["spent"] + budget > session["cap"]:
+        (stage / "refusal.json").write_text(
+            json.dumps({"before": before, "session": session, "budget": budget}, indent=2)
+        )
+        raise RuntimeError("stage allocation exceeds the remaining whole-session cap: " + name)
     start = time.monotonic()
     samples, errors = [], []
     with (stage / "stdout.log").open("xb") as stdout, (stage / "stderr.log").open("xb") as stderr:

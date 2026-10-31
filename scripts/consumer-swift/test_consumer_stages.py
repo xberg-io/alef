@@ -1,10 +1,14 @@
 """Consumer stage ordering: dependency downloads never count against the extract allocation."""
 
+import json
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
 import driver
+import receipts
+from assertions import raises
 
 
 class ExtractReachedError(RuntimeError):
@@ -54,3 +58,28 @@ class ConsumerStages(unittest.TestCase):
         assert fetch["cwd"] == gate.xberg
         assert fetch["budget"] > extract["budget"]
         assert extract["argv"][-3:] == ["extract", "--output", "/owned/evidence/ir.json"]
+
+    def test_check_target_is_released_after_its_bridge_inputs_are_frozen(self):
+        with tempfile.TemporaryDirectory() as name:
+            gate = RecordingConsumerGate()
+            gate.evidence = Path(name).resolve()
+            gate.paths = [gate.evidence]
+            target = gate.evidence / "check-target"
+            out = target / "debug/build/xberg-swift-0/out"
+            (out / "xberg-swift").mkdir(parents=True)
+            (out / "SwiftBridgeCore.swift").write_text("core")
+            (out / "xberg-swift/xberg-swift.h").write_text("header")
+            (target / "debug/deps/libbulk.rlib").parent.mkdir(parents=True)
+            (target / "debug/deps/libbulk.rlib").write_bytes(b"x" * 4096)
+            raw = [out / "SwiftBridgeCore.swift", out / "xberg-swift/xberg-swift.h"]
+            check = {"out_dir": str(out), "raw_inputs": {str(path): receipts.sha(path) for path in raw}}
+            driver.release_check_target(gate.evidence, gate.paths, check, target)
+            assert not target.exists()
+            frozen = gate.evidence / "frozen-check"
+            assert (frozen / "SwiftBridgeCore.swift").read_text() == "core"
+            assert (frozen / "xberg-swift/xberg-swift.h").read_text() == "header"
+            receipt = json.loads((gate.evidence / "check-target-released.json").read_text())
+            assert receipt["target"] == str(target)
+            assert set(receipt["before"]) == set(receipt["after"]) == {str(gate.evidence)}
+            with raises(RuntimeError, "evidence-owned check phase target"):
+                driver.release_check_target(gate.evidence, gate.paths, check, gate.evidence.parent / "check-target")
