@@ -7,10 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.115.8] - 2026-10-31
+
+### Changed
+
+- Reuse enum payload names across binding generation and E2E field access.
+- Refresh encoding_rs to 0.8.44 and log to 0.4.35.
+
 ### Fixed
 
 - Honor field-level serde defaults in newly supported Swift DTO decoders, preserving explicit null values
   and required sibling fields while retaining existing decoder policies.
+
+- Keep isolated FRB test processes in owned working directories during parallel test execution.
 
 ## [0.115.7] - 2026-10-30
 
