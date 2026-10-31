@@ -1,3 +1,5 @@
+#[path = "bridge_fn/borrow_shapes.rs"]
+mod borrow_shapes;
 #[path = "bridge_fn/borrowed_error_inputs.rs"]
 pub(super) mod borrowed_error_inputs;
 #[path = "bridge_fn/newtypes.rs"]
@@ -34,6 +36,7 @@ pub(crate) fn emit_bridge_fn(
 ) -> anyhow::Result<()> {
     borrowed_error_inputs::validate(f, errors, types)?;
     newtypes::validate(f)?;
+    borrow_shapes::validate_opaque(f, opaque_type_names)?;
     let opaque_ahash: ahash::AHashSet<String> = opaque_type_names.iter().cloned().collect();
     mut_writeback::reject_unsupported_writeback(&f.name, &f.params, &f.return_type, &opaque_ahash)?;
     let writeback_plan: Option<WritebackPlan> =
@@ -70,13 +73,20 @@ pub(crate) fn emit_bridge_fn(
         .params
         .iter()
         .map(|p| {
-            let rust_ty = frb_rust_type_mirror(&p.ty, p.optional);
+            let mut rust_ty = frb_rust_type_mirror(&p.ty, p.optional);
             let is_opaque_handle = if let TypeRef::Named(type_name) = &p.ty {
                 opaque_type_names.contains(type_name.as_str())
             } else {
                 false
             };
-            let mut_prefix = if p.is_mut && is_opaque_handle { "mut " } else { "" };
+            if is_opaque_handle && p.is_ref {
+                rust_ty = format!("&{}{rust_ty}", if p.is_mut { "mut " } else { "" });
+            }
+            let mut_prefix = if p.is_mut && is_opaque_handle && !p.is_ref {
+                "mut "
+            } else {
+                ""
+            };
             format!("{mut_prefix}{}: {rust_ty}", p.name)
         })
         .collect();

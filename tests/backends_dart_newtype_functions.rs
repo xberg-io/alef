@@ -22,6 +22,11 @@ const SOURCE: &str = r#"
         pub fn optional_tree(value: Option<std::collections::BTreeMap<String, Wide>>) -> Option<std::collections::BTreeMap<String, Wide>> { value }
         pub fn hashed(value: ahash::AHashMap<String, Wide>) -> ahash::AHashMap<String, Wide> { value }
         pub fn hashed_cow(mut value: ahash::AHashMap<std::borrow::Cow<'static, str>, Wide>) -> Wide { value.remove("a").unwrap() }
+        pub fn vector_tree(value: Vec<std::collections::BTreeMap<String, Wide>>) -> Vec<std::collections::BTreeMap<String, Wide>> { value }
+        pub fn vector_hashed(value: Vec<ahash::AHashMap<String, Wide>>) -> Vec<ahash::AHashMap<String, Wide>> { value }
+        pub fn map_tree(value: std::collections::HashMap<String, std::collections::BTreeMap<String, Wide>>) -> std::collections::HashMap<String, std::collections::BTreeMap<String, Wide>> { value }
+        pub fn borrowed_optional(value: &Option<Wide>) -> Option<Wide> { value.clone() }
+        pub fn optional_borrow(value: Option<&Wide>) -> Option<Wide> { value.cloned() }
         pub struct Location(pub std::path::PathBuf);
         pub fn path(value: Location) -> Location { value }
         pub struct Delay(pub std::time::Duration);
@@ -39,7 +44,7 @@ fn functions() -> Vec<syn::ItemFn> {
     let source = directory.path().join("lib.rs");
     std::fs::write(&source, SOURCE).unwrap();
     let api = alef::extract::extractor::extract(&[&source], "sample", "1.0.0", None).unwrap();
-    assert_eq!(api.functions.len(), 20);
+    assert_eq!(api.functions.len(), 25);
     assert!(
         api.functions
             .iter()
@@ -188,7 +193,7 @@ fn dart_newtype_source_and_generated_functions_typecheck_and_execute_together() 
     use alef::snippets::validators::run_command_streams;
     let directory = tempfile::tempdir().unwrap();
     let functions = functions();
-    assert_eq!(functions.len(), 20);
+    assert_eq!(functions.len(), 25);
     let declarations = functions
         .iter()
         .map(|f| f.to_token_stream().to_string())
@@ -217,6 +222,15 @@ fn dart_newtype_source_and_generated_functions_typecheck_and_execute_together() 
         assert_eq!(optional_tree(None), None);
         assert_eq!(hashed(ordered.clone()), ordered.clone());
         assert_eq!(hashed_cow(ordered), u64::MAX);
+        let map = std::collections::HashMap::from([(String::from(\"a\"), u64::MAX)]);
+        assert_eq!(vector_tree(vec![map.clone()]), vec![map.clone()]);
+        assert_eq!(vector_hashed(vec![map.clone()]), vec![map.clone()]);
+        let nested_map = std::collections::HashMap::from([(String::from(\"outer\"), map)]);
+        assert_eq!(map_tree(nested_map.clone()), nested_map);
+        assert_eq!(borrowed_optional(Some(u64::MAX)), Some(u64::MAX));
+        assert_eq!(borrowed_optional(None), None);
+        assert_eq!(optional_borrow(Some(u64::MAX)), Some(u64::MAX));
+        assert_eq!(optional_borrow(None), None);
     }}"
     );
     std::fs::create_dir(directory.path().join("src")).unwrap();
@@ -361,7 +375,7 @@ fn optional_shapes_and_map_kinds_are_taken_from_extracted_source() {
     let source = directory.path().join("lib.rs");
     std::fs::write(&source, SOURCE).unwrap();
     let api = alef::extract::extractor::extract(&[&source], "sample", "1.0.0", None).unwrap();
-    assert_eq!(api.functions.len(), 20);
+    assert_eq!(api.functions.len(), 25);
     let double = api.functions.iter().find(|f| f.name == "double_optional").unwrap();
     assert!(double.params[0].optional);
     assert_eq!(
@@ -375,4 +389,34 @@ fn optional_shapes_and_map_kinds_are_taken_from_extracted_source() {
     assert!(hashed.params[0].map_is_ahash && !hashed.params[0].map_is_btree);
     let cow = api.functions.iter().find(|f| f.name == "hashed_cow").unwrap();
     assert!(cow.params[0].map_is_ahash && cow.params[0].map_key_is_cow);
+}
+
+#[test]
+fn nested_newtype_reference_arguments_fail_explicitly_before_emission() {
+    for ty in [
+        "Vec<&Wide>",
+        "Vec<Option<&Wide>>",
+        "std::collections::HashMap<String, &Wide>",
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("lib.rs");
+        std::fs::write(
+            &source,
+            format!("pub struct Wide(pub u64); pub fn borrow(value: {ty}) -> usize {{ value.len() }}"),
+        )
+        .unwrap();
+        let api = alef::extract::extractor::extract(&[&source], "sample", "1.0.0", None).unwrap();
+        assert!(api.functions[0].params[0].newtype_wrapper.is_some());
+        assert!(
+            api.functions[0].params[0].original_type.is_some(),
+            "retain actual reference placement: {ty}"
+        );
+        let config: NewAlefConfig = toml::from_str(
+            "[workspace]\nlanguages=[\"dart\"]\n[[crates]]\nname=\"sample\"\nsources=[\"src/lib.rs\"]\n",
+        )
+        .unwrap();
+        let config = config.resolve().unwrap().remove(0);
+        let error = DartBackend.generate_bindings(&api, &config).unwrap_err();
+        assert!(error.to_string().contains("interior reference"), "{ty}: {error:#}");
+    }
 }

@@ -4,6 +4,9 @@ use crate::core::ir::{
 };
 
 pub(super) fn validate(function: &FunctionDef) -> anyhow::Result<()> {
+    for param in function.params.iter().filter(|p| p.newtype_wrapper.is_some()) {
+        super::borrow_shapes::classify(param)?;
+    }
     if let Some(param) = function
         .params
         .iter()
@@ -59,10 +62,10 @@ pub(super) fn argument(param: &ParamDef, checked: bool) -> String {
     } else {
         wrapped
     };
-    match (param.is_ref, param.optional) {
-        (true, true) => format!("({wrapped}).as_ref()"),
-        (true, false) => format!("&({wrapped})"),
-        _ => wrapped,
+    match super::borrow_shapes::classify(param).expect("borrow shape validated before emission") {
+        super::borrow_shapes::Shape::Reference => format!("&({wrapped})"),
+        super::borrow_shapes::Shape::OptionalReference => format!("({wrapped}).as_ref()"),
+        super::borrow_shapes::Shape::Owned => wrapped,
     }
 }
 
@@ -154,8 +157,14 @@ fn rewrite(
             } else {
                 "into_iter"
             };
-            let collection = collection.unwrap_or("std::collections::HashMap<_, _>");
-            format!("({expr}).{iter}().map(|(key, value)| ({key}, {value})).collect::<{collection}>()")
+            let collect = match (mode, collection) {
+                (Mode::Argument(_), None) => "collect()".to_string(),
+                (_, collection) => format!(
+                    "collect::<{}>()",
+                    collection.unwrap_or("std::collections::HashMap<_, _>")
+                ),
+            };
+            format!("({expr}).{iter}().map(|(key, value)| ({key}, {value})).{collect}")
         }
         _ => leaf(expr, ty, None, mode),
     }
