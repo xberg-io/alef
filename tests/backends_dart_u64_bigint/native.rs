@@ -2,6 +2,9 @@ use super::generated;
 use alef::snippets::validators::{CapturedStreams, run_command_streams};
 use std::path::Path;
 
+#[path = "../support/dart_sdk.rs"]
+mod dart_sdk;
+
 fn task(root: &Path, name: &str, arguments: &[&str]) -> CapturedStreams {
     let mut command = super::mise_task::mise_run(root, name);
     command.args(arguments);
@@ -26,6 +29,7 @@ fn write_fixture(root: &Path) {
             include_str!("../fixtures/dart_u64_bigint/bridge_Cargo.toml"),
         ),
         ("mise.toml", include_str!("../fixtures/dart_u64_bigint/mise.toml")),
+        ("mise.lock", include_str!("../fixtures/dart_u64_bigint/mise.lock")),
         ("pubspec.yaml", include_str!("../fixtures/dart_u64_bigint/pubspec.yaml")),
         ("check.dart", include_str!("../fixtures/dart_u64_bigint/check.dart")),
     ] {
@@ -56,6 +60,8 @@ fn dart_u64_boundaries_survive_the_actual_native_codec_in_both_directions() {
         Some(directory)
     };
     write_fixture(&root);
+    let sdk = successful(&root, "sdk", &[]);
+    dart_sdk::assert_pinned_sdk(&sdk, "unsigned");
     successful(&root, "setup", &[]);
     successful(&root, "generate", &[]);
     successful(&root, "build", &[]);

@@ -9,6 +9,9 @@ use std::path::Path;
 #[path = "support/mise_task.rs"]
 mod mise_task;
 
+#[path = "support/dart_sdk.rs"]
+mod dart_sdk;
+
 const RAW_WRITER: &str = "serializer.buffer.putBigUint64(self);";
 const GUARDED_WRITER: &str = "serializer.buffer.putBigUint64(_alefCheckU64BeforeEncode(self));";
 const HELPER: &str = "BigInt _alefCheckU64BeforeEncode(BigInt value)";
@@ -49,6 +52,7 @@ fn fixture(root: &Path) -> ResolvedCrateConfig {
             include_str!("fixtures/dart_u64_canonical/check.dart"),
         ),
         ("mise.toml", include_str!("fixtures/dart_u64_canonical/mise.toml")),
+        ("mise.lock", include_str!("fixtures/dart_u64_canonical/mise.lock")),
         (
             ".cargo/config.toml",
             include_str!("fixtures/dart_u64_canonical/cargo_config.toml"),
@@ -224,7 +228,7 @@ fn canonical_frb_u64_raw_and_callback_writers_enforce_bounds() {
     eprintln!("canonical_fixture_root={}", root.display());
     let config = fixture(&root);
     let sdk = successful(&root, "sdk", &[], 30);
-    assert!(format!("{}{}", sdk.stdout, sdk.stderr).contains("Dart SDK version: 3.13.7 (stable)"));
+    dart_sdk::assert_pinned_sdk(&sdk, "canonical");
     successful(&root, "setup", &[], 600);
     let canonical = DartBackend.build_config_for(&config).unwrap();
     assert_eq!(canonical.post_build.len(), 15, "full canonical FRB pipeline");
