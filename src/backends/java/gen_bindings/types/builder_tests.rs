@@ -173,6 +173,7 @@ fn flatten_json_field_forces_builder_emission_below_auto_threshold() {
         serde_rename_all: None,
         has_serde: true,
         serde_container_default: false,
+        serde_deserialization: Default::default(),
         serde_container_conversion: Default::default(),
         super_traits: vec![],
         binding_excluded: false,

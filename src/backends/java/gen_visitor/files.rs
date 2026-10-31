@@ -757,6 +757,7 @@ pub(super) mod tests {
             serde_rename_all: None,
             has_serde: !is_trait,
             serde_container_default: false,
+            serde_deserialization: Default::default(),
             serde_container_conversion: Default::default(),
             super_traits: vec![],
             binding_excluded: false,

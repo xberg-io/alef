@@ -39,27 +39,3 @@ pub(super) fn non_optional_fallback(
             .or_else(|| swift_type_based_default(&field.ty))
     })
 }
-
-pub(super) fn default_assignment_template(
-    field: &FieldDef,
-    every_field_may_be_absent: bool,
-    had_owner_decoder: bool,
-) -> &'static str {
-    let had_fallback = field.typed_default.is_some()
-        || ((every_field_may_be_absent || field.serde_skip_serializing_if)
-            && swift_type_based_default(&field.ty).is_some());
-    // Newly recognized defaults reject null; previously supported fallback policies stay unchanged. ~keep
-    if had_owner_decoder && had_fallback {
-        "swift_decode_default_assignment.swift.jinja"
-    } else {
-        "swift_decode_missing_default_assignment.swift.jinja"
-    }
-}
-
-pub(super) fn optional_default_assignment_template(had_owner_decoder: bool) -> &'static str {
-    if had_owner_decoder {
-        "swift_decode_default_assignment.swift.jinja"
-    } else {
-        "swift_decode_missing_optional_default_assignment.swift.jinja"
-    }
-}

@@ -1,1 +1,1 @@
-        self.{{ field }} = try container.decodeIfPresent({{ ty }}.self, forKey: .{{ field }}) ?? nil
+        self.{{ field }} = try container.decodeIfPresent({{ ty }}.self, forKey: {{ key }}) ?? nil

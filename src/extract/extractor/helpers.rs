@@ -7,6 +7,7 @@ mod fields;
 mod reexport_map;
 pub(crate) mod result_alias_scope;
 mod rustdoc;
+mod serde_policy;
 
 #[cfg(test)]
 mod tests;
@@ -32,3 +33,5 @@ pub(crate) use rustdoc::extract_doc_comments;
 
 #[cfg(test)]
 pub use rustdoc::normalize_rustdoc;
+
+pub(crate) use serde_policy::extract_serde_deserialization_policy;

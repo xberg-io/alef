@@ -39,6 +39,7 @@ fn first_class_struct_skips_nullary_method_colliding_with_a_property() {
         "DemoError",
         &std::collections::HashSet::new(),
         &Default::default(),
+        "AlefWireKey",
         &mut out,
     )
     .unwrap();
@@ -96,6 +97,7 @@ fn first_class_struct_keeps_method_with_params_despite_same_base_name() {
         "DemoError",
         &std::collections::HashSet::new(),
         &Default::default(),
+        "AlefWireKey",
         &mut out,
     )
     .unwrap();
@@ -120,14 +122,14 @@ fn a_function_call_default_never_becomes_a_swift_zero() {
     };
 
     let mut out = String::new();
-    emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), true, &mut out);
+    emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), true, false, &mut out);
 
     assert!(
         out.contains("try container.decode(UInt32.self, forKey: .maxArchiveDepth)"),
         "an unreadable default must leave the key required:\n{out}"
     );
     assert!(
-        !out.contains("?? 0"),
+        !out.contains("self.maxArchiveDepth = 0"),
         "the UInt32 zero is not the Rust default and must never stand in for it:\n{out}"
     );
 }
@@ -145,10 +147,10 @@ fn an_empty_default_still_becomes_the_swift_zero() {
     };
 
     let mut out = String::new();
-    emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), true, &mut out);
+    emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), true, false, &mut out);
 
     assert!(
-        out.contains("?? 0"),
+        out.contains("self.maxArchiveDepth = 0"),
         "`Empty` is the type's own default and keeps the zero fallback:\n{out}"
     );
 }
@@ -168,10 +170,10 @@ fn an_optional_field_defaulting_to_some_keeps_the_value() {
     };
 
     let mut out = String::new();
-    emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), true, &mut out);
+    emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), true, false, &mut out);
 
     assert!(
-        out.contains("?? 30000"),
+        out.contains("self.timeoutMs = 30000"),
         "`Some(30_000)` must survive into the decoder:\n{out}"
     );
     assert!(
@@ -222,6 +224,7 @@ fn the_memberwise_init_carries_the_rust_default() {
         "DemoError",
         &std::collections::HashSet::new(),
         &Default::default(),
+        "AlefWireKey",
         &mut out,
     )
     .unwrap();
@@ -417,6 +420,7 @@ fn should_render_a_map_field_as_a_swift_dictionary_property() {
         "DemoError",
         &std::collections::HashSet::new(),
         &Default::default(),
+        "AlefWireKey",
         &mut out,
     )
     .unwrap();
@@ -549,6 +553,7 @@ fn should_render_a_json_valued_map_field_using_the_json_value_stand_in() {
         "DemoError",
         &std::collections::HashSet::new(),
         &Default::default(),
+        "AlefWireKey",
         &mut out,
     )
     .unwrap();

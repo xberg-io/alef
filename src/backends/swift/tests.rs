@@ -3,4 +3,8 @@ mod enum_declaration_parity;
 mod field_default_codable;
 mod field_default_policy;
 mod none_case_runtime;
+mod serde_aliases;
+mod serde_contract;
+mod serde_policy_edges;
+mod serde_policy_inventory;
 mod trait_box_swiftpm_compile;
