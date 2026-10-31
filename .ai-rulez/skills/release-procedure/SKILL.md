@@ -1,7 +1,7 @@
 ---
 type: Playbook
 title: Release Procedure
-description: "Cut, tag and publish an alef release: CHANGELOG roll-up, mise run set-version, lint, release commit, push, tag, gh release create, crates.io verification. Use when asked for an alef release, version bump or hotfix tag."
+description: "Cut, tag and publish an alef release: CHANGELOG roll-up, mise run set-version, lint, release commit, push, tag, source-bound draft promotion and crates.io verification. Use when asked for an alef release, version bump or hotfix tag."
 disable-model-invocation: true
 x-ai-rulez:
   kind: skill
@@ -17,7 +17,7 @@ Every step has a check; do not skip one.
 
 ## Facts
 
-- `gh release create` is what publishes: `Publish` triggers on `release: types: [published]`; a bare tag push runs nothing (v0.55.2 and v0.55.3 were tagged without a release and never reached crates.io).
+- `Publish` triggers on `push.tags: [v*]`, `workflow_dispatch`, or `repository_dispatch: publish-release`. Push the release tag after the source commit. Do not create or undraft a release manually: the workflow owns draft creation, source-bound assets and promotion (ADR 0009).
 - Three crates publish at the same version, in order: `alef-component-abi`, `alef-component-runtime`, `alef`. Check each registry version before retrying a partial publish.
 - Versions change only via `mise run set-version X.Y.Z`, never by hand.
 - `chore(release): X.Y.Z` carries only the version bump and changelog roll; fixes land in their own commits first, each with a regression test.
@@ -61,15 +61,37 @@ If a commit-msg hook (gitfluff) mangles the subject, fix the hook config; if the
 
 ## 5. Push, tag, release
 
-Push `main` first, confirm it landed, then tag; a tag on a commit `origin/main` lacks needs delete-and-recreate.
+Push `main` first, confirm it landed, then tag. If a release tag is wrong, stop for separately reviewed recovery; never move it automatically.
 
 ```bash
 git push origin main
 git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z
-gh release create vX.Y.Z --title "vX.Y.Z" --notes-from-tag --verify-tag
 ```
 
-For notes from the changelog use `--notes-file <(awk '/^## \[X.Y.Z\]/,/^## \[/' CHANGELOG.md | head -n -1)`. Add `--prerelease` for RC/beta.
+The workflow binds the existing tag to its immutable Cargo version and CLI target list, creates a draft,
+builds and smokes every selected native CLI target, uploads only missing verified archives, verifies
+all three requested crate versions, then promotes. A prerelease version produces a prerelease;
+never change classification manually. Preserve the `alef-release-state` body marker when adding human notes.
+
+Stable promotion sends GitHub's `make_latest: legacy`; prereleases send `false`. Latest therefore
+follows GitHub's documented creation-date/semantic-version policy, not a custom strict maximum-SemVer
+ordering. Different tags may publish concurrently; the controller does not make a stale client-side
+`GET latest` comparison.
+
+For a retry or dry run of an **existing** tag, dispatch the current controller on main:
+
+```bash
+gh workflow run publish.yaml --ref main -f tag=vX.Y.Z -f targets=crates,cli -f dry_run=true
+```
+
+Dry runs build and validate selected CLI artifacts even when a complete release already exists,
+but write no release, tag, registry or tap state. A complete source-bound public CLI release is not
+edited on retry; selected missing crates or tap updates still run. Partial same-source drafts upload only missing assets. Legacy/unbound releases, mismatched source
+or assets, and force-clobber requests fail closed. Repair needs a separately reviewed scope;
+never delete assets, move a tag, or re-draft a public release to bypass the guard.
+
+Homebrew/Scoop are explicit opt-ins and require already-public complete CLI assets. Tap-only retries
+never manufacture a release, and optional tap failures cannot hide a successfully published core release.
 
 ## 6. Verify the registry
 
@@ -83,7 +105,7 @@ for crate in alef-component-abi alef-component-runtime alef; do
 done
 ```
 
-- A failed job may already have published; check the index before rerunning (`gh run rerun --failed <run-id>`).
+- A failed job may already have published individual crates. Check all three registry versions before retrying. Use the current workflow with an existing tag for source-bound missing-only retries; re-running a legacy workflow retains its legacy behavior.
 - A skipped job inside a green run can mean the crate never moved; read job conclusions.
 - A `Publish` run stuck in `queued` is usually account-wide runner capacity; report it once, and if wedged `gh run cancel --force-cancel <run-id>` before retrying.
 

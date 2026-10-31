@@ -79,11 +79,20 @@ fn run_resolve_step(workdir: &Path) -> Vec<(String, String)> {
     let github_output = output_dir.path().join("github_output");
     std::fs::write(&github_output, "").expect("seed GITHUB_OUTPUT");
 
+    let source = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(workdir)
+        .output()
+        .expect("resolve immutable fixture source");
+    assert!(source.status.success(), "fixture source must be committed");
+    let source_sha = String::from_utf8(source.stdout).expect("source SHA is UTF-8");
+
     let result = Command::new("bash")
         .arg("-c")
         .arg(&script)
         .current_dir(workdir)
         .env("GITHUB_OUTPUT", &github_output)
+        .env("SOURCE_SHA", source_sha.trim())
         .output()
         .expect("running the extracted resolve step");
     assert!(
@@ -152,14 +161,15 @@ fn build_matrix_and_asset_guard_read_the_same_target_list() {
 
     let guard_step = step_with_id(&job(&workflow, "check-github-release"), "check");
     assert_eq!(
-        guard_step["with"]["assets"].as_str(),
-        Some("${{ needs.prepare.outputs.cli_assets }}"),
-        "the release guard must demand the derived asset set"
+        workflow["jobs"]["check-github-release"]["env"]["RELEASE_SPEC"].as_str(),
+        Some("${{ needs.prepare.outputs.release_spec }}"),
+        "inspection must receive the exact source-derived archive specification"
     );
+    let script = guard_step["run"].as_str().expect("inspection command");
+    assert!(script.contains("github-release-state.py inspect"));
     assert!(
-        guard_step["with"]["asset-prefix"].is_null(),
-        "asset-prefix matches homebrew bottle names (alef-<version>.<tag>.bottle.tar.gz) and so \
-         reports a bottle-only release as complete"
+        guard_step["uses"].is_null(),
+        "never fall back to a prefix-only registry check"
     );
 }
 
@@ -169,10 +179,15 @@ fn build_and_upload_stay_gated_on_the_asset_guard() {
     for name in ["build-cli", "upload-release-assets"] {
         let condition = workflow["jobs"][name]["if"].as_str().expect("job has an if condition");
         assert!(
-            condition.contains("needs.check-github-release.outputs.exists != 'true'"),
+            condition.contains("needs.check-github-release.result == 'success'"),
             "{name} no longer consults the release guard"
         );
     }
+    let build = workflow["jobs"]["build-cli"]["if"].as_str().unwrap();
+    assert!(build.contains("needs.check-github-release.outputs.exists != 'true'"));
+    assert!(build.contains("needs.prepare.outputs.dry_run == 'true'"));
+    let upload = workflow["jobs"]["upload-release-assets"]["if"].as_str().unwrap();
+    assert!(upload.contains("needs.build-cli.result == 'success'"));
 }
 
 #[cfg(unix)]
@@ -210,6 +225,34 @@ fn resolve_step_follows_the_target_list_rather_than_a_baked_in_set() {
         ]"#,
     )
     .expect("write synthetic target list");
+
+    for arguments in [
+        vec!["init", "-q"],
+        vec!["add", TARGETS_FILE],
+        vec![
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "commit",
+            "-qm",
+            "Fixture",
+        ],
+    ] {
+        let committed = Command::new("git")
+            .args(arguments)
+            .current_dir(sandbox.path())
+            .output()
+            .expect("commit synthetic immutable target source");
+        assert!(
+            committed.status.success(),
+            "{}",
+            String::from_utf8_lossy(&committed.stderr)
+        );
+    }
+    std::fs::write(sandbox.path().join(TARGETS_FILE), "[]").expect("dirty controller list must not override source");
 
     let outputs = run_resolve_step(sandbox.path());
     assert_eq!(
@@ -283,6 +326,91 @@ fn binstall_archive_overrides_match_published_cli_targets() {
                 .iter()
                 .any(|target| target["target"].as_str() == Some(triple)),
             "binstall override {triple} has no matching published CLI target"
+        );
+    }
+}
+
+#[test]
+fn draft_flow_and_offline_state_controls_are_part_of_the_native_gate() {
+    let workflow = workflow();
+    assert!(workflow["on"]["release"].is_null());
+    assert_eq!(workflow["on"]["push"]["tags"][0].as_str(), Some("v*"));
+    for name in ["prepare-draft", "upload-release-assets", "promote"] {
+        assert_eq!(
+            workflow["jobs"][name]["permissions"]["contents"].as_str(),
+            Some("write")
+        );
+    }
+    for dependency in [
+        "publish-crates",
+        "upload-release-assets",
+        "build-cli",
+        "check-github-release",
+    ] {
+        assert!(
+            workflow["jobs"]["promote"]["needs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v == dependency)
+        );
+    }
+    let controls = std::process::Command::new("mise")
+        .args([
+            "exec",
+            "--",
+            "python",
+            "-W",
+            "error::ResourceWarning",
+            "scripts/tests/test_github_release_state.py",
+        ])
+        .current_dir(repo_root())
+        .output()
+        .expect("run offline release-state and actual-workflow controls");
+    assert!(
+        controls.status.success(),
+        "{}",
+        String::from_utf8_lossy(&controls.stderr)
+    );
+    let summary = String::from_utf8_lossy(&controls.stderr);
+    assert!(
+        offline_state_controls_passed(&summary),
+        "complete successful 46-test census: {summary}"
+    );
+}
+
+fn offline_state_controls_passed(summary: &str) -> bool {
+    let census: Vec<_> = summary
+        .lines()
+        .filter(|line| line.starts_with("Ran ") && line.contains(" tests in "))
+        .collect();
+    census.len() == 1
+        && census[0].starts_with("Ran 46 tests in ")
+        && summary.lines().filter(|line| *line == "OK").count() == 1
+}
+
+#[test]
+fn offline_state_summary_accepts_lf_and_crlf_but_rejects_failed_or_vacuous_controls() {
+    let lf = "..............................................\n----------------------------------------------------------------------\nRan 46 tests in 0.071s\n\nOK\n";
+    let crlf = lf.replace('\n', "\r\n");
+    assert!(offline_state_controls_passed(lf));
+    assert!(offline_state_controls_passed(&crlf));
+    for summary in [
+        "Ran 0 tests in 0.000s\n\nOK\n",
+        "Ran 45 tests in 0.001s\n\nOK\n",
+        "Ran 146 tests in 0.001s\n\nOK\n",
+        "Ran 46 tests in 0.001s\n\nFAILED (failures=1)\n",
+        "Ran 46 tests in 0.001s\n",
+        "OK\n",
+        "",
+        "Ran 46 tests in 0.001s\n\nOK (skipped=46)\n",
+        "Ran 46 tests in 0.001s\nRan 0 tests in 0.000s\n\nOK\n",
+        "Ran 46 tests in 0.001s\n\nOK\nOK\n",
+    ] {
+        assert!(!offline_state_controls_passed(summary), "{summary:?}");
+        assert!(
+            !offline_state_controls_passed(&summary.replace('\n', "\r\n")),
+            "{summary:?}"
         );
     }
 }

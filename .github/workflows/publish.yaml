@@ -1,8 +1,8 @@
 name: Publish
 
 on:
-  release:
-    types: [published]
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
@@ -15,7 +15,7 @@ on:
         default: false
         type: boolean
       force_republish:
-        description: "Force publish even if version already exists"
+        description: "Legacy input; cannot authorize replacement of immutable CLI assets"
         required: false
         default: false
         type: boolean
@@ -32,7 +32,7 @@ on:
     types: [publish-release]
 
 concurrency:
-  group: publish-${{ github.event.inputs.tag || github.ref_name || github.run_id }}
+  group: publish-${{ inputs.tag || github.event.client_payload.tag || github.ref_name || github.run_id }}
   cancel-in-progress: false
 
 permissions:
@@ -47,52 +47,22 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
-      version: ${{ steps.meta.outputs.version }}
-      checkout_ref: ${{ steps.meta.outputs.checkout_ref }}
+      version: ${{ steps.source.outputs.version }}
+      checkout_ref: ${{ steps.source.outputs.sha }}
       dry_run: ${{ steps.meta.outputs.dry_run }}
       force_republish: ${{ steps.meta.outputs.force_republish }}
       release_crates: ${{ steps.meta.outputs.release_crates }}
       release_cli: ${{ steps.meta.outputs.release_cli }}
       release_homebrew: ${{ steps.meta.outputs.release_homebrew }}
       release_scoop: ${{ steps.scoop-gate.outputs.release_scoop }}
+      release_spec: ${{ steps.source.outputs.spec }}
       cli_matrix: ${{ steps.cli-targets.outputs.matrix }}
       cli_assets: ${{ steps.cli-targets.outputs.assets }}
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
-
-      # ~keep `.github/cli-targets.json` is the single source of truth for the CLI release
-      # artifacts: `build-cli` takes its matrix from `matrix`, and `check-github-release`
-      # takes the asset set it demands from `assets`. Both must come from here. A
-      # hand-maintained second list is what let the v0.62.6 re-run skip Build CLI and
-      # Upload release assets on a release that only had two homebrew bottles on it.
-      #
-      # ~keep An empty `targets` list must hard-fail this step, never fall through to
-      # `matrix=[]`: `build-cli`'s `strategy.matrix.include` (below) runs zero legs for a
-      # zero-entry matrix, and GitHub Actions reports that as a silent job success, not a
-      # failure -- a release with no CLI binaries and no red X anywhere. That is the same
-      # "SKIPPED reads as PASSED" shape that caused a false-premise bug report in
-      # html-to-markdown.
-      - name: Resolve CLI target matrix
-        id: cli-targets
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY' >>"$GITHUB_OUTPUT"
-          import json
-          import pathlib
-          import sys
-
-          targets = json.loads(pathlib.Path(".github/cli-targets.json").read_text())
-          if not targets:
-              sys.exit(
-                  "CLI release target list is empty -- expected at least one platform in "
-                  ".github/cli-targets.json; refusing to build a vacuous release matrix"
-              )
-          print("matrix=" + json.dumps(targets, separators=(",", ":")))
-          print("assets=" + ",".join(f"alef-{t['target']}.{t['archive_ext']}" for t in targets))
-          PY
 
       # ~keep A whitespace-only `targets` input is a non-empty string, so it is truthy and
       # wins the `||` fallback chain below even though it names no real target. Alef's own
@@ -117,7 +87,7 @@ jobs:
       # deliberately still here -- this is a default, not a removal. Re-enable either release
       # by dispatching with an explicit `targets` that names it (e.g. `cli,homebrew` or
       # `cli,scoop`), which the normalized value above still honours; only the
-      # empty/whitespace-only/automatic case is narrowed to `crates,cli`. A `release`-triggered
+      # empty/whitespace-only/automatic case is narrowed to `crates,cli`. A tag-triggered
       # run carries no targets at all, so the automatic path is exactly the case this narrows.
       - name: Prepare release metadata
         id: meta
@@ -126,6 +96,49 @@ jobs:
           available-targets: crates,cli,homebrew,scoop
           targets: ${{ steps.normalize-targets.outputs.targets }}
           alef-version: main
+
+      # ~keep The controller is the triggering workflow revision; artifacts always come from
+      # the existing tag's immutable source, including when manually retrying an older tag.
+      - name: Bind immutable release source
+        id: source
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          SOURCE_SHA="$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")"
+          python3 scripts/publish/github-release-state.py source --tag "$RELEASE_TAG" --source-sha "$SOURCE_SHA"
+          python3 - <<'PYCODE' >> "$GITHUB_OUTPUT"
+          import json
+          import pathlib
+          spec = json.loads(pathlib.Path("release-spec.json").read_text())
+          print("sha=" + spec["source_sha"])
+          print("version=" + spec["version"])
+          print("spec=" + json.dumps(spec, separators=(",", ":")))
+          PYCODE
+
+      - name: Resolve CLI target matrix
+        id: cli-targets
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >>"$GITHUB_OUTPUT"
+          import json
+          import os
+          import subprocess
+          import sys
+
+          targets = json.loads(subprocess.check_output(["git", "show", os.environ["SOURCE_SHA"] + ":.github/cli-targets.json"]))
+          if not targets:
+              sys.exit(
+                  "CLI release target list is empty -- expected at least one platform in "
+                  ".github/cli-targets.json; refusing to build a vacuous release matrix"
+              )
+          print("matrix=" + json.dumps(targets, separators=(",", ":")))
+          print("assets=" + ",".join(f"alef-{t['target']}.{t['archive_ext']}" for t in targets))
+          PY
 
       # ~keep `prepare-release-metadata@v1` declares `release_homebrew` as a named output but
       # not `release_scoop` -- scoop was added to Alef's own target list after that action's
@@ -145,63 +158,95 @@ jobs:
         run: echo "release_scoop=$(scripts/publish/compute-scoop-gate.sh)" >> "$GITHUB_OUTPUT"
 
   check-cratesio:
-    name: Check crates.io
+    name: Check all requested crates
     needs: prepare
     if: needs.prepare.outputs.release_crates == 'true'
     runs-on: ubuntu-latest
     outputs:
       exists: ${{ steps.check.outputs.exists }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_SPEC: ${{ needs.prepare.outputs.release_spec }}
+      DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
     steps:
-      # ~keep continue-on-error: this check is advisory, not a release gate --
-      # every job downstream of it already runs under `always()` and treats a
-      # missing/non-'true' `exists` output as "not published yet, proceed."
-      # A transient failure here (e.g. the registry API rate-limiting an
-      # anonymous or momentarily-unauthenticated request) must not flip the
-      # whole run red when every publish/build job still succeeds. See
-      # v0.66.0 run 32602290549: this step failed on a GitHub API 403 while
-      # every other job, including the actual crates.io publish, succeeded.
-      - name: Check crates.io for alef
-        id: check
-        continue-on-error: true
-        uses: xberg-io/actions/check-registry@v1
+      - uses: actions/checkout@v7
         with:
-          registry: cratesio
-          package: alef
-          version: ${{ needs.prepare.outputs.version }}
-          alef-version: main
+          ref: ${{ github.sha }}
+      - name: Inspect all three registry versions
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$DRY_RUN" == "true" ]]; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf '%s\n' "$RELEASE_SPEC" > release-spec.json
+          python3 scripts/publish/github-release-state.py inspect-crates > crate-state.json
+          python3 - <<'PYCODE' >> "$GITHUB_OUTPUT"
+          import json
+          import pathlib
+          state = json.loads(pathlib.Path("crate-state.json").read_text())
+          assert state["checked"] == 3
+          print("exists=" + str(state["exists"]).lower())
+          PYCODE
 
   check-github-release:
-    name: Check GitHub release
+    name: Inspect source-bound CLI assets
     needs: prepare
     if: needs.prepare.outputs.release_cli == 'true'
     runs-on: ubuntu-latest
     outputs:
       exists: ${{ steps.check.outputs.exists }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_SPEC: ${{ needs.prepare.outputs.release_spec }}
+      DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+      FORCE_REPUBLISH: ${{ needs.prepare.outputs.force_republish }}
     steps:
-      # ~keep `assets` (every expected archive must be present), never `asset-prefix`:
-      # the homebrew bottles are named `alef-<version>.<bottle_tag>.bottle.tar.gz`, so
-      # `asset-prefix: alef-` reported "published" for a release carrying nothing but
-      # two bottles and no CLI archive at all.
-      #
-      # ~keep continue-on-error: this check is advisory, not a release gate -- `build-cli`
-      # and `upload-release-assets` below already run under `always()` and treat a
-      # missing/non-'true' `exists` output as "not published yet, proceed to build/upload."
-      # A transient failure here must not flip the whole run red when every publish/build
-      # job still succeeds. v0.66.0 run 32602290549 hit exactly this: this step failed on
-      # an unauthenticated GitHub API call that got rate-limited (HTTP 403) while every
-      # other job, including the actual asset upload, succeeded.
-      - name: Check GitHub release assets
-        id: check
-        continue-on-error: true
-        uses: xberg-io/actions/check-registry@v1
+      - uses: actions/checkout@v7
         with:
-          registry: github-release
-          package: alef
-          version: ${{ needs.prepare.outputs.version }}
-          tag: ${{ needs.prepare.outputs.tag }}
-          assets: ${{ needs.prepare.outputs.cli_assets }}
-          repo: xberg-io/alef
-          alef-version: main
+          ref: ${{ github.sha }}
+      - name: Inspect the exact canonical asset inventory
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$RELEASE_SPEC" > release-spec.json
+          flags=()
+          if [[ "$DRY_RUN" == "true" ]]; then flags+=(--dry-run); fi
+          if [[ "$FORCE_REPUBLISH" == "true" ]]; then flags+=(--force); fi
+          python3 scripts/publish/github-release-state.py inspect "${flags[@]}" > release-state.json
+          python3 - <<'PYCODE' >> "$GITHUB_OUTPUT"
+          import json
+          import pathlib
+          state = json.loads(pathlib.Path("release-state.json").read_text())
+          print("exists=" + str(not state["build_needed"]).lower())
+          PYCODE
+
+  prepare-draft:
+    name: Prepare source-bound draft
+    needs: [prepare, check-github-release]
+    if: |
+      needs.prepare.outputs.release_cli == 'true' &&
+      needs.prepare.outputs.dry_run != 'true' &&
+      needs.check-github-release.outputs.exists != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_SPEC: ${{ needs.prepare.outputs.release_spec }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Create only a missing draft
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$RELEASE_SPEC" > release-spec.json
+          python3 scripts/publish/github-release-state.py prepare
 
   check-homebrew:
     name: Check Homebrew tap
@@ -249,11 +294,14 @@ jobs:
 
   build-cli:
     name: Build CLI (${{ matrix.label }})
-    needs: [prepare, check-github-release]
+    needs: [prepare, check-github-release, prepare-draft]
     if: |
       always() &&
+      needs.prepare.result == 'success' &&
+      needs.check-github-release.result == 'success' &&
+      (needs.prepare-draft.result == 'success' || needs.prepare.outputs.dry_run == 'true') &&
       needs.prepare.outputs.release_cli == 'true' &&
-      (needs.check-github-release.outputs.exists != 'true' || needs.prepare.outputs.force_republish == 'true')
+      (needs.check-github-release.outputs.exists != 'true' || needs.prepare.outputs.dry_run == 'true')
     # ~keep Windows must stay in `.github/cli-targets.json`: without a published Windows
     # binary, `xberg-io/actions/install-alef` finds no asset and falls back to
     # `cargo install --git --tag`, which builds alef from source on a Windows runner and
@@ -268,6 +316,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.checkout_ref }}
+          fetch-depth: 0
 
       - name: Setup Rust
         uses: xberg-io/actions/setup-rust@v1
@@ -286,6 +335,18 @@ jobs:
           package-name: alef
           binary-name: alef
           target: ${{ matrix.target }}
+
+      - name: Smoke CLI version and source
+        shell: bash
+        env:
+          AUTOMATION_SHA: ${{ github.sha }}
+          RELEASE_SPEC: ${{ needs.prepare.outputs.release_spec }}
+          CLI_BINARY: ${{ steps.build.outputs.binary-path }}
+        run: |
+          set -euo pipefail
+          git show "$AUTOMATION_SHA:scripts/publish/github-release-state.py" > "$RUNNER_TEMP/alef-release-state.py"
+          printf '%s\n' "$RELEASE_SPEC" > "$RUNNER_TEMP/alef-release-spec.json"
+          python3 "$RUNNER_TEMP/alef-release-state.py" smoke --spec "$RUNNER_TEMP/alef-release-spec.json" --binary "$CLI_BINARY"
 
       - name: Create release archive
         id: archive
@@ -309,14 +370,40 @@ jobs:
         with:
           name: cli-${{ matrix.label }}
           path: ${{ steps.archive.outputs.path }}
+          if-no-files-found: error
           retention-days: 14
+
+  public-ready:
+    name: Verify public assets before optional taps
+    needs: [prepare, promote, publish-crates]
+    if: |
+      always() &&
+      needs.prepare.result == 'success' &&
+      (needs.prepare.outputs.release_homebrew == 'true' || needs.prepare.outputs.release_scoop == 'true') &&
+      (needs.prepare.outputs.release_cli != 'true' || needs.promote.result == 'success') &&
+      (needs.prepare.outputs.release_crates != 'true' || needs.publish-crates.result == 'success')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_SPEC: ${{ needs.prepare.outputs.release_spec }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Require an already-public complete release
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$RELEASE_SPEC" > release-spec.json
+          python3 scripts/publish/github-release-state.py require-public
 
   publish-homebrew-formula:
     name: Update Homebrew formula
-    needs: [prepare, check-homebrew, publish-crates]
+    needs: [prepare, check-homebrew, publish-crates, public-ready]
     if: |
       always() &&
       needs.prepare.outputs.release_homebrew == 'true' &&
+      needs.public-ready.result == 'success' &&
       needs.prepare.outputs.dry_run != 'true' &&
       (needs.check-homebrew.outputs.exists != 'true' || needs.prepare.outputs.force_republish == 'true') &&
       needs.publish-crates.result != 'failure'
@@ -498,76 +585,56 @@ jobs:
           git push origin HEAD
 
   upload-release-assets:
-    name: Upload release assets
+    name: Verify and upload missing CLI assets
     needs: [prepare, check-github-release, build-cli]
     if: |
       always() &&
+      needs.prepare.result == 'success' &&
+      needs.check-github-release.result == 'success' &&
       needs.prepare.outputs.release_cli == 'true' &&
-      needs.build-cli.result == 'success' &&
-      (needs.check-github-release.outputs.exists != 'true' || needs.prepare.outputs.force_republish == 'true')
+      needs.build-cli.result == 'success'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_SPEC: ${{ needs.prepare.outputs.release_spec }}
+      DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
     steps:
-      - uses: actions/create-github-app-token@v3
-        id: app-token
-        with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-          owner: xberg-io
-
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.prepare.outputs.checkout_ref }}
-
+          ref: ${{ github.sha }}
       - name: Download all CLI artifacts
         uses: actions/download-artifact@v8
         with:
           pattern: cli-*
           path: dist/cli
           merge-multiple: true
-
+      - name: Materialize admitted specification
+        shell: bash
+        run: printf '%s\n' "$RELEASE_SPEC" > release-spec.json
       - name: Verify CLI release assets are present
         shell: bash
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          matched=(dist/cli/*)
-          if [[ ${#matched[@]} -eq 0 ]]; then
-            echo "::error::release asset glob 'dist/cli/*' matched no files; refusing to publish a release with no CLI assets" >&2
-            exit 1
-          fi
-          echo "matched ${#matched[@]} CLI release asset(s) for 'dist/cli/*'"
-
-      - name: Upload CLI artifacts to release
-        uses: xberg-io/actions/publish-github-release@v1
-        with:
-          tag: ${{ needs.prepare.outputs.tag }}
-          title: ${{ needs.prepare.outputs.tag }}
-          artifacts: "dist/cli/*"
-          generate-notes: "false"
-          draft: "false"
-          dry-run: ${{ needs.prepare.outputs.dry_run }}
-          token: ${{ steps.app-token.outputs.token }}
+          python3 scripts/publish/github-release-state.py validate-local --spec release-spec.json --directory dist/cli
+      - name: Upload only missing source-bound archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          flags=()
+          if [[ "$DRY_RUN" == "true" ]]; then flags+=(--dry-run); fi
+          python3 scripts/publish/github-release-state.py upload --build-result success "${flags[@]}"
 
   publish-scoop-manifest:
     name: Update Scoop bucket manifest
-    needs: [prepare, check-scoop, upload-release-assets]
-    # ~keep `upload-release-assets.result != 'failure'` (not `== 'success'`) so a same-tag
-    # retry still proceeds regardless of *why* that job didn't freshly succeed this run --
-    # skipped because the release already carried the asset, skipped for an unrelated reason,
-    # cancelled, whatever short of an active failure. This job no longer needs to reason about
-    # `check-github-release`'s output to decide that; if the Windows asset genuinely isn't on
-    # the release, "Render and publish Scoop manifest" below fails loudly (its `gh release
-    # download` has nothing to fetch) instead of this `if:` silently skipping the job -- a
-    # loud, visible failure beats a green run that published nothing.
-    #
-    # ~keep Runs in dry-run too: only "Commit and push manifest" is gated on
-    # `dry_run != 'true'`. A dry run that skipped rendering would prove nothing -- it must
-    # still download the real release asset, hash it, and render+validate the real manifest,
-    # and stop short of only the actual write (the git commit/push to scoop-bucket).
+    needs: [prepare, check-scoop, public-ready]
+    # ~keep Tap-only retries verify existing public assets; a failed optional update never
+    # changes an already-public core release back to a draft.
     if: |
       always() &&
       needs.prepare.outputs.release_scoop == 'true' &&
-      needs.upload-release-assets.result != 'failure' &&
+      needs.public-ready.result == 'success' &&
       (needs.check-scoop.outputs.exists != 'true' || needs.prepare.outputs.force_republish == 'true')
     runs-on: ubuntu-latest
     steps:
@@ -666,50 +733,107 @@ jobs:
         run: scripts/publish/commit-scoop-manifest.sh
 
   publish-crates:
-    name: Publish crates.io
-    needs: [prepare, check-cratesio]
+    name: Publish and verify all requested crates
+    needs: [prepare, check-cratesio, check-github-release, upload-release-assets]
     if: |
       always() &&
+      needs.prepare.result == 'success' &&
+      needs.check-cratesio.result == 'success' &&
       needs.prepare.outputs.release_crates == 'true' &&
-      (needs.check-cratesio.outputs.exists != 'true' || needs.prepare.outputs.force_republish == 'true')
+      (needs.prepare.outputs.release_cli != 'true' ||
+       (needs.check-github-release.result == 'success' &&
+        (needs.check-github-release.outputs.exists == 'true' || needs.upload-release-assets.result == 'success')))
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      AUTOMATION_SHA: ${{ github.sha }}
+      RELEASE_SPEC: ${{ needs.prepare.outputs.release_spec }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.checkout_ref }}
-
+          fetch-depth: 0
+      - name: Load controller without changing tagged source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show "$AUTOMATION_SHA:scripts/publish/github-release-state.py" > "$RUNNER_TEMP/alef-release-state.py"
+          printf '%s\n' "$RELEASE_SPEC" > "$RUNNER_TEMP/alef-release-spec.json"
       - name: Setup Rust
         uses: xberg-io/actions/setup-rust@v1
         with:
           use-sccache: "false"
           install-llvm-cov: "false"
-
       - name: Install mise for package verification
         if: needs.prepare.outputs.dry_run == 'true'
         uses: xberg-io/actions/setup-mise@v1
         with:
-          # publish:verify needs only mise itself and the Rust toolchain; install no mise tool. ~keep
           install: "false"
           config-ref: ${{ github.sha }}
-
       - name: Verify release crates without publishing
         if: needs.prepare.outputs.dry_run == 'true'
         run: mise run publish:verify "${{ needs.prepare.outputs.version }}"
-
-      - name: Publish to crates.io
-        if: needs.prepare.outputs.dry_run != 'true'
+      - name: Publish missing crates in dependency order
+        if: needs.prepare.outputs.dry_run != 'true' && needs.check-cratesio.outputs.exists != 'true'
         uses: xberg-io/actions/publish-crates@v1
         with:
           crates: alef-component-abi alef-component-runtime alef
           version: ${{ needs.prepare.outputs.version }}
           dry-run: ${{ needs.prepare.outputs.dry_run }}
+      - name: Verify every requested registry version
+        if: needs.prepare.outputs.dry_run != 'true'
+        shell: bash
+        run: python3 "$RUNNER_TEMP/alef-release-state.py" verify-crates --spec "$RUNNER_TEMP/alef-release-spec.json"
+
+  promote:
+    name: Promote only the verified complete release
+    needs: [prepare, check-github-release, build-cli, upload-release-assets, publish-crates]
+    if: |
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.prepare.outputs.release_cli == 'true' &&
+      needs.check-github-release.result == 'success' &&
+      (needs.check-github-release.outputs.exists == 'true' || needs.upload-release-assets.result == 'success') &&
+      (needs.prepare.outputs.release_crates != 'true' || needs.publish-crates.result == 'success')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_SPEC: ${{ needs.prepare.outputs.release_spec }}
+      DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+      CRATES_REQUESTED: ${{ needs.prepare.outputs.release_crates }}
+      BUILD_RESULT: ${{ needs.build-cli.result }}
+      CRATES_RESULT: ${{ needs.publish-crates.result }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Promote after authoritative asset and registry verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$RELEASE_SPEC" > release-spec.json
+          flags=()
+          if [[ "$DRY_RUN" == "true" ]]; then flags+=(--dry-run); fi
+          if [[ "$CRATES_REQUESTED" == "true" ]]; then flags+=(--crates-requested); fi
+          python3 scripts/publish/github-release-state.py promote --build-result "$BUILD_RESULT" --crates-result "$CRATES_RESULT" "${flags[@]}"
 
   finalize:
     name: Finalize release
-    needs: [prepare, upload-release-assets, publish-crates, publish-homebrew-bottles, publish-scoop-manifest]
+    needs:
+      [
+        prepare,
+        promote,
+        public-ready,
+        upload-release-assets,
+        publish-crates,
+        publish-homebrew-bottles,
+        publish-scoop-manifest,
+      ]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -719,6 +843,8 @@ jobs:
 
       - name: Publish summary
         if: always()
+        env:
+          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
         run: |
           {
             echo "## Release ${{ needs.prepare.outputs.tag }}"
@@ -729,14 +855,19 @@ jobs:
           report() {
             local name="$1" result="$2"
             case "$result" in
-              success)  echo "| $name | :white_check_mark: Published |" ;;
+              success)
+                if [[ "$DRY_RUN" == "true" ]]; then
+                  echo "| $name | Verified (dry run) |"
+                else
+                  echo "| $name | :white_check_mark: Published |"
+                fi ;;
               skipped)  echo "| $name | :fast_forward: Skipped |" ;;
               *)        echo "| $name | :x: $result |" ;;
             esac
           }
           {
             report "crates.io"       "${{ needs.publish-crates.result }}"
-            report "GitHub Release"  "${{ needs.upload-release-assets.result }}"
+            report "GitHub Release"  "${{ needs.promote.result }}"
             report "Homebrew"        "${{ needs.publish-homebrew-bottles.result }}"
             report "Scoop"           "${{ needs.publish-scoop-manifest.result }}"
           } >> "$GITHUB_STEP_SUMMARY"
