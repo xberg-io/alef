@@ -27,12 +27,13 @@ fn run_in_isolated_case(name: &str, body: impl FnOnce()) {
     let result = run_run_command_with_spawn(
         "alef-569-isolated-case",
         &[],
-        &std::env::current_dir().unwrap(),
+        logs.path(),
         "alef-569-isolation",
         std::time::Duration::from_secs(30),
         &|command| {
             let mut child = Command::new(std::env::current_exe()?);
             child.args(["--exact", &full_name, "--nocapture", "--test-threads=1"]);
+            child.current_dir(logs.path());
             child.env_remove("ALEF_SKIP_COMMANDS");
             child.env("ALEF_569_ISOLATED_CASE", &full_name);
             child.stdout(stdout.try_clone()?).stderr(stderr.try_clone()?);
