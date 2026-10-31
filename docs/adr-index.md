@@ -18,3 +18,4 @@ log; add a row in the same change as a new record.
 | [0007](../adrs/0007-generational-handles-across-the-c-abi.md) | Generational handles across the C ABI | accepted | 2026-08-13 |
 | [0008](../adrs/0008-share-immutable-metadata-within-snippet-render-sessions.md) | Share immutable metadata within snippet render sessions | accepted | 2026-10-31 |
 | [0009](../adrs/0009-publish-source-bound-draft-releases-before-public-promotion.md) | Publish source-bound draft releases before public promotion | proposed | 2026-10-31 |
+| [0010](../adrs/0010-represent-rust-u64-losslessly-in-the-next-major-dart-api.md) | Represent Rust u64 losslessly in the next major Dart API | proposed | 2026-10-31 |
