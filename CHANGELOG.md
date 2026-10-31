@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Keep the alef skill description within the 250-character context-exposure limit.
+- Extract the unsigned Dart native fixture from its actual crate root so generated paths match the compiled core.
 
 ## [0.115.10] - 2026-10-31
 

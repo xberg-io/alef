@@ -17,7 +17,8 @@ fn generated(root: &Path) -> Vec<alef::core::backend::GeneratedFile> {
 }
 
 fn generated_with_callbacks(root: &Path, callback: bool) -> Vec<alef::core::backend::GeneratedFile> {
-    let source = root.join("core.rs");
+    let source = root.join("core/src/lib.rs");
+    std::fs::create_dir_all(source.parent().unwrap()).unwrap();
     let core = if callback {
         format!("{CORE}\npub trait WideCallback: Send + Sync {{ fn value(&self, input: u64) -> u64; }}\n")
     } else {
@@ -26,6 +27,9 @@ fn generated_with_callbacks(root: &Path, callback: bool) -> Vec<alef::core::back
     std::fs::write(&source, core).unwrap();
     let api = alef::extract::extractor::extract(&[&source], "wide-sample", "1.0.0", None).unwrap();
     let record = api.types.iter().find(|item| item.name == "WideRecord").unwrap();
+    assert_eq!(record.rust_path.replace('-', "_"), "wide_sample::WideRecord");
+    let probe = api.types.iter().find(|item| item.name == "Probe").unwrap();
+    assert_eq!(probe.rust_path.replace('-', "_"), "wide_sample::Probe");
     assert_eq!(record.fields.len(), 9, "extract the full real Rust record");
     assert_eq!(record.fields[0].ty, TypeRef::Primitive(PrimitiveType::U64));
     let config: NewAlefConfig = toml::from_str(

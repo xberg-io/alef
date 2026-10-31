@@ -1,5 +1,9 @@
 # Unsigned Dart native probe
 
+API extraction reads the native fixture crate’s actual `core/src/lib.rs`. Extracting the same bytes
+from a synthetic `core.rs` instead incorrectly declares a `core` module absent from that crate.
+The extracted record and probe paths must name the crate root before generation proceeds.
+
 The probe preserves the original 54 cases and adds 67 named cases (121 total). Five unsigned boundaries exercise nested DTOs and caller-owned probe handles; direct invalid newtypes, record fields and nested record/optional/list/map leaves must be rejected. The fixture-owned Rust counter proves valid calls reach the core once and invalid calls never reach it; this does not instrument the FRB codec itself.
 
 FRB’s generalized `Uint64List.fromList` casts values to unsigned 64-bit elements at construction. Once an invalid value has been cast, its original value is unavailable to a later argument validator. This probe tests all five valid unsigned list boundaries and deliberately makes no invalid-list rejection promise. Scalar and ordinary map/DTO BigInt leaves remain subject to range validation.
