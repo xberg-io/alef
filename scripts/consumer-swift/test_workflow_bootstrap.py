@@ -4,6 +4,8 @@ import re
 import unittest
 from pathlib import Path
 
+import driver
+import entry
 from assertions import raises
 
 VERIFY = (
@@ -27,6 +29,20 @@ def require_mise_before_qualification(workflow):
 
 def task_runner_references(text):
     return re.findall(r"go-task|--bootstrap-task|\"task\",|SWIFT_GATE_BOOTSTRAP|consumer-task", text)
+
+
+# Run 41187024458: every stage but the release build took 2060 s; the stages after it have 2925 s of
+# timeouts. GitHub-hosted jobs stop at 6 h; setup, controls and upload need about 15 minutes.
+OTHER_STAGES, LATER_TIMEOUTS, HOSTED_JOB_LIMIT, JOB_OVERHEAD = 2060, 2925, 360 * 60, 15 * 60
+
+
+def require_time_budget(workflow, wall, release):
+    minutes = re.findall(r"(?m)^    timeout-minutes: (\d+)$", workflow)
+    if len(minutes) != 1:
+        raise ValueError("expected one consumer job timeout")
+    job = int(minutes[0]) * 60
+    if not OTHER_STAGES + release + LATER_TIMEOUTS <= wall <= job - JOB_OVERHEAD <= HOSTED_JOB_LIMIT - JOB_OVERHEAD:
+        raise ValueError("release timeout, session wall and job timeout do not nest")
 
 
 class WorkflowBootstrap(unittest.TestCase):
@@ -56,3 +72,15 @@ class WorkflowBootstrap(unittest.TestCase):
         found = {str(path): task_runner_references(path.read_text()) for path in sources}
         assert not any(found.values()), found
         assert task_runner_references('["task", "swift:test"]') == ['"task",']
+
+    def test_release_timeout_fits_the_session_wall_and_the_hosted_job_limit(self):
+        source = self.workflow()
+        require_time_budget(source, entry.WALL["verify"], driver.RELEASE_BUILD_TIMEOUT)
+        for mutated, wall, release in [
+            (source, entry.WALL["verify"], 3600 + entry.WALL["verify"]),
+            (source.replace("timeout-minutes: 275", "timeout-minutes: 180"), entry.WALL["verify"], 3600),
+            (source.replace("timeout-minutes: 275", "timeout-minutes: 400"), 23000, 3600),
+            (source.replace("    timeout-minutes: 275\n", ""), entry.WALL["verify"], 3600),
+        ]:
+            with self.subTest(wall=wall, release=release), raises(ValueError):
+                require_time_budget(mutated, wall, release)

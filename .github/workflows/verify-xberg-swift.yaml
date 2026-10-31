@@ -16,7 +16,7 @@ permissions:
 jobs:
   consumer:
     runs-on: macos-26
-    timeout-minutes: 180
+    timeout-minutes: 275
     steps:
       - uses: actions/checkout@v7
         with:

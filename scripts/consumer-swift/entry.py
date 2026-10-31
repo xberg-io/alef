@@ -11,6 +11,10 @@ from contracts import FLOOR, immutable_ref
 from runtime import free_receipt
 from session_guard import supervise
 
+# The release build's stage timeout plus the other stages' measured 2060 s and the 2925 s of
+# timeouts after it, with margin; the workflow job timeout leaves room for setup and upload. ~keep
+WALL = {"verify": 15600, "--controls": 60}
+
 
 def main():
     if sys.version_info < (3, 11):  # noqa: UP036  # ~keep Runs under the runner's preinstalled python3, not the mise interpreter.
@@ -77,7 +81,7 @@ def main():
         command = [sys.executable, str(Path(__file__).with_name("driver.py"))]
         if mode != "verify":
             command.append(mode)
-        wall = {"verify": 10200, "--controls": 60}[mode]
+        wall = WALL[mode]
         code = supervise(command, root, emit, floor=FLOOR, wall=wall, sampler=sample, interval=0.2)
     (evidence / "volume-samples.json").write_text(json.dumps(records))
     (evidence / "terminal.json").write_text(

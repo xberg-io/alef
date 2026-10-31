@@ -21,6 +21,10 @@ import runtime
 from contracts import immutable_ref, safe_test_census
 from strict_flags import strict_flags
 
+# Run 41187024458 hit the former 3600 s with 963 of the check build's 979 rustc units started; the 16
+# left include xberg, xberg-ffi and xberg-swift, whose fat-LTO link of the whole graph runs on one job. ~keep
+RELEASE_BUILD_TIMEOUT = 9000
+
 
 class Gate:
     def __init__(self):
@@ -256,7 +260,7 @@ class Gate:
             [*common, "build", "--lang", "swift", "--release", "--strict"],
             self.xberg,
             12 * 1024**3,
-            3600,
+            RELEASE_BUILD_TIMEOUT,
         )
         package_id = self.metadata("actual-release-metadata", manifest, release_target)
         release = receipts.binding_receipt(release_calls, manifest, package_id, release_target, True)
@@ -339,7 +343,7 @@ def harness_controls():
     root = Path(os.environ["GITHUB_WORKSPACE"])
     evidence = Path(os.environ.get("SWIFT_GATE_CONTROL_EVIDENCE", str(root / "consumer-controls-evidence")))
     suite = unittest.defaultTestLoader.discover(str(Path(__file__).parent), pattern="test_*.py")
-    expected = 55
+    expected = 56
     actual = suite.countTestCases()
     if actual != expected:
         (evidence / "census-refusal.json").write_text(json.dumps({"expected": expected, "discovered": actual}))
