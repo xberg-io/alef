@@ -204,6 +204,18 @@ class Gate:
         )
         self.env["CARGO_ENCODED_RUSTFLAGS"] = "\x1f".join(flags)
 
+    def fetch_consumer_dependencies(self):
+        # alef resolves the `from_registry` source crates in xberg's alef.toml with a full `cargo metadata`,
+        # which on a cold runner downloads and unpacks the whole locked graph (over 1 GiB for 9b0a9387, runs
+        # 41115788579 and 41125475169). Fetching it first keeps that download out of the extract allocation.
+        self.command(
+            "fetch-current-consumer-dependencies",
+            ["cargo", "fetch", "--locked", "--manifest-path", self.xberg / "Cargo.toml"],
+            self.xberg,
+            4 * 1024**3,
+            900,
+        )
+
     def consumer(self, cli):
         package = self.xberg / "packages/swift"
         manifest = package / "rust/Cargo.toml"
@@ -211,13 +223,12 @@ class Gate:
         lock = receipts.sha(self.xberg / "Cargo.lock")
         check_target = self.evidence / "check-target"
         check_calls = self.phase("check", self.xberg, check_target)
+        self.fetch_consumer_dependencies()
         common = [cli, "--config", self.xberg / "alef.toml", "--no-color", "--jobs", "1", "--crate", "xberg"]
         self.command(
             "extract-current-consumer",
             [*common, "extract", "--output", self.evidence / "ir.json"],
             self.xberg,
-            # Extracting xberg 9b0a9387 drew 524 MiB of shared volume (run 41115788579); 512 MiB fit only the
-            # older consumer.
             1024 * 1024**2,
             300,
         )
