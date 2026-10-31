@@ -63,6 +63,68 @@ fn run_in_isolated_case(name: &str, body: impl FnOnce()) {
     eprintln!("isolated {full_name}: {summary}");
 }
 
+#[cfg(unix)]
+#[test]
+fn should_launch_isolated_cases_from_a_live_owned_directory_after_ambient_cwd_is_removed() {
+    const NAME: &str = "should_launch_isolated_cases_from_a_live_owned_directory_after_ambient_cwd_is_removed";
+    const FLAG: &str = "ALEF_FRB_REMOVED_CWD_CASE";
+    let full_name = format!("{}::{NAME}", module_path!().split_once("::").unwrap().1);
+    if std::env::var("ALEF_569_ISOLATED_CASE").ok().as_deref() == Some(full_name.as_str()) {
+        run_in_isolated_case(NAME, || {
+            let cwd = std::env::current_dir().expect("isolated case must have a live explicit cwd");
+            assert!(cwd.is_dir(), "isolated cwd must remain owned until the case ends");
+        });
+        return;
+    }
+    if std::env::var(FLAG).ok().as_deref() == Some(full_name.as_str()) {
+        let ambient = tempfile::tempdir().expect("disposable isolated-process cwd");
+        std::env::set_current_dir(ambient.path()).unwrap();
+        drop(ambient);
+        assert_eq!(
+            std::env::current_dir().unwrap_err().kind(),
+            std::io::ErrorKind::NotFound,
+            "the regression must exercise a genuinely unlinked ambient cwd"
+        );
+        run_in_isolated_case(NAME, || panic!("body must run only in the nested isolated case"));
+        eprintln!("alef-frb-removed-cwd-case-completed");
+        return;
+    }
+    assert_removed_cwd_case_completes(&full_name, FLAG);
+}
+
+#[cfg(unix)]
+fn assert_removed_cwd_case_completes(full_name: &str, flag: &str) {
+    let root = tempfile::tempdir().expect("outer isolated case cwd");
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", full_name, "--nocapture", "--test-threads=1"])
+        .current_dir(root.path())
+        .env_remove("ALEF_569_ISOLATED_CASE")
+        .env_remove("ALEF_SKIP_COMMANDS")
+        .env(flag, full_name)
+        .output()
+        .expect("launch exact removed-cwd case without changing the parent cwd");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "removed-cwd child failed:\n{stdout}\n{stderr}");
+    let summaries = stdout
+        .lines()
+        .filter(|line| line.starts_with("test result:"))
+        .collect::<Vec<_>>();
+    assert_eq!(summaries.len(), 1, "exactly one outer selected case: {stdout}");
+    assert!(
+        summaries[0].starts_with("test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured;"),
+        "one selected case must actually run: {stdout}"
+    );
+    assert_eq!(
+        stderr
+            .lines()
+            .filter(|line| *line == "alef-frb-removed-cwd-case-completed")
+            .count(),
+        1,
+        "the removed-cwd case must finish exactly once: {stderr}"
+    );
+}
+
 struct Fixture {
     root: tempfile::TempDir,
     ledger: PathBuf,
