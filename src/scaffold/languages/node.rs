@@ -398,25 +398,36 @@ module.exports = { ...require("./binding.cjs")(nativeBinding), ..._service };"#
 
 const {{ platform, arch }} = process;
 const isMusl = () => {{
-  // Prefer the report-header `glibcVersion` string when present — fastest and
-  // unambiguous on Node builds that populate it. On Node 22+, certain CI
-  // environments leave `glibcVersion` undefined even on glibc systems, so the
-  // `=== undefined` branch from older napi-rs templates produces a false
-  // "is musl" positive. Fall through to the filesystem heuristic instead: on
-  // glibc systems `/lib64/ld-musl-x86_64.so.1` does not exist; on musl systems
-  // it always does. statSync errors → not musl.
-  if (typeof process.report === "object" && typeof process.report.getReport === "function") {{
-    const report = process.report.getReport();
-    if (report && report.header && typeof report.header.glibcVersion === "string") {{
+  // Runtime libc metadata wins over a separately installed cross-architecture musl loader.
+  try {{
+    const report = typeof process.report?.getReport === "function" ? process.report.getReport() : null;
+    if (typeof report?.header?.glibcVersionRuntime === "string" ||
+        typeof report?.header?.glibcVersion === "string") {{
       return false;
     }}
+    if (Array.isArray(report?.sharedObjects) && report.sharedObjects.some((path) =>
+        typeof path === "string" && (path.includes("/ld-musl-") || path.includes("/libc.musl-")))) {{
+      return true;
+    }}
+  }} catch {{
+    // A disabled diagnostic report must not prevent filesystem-based detection.
   }}
   try {{
-    require("fs").statSync("/lib64/ld-musl-x86_64.so.1");
-    return true;
+    return require("fs").readFileSync("/usr/bin/ldd", "utf8").includes("musl");
   }} catch {{
-    return false;
+    // Minimal images can omit ldd while retaining the architecture's actual loader.
   }}
+  const muslArch = {{ x64: "x86_64", arm64: "aarch64" }}[process.arch];
+  if (!muslArch) return false;
+  for (const directory of ["/lib", "/lib64"]) {{
+    try {{
+      require("fs").statSync(`${{directory}}/ld-musl-${{muslArch}}.so.1`);
+      return true;
+    }} catch {{
+      // Try the other conventional loader directory before using the GNU default.
+    }}
+  }}
+  return false;
 }};
 
 let nativeBinding = null;
