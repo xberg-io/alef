@@ -551,33 +551,7 @@ impl E2eCodegen for ZigE2eCodegen {
         self.render_snippet_body_with_functions(fixture, e2e_config, config, type_defs, enums, &[], &[])
     }
 
-    fn render_snippet_body_with_functions(
-        &self,
-        fixture: &Fixture,
-        e2e_config: &E2eConfig,
-        config: &ResolvedCrateConfig,
-        type_defs: &[crate::core::ir::TypeDef],
-        enums: &[crate::core::ir::EnumDef],
-        functions: &[crate::core::ir::FunctionDef],
-        _errors: &[crate::core::ir::ErrorDef],
-    ) -> Result<String> {
-        let module = config.zig_module_name();
-        let ffi_prefix = config
-            .ffi
-            .as_ref()
-            .and_then(|value| value.prefix.clone())
-            .unwrap_or_default();
-        test_file::render_snippet_body(
-            fixture,
-            e2e_config,
-            &module,
-            &ffi_prefix,
-            config,
-            type_defs,
-            enums,
-            functions,
-        )
-    }
+    forward_snippet_rendering!(render_snippet_in_session);
 
     fn renders_client_config(&self) -> bool {
         true
@@ -586,6 +560,21 @@ impl E2eCodegen for ZigE2eCodegen {
     fn language_name(&self) -> &'static str {
         "zig"
     }
+}
+
+fn render_snippet_in_session(
+    fixture: &Fixture,
+    e2e_config: &E2eConfig,
+    config: &ResolvedCrateConfig,
+    session: &super::SnippetRenderSession<'_>,
+) -> Result<String> {
+    let module = config.zig_module_name();
+    let ffi_prefix = config
+        .ffi
+        .as_ref()
+        .and_then(|value| value.prefix.clone())
+        .unwrap_or_default();
+    test_file::render_in_session(fixture, e2e_config, &module, &ffi_prefix, config, session)
 }
 
 /// Derive the bare Zig `@import` identifier for a host-capsule type from its

@@ -9,6 +9,8 @@ use crate::core::hash::{self, CommentStyle};
 use crate::e2e::codegen::mock_assertions;
 
 mod snippet_body;
+pub(super) use snippet_body::render_in_session;
+#[cfg(test)]
 pub(super) use snippet_body::render_snippet_body;
 
 #[path = "snippet_stream.rs"]

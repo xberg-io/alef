@@ -267,21 +267,11 @@ impl E2eCodegen for RustE2eCodegen {
         type_defs: &[crate::core::ir::TypeDef],
         enums: &[crate::core::ir::EnumDef],
     ) -> Result<String> {
-        render_docs_snippet(fixture, e2e_config, config, type_defs, enums, &[])
+        let session = super::SnippetRenderSession::new(type_defs, enums, &[], &[]);
+        render_docs_snippet(fixture, e2e_config, config, &session)
     }
 
-    fn render_snippet_body_with_functions(
-        &self,
-        fixture: &Fixture,
-        e2e_config: &E2eConfig,
-        config: &ResolvedCrateConfig,
-        type_defs: &[crate::core::ir::TypeDef],
-        enums: &[crate::core::ir::EnumDef],
-        functions: &[crate::core::ir::FunctionDef],
-        _errors: &[crate::core::ir::ErrorDef],
-    ) -> Result<String> {
-        render_docs_snippet(fixture, e2e_config, config, type_defs, enums, functions)
-    }
+    forward_snippet_rendering!(render_docs_snippet);
 
     fn renders_client_config(&self) -> bool {
         true
@@ -295,7 +285,7 @@ impl E2eCodegen for RustE2eCodegen {
 /// The docs-snippet body, with the free-function registry the trait's IR-less
 /// [`E2eCodegen::render_snippet_body`] arm cannot supply.
 ///
-/// `functions` reaches only the presentation resolver, which needs it to anchor field facts at
+/// The session's function registry reaches only the presentation resolver, which anchors field facts at
 /// the call's declared result type. `render_test_file` below still receives `&[]` deliberately:
 /// widening what IT sees would change enum classification and argument lowering for every Rust
 /// snippet, which is a different change from this one. ~keep
@@ -303,10 +293,10 @@ fn render_docs_snippet(
     fixture: &Fixture,
     e2e_config: &E2eConfig,
     config: &ResolvedCrateConfig,
-    type_defs: &[crate::core::ir::TypeDef],
-    enums: &[crate::core::ir::EnumDef],
-    functions: &[crate::core::ir::FunctionDef],
+    session: &super::SnippetRenderSession<'_>,
 ) -> Result<String> {
+    let type_defs = session.type_defs();
+    let enums = session.enums();
     let dep_name = resolve_crate_name(e2e_config, config).replace('-', "_");
     let mut call_fixture = fixture.docs_call_fixture();
     let expects_error = fixture
@@ -323,8 +313,8 @@ fn render_docs_snippet(
     // binds a named `result` and whether a `Result` return is unwrapped — sees the derived
     // operations too, not just hand-authored ones. Without it the emitter bound `let _ =`
     // while this snippet printed `result.<field>`. ~keep
-    super::presentation::apply_derived_shows(&mut call_fixture, e2e_config, "rust", type_defs, enums, functions);
-    let presentation = super::presentation::resolve(&call_fixture, e2e_config, "rust", type_defs, enums, functions);
+    session.apply_derived_shows(&mut call_fixture, e2e_config, "rust");
+    let presentation = session.resolve(&call_fixture, e2e_config, "rust");
     let call = e2e_config.resolve_call_for_fixture(
         call_fixture.call.as_deref(),
         &call_fixture.id,
@@ -351,24 +341,22 @@ fn render_docs_snippet(
     } else {
         call.effective_result_var()
     };
-    // This trait method carries no `functions: &[FunctionDef]` parameter (the free-function
-    // registry), so a snippet whose call names a free function rather than an IR type's
-    // method resolves no root type for IR-derived enum classification here — it still
-    // falls back to the hand-maintained `fields_enum` config, exactly as before this
-    // parameter existed. Method-based calls (`type_defs` alone) resolve fine.
-    let test_file = render_test_file(
-        &fixture.resolved_category(),
-        &[&call_fixture],
-        e2e_config,
-        config,
-        type_defs,
-        enums,
-        &[],
-        &dep_name,
-        call_fixture.needs_mock_server(),
-        fixture.docs_client(),
-        expects_error,
-    );
+    let test_file = {
+        let _span = tracing::trace_span!("snippet_call_body").entered();
+        render_test_file(
+            &fixture.resolved_category(),
+            &[&call_fixture],
+            e2e_config,
+            config,
+            type_defs,
+            enums,
+            &[],
+            &dep_name,
+            call_fixture.needs_mock_server(),
+            fixture.docs_client(),
+            expects_error,
+        )
+    };
     let (imports, body, is_async) = extract_rust_snippet(&test_file)?;
     let api_key_var = crate::e2e::fixture::FixtureEnv::api_key_var_or_default(fixture.env.as_ref());
     let body = body

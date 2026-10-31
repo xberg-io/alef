@@ -21,14 +21,17 @@ pub(super) fn render_snippet_body(
     render_snippet_body_with_ir(fixture, e2e_config, config, type_defs, &[], &[])
 }
 
-pub(super) fn render_snippet_body_with_ir(
+one_shot_snippet_renderer!(pub(super) render_snippet_body_with_ir -> String, render_in_session);
+
+pub(super) fn render_in_session(
     fixture: &Fixture,
     e2e_config: &E2eConfig,
     config: &ResolvedCrateConfig,
-    type_defs: &[TypeDef],
-    enums: &[crate::core::ir::EnumDef],
-    functions: &[crate::core::ir::FunctionDef],
+    session: &crate::e2e::codegen::SnippetRenderSession<'_>,
 ) -> String {
+    let type_defs = session.type_defs();
+    let enums = session.enums();
+    let functions = session.functions();
     let mut call = e2e_config.resolve_call_for_fixture(
         fixture.call.as_deref(),
         &fixture.id,
@@ -181,8 +184,7 @@ pub(super) fn render_snippet_body_with_ir(
     } else {
         simple_class_name.clone()
     };
-    let presentation =
-        crate::e2e::codegen::presentation::resolve(fixture, e2e_config, "java", type_defs, enums, functions);
+    let presentation = session.resolve(fixture, e2e_config, "java");
     let expects_error = fixture
         .assertions
         .iter()

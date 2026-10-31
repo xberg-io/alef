@@ -1,3 +1,4 @@
+use super::optional_fields::OptionalFieldSet;
 use super::renderers::{kotlin_getter, quoted_key_literal};
 use super::types::PathSegment;
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
@@ -76,7 +77,7 @@ pub(super) enum TypescriptMapAccess {
 pub(super) fn render_typescript_with_optionals(
     segments: &[PathSegment],
     result_var: &str,
-    optional_fields: &HashSet<String>,
+    optional_fields: &impl OptionalFieldSet,
     map_access: TypescriptMapAccess,
 ) -> String {
     let mut out = result_var.to_string();
@@ -142,7 +143,7 @@ pub(super) fn render_typescript_with_optionals(
 pub(super) fn render_java_with_optionals(
     segments: &[PathSegment],
     result_var: &str,
-    optional_fields: &HashSet<String>,
+    optional_fields: &impl OptionalFieldSet,
 ) -> String {
     let mut out = result_var.to_string();
     let mut path_so_far = String::new();
@@ -241,7 +242,7 @@ fn push_kotlin_map_get(out: &mut String, key: &str, nullable: bool) {
 pub(super) fn render_kotlin_with_optionals(
     segments: &[PathSegment],
     result_var: &str,
-    optional_fields: &HashSet<String>,
+    optional_fields: &impl OptionalFieldSet,
 ) -> String {
     let mut out = result_var.to_string();
     let mut path_so_far = String::new();
@@ -313,7 +314,7 @@ pub(super) fn render_kotlin_with_optionals(
 pub(super) fn render_kotlin_android_with_optionals(
     segments: &[PathSegment],
     result_var: &str,
-    optional_fields: &HashSet<String>,
+    optional_fields: &impl OptionalFieldSet,
 ) -> String {
     let mut out = result_var.to_string();
     let mut path_so_far = String::new();
@@ -459,7 +460,7 @@ fn push_rust_field_or_variant(
 pub(super) fn render_rust_with_optionals(
     segments: &[PathSegment],
     result_var: &str,
-    optional_fields: &HashSet<String>,
+    optional_fields: &impl OptionalFieldSet,
     method_calls: &HashSet<String>,
     result_fields: &HashSet<String>,
     variant_matches: &HashMap<String, String>,
@@ -552,7 +553,7 @@ pub(super) fn render_rust_with_optionals(
 pub(super) fn render_zig_with_optionals(
     segments: &[PathSegment],
     result_var: &str,
-    optional_fields: &HashSet<String>,
+    optional_fields: &impl OptionalFieldSet,
     method_calls: &HashSet<String>,
     result_fields: &HashSet<String>,
 ) -> String {
@@ -603,7 +604,7 @@ pub(super) fn render_zig_with_optionals(
 fn zig_append_call_and_unwrap(
     out: &mut String,
     path_so_far: &str,
-    optional_fields: &HashSet<String>,
+    optional_fields: &impl OptionalFieldSet,
     method_calls: &HashSet<String>,
     result_fields: &HashSet<String>,
 ) {
@@ -653,7 +654,7 @@ pub(super) fn render_pascal_dot(segments: &[PathSegment], result_var: &str) -> S
 pub(super) fn render_csharp_with_optionals(
     segments: &[PathSegment],
     result_var: &str,
-    optional_fields: &HashSet<String>,
+    optional_fields: &impl OptionalFieldSet,
     variant_narrowings: &HashMap<String, String>,
 ) -> String {
     let mut out = result_var.to_string();
@@ -835,7 +836,7 @@ pub(super) fn render_dart(segments: &[PathSegment], result_var: &str) -> String 
 pub(super) fn render_dart_with_optionals(
     segments: &[PathSegment],
     result_var: &str,
-    optional_fields: &HashSet<String>,
+    optional_fields: &impl OptionalFieldSet,
 ) -> String {
     let mut out = result_var.to_string();
     // Two parallel path trackers:

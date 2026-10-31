@@ -18,6 +18,7 @@
 //! [`is_collection_path`] only trusts that answer once it has walked the field path from a
 //! known root type through the IR's own struct graph to the exact type that owns the leaf
 //! segment — mirroring `ir_enum::is_enum_path` exactly.
+use super::anchored_maps::MetadataView;
 use std::collections::{HashMap, HashSet};
 
 use crate::core::ir::TypeDef;
@@ -37,6 +38,7 @@ use super::types::IrCollectionMap;
 /// multi-segment path like `parent.children` can advance its type cursor one segment at a time
 /// before answering the collection question at the leaf.
 pub(super) fn build_ir_collection_map(type_defs: &[TypeDef]) -> IrCollectionMap {
+    tracing::trace!(ir_metadata_fact = "collection");
     let struct_names: HashSet<&str> = type_defs.iter().map(|t| t.name.as_str()).collect();
 
     let mut field_types: HashMap<String, HashMap<String, String>> = HashMap::new();
@@ -119,8 +121,8 @@ pub(super) fn is_vec_type(ty: &crate::core::ir::TypeRef) -> bool {
 /// collection config entry, so this is purely additive: it can only turn a `false` into a
 /// `true` when the IR positively confirms the leaf is `Vec`-typed on the exact type the path
 /// reaches. Mirrors `ir_enum::is_enum_path` exactly.
-pub(super) fn is_collection_path(map: &IrCollectionMap, path: &str) -> bool {
-    let Some(root) = map.root_type.as_deref() else {
+pub(super) fn is_collection_path(map: &impl MetadataView<IrCollectionMap>, path: &str) -> bool {
+    let Some(root) = map.root() else {
         return false;
     };
     is_collection_path_from(map, root, path)
@@ -129,7 +131,7 @@ pub(super) fn is_collection_path(map: &IrCollectionMap, path: &str) -> bool {
 /// Walk `path` from an explicitly resolved IR owner type rather than the call's result root.
 /// Tagged-union renderers use this after narrowing a variant to its payload type, since a
 /// struct-only walk from `root_type` cannot cross the enum boundary itself. ~keep
-pub(super) fn is_collection_path_from(map: &IrCollectionMap, root: &str, path: &str) -> bool {
+pub(super) fn is_collection_path_from(map: &impl MetadataView<IrCollectionMap>, root: &str, path: &str) -> bool {
     let segments = parse_path(path);
     let Some((last, prefix)) = segments.split_last() else {
         return false;
@@ -140,7 +142,7 @@ pub(super) fn is_collection_path_from(map: &IrCollectionMap, root: &str, path: &
         let Some(name) = segment_name(segment) else {
             return false;
         };
-        match map.field_types.get(owner).and_then(|fields| fields.get(name)) {
+        match map.data().field_types.get(owner).and_then(|fields| fields.get(name)) {
             Some(next) => owner = next.as_str(),
             None => return false,
         }
@@ -149,7 +151,8 @@ pub(super) fn is_collection_path_from(map: &IrCollectionMap, root: &str, path: &
     let Some(name) = segment_name(last) else {
         return false;
     };
-    map.collection_fields
+    map.data()
+        .collection_fields
         .get(owner)
         .is_some_and(|fields| fields.contains(name))
 }
@@ -165,13 +168,13 @@ pub(super) fn is_collection_path_from(map: &IrCollectionMap, root: &str, path: &
 /// its own type is not itself another struct in `type_defs`). Callers validating an `Iterate`
 /// operation's per-item fields against this answer must treat `None` as "no answer, don't
 /// reject" — exactly the same fallback every other IR oracle in this module uses.
-pub(super) fn element_type_at_path(map: &IrCollectionMap, path: &str) -> Option<String> {
-    let root = map.root_type.as_deref()?;
+pub(super) fn element_type_at_path(map: &impl MetadataView<IrCollectionMap>, path: &str) -> Option<String> {
+    let root = map.root()?;
     let segments = parse_path(path);
     let mut owner = root;
     for segment in &segments {
         let name = segment_name(segment)?;
-        owner = map.field_types.get(owner)?.get(name)?.as_str();
+        owner = map.data().field_types.get(owner)?.get(name)?.as_str();
     }
     Some(owner.to_string())
 }
@@ -199,11 +202,11 @@ pub(super) fn build_non_string_scalar_element_fields(type_defs: &[TypeDef]) -> H
 }
 
 pub(super) fn has_non_string_scalar_elements_at_path(
-    map: &IrCollectionMap,
+    map: &impl MetadataView<IrCollectionMap>,
     fields: &HashMap<String, HashSet<String>>,
     path: &str,
 ) -> bool {
-    let Some(root) = map.root_type.as_deref() else {
+    let Some(root) = map.root() else {
         return false;
     };
     let segments = parse_path(path);
@@ -216,7 +219,7 @@ pub(super) fn has_non_string_scalar_elements_at_path(
         let Some(name) = segment_name(segment) else {
             return false;
         };
-        match map.field_types.get(owner).and_then(|fields| fields.get(name)) {
+        match map.data().field_types.get(owner).and_then(|fields| fields.get(name)) {
             Some(next) => owner = next.as_str(),
             None => return false,
         }

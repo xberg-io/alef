@@ -45,10 +45,13 @@
 //! `named_type` names nothing for a map, so before that edge existed the IR had no answer to
 //! give at all. ~keep
 
+use super::optional_fields::OptionalFieldSet;
 use super::optional_renderers::{push_key_field_name, push_key_index_suffix};
 use super::renderers::quoted_key_literal;
 use super::types::{PathSegment, PythonMapValueEdges, PythonTypedDictMap};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+#[cfg(test)]
+use std::collections::HashSet;
 
 #[derive(Clone)]
 pub(super) struct PythonAccessStep {
@@ -75,7 +78,7 @@ pub(super) struct PythonAccessContext<'a> {
 pub(super) fn render_python_with_optionals(
     segments: &[PathSegment],
     result_var: &str,
-    optional_fields: &HashSet<String>,
+    optional_fields: &impl OptionalFieldSet,
     typeddict_map: &PythonTypedDictMap,
     map_value_edges: &PythonMapValueEdges,
     json_crossings: &HashMap<String, PythonAccessStep>,
@@ -102,7 +105,7 @@ pub(super) fn render_python_with_optionals(
 pub(super) fn render_python_element_with_optionals(
     segments: &[PathSegment],
     element_var: &str,
-    optional_fields: &HashSet<String>,
+    optional_fields: &impl OptionalFieldSet,
     typeddict_map: &PythonTypedDictMap,
     map_value_edges: &PythonMapValueEdges,
     context: PythonAccessContext<'_>,
@@ -120,7 +123,7 @@ pub(super) fn render_python_element_with_optionals(
 fn render_python_with_optionals_from_owner(
     segments: &[PathSegment],
     result_var: &str,
-    optional_fields: &HashSet<String>,
+    optional_fields: &impl OptionalFieldSet,
     typeddict_map: &PythonTypedDictMap,
     map_value_edges: &PythonMapValueEdges,
     context: PythonAccessContext<'_>,

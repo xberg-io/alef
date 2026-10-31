@@ -34,6 +34,10 @@ pub(super) fn build_variant_accessor_map(enums: &[EnumDef]) -> VariantAccessorMa
                 .insert((enum_def.name.clone(), variant), format!("As{accessor_pascal}"));
         }
     }
+    tracing::trace!(
+        ir_metadata_fact = "csharp_variants",
+        metadata_entries = map.narrowing.len()
+    );
     map
 }
 

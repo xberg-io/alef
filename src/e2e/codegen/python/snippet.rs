@@ -17,11 +17,11 @@ pub(super) fn render_snippet_body(
     fixture: &Fixture,
     e2e_config: &E2eConfig,
     config: &ResolvedCrateConfig,
-    type_defs: &[crate::core::ir::TypeDef],
-    enums: &[crate::core::ir::EnumDef],
-    errors: &[crate::core::ir::ErrorDef],
-    functions: &[crate::core::ir::FunctionDef],
+    session: &crate::e2e::codegen::SnippetRenderSession<'_>,
 ) -> Result<String> {
+    let type_defs = session.type_defs();
+    let enums = session.enums();
+    let errors = session.errors();
     let mut call_fixture = fixture.docs_call_fixture();
     let expects_error = call_fixture
         .assertions
@@ -31,8 +31,7 @@ pub(super) fn render_snippet_body(
     // `docs.shows`/`docs.presentation` falls back to showing the fields its own
     // `assertions` already name (see `presentation::default_operations_from_assertions`),
     // and that fallback has nothing to read once this function empties the list. ~keep
-    let presentation =
-        crate::e2e::codegen::presentation::resolve(&call_fixture, e2e_config, "python", type_defs, enums, functions);
+    let presentation = session.resolve(&call_fixture, e2e_config, "python");
     let stream_item_binding =
         crate::e2e::codegen::presentation::stream_item_binding(&call_fixture, e2e_config, "python");
     call_fixture.assertions.clear();
@@ -57,17 +56,20 @@ pub(super) fn render_snippet_body(
     // reader-facing presentation consumes `result_var`. Bind every non-void successful
     // call: the template either prints the result itself or presents fields from it. ~keep
     let force_bind_result = !expects_error && !call.returns_void;
-    let test_file = render_test_file(
-        &fixture.resolved_category(),
-        &[&call_fixture],
-        e2e_config,
-        config,
-        type_defs,
-        enums,
-        &[],
-        errors,
-        force_bind_result,
-    );
+    let test_file = {
+        let _span = tracing::trace_span!("snippet_call_body").entered();
+        render_test_file(
+            &fixture.resolved_category(),
+            &[&call_fixture],
+            e2e_config,
+            config,
+            type_defs,
+            enums,
+            &[],
+            errors,
+            force_bind_result,
+        )
+    };
     let (imports, body, is_async) = extract_python_snippet(&test_file)?;
     let api_key_var = crate::e2e::fixture::FixtureEnv::api_key_var_or_default(fixture.env.as_ref());
     let body = body

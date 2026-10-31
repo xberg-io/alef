@@ -155,35 +155,37 @@ impl E2eCodegen for RCodegen {
         self.render_snippet_body_with_functions(fixture, e2e_config, config, type_defs, enums, &[], &[])
     }
 
-    fn render_snippet_body_with_functions(
-        &self,
-        fixture: &Fixture,
-        e2e_config: &E2eConfig,
-        config: &ResolvedCrateConfig,
-        type_defs: &[crate::core::ir::TypeDef],
-        enums: &[crate::core::ir::EnumDef],
-        functions: &[crate::core::ir::FunctionDef],
-        _errors: &[crate::core::ir::ErrorDef],
-    ) -> Result<String> {
-        let call = e2e_config.resolve_call_for_fixture(
-            fixture.call.as_deref(),
-            &fixture.id,
-            &fixture.resolved_category(),
-            &fixture.tags,
-            &fixture.input,
-        );
-        let r_override = call.overrides.get("r");
-        let result_is_simple = call.result_is_simple || r_override.is_some_and(|value| value.result_is_simple);
-        let result_is_r_list = r_override.is_some_and(|value| value.result_is_r_list);
-        let mut snippet_fixture = fixture.clone();
-        if !fixture
-            .assertions
-            .iter()
-            .any(|assertion| assertion.assertion_type == "error")
-        {
-            snippet_fixture.assertions.clear();
-        }
-        let mut test_case = String::new();
+    forward_snippet_rendering!(render_snippet_in_session);
+}
+
+fn render_snippet_in_session(
+    fixture: &Fixture,
+    e2e_config: &E2eConfig,
+    config: &ResolvedCrateConfig,
+    session: &super::SnippetRenderSession<'_>,
+) -> Result<String> {
+    let type_defs = session.type_defs();
+    let call = e2e_config.resolve_call_for_fixture(
+        fixture.call.as_deref(),
+        &fixture.id,
+        &fixture.resolved_category(),
+        &fixture.tags,
+        &fixture.input,
+    );
+    let r_override = call.overrides.get("r");
+    let result_is_simple = call.result_is_simple || r_override.is_some_and(|value| value.result_is_simple);
+    let result_is_r_list = r_override.is_some_and(|value| value.result_is_r_list);
+    let mut snippet_fixture = fixture.clone();
+    if !fixture
+        .assertions
+        .iter()
+        .any(|assertion| assertion.assertion_type == "error")
+    {
+        snippet_fixture.assertions.clear();
+    }
+    let mut test_case = String::new();
+    {
+        let _span = tracing::trace_span!("snippet_call_body").entered();
         test_case::render_test_case(
             &mut test_case,
             &snippet_fixture,
@@ -194,38 +196,38 @@ impl E2eCodegen for RCodegen {
             type_defs,
             &[],
         );
-        let body = test_case
-            .lines()
-            .skip(1)
-            .take(test_case.lines().count().saturating_sub(2))
-            .map(|line| line.strip_prefix("  ").unwrap_or(line))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let expects_error = fixture
-            .assertions
-            .iter()
-            .any(|assertion| assertion.assertion_type == "error");
-        // The presentation accessors are rooted on `result_var`, which neither the error
-        // path nor a void call ever binds. ~keep
-        let presentation = if call.returns_void || expects_error {
-            Vec::new()
-        } else {
-            crate::e2e::codegen::presentation::resolve(fixture, e2e_config, "r", type_defs, enums, functions)
-        };
-        let body = if call.returns_void || expects_error || !presentation.is_empty() {
-            body
-        } else {
-            format!("{body}\nprint({})", call.effective_result_var())
-        };
-        let package = e2e_config
-            .resolve_package("r")
-            .and_then(|package| package.name)
-            .unwrap_or_else(|| call.module.clone());
-        Ok(crate::e2e::template_env::render(
-            "r/snippet_body.jinja",
-            crate::alef_context! { package => package, body => body, presentation => presentation },
-        ))
     }
+    let body = test_case
+        .lines()
+        .skip(1)
+        .take(test_case.lines().count().saturating_sub(2))
+        .map(|line| line.strip_prefix("  ").unwrap_or(line))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let expects_error = fixture
+        .assertions
+        .iter()
+        .any(|assertion| assertion.assertion_type == "error");
+    // The presentation accessors are rooted on `result_var`, which neither the error
+    // path nor a void call ever binds. ~keep
+    let presentation = if call.returns_void || expects_error {
+        Vec::new()
+    } else {
+        session.resolve(fixture, e2e_config, "r")
+    };
+    let body = if call.returns_void || expects_error || !presentation.is_empty() {
+        body
+    } else {
+        format!("{body}\nprint({})", call.effective_result_var())
+    };
+    let package = e2e_config
+        .resolve_package("r")
+        .and_then(|package| package.name)
+        .unwrap_or_else(|| call.module.clone());
+    Ok(crate::e2e::template_env::render(
+        "r/snippet_body.jinja",
+        crate::alef_context! { package => package, body => body, presentation => presentation },
+    ))
 }
 
 #[cfg(test)]

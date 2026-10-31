@@ -16,3 +16,4 @@ log; add a row in the same change as a new record.
 | [0005](../adrs/0005-one-root-crate-for-the-generator.md) | One root crate for the generator | accepted | 2026-05-23 |
 | [0006](../adrs/0006-a-project-agnostic-generator.md) | A project-agnostic generator | accepted | 2026-05-27 |
 | [0007](../adrs/0007-generational-handles-across-the-c-abi.md) | Generational handles across the C ABI | accepted | 2026-08-13 |
+| [0008](../adrs/0008-share-immutable-metadata-within-snippet-render-sessions.md) | Share immutable metadata within snippet render sessions | accepted | 2026-10-31 |

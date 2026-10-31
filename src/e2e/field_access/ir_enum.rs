@@ -14,6 +14,7 @@
 //! answer by `(owner_type, field_name)`, and [`is_enum_path`] only trusts that answer once it
 //! has walked the field path from a known root type through the IR's own struct graph to the
 //! exact type that owns the leaf segment.
+use super::anchored_maps::MetadataView;
 use std::collections::{HashMap, HashSet};
 
 use crate::core::ir::{EnumDef, TypeDef};
@@ -41,6 +42,7 @@ mod payload_names_tests;
 /// map, and a path through it answers `false` in [`is_enum_path`] — the same safe default an
 /// unconfigured `fields_enum` entry already had.
 pub(super) fn build_ir_enum_map(type_defs: &[TypeDef], enums: &[EnumDef]) -> IrEnumMap {
+    tracing::trace!(ir_metadata_fact = "enum");
     let enum_names: HashSet<&str> = enums.iter().map(|e| e.name.as_str()).collect();
     let struct_names: HashSet<&str> = type_defs.iter().map(|t| t.name.as_str()).collect();
 
@@ -299,11 +301,11 @@ fn build_variant_payload_types(
 /// last segment lands on — or `None` if any segment names something the IR does not recognize
 /// as a field on the current owner. Shared by [`is_enum_path`] and [`enum_type_at_path`] so the
 /// two answer from the exact same walk and can never disagree about which type a path reaches.
-fn resolve_owner<'a>(map: &'a IrEnumMap, root: &'a str, prefix: &[PathSegment]) -> Option<&'a str> {
+fn resolve_owner<'a>(map: &'a impl MetadataView<IrEnumMap>, root: &'a str, prefix: &[PathSegment]) -> Option<&'a str> {
     let mut owner = root;
     for segment in prefix {
         let name = segment_name(segment)?;
-        let next = map.field_types.get(owner).and_then(|fields| fields.get(name))?;
+        let next = map.data().field_types.get(owner).and_then(|fields| fields.get(name))?;
         owner = next.as_str();
     }
     Some(owner)
@@ -317,8 +319,8 @@ fn resolve_owner<'a>(map: &'a IrEnumMap, root: &'a str, prefix: &[PathSegment]) 
 /// never populated. Every one of those is the pre-existing behaviour for a field with no
 /// `fields_enum` entry, so this is purely additive: it can only turn a `false` into a `true`
 /// when the IR positively confirms the leaf is enum-typed on the exact type the path reaches.
-pub(super) fn is_enum_path(map: &IrEnumMap, path: &str) -> bool {
-    let Some(root) = map.root_type.as_deref() else {
+pub(super) fn is_enum_path(map: &impl MetadataView<IrEnumMap>, path: &str) -> bool {
+    let Some(root) = map.root() else {
         return false;
     };
     let segments = parse_path(path);
@@ -331,7 +333,10 @@ pub(super) fn is_enum_path(map: &IrEnumMap, path: &str) -> bool {
     let Some(name) = segment_name(last) else {
         return false;
     };
-    map.enum_fields.get(owner).is_some_and(|fields| fields.contains(name))
+    map.data()
+        .enum_fields
+        .get(owner)
+        .is_some_and(|fields| fields.contains(name))
 }
 
 /// Resolve the concrete IR enum type name backing `path`'s leaf segment, walking the same
@@ -339,15 +344,15 @@ pub(super) fn is_enum_path(map: &IrEnumMap, path: &str) -> bool {
 /// "unknown" conditions `is_enum_path` returns `false` for; callers that need to know *which*
 /// enum a positively-classified field resolves to (not just that it is one) use this instead
 /// of re-walking the path themselves.
-pub(super) fn enum_type_at_path(map: &IrEnumMap, path: &str) -> Option<String> {
-    let root = map.root_type.as_deref()?;
+pub(super) fn enum_type_at_path(map: &impl MetadataView<IrEnumMap>, path: &str) -> Option<String> {
+    let root = map.root()?;
     enum_type_at_path_from(map, root, path)
 }
 
 /// The IR type that declares the leaf segment of `path`, walking from `map.root_type` through
 /// `map.field_types` the way [`enum_type_at_path_from`] does. `None` when the walk leaves the IR.
-pub(super) fn leaf_owner_type_at_path(map: &IrEnumMap, path: &str) -> Option<String> {
-    let root = map.root_type.as_deref()?;
+pub(super) fn leaf_owner_type_at_path(map: &impl MetadataView<IrEnumMap>, path: &str) -> Option<String> {
+    let root = map.root()?;
     let segments = parse_path(path);
     let (_, prefix) = segments.split_last()?;
     resolve_owner(map, root, prefix).map(str::to_string)
@@ -359,12 +364,13 @@ pub(super) fn leaf_owner_type_at_path(map: &IrEnumMap, path: &str) -> Option<Str
 /// inside another union's payload), which is not `map.root_type` and has no other way to anchor
 /// this walk. [`enum_type_at_path`] delegates here with `map.root_type` so both callers share one
 /// walk and can never disagree about which type a path reaches. ~keep
-pub(super) fn enum_type_at_path_from(map: &IrEnumMap, owner: &str, path: &str) -> Option<String> {
+pub(super) fn enum_type_at_path_from(map: &impl MetadataView<IrEnumMap>, owner: &str, path: &str) -> Option<String> {
     let segments = parse_path(path);
     let (last, prefix) = segments.split_last()?;
     let owner = resolve_owner(map, owner, prefix)?;
     let name = segment_name(last)?;
-    map.enum_field_types
+    map.data()
+        .enum_field_types
         .get(owner)
         .and_then(|fields| fields.get(name))
         .cloned()

@@ -1,10 +1,10 @@
 //! PHP accessor renderers: `->getFoo()` vs `->foo` selected from the owner type's getter map.
 
+use super::super::optional_fields::OptionalFieldSet;
 use super::super::renderers::quoted_key_literal;
 use super::super::types::{PathSegment, PhpGetterMap};
 use super::{push_key_field_name, push_key_index_suffix};
 use heck::ToLowerCamelCase;
-use std::collections::HashSet;
 
 pub(in crate::e2e::field_access) fn render_php(segments: &[PathSegment], result_var: &str) -> String {
     let mut out = result_var.to_string();
@@ -58,7 +58,7 @@ pub(in crate::e2e::field_access) fn render_php_with_getters(
     segments: &[PathSegment],
     result_var: &str,
     getter_map: &PhpGetterMap,
-    optional_fields: &HashSet<String>,
+    optional_fields: &impl OptionalFieldSet,
 ) -> String {
     render_php_with_getters_from_owner(
         segments,
@@ -81,7 +81,7 @@ pub(in crate::e2e::field_access) fn render_php_element_with_getters(
     segments: &[PathSegment],
     element_var: &str,
     getter_map: &PhpGetterMap,
-    optional_fields: &HashSet<String>,
+    optional_fields: &impl OptionalFieldSet,
     owner_type: Option<String>,
 ) -> String {
     render_php_with_getters_from_owner(segments, element_var, getter_map, optional_fields, owner_type)
@@ -128,7 +128,7 @@ fn render_php_with_getters_from_owner(
     segments: &[PathSegment],
     result_var: &str,
     getter_map: &PhpGetterMap,
-    optional_fields: &HashSet<String>,
+    optional_fields: &impl OptionalFieldSet,
     owner_type: Option<String>,
 ) -> String {
     let mut out = result_var.to_string();

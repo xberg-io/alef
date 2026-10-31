@@ -250,18 +250,9 @@ impl E2eCodegen for KotlinE2eCodegen {
         snippet::render_snippet_body(fixture, e2e_config, config, type_defs, enums, false)
     }
 
-    fn render_snippet_body_with_functions(
-        &self,
-        fixture: &Fixture,
-        e2e_config: &E2eConfig,
-        config: &ResolvedCrateConfig,
-        type_defs: &[crate::core::ir::TypeDef],
-        enums: &[crate::core::ir::EnumDef],
-        functions: &[crate::core::ir::FunctionDef],
-        _errors: &[crate::core::ir::ErrorDef],
-    ) -> Result<String> {
-        snippet::render_snippet_body_with_ir(fixture, e2e_config, config, type_defs, enums, false, functions)
-    }
+    forward_snippet_rendering!(|fixture, e2e_config, config, session| snippet::render_in_session(
+        fixture, e2e_config, config, session, false
+    ));
 
     fn renders_client_config(&self) -> bool {
         true

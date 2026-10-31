@@ -30,27 +30,53 @@ pub(crate) fn render_node_snippet_body(
     enums: &[EnumDef],
     functions: &[crate::core::ir::FunctionDef],
 ) -> String {
+    let session = crate::e2e::codegen::SnippetRenderSession::new(type_defs, enums, functions, &[]);
+    render_node_in_session(fixture, e2e_config, config, &session)
+}
+
+pub(crate) fn render_node_in_session(
+    fixture: &Fixture,
+    e2e_config: &E2eConfig,
+    config: &crate::core::config::ResolvedCrateConfig,
+    session: &crate::e2e::codegen::SnippetRenderSession<'_>,
+) -> String {
+    let type_defs = session.type_defs();
+    let enums = session.enums();
+    let functions = session.functions();
     let overrides = e2e_config.call.overrides.get("node");
     let module = e2e_config
         .resolve_package("node")
         .and_then(|package| package.name)
         .or_else(|| overrides.and_then(|value| value.module.clone()))
         .unwrap_or_else(|| e2e_config.call.module.clone());
-    render_snippet_body(SnippetContext {
-        lang: "node",
-        fixture,
-        module: &module,
-        client_factory: overrides.and_then(|value| value.client_factory.as_deref()),
-        e2e_config,
-        type_defs,
-        enums,
-        functions,
-        wasm_type_prefix: "",
-        config,
-    })
+    render_in_session(
+        SnippetContext {
+            lang: "node",
+            fixture,
+            module: &module,
+            client_factory: overrides.and_then(|value| value.client_factory.as_deref()),
+            e2e_config,
+            type_defs,
+            enums,
+            functions,
+            wasm_type_prefix: "",
+            config,
+        },
+        session,
+    )
 }
 
+#[cfg(test)]
 pub(crate) fn render_snippet_body(context: SnippetContext<'_>) -> String {
+    let session =
+        crate::e2e::codegen::SnippetRenderSession::new(context.type_defs, context.enums, context.functions, &[]);
+    render_in_session(context, &session)
+}
+
+pub(crate) fn render_in_session(
+    context: SnippetContext<'_>,
+    session: &crate::e2e::codegen::SnippetRenderSession<'_>,
+) -> String {
     let SnippetContext {
         lang,
         fixture,
@@ -326,8 +352,7 @@ pub(crate) fn render_snippet_body(context: SnippetContext<'_>) -> String {
     if let Some(name) = &wasm_stream_item_type {
         imports.insert(name.clone());
     }
-    let presentation =
-        crate::e2e::codegen::presentation::resolve(fixture, e2e_config, lang, type_defs, enums, functions);
+    let presentation = session.resolve(fixture, e2e_config, lang);
     let wasm_stream_resources = match (wasm_stream_core_type, stream_item_binding.as_deref()) {
         (Some(item_type), Some(root)) => {
             super::snippet_stream_resources::plans(&presentation, item_type, type_defs, root)

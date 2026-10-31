@@ -1,5 +1,7 @@
+use super::snippet_setup::{replace_go_options, snippet_setup_line};
 use crate::codegen::naming::{go_error_type_name, go_free_function_name, go_type_name, to_go_name};
 use crate::core::config::ResolvedCrateConfig;
+#[cfg(test)]
 use crate::core::ir::{EnumDef, FunctionDef, TypeDef};
 use crate::e2e::{config::E2eConfig, fixture::Fixture};
 use anyhow::{Result, bail};
@@ -9,14 +11,17 @@ use super::ir_signature::{go_ir_named_type, go_is_bridge_param, go_options_param
 use super::setup::{GoArgsContext, build_args_and_setup};
 use super::streaming_snippet_ctx;
 
-pub(super) fn render_snippet_body(
+one_shot_snippet_renderer!(pub(super) render_snippet_body -> Result<String>, render_in_session);
+
+pub(super) fn render_in_session(
     fixture: &Fixture,
     e2e_config: &E2eConfig,
     config: &ResolvedCrateConfig,
-    type_defs: &[TypeDef],
-    enums: &[EnumDef],
-    functions: &[FunctionDef],
+    session: &crate::e2e::codegen::SnippetRenderSession<'_>,
 ) -> Result<String> {
+    let type_defs = session.type_defs();
+    let enums = session.enums();
+    let functions = session.functions();
     let lang = "go";
     let mut call = e2e_config.resolve_call_for_fixture(
         fixture.call.as_deref(),
@@ -288,8 +293,7 @@ pub(super) fn render_snippet_body(
         .map(|(path, alias)| crate::alef_context! { path => path, alias => alias })
         .collect::<Vec<_>>();
 
-    let presentation =
-        crate::e2e::codegen::presentation::resolve(fixture, e2e_config, lang, type_defs, enums, functions);
+    let presentation = session.resolve(fixture, e2e_config, lang);
     Ok(crate::e2e::template_env::render(
         "go/snippet_body.jinja",
         crate::alef_context! {
@@ -368,29 +372,6 @@ fn bound_options_argument(
         .iter()
         .any(|line| line.starts_with(&format!("{candidate} := ")) && line.contains(options_type));
     (binds_it && passes_it && is_options).then_some(candidate)
-}
-
-fn replace_go_options(args: &str) -> String {
-    if let Some(prefix) = args.strip_suffix(", nil") {
-        format!("{prefix}, opts")
-    } else if args.is_empty() {
-        "opts".to_string()
-    } else {
-        format!("{args}, opts")
-    }
-}
-
-fn snippet_setup_line(line: String) -> String {
-    line.lines()
-        .map(|part| {
-            if part.contains("t.Fatalf(") {
-                format!("{})", part.replace("t.Fatalf(", "panic(fmt.Sprintf("))
-            } else {
-                part.to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 #[cfg(test)]

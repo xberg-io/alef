@@ -190,21 +190,11 @@ impl super::E2eCodegen for PythonE2eCodegen {
         type_defs: &[crate::core::ir::TypeDef],
         enums: &[crate::core::ir::EnumDef],
     ) -> Result<String> {
-        snippet::render_snippet_body(fixture, e2e_config, config, type_defs, enums, &[], &[])
+        let session = super::SnippetRenderSession::new(type_defs, enums, &[], &[]);
+        snippet::render_snippet_body(fixture, e2e_config, config, &session)
     }
 
-    fn render_snippet_body_with_functions(
-        &self,
-        fixture: &Fixture,
-        e2e_config: &E2eConfig,
-        config: &ResolvedCrateConfig,
-        type_defs: &[crate::core::ir::TypeDef],
-        enums: &[crate::core::ir::EnumDef],
-        functions: &[crate::core::ir::FunctionDef],
-        errors: &[crate::core::ir::ErrorDef],
-    ) -> Result<String> {
-        snippet::render_snippet_body(fixture, e2e_config, config, type_defs, enums, errors, functions)
-    }
+    forward_snippet_rendering!(snippet::render_snippet_body);
 
     fn renders_client_config(&self) -> bool {
         true

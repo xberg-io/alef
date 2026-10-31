@@ -113,6 +113,20 @@ pub(crate) fn render_snippet_body_with_ir(
     kotlin_android_style: bool,
     functions: &[crate::core::ir::FunctionDef],
 ) -> anyhow::Result<String> {
+    let session = crate::e2e::codegen::SnippetRenderSession::new(type_defs, enums, functions, &[]);
+    render_in_session(fixture, e2e_config, config, &session, kotlin_android_style)
+}
+
+pub(crate) fn render_in_session(
+    fixture: &Fixture,
+    e2e_config: &E2eConfig,
+    config: &ResolvedCrateConfig,
+    session: &crate::e2e::codegen::SnippetRenderSession<'_>,
+    kotlin_android_style: bool,
+) -> anyhow::Result<String> {
+    let type_defs = session.type_defs();
+    let enums = session.enums();
+    let functions = session.functions();
     let lang = if kotlin_android_style {
         "kotlin_android"
     } else {
@@ -285,8 +299,7 @@ pub(crate) fn render_snippet_body_with_ir(
         class_name
     };
 
-    let presentation =
-        crate::e2e::codegen::presentation::resolve(fixture, e2e_config, lang, type_defs, enums, functions);
+    let presentation = session.resolve(fixture, e2e_config, lang);
     let result_var = call.effective_result_var();
     Ok(crate::e2e::template_env::render(
         "kotlin/snippet_body.jinja",

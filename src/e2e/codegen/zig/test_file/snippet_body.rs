@@ -2,6 +2,7 @@
 
 use super::*;
 
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(in crate::e2e::codegen::zig) fn render_snippet_body(
     fixture: &Fixture,
@@ -13,6 +14,19 @@ pub(in crate::e2e::codegen::zig) fn render_snippet_body(
     enums: &[crate::core::ir::EnumDef],
     functions: &[crate::core::ir::FunctionDef],
 ) -> anyhow::Result<String> {
+    let session = crate::e2e::codegen::SnippetRenderSession::new(type_defs, enums, functions, &[]);
+    render_in_session(fixture, e2e_config, module_name, ffi_prefix, config, &session)
+}
+
+pub(in crate::e2e::codegen::zig) fn render_in_session(
+    fixture: &Fixture,
+    e2e_config: &E2eConfig,
+    module_name: &str,
+    ffi_prefix: &str,
+    config: &ResolvedCrateConfig,
+    session: &crate::e2e::codegen::SnippetRenderSession<'_>,
+) -> anyhow::Result<String> {
+    let type_defs = session.type_defs();
     let call = e2e_config.resolve_call_for_fixture(
         fixture.call.as_deref(),
         &fixture.id,
@@ -33,29 +47,32 @@ pub(in crate::e2e::codegen::zig) fn render_snippet_body(
         call_fixture.assertions.clear();
     }
     let mut test = String::new();
-    render_test_fn(
-        &mut test,
-        &call_fixture,
-        e2e_config,
-        "",
-        "",
-        &[],
-        module_name,
-        ffi_prefix,
-        config,
-        type_defs,
-        &[],
-        false,
-        true,
-        // Snippet rendering has no free-function IR to consult — only `type_defs`. This still
-        // lets `ir_says_json_struct` resolve through a method on an IR type (client_factory
-        // calls), the same degraded-but-not-absent state `CallIr::is_absent` already models.
-        crate::e2e::codegen::call_ir::CallIr {
-            functions: &[],
+    {
+        let _span = tracing::trace_span!("snippet_call_body").entered();
+        render_test_fn(
+            &mut test,
+            &call_fixture,
+            e2e_config,
+            "",
+            "",
+            &[],
+            module_name,
+            ffi_prefix,
+            config,
             type_defs,
-        },
-        &[],
-    );
+            &[],
+            false,
+            true,
+            // Snippet rendering has no free-function IR to consult — only `type_defs`. This still
+            // lets `ir_says_json_struct` resolve through a method on an IR type (client_factory
+            // calls), the same degraded-but-not-absent state `CallIr::is_absent` already models.
+            crate::e2e::codegen::call_ir::CallIr {
+                functions: &[],
+                type_defs,
+            },
+            &[],
+        );
+    }
     // The test-mode error path captures the failure with a discarded `else |_|` arm
     // (nothing to report inside `test { ... }`). The snippet is a runnable `main`,
     // so swap in a named capture that prints the caught error instead. ~keep
@@ -93,7 +110,7 @@ pub(in crate::e2e::codegen::zig) fn render_snippet_body(
     let binds_typed_result =
         !expects_error && !call.returns_void && !displays_stream && !body.contains("const _result_json =");
     let presentation = if binds_typed_result {
-        crate::e2e::codegen::presentation::resolve(fixture, e2e_config, "zig", type_defs, enums, functions)
+        session.resolve(fixture, e2e_config, "zig")
     } else {
         Vec::new()
     };

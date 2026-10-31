@@ -17,6 +17,9 @@
 //! Until a language migrates, it continues using the legacy monolithic renderer —
 //! both can coexist behind the per-language [`E2eCodegen::generate`] entry.
 
+#[macro_use]
+mod snippet_forwarding;
+
 pub mod assertion_recipes;
 #[cfg(test)]
 mod assertion_type_funnel_pairing;
@@ -66,6 +69,7 @@ pub(crate) mod payload_union_skip;
 pub mod php;
 pub mod php_ext;
 mod presentation;
+pub use presentation::SnippetRenderSession;
 pub mod python;
 pub mod r;
 pub mod recipe;
@@ -798,6 +802,27 @@ pub trait E2eCodegen: Send + Sync {
         functions: &[crate::core::ir::FunctionDef],
         errors: &[crate::core::ir::ErrorDef],
     ) -> Result<String>;
+
+    /// Render one snippet within a caller-owned immutable model session.
+    ///
+    /// Custom implementations retain their existing functions-aware renderer by default.
+    fn render_snippet_body_in_session(
+        &self,
+        fixture: &Fixture,
+        e2e_config: &E2eConfig,
+        config: &ResolvedCrateConfig,
+        session: &SnippetRenderSession<'_>,
+    ) -> Result<String> {
+        self.render_snippet_body_with_functions(
+            fixture,
+            e2e_config,
+            config,
+            session.type_defs(),
+            session.enums(),
+            session.functions(),
+            session.errors(),
+        )
+    }
 
     /// Whether this backend's snippets construct the client through the project's
     /// `client_factory_from_json` when a fixture declares `client_config`.

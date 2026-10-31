@@ -57,28 +57,9 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
         crate::e2e::codegen::kotlin::snippet::render_snippet_body(fixture, e2e_config, config, type_defs, enums, true)
     }
 
-    /// Without this override, the trait default forwards to [`Self::render_snippet_body`] and
-    /// silently drops `functions`, so the docs-snippet field-access oracle can only anchor a
-    /// call's result type via a same-named IR *method* rather than the free function `functions`
-    /// carries -- misresolving the root type (and every field-availability verdict downstream of
-    /// it) whenever an unrelated method happens to share the call's name. The e2e TEST generator
-    /// (`project::generate`) already receives `functions` correctly; this keeps the documentation
-    /// snippet path anchored at the exact same declared result type. Mirrors
-    /// `kotlin.rs::render_snippet_body_with_functions`. ~keep
-    fn render_snippet_body_with_functions(
-        &self,
-        fixture: &Fixture,
-        e2e_config: &E2eConfig,
-        config: &ResolvedCrateConfig,
-        type_defs: &[crate::core::ir::TypeDef],
-        enums: &[crate::core::ir::EnumDef],
-        functions: &[crate::core::ir::FunctionDef],
-        _errors: &[crate::core::ir::ErrorDef],
-    ) -> Result<String> {
-        crate::e2e::codegen::kotlin::snippet::render_snippet_body_with_ir(
-            fixture, e2e_config, config, type_defs, enums, true, functions,
-        )
-    }
+    forward_snippet_rendering!(|fixture, e2e_config, config, session| {
+        crate::e2e::codegen::kotlin::snippet::render_in_session(fixture, e2e_config, config, session, true)
+    });
 
     fn renders_client_config(&self) -> bool {
         true

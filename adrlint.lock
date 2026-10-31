@@ -40,3 +40,8 @@ blake3 = "837dfa2893721faa094abf5286c0d668d2f3263de236845dbfa0e18738b102a4"
 number = 7
 status = "accepted"
 blake3 = "2e8ae828aa896c44f8baee988c235bb0d0956e70afbb5d2d0061f8f86586375c"
+
+[adrs."adrs/0008-share-immutable-metadata-within-snippet-render-sessions.md"]
+number = 8
+status = "accepted"
+blake3 = "502ad8ab065c214bdefab3f41cbf6123781f92a38ce2d22ce9ba26bb3347f335"

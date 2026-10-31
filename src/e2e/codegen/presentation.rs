@@ -1,3 +1,6 @@
+#[path = "presentation/derived_shows.rs"]
+mod derived_shows;
+
 #[path = "presentation/resolver_factory.rs"]
 mod resolver_factory;
 
@@ -5,7 +8,11 @@ use crate::e2e::config::E2eConfig;
 use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::{Fixture, FixtureDocsOperation};
 use heck::ToLowerCamelCase;
-use resolver_factory::{ResolverFactory, resolve_from_factory, resolve_with_factory};
+use resolver_factory::ResolverFactory;
+pub use resolver_factory::SnippetRenderSession;
+pub(crate) use resolver_factory::VariantAccessorBackend;
+#[cfg(test)]
+use resolver_factory::{resolve_from_factory, resolve_with_factory};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct PresentationOperation {
@@ -113,6 +120,7 @@ fn path_yields_optional(resolver: &FieldResolver, path: &str) -> bool {
 /// resolver uses (see `FieldResolver::ir_field_sets`/`with_ir_fields`) so a docs snippet
 /// that shows an `Option<T>` field renders the same unwrap/null-check an assertion on
 /// that field would, instead of a bare (potentially non-compiling) access. ~keep
+#[cfg(test)]
 pub(crate) fn resolve(
     fixture: &Fixture,
     e2e_config: &E2eConfig,
@@ -121,6 +129,7 @@ pub(crate) fn resolve(
     enums: &[crate::core::ir::EnumDef],
     functions: &[crate::core::ir::FunctionDef],
 ) -> Vec<PresentationOperation> {
+    let _span = tracing::trace_span!("snippet_presentation").entered();
     let factory = ResolverFactory::new(type_defs, enums, functions);
     resolve_from_factory(fixture, e2e_config, language, &factory)
 }
@@ -152,20 +161,6 @@ pub(crate) fn stream_item_binding(fixture: &Fixture, config: &E2eConfig, languag
     Some(format!("{}{suffix}", call.effective_result_var()))
 }
 
-fn returns_native_bytes(
-    call: &crate::core::config::e2e::CallConfig,
-    language: &str,
-    type_defs: &[crate::core::ir::TypeDef],
-    functions: &[crate::core::ir::FunctionDef],
-) -> bool {
-    let Some(name) = call.core_lookup_name(language) else {
-        return false;
-    };
-    crate::e2e::codegen::call_ir::CallIr { functions, type_defs }
-        .signature(&name)
-        .is_some_and(|signature| matches!(signature.return_type, crate::core::ir::TypeRef::Bytes))
-}
-
 fn stream_nullable_guard(resolver: &FieldResolver, path: &str, language: &str, root: &str) -> String {
     let (null, conjunction) = match language {
         "go" => ("nil", " && "),
@@ -183,9 +178,8 @@ fn stream_nullable_guard(resolver: &FieldResolver, path: &str, language: &str, r
         .join(conjunction)
 }
 
-/// The bare, IR-backed resolver [`resolve`] answers with. Shared with [`apply_derived_shows`] so
-/// the paths written into `docs.shows` are decided by exactly the resolver that will later
-/// render them, not by a second construction that could drift.
+/// Independent one-shot anchoring route used by the resolver compatibility controls.
+#[cfg(test)]
 fn build_resolver(
     e2e_config: &E2eConfig,
     call: &crate::core::config::e2e::CallConfig,
@@ -222,6 +216,7 @@ fn build_resolver(
 /// return type does not resolve (no `functions`/`type_defs` in scope, an unresolvable name,
 /// disagreeing same-named methods) yields a `None` root, which leaves every anchored answer
 /// disabled and the pre-existing flat behaviour exactly intact.
+#[cfg(test)]
 fn anchor_to_declared_result_type(
     resolver: FieldResolver,
     call: &crate::core::config::e2e::CallConfig,
@@ -261,78 +256,11 @@ fn anchor_to_declared_result_type(
 /// `resolver`'s own result-type anchor. Falls back to `resolver` unchanged when the element type
 /// does not resolve (an unresolvable collection path), matching the existing permissive default
 /// [`iterate_field_is_renderable`] uses for the same lookup.
-fn resolver_anchored_at_element(
-    resolver: &FieldResolver,
-    path: &str,
-    language: &str,
-    type_defs: &[crate::core::ir::TypeDef],
-    enums: &[crate::core::ir::EnumDef],
-) -> FieldResolver {
+fn resolver_anchored_at_element(resolver: &FieldResolver, path: &str) -> FieldResolver {
     let Some(element_type) = resolver.collection_element_type(path) else {
         return resolver.clone();
     };
-    let result_fields = FieldResolver::ir_result_field_facts(type_defs, language);
-    let resolver = resolver
-        .clone()
-        .with_ir_result_fields(result_fields, Some(element_type.clone()));
-    let resolver = resolver.with_ir_enum_map(
-        FieldResolver::ir_enum_fields(type_defs, enums),
-        Some(element_type.clone()),
-    );
-    resolver.with_ir_collection_map(FieldResolver::ir_collection_fields(type_defs), Some(element_type))
-}
-
-/// Write the field paths [`resolve`] would derive from `fixture`'s own assertions into the
-/// fixture's `docs.shows`, so that [`Fixture::has_docs_presentation`] reports them.
-///
-/// ~keep That predicate is the single question the *call emitter* asks about the *snippet's*
-/// intent: `rust/test_file/test_function.rs` uses it to decide both whether the call binds a
-/// named `result` at all (rather than `let _ =`) and whether a `Result`-returning call is
-/// unwrapped before that binding. Before this, it only ever saw hand-authored
-/// `shows`/`presentation` blocks, so the operations #199 derives from assertions were invisible
-/// to it: 283 generated Rust snippets in one consumer repo bound `let _ = convert(...)` and then
-/// printed `result.content` (`E0425`), and any that had bound it would have field-accessed a
-/// `Result` (`E0609`). Materializing the derivation into the fixture — rather than teaching the
-/// call emitter to re-derive it — is what keeps the two generators reading one fact.
-///
-/// A fixture that already hand-authors `shows` or `presentation.operations` is left alone: its
-/// operations are the authored ones, and `has_docs_presentation` already reports them. Must be
-/// called before any caller clears `assertions`, which is where the derivation reads from.
-pub(crate) fn apply_derived_shows(
-    fixture: &mut Fixture,
-    e2e_config: &E2eConfig,
-    language: &str,
-    type_defs: &[crate::core::ir::TypeDef],
-    enums: &[crate::core::ir::EnumDef],
-    functions: &[crate::core::ir::FunctionDef],
-) {
-    if fixture.docs.is_none() || fixture.has_docs_presentation() {
-        return;
-    }
-    let call = e2e_config.resolve_call_for_fixture(
-        fixture.call.as_deref(),
-        &fixture.id,
-        &fixture.resolved_category(),
-        &fixture.tags,
-        &fixture.input,
-    );
-    if returns_native_bytes(call, language, type_defs, functions) {
-        return;
-    }
-    let resolver = build_resolver(e2e_config, call, language, type_defs, enums, functions);
-    let paths: Vec<String> = default_operations_from_assertions(fixture, call, language, &resolver)
-        .into_iter()
-        .filter_map(|operation| match operation {
-            FixtureDocsOperation::Show { path, .. } => Some(path),
-            FixtureDocsOperation::Iterate { .. } => None,
-        })
-        .collect();
-    if paths.is_empty() {
-        return;
-    }
-    if let Some(docs) = fixture.docs.as_mut() {
-        docs.shows = paths;
-    }
+    resolver.clone().with_ir_root(Some(element_type))
 }
 
 /// [`resolve`], but against a caller-supplied [`FieldResolver`].
@@ -350,6 +278,7 @@ pub(crate) fn apply_derived_shows(
 ///
 /// [`SwiftFirstClassMap`]: crate::e2e::field_access::SwiftFirstClassMap
 /// [`PhpGetterMap`]: crate::e2e::field_access::PhpGetterMap
+#[cfg(test)]
 pub(crate) fn resolve_with(
     fixture: &Fixture,
     e2e_config: &E2eConfig,
@@ -359,6 +288,7 @@ pub(crate) fn resolve_with(
     enums: &[crate::core::ir::EnumDef],
     functions: &[crate::core::ir::FunctionDef],
 ) -> Vec<PresentationOperation> {
+    let _span = tracing::trace_span!("snippet_presentation").entered();
     let factory = ResolverFactory::new(type_defs, enums, functions);
     resolve_with_factory(fixture, e2e_config, language, resolver, &factory)
 }
@@ -370,7 +300,6 @@ fn resolve_anchored(
     resolver: &FieldResolver,
     factory: &ResolverFactory<'_>,
 ) -> Vec<PresentationOperation> {
-    let (type_defs, enums, functions) = (factory.types, factory.enums, factory.functions);
     let Some(docs) = fixture.docs.as_ref() else {
         return Vec::new();
     };
@@ -381,7 +310,7 @@ fn resolve_anchored(
         &fixture.tags,
         &fixture.input,
     );
-    if returns_native_bytes(call, language, type_defs, functions) {
+    if factory.returns_native_bytes(call, language) {
         return Vec::new();
     }
     let stream_item = stream_item_binding(fixture, e2e_config, language);
@@ -489,7 +418,7 @@ fn resolve_anchored(
                 // does declare `content` at `results[].content`, so the still-result-anchored resolver
                 // dutifully reproduced that whole path underneath the already-peeled loop variable, in
                 // every backend that shares this one presentation layer. ~keep
-                let item_resolver = resolver_anchored_at_element(resolver, path, language, type_defs, enums);
+                let item_resolver = resolver_anchored_at_element(resolver, path);
                 PresentationOperation {
                     kind: "iterate",
                     expression,
@@ -985,3 +914,15 @@ mod stream_and_bytes_tests;
 #[cfg(test)]
 #[path = "presentation/resolver_reuse_tests.rs"]
 mod resolver_reuse_tests;
+
+#[cfg(test)]
+#[path = "presentation/metadata_cache_tests.rs"]
+mod metadata_cache_tests;
+
+#[cfg(test)]
+#[path = "presentation/session_render_tests.rs"]
+mod session_render_tests;
+
+#[cfg(test)]
+#[path = "presentation/session_matrix_tests.rs"]
+mod session_matrix_tests;

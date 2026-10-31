@@ -87,7 +87,9 @@ mod wasm_snippet_prefix_tests;
 mod wasm_trait_bridge_import_tests;
 
 pub use render::render_test_file;
-pub(crate) use snippet::{SnippetContext, render_node_snippet_body, render_snippet_body};
+#[cfg(test)]
+pub(crate) use snippet::render_snippet_body;
+pub(crate) use snippet::{SnippetContext, render_in_session, render_node_in_session, render_node_snippet_body};
 
 pub(in crate::e2e::codegen::typescript::test_file) use args::build_args_and_setup;
 pub(in crate::e2e::codegen::typescript::test_file) use builders::{

@@ -1,10 +1,14 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+
+use super::anchored_maps::AnchoredMap;
+use super::optional_fields::OptionalFields;
 
 /// Resolves fixture field paths to language-specific accessor expressions.
 #[derive(Clone)]
 pub struct FieldResolver {
     pub(super) aliases: HashMap<String, String>,
-    pub(super) optional_fields: HashSet<String>,
+    pub(super) optional_fields: OptionalFields,
     /// The subset of `optional_fields` the consumer's own `[e2e].fields_optional` list actually
     /// named, fixed at construction time and never touched by `with_ir_fields`'s merge.
     ///
@@ -43,7 +47,7 @@ pub struct FieldResolver {
     /// different types can declare the same field name with different scalarness
     /// (e.g. `CrawlConfig.content: ContentConfig` is non-scalar while
     /// `MarkdownResult.content: String` is scalar).
-    pub(super) php_getter_map: PhpGetterMap,
+    pub(super) php_getter_map: Arc<PhpGetterMap>,
     /// How this language's binding exposes a tagged-union variant's payload, keyed by
     /// `(union type, variant identifier)`. Populated by the C# and Dart e2e codegen via
     /// `with_variant_accessors`; empty for every other resolver, which restores the exact
@@ -57,14 +61,14 @@ pub struct FieldResolver {
     /// The decision that a segment crosses a variant is the resolver's; how it reads is the
     /// renderer's, which is why this carries the binding's own spelling rather than a rendered
     /// expression.
-    pub(super) variant_accessors: VariantAccessorMap,
+    pub(super) variant_accessors: Arc<VariantAccessorMap>,
     /// Per-type Swift first-class/opaque classification, populated by the
     /// Swift e2e codegen. When non-empty, `accessor` uses
     /// `render_swift_with_first_class_map` instead of the legacy property-only
     /// `render_swift_with_optionals`, so paths that traverse from first-class
     /// types (property access) into opaque typealias types (method-call access)
     /// pick the correct syntax at each segment.
-    pub(super) swift_first_class_map: SwiftFirstClassMap,
+    pub(super) swift_first_class_map: AnchoredMap<SwiftFirstClassMap>,
     pub(super) swift_lossless_text_fields: HashMap<String, HashSet<String>>,
     /// Per-type Dart stringy field classification, populated by the Dart e2e
     /// codegen. Used to aggregate every readable text accessor on a `Vec<T>`
@@ -77,14 +81,14 @@ pub struct FieldResolver {
     /// via `with_ir_fields`; empty when a codegen call site hasn't wired IR data in, in
     /// which case field-availability checks fall back entirely to the hand-maintained
     /// `result_fields` config.
-    pub(super) ir_reachable_fields: HashSet<String>,
+    pub(super) ir_reachable_fields: Arc<HashSet<String>>,
     /// Field names that exist on some IR type but are `binding_excluded` there (no
     /// accessor is emitted for them in any generated binding), and are NOT reachable
     /// on any other type. Lets `is_valid_for_result` tell "this is a real struct field
     /// the IR knows is unexposed" apart from "the IR has never heard of this name"
     /// (e.g. a virtual namespace prefix or a synthetic/derived assertion field), so
     /// `result_fields` only gets the final say on names the IR is silent on.
-    pub(super) ir_known_excluded_fields: HashSet<String>,
+    pub(super) ir_known_excluded_fields: Arc<HashSet<String>>,
     /// Bare field names that carry `#[serde(skip_serializing_if = "...")]` on at least one IR
     /// type, i.e. fields whose JSON key may be entirely absent from the wire format even
     /// though the underlying Rust value is never itself missing (a required `Vec<T>` skipped
@@ -104,7 +108,7 @@ pub struct FieldResolver {
     /// when a codegen call site hasn't wired IR data in, in which case `is_enum` falls back
     /// entirely to the hand-maintained `fields_enum` config. See [`IrEnumMap`] for why this
     /// is keyed by `(type, field)` rather than by bare field name.
-    pub(super) ir_enum_map: IrEnumMap,
+    pub(super) ir_enum_map: AnchoredMap<IrEnumMap>,
     /// The Rust module (crate identifier) the e2e test imports the binding's types from. A
     /// `match` on an enum variant names the enum, and the test file imports only the symbols the
     /// call itself needs, so the pattern spells the enum with this path. `None` leaves the enum
@@ -171,7 +175,7 @@ pub struct FieldResolver {
     /// `fields_array`/`fields_optional` config. Mirrors `ir_enum_map`'s precedence exactly —
     /// see [`IrCollectionMap`] for why this is keyed by `(type, field)` rather than by bare
     /// field name.
-    pub(super) ir_collection_map: IrCollectionMap,
+    pub(super) ir_collection_map: AnchoredMap<IrCollectionMap>,
     /// Resolver-private element-shape facts. Kept out of public [`IrCollectionMap`] so existing
     /// callers can continue constructing that map exhaustively. ~keep
     pub(super) non_string_scalar_collection_fields: HashMap<String, HashSet<String>>,
@@ -181,7 +185,7 @@ pub struct FieldResolver {
     /// type, in which case every anchored answer is skipped and the flat, name-keyed
     /// `optional_fields`/`ir_reachable_fields` behaviour stands unchanged. See
     /// [`IrResultFieldMap`].
-    pub(super) ir_result_field_map: IrResultFieldMap,
+    pub(super) ir_result_field_map: AnchoredMap<IrResultFieldMap>,
     /// Whether the call's own declared Rust return type resolves to a raw byte payload
     /// (`bytes::Bytes`, `Vec<u8>`, `[u8]`, `[u8; N]` — all collapsed to `TypeRef::Bytes` by
     /// `extract::type_resolver`) rather than a struct. Populated via

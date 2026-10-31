@@ -25,6 +25,7 @@
 //! `OptionalityRule` carries which of those rules the target binding applies, and the NAPI arm
 //! calls the binding backend's own predicate so the two can never drift.
 
+use super::anchored_maps::MetadataView;
 use std::collections::HashSet;
 
 use crate::backends::go::emission_facts::GoEmissionFacts;
@@ -41,7 +42,7 @@ use super::types::IrResultFieldMap;
 /// and picking either one for everybody breaks the other half: guarding a wasm-bindgen getter
 /// that always returns a value adds dead `?.` noise, while not guarding a NAPI `has_default`
 /// field is a compile error in the generated snippet.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum OptionalityRule {
     /// Only the field's own declared type decides. Every binding except NAPI.
     DeclaredType,
@@ -92,6 +93,7 @@ pub(super) fn build_go_ir_result_field_map(
     rule: OptionalityRule,
     emitted: &GoEmissionFacts<'_>,
 ) -> IrResultFieldMap {
+    tracing::trace!(ir_metadata_fact = "result");
     let names = GoFieldTypeNames {
         structs: &emitted.structs,
         enums: &emitted.unit_enums,
@@ -314,37 +316,40 @@ pub(super) fn type_ref_is_display_safe(ty: &TypeRef) -> bool {
 /// entry, so this is purely additive: it can only turn a `false` into a `true` when the IR
 /// positively confirms the leaf is optional on the type the path reaches. Mirrors
 /// `ir_collection::is_collection_path`.
-pub(super) fn is_optional_path(map: &IrResultFieldMap, path: &str) -> bool {
+pub(super) fn is_optional_path(map: &impl MetadataView<IrResultFieldMap>, path: &str) -> bool {
     optionality_at_path(map, path).unwrap_or(false)
 }
 
 /// Return the binding's authoritative optionality when `path` resolves from the anchored root.
 /// `None` means the IR cannot answer and callers may fall back to authored configuration.
-pub(super) fn optionality_at_path(map: &IrResultFieldMap, path: &str) -> Option<bool> {
-    let root = map.root_type.as_deref()?;
+pub(super) fn optionality_at_path(map: &impl MetadataView<IrResultFieldMap>, path: &str) -> Option<bool> {
+    let root = map.root()?;
     let (owner, leaf) = walk_to_owner_from(map, root, path)?;
     Some(
-        map.optional_fields
+        map.data()
+            .optional_fields
             .get(owner)
             .is_some_and(|fields| fields.contains(&leaf)),
     )
 }
 
-pub(super) fn pointer_at_path(map: &IrResultFieldMap, path: &str) -> Option<bool> {
-    let root = map.root_type.as_deref()?;
+pub(super) fn pointer_at_path(map: &impl MetadataView<IrResultFieldMap>, path: &str) -> Option<bool> {
+    let root = map.root()?;
     let (owner, leaf) = walk_to_owner_from(map, root, path)?;
     Some(
-        map.pointer_fields
+        map.data()
+            .pointer_fields
             .get(owner)
             .is_some_and(|fields| fields.contains(&leaf)),
     )
 }
 
-pub(super) fn raw_message_at_path(map: &IrResultFieldMap, path: &str) -> Option<bool> {
-    let root = map.root_type.as_deref()?;
+pub(super) fn raw_message_at_path(map: &impl MetadataView<IrResultFieldMap>, path: &str) -> Option<bool> {
+    let root = map.root()?;
     let (owner, leaf) = walk_to_owner_from(map, root, path)?;
     Some(
-        map.raw_message_fields
+        map.data()
+            .raw_message_fields
             .get(owner)
             .is_some_and(|fields| fields.contains(&leaf)),
     )
@@ -355,21 +360,23 @@ pub(super) fn raw_message_at_path(map: &IrResultFieldMap, path: &str) -> Option<
 /// cannot resolve `path` at all — callers must not treat that as "no" (a plain string value)
 /// on an unresolved path, since that would wrongly strip a nil guard the IR never actually
 /// vouched for.
-pub(super) fn map_value_is_scalar_at_path(map: &IrResultFieldMap, path: &str) -> Option<bool> {
-    let root = map.root_type.as_deref()?;
+pub(super) fn map_value_is_scalar_at_path(map: &impl MetadataView<IrResultFieldMap>, path: &str) -> Option<bool> {
+    let root = map.root()?;
     let (owner, leaf) = walk_to_owner_from(map, root, path)?;
     Some(
-        map.map_scalar_value_fields
+        map.data()
+            .map_scalar_value_fields
             .get(owner)
             .is_some_and(|fields| fields.contains(&leaf)),
     )
 }
 
-pub(super) fn data_interface_at_path(map: &IrResultFieldMap, path: &str) -> Option<bool> {
-    let root = map.root_type.as_deref()?;
+pub(super) fn data_interface_at_path(map: &impl MetadataView<IrResultFieldMap>, path: &str) -> Option<bool> {
+    let root = map.root()?;
     let (owner, leaf) = walk_to_owner_from(map, root, path)?;
     Some(
-        map.data_interface_fields
+        map.data()
+            .data_interface_fields
             .get(owner)
             .is_some_and(|fields| fields.contains(&leaf)),
     )
@@ -377,11 +384,12 @@ pub(super) fn data_interface_at_path(map: &IrResultFieldMap, path: &str) -> Opti
 
 /// Walk `path` from a known IR owner instead of the call result root. Tagged-union renderers use
 /// this after narrowing a variant to its payload type. ~keep
-pub(super) fn is_optional_path_from(map: &IrResultFieldMap, root: &str, path: &str) -> bool {
+pub(super) fn is_optional_path_from(map: &impl MetadataView<IrResultFieldMap>, root: &str, path: &str) -> bool {
     let Some((owner, leaf)) = walk_to_owner_from(map, root, path) else {
         return false;
     };
-    map.optional_fields
+    map.data()
+        .optional_fields
         .get(owner)
         .is_some_and(|fields| fields.contains(&leaf))
 }
@@ -404,11 +412,12 @@ pub(super) fn is_optional_path_from(map: &IrResultFieldMap, root: &str, path: &s
 /// `false` — never "unsafe" — for an unresolved root, an unrecognized segment, or an unpopulated
 /// map, mirroring [`is_optional_path`]'s fallback: caller must already default the flag to "no
 /// warning" for a fixture with no IR in scope, so this cannot regress those.
-pub(super) fn leaf_is_named_type(map: &IrResultFieldMap, path: &str) -> bool {
+pub(super) fn leaf_is_named_type(map: &impl MetadataView<IrResultFieldMap>, path: &str) -> bool {
     let Some((owner, leaf)) = walk_to_owner(map, path) else {
         return false;
     };
-    map.field_types
+    map.data()
+        .field_types
         .get(owner)
         .is_some_and(|fields| fields.contains_key(&leaf))
 }
@@ -423,9 +432,12 @@ pub(super) fn leaf_is_named_type(map: &IrResultFieldMap, path: &str) -> bool {
 /// Only the first segment is judged. A deeper segment can legitimately walk into a type this map
 /// does not carry (a map value, a `serde_json::Value`, a foreign type), and rejecting those would
 /// discard real, compiling accessors to close a hole that only ever opened at the root. ~keep
-pub(super) fn root_declares_first_segment(map: &IrResultFieldMap, first_segment: &str) -> Option<bool> {
-    let root = map.root_type.as_deref()?;
-    let declared = map.declared_fields.get(root)?;
+pub(super) fn root_declares_first_segment(
+    map: &impl MetadataView<IrResultFieldMap>,
+    first_segment: &str,
+) -> Option<bool> {
+    let root = map.root()?;
+    let declared = map.data().declared_fields.get(root)?;
     Some(declared.contains(first_segment))
 }
 
@@ -444,8 +456,8 @@ pub(super) fn root_declares_first_segment(map: &IrResultFieldMap, first_segment:
 /// the extracted surface — reachable, spellable, and unjudgeable — so it keeps the conservatism
 /// [`root_declares_first_segment`] documents rather than discarding real accessors. Only a segment
 /// the IR positively knows the owner of, and positively does not find, answers `Some(false)`. ~keep
-pub(super) fn root_declares_path(map: &IrResultFieldMap, path: &str) -> Option<bool> {
-    let root = map.root_type.as_deref()?;
+pub(super) fn root_declares_path(map: &impl MetadataView<IrResultFieldMap>, path: &str) -> Option<bool> {
+    let root = map.root()?;
     type_declares_path(map, root, path)
 }
 
@@ -455,19 +467,23 @@ pub(super) fn root_declares_path(map: &IrResultFieldMap, path: &str) -> Option<b
 /// [`path_crosses_unwalkable_field`] has been overridden by a `fields_method_calls` entry that
 /// names how to cross that exact union. Shares every fallback `root_declares_path` documents
 /// (`None` on an unresolvable prefix segment, `Some(false)` only on a positively-undeclared one).
-pub(super) fn type_declares_path(map: &IrResultFieldMap, owner_type: &str, path: &str) -> Option<bool> {
+pub(super) fn type_declares_path(
+    map: &impl MetadataView<IrResultFieldMap>,
+    owner_type: &str,
+    path: &str,
+) -> Option<bool> {
     let segments = parse_path(path);
     let (last, prefix) = segments.split_last()?;
 
     let mut owner = owner_type;
     for segment in prefix {
         let name = segment_name(segment)?;
-        if !map.declared_fields.get(owner)?.contains(name) {
+        if !map.data().declared_fields.get(owner)?.contains(name) {
             return Some(false);
         }
-        owner = map.field_types.get(owner)?.get(name)?.as_str();
+        owner = map.data().field_types.get(owner)?.get(name)?.as_str();
     }
-    Some(map.declared_fields.get(owner)?.contains(segment_name(last)?))
+    Some(map.data().declared_fields.get(owner)?.contains(segment_name(last)?))
 }
 
 /// Whether `path` walks PAST a segment that is a real, declared field but whose type this map
@@ -487,8 +503,8 @@ pub(super) fn type_declares_path(map: &IrResultFieldMap, owner_type: &str, path:
 /// way, whether the reason is a tagged union, a map value, or a `serde_json::Value` — all of which
 /// share the one fact that matters here, that `accessor()` cannot walk a plain field access past
 /// them either. ~keep
-pub(super) fn path_crosses_unwalkable_field(map: &IrResultFieldMap, path: &str) -> bool {
-    let Some(root) = map.root_type.as_deref() else {
+pub(super) fn path_crosses_unwalkable_field(map: &impl MetadataView<IrResultFieldMap>, path: &str) -> bool {
+    let Some(root) = map.root() else {
         return false;
     };
     let segments = parse_path(path);
@@ -501,7 +517,7 @@ pub(super) fn path_crosses_unwalkable_field(map: &IrResultFieldMap, path: &str) 
         let Some(name) = segment_name(segment) else {
             return false;
         };
-        let Some(declared) = map.declared_fields.get(owner) else {
+        let Some(declared) = map.data().declared_fields.get(owner) else {
             return false;
         };
         if !declared.contains(name) {
@@ -516,13 +532,14 @@ pub(super) fn path_crosses_unwalkable_field(map: &IrResultFieldMap, path: &str) 
         // with no `Named` resolution at all -- unjudgeable, not unwalkable, so the walk must
         // still abstain (`false`) for it rather than reject a legitimate map/JSON traversal.
         if map
+            .data()
             .unresolvable_named_fields
             .get(owner)
             .is_some_and(|fields| fields.contains(name))
         {
             return true;
         }
-        match map.field_types.get(owner).and_then(|fields| fields.get(name)) {
+        match map.data().field_types.get(owner).and_then(|fields| fields.get(name)) {
             Some(next) => owner = next.as_str(),
             None => return false,
         }
@@ -533,19 +550,23 @@ pub(super) fn path_crosses_unwalkable_field(map: &IrResultFieldMap, path: &str) 
 /// The `(owner_type, leaf_field_name)` a path resolves to, walking every prefix segment through
 /// `field_types`. `None` when the root is unresolved or any segment names something the IR does
 /// not recognize as a field on the type reached so far.
-fn walk_to_owner<'a>(map: &'a IrResultFieldMap, path: &str) -> Option<(&'a str, String)> {
-    let root = map.root_type.as_deref()?;
+fn walk_to_owner<'a>(map: &'a impl MetadataView<IrResultFieldMap>, path: &str) -> Option<(&'a str, String)> {
+    let root = map.root()?;
     walk_to_owner_from(map, root, path)
 }
 
-fn walk_to_owner_from<'a>(map: &'a IrResultFieldMap, root: &'a str, path: &str) -> Option<(&'a str, String)> {
+fn walk_to_owner_from<'a>(
+    map: &'a impl MetadataView<IrResultFieldMap>,
+    root: &'a str,
+    path: &str,
+) -> Option<(&'a str, String)> {
     let segments = parse_path(path);
     let (last, prefix) = segments.split_last()?;
 
     let mut owner = root;
     for segment in prefix {
         let name = segment_name(segment)?;
-        owner = map.field_types.get(owner)?.get(name)?.as_str();
+        owner = map.data().field_types.get(owner)?.get(name)?.as_str();
     }
     Some((owner, segment_name(last)?.to_string()))
 }

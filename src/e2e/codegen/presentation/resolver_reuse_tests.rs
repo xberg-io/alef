@@ -10,7 +10,7 @@ fn fixture() -> Fixture {
     .expect("fixture")
 }
 
-fn config() -> E2eConfig {
+pub(super) fn config() -> E2eConfig {
     serde_json::from_value(serde_json::json!({"call": {"function": "convert", "result_var": "result"}}))
         .expect("configuration")
 }
@@ -27,7 +27,7 @@ fn types() -> Vec<TypeDef> {
     }]
 }
 
-fn enums() -> Vec<EnumDef> {
+pub(super) fn enums() -> Vec<EnumDef> {
     vec![EnumDef {
         name: "Kind".into(),
         variants: vec![EnumVariant {
@@ -38,7 +38,7 @@ fn enums() -> Vec<EnumDef> {
     }]
 }
 
-fn functions() -> Vec<FunctionDef> {
+pub(super) fn functions() -> Vec<FunctionDef> {
     vec![FunctionDef {
         name: "convert".into(),
         return_type: TypeRef::Named("Result".into()),
@@ -154,7 +154,7 @@ fn render_body(language: &str, presentation: &[PresentationOperation]) -> String
     )
 }
 
-fn rich_types() -> Vec<TypeDef> {
+pub(super) fn rich_types() -> Vec<TypeDef> {
     let mut types = types();
     types[0].fields[0].optional = true;
     types[0].fields[0].ty = TypeRef::Optional(Box::new(TypeRef::String));
@@ -182,7 +182,7 @@ fn rich_types() -> Vec<TypeDef> {
     types
 }
 
-fn rich_fixture() -> Fixture {
+pub(super) fn rich_fixture() -> Fixture {
     serde_json::from_value(serde_json::json!({
         "id": "rich", "description": "Show optional, enum and collection fields", "input": {},
         "docs": {"topic": "reuse", "shows": ["title", "kind"], "presentation": {"operations": [

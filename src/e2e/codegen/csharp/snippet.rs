@@ -5,6 +5,7 @@ use heck::{ToSnakeCase, ToUpperCamelCase};
 
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{EnumDef, TypeDef};
+use crate::e2e::codegen::presentation::VariantAccessorBackend;
 use crate::e2e::config::E2eConfig;
 use crate::e2e::fixture::{Fixture, FixtureEnv};
 
@@ -23,14 +24,17 @@ pub(super) fn render_snippet_body(
     render_snippet_body_with_ir(fixture, e2e_config, config, type_defs, enums, &[])
 }
 
-pub(super) fn render_snippet_body_with_ir(
+one_shot_snippet_renderer!(pub(super) render_snippet_body_with_ir -> Result<String>, render_in_session);
+
+pub(super) fn render_in_session(
     fixture: &Fixture,
     e2e_config: &E2eConfig,
     config: &ResolvedCrateConfig,
-    type_defs: &[TypeDef],
-    enums: &[EnumDef],
-    functions: &[crate::core::ir::FunctionDef],
+    session: &crate::e2e::codegen::SnippetRenderSession<'_>,
 ) -> Result<String> {
+    let type_defs = session.type_defs();
+    let enums = session.enums();
+    let functions = session.functions();
     let mut call = e2e_config.resolve_call_for_fixture(
         fixture.call.as_deref(),
         &fixture.id,
@@ -195,27 +199,20 @@ pub(super) fn render_snippet_body_with_ir(
     // plain field chain -- `.Format!.Html!` where `Html` is the variant TYPE (CS0572). Mirrors
     // `build_resolver`'s own `new` + `with_ir_fields`, because `resolve_with` applies the
     // declared-result anchoring but not that, and adds the narrowing map on top. ~keep
-    let (ir_reachable_fields, ir_known_excluded_fields, ir_optional_fields) =
-        crate::e2e::field_access::FieldResolver::ir_field_sets(type_defs);
     let field_resolver = crate::e2e::field_access::FieldResolver::new(
         e2e_config.effective_fields(call),
         e2e_config.effective_fields_optional(call),
         e2e_config.effective_result_fields(call),
         e2e_config.effective_fields_array(call),
         e2e_config.effective_fields_method_calls(call),
-    )
-    .with_ir_fields(ir_reachable_fields, ir_known_excluded_fields, ir_optional_fields)
-    .with_variant_accessors(super::variant_accessors::build_variant_accessor_map(enums));
+    );
+    let field_resolver = session.enrich_variant_fields(
+        field_resolver,
+        VariantAccessorBackend::CSharp,
+        super::variant_accessors::build_variant_accessor_map,
+    );
     let presentation = disambiguate_presentation_items(
-        dereference_optional_iterate_collections(crate::e2e::codegen::presentation::resolve_with(
-            fixture,
-            e2e_config,
-            "csharp",
-            &field_resolver,
-            type_defs,
-            enums,
-            functions,
-        )),
+        dereference_optional_iterate_collections(session.resolve_with(fixture, e2e_config, "csharp", &field_resolver)),
         result_var,
         client_factory.is_some(),
     );

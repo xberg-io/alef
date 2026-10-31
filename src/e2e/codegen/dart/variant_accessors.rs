@@ -34,6 +34,10 @@ pub(super) fn build_variant_accessor_map(enums: &[EnumDef]) -> VariantAccessorMa
                 .insert(key, dart_tuple_field_identifier(field.name.trim_start_matches('_')));
         }
     }
+    tracing::trace!(
+        ir_metadata_fact = "dart_variants",
+        metadata_entries = map.narrowing.len()
+    );
     map
 }
 

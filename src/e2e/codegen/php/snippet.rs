@@ -16,20 +16,16 @@ pub(super) fn render_snippet_body(
     render_snippet_body_with_ir(fixture, e2e_config, config, type_defs, enums, &[])
 }
 
-/// [`render_snippet_body`], with the free-function registry it cannot see.
-///
-/// `functions` lets the presentation resolver anchor the snippet's field facts at the call's
-/// own declared result type instead of matching field names across the whole crate IR; without
-/// it the resolver falls back to the flat, name-keyed answers. Mirrors `java/snippet.rs`'s
-/// split for the same reason. ~keep
-pub(super) fn render_snippet_body_with_ir(
+one_shot_snippet_renderer!(pub(super) render_snippet_body_with_ir -> Result<String>, render_in_session);
+
+pub(super) fn render_in_session(
     fixture: &Fixture,
     e2e_config: &E2eConfig,
     config: &ResolvedCrateConfig,
-    type_defs: &[TypeDef],
-    enums: &[EnumDef],
-    functions: &[crate::core::ir::FunctionDef],
+    session: &crate::e2e::codegen::SnippetRenderSession<'_>,
 ) -> Result<String> {
+    let type_defs = session.type_defs();
+    let enums = session.enums();
     if fixture.is_http_test() {
         return render_http_snippet(fixture);
     }
@@ -177,15 +173,7 @@ pub(super) fn render_snippet_body_with_ir(
         call,
         e2e_config.effective_result_fields(call),
     ));
-    let presentation = crate::e2e::codegen::presentation::resolve_with(
-        fixture,
-        e2e_config,
-        lang,
-        &field_resolver,
-        type_defs,
-        enums,
-        functions,
-    );
+    let presentation = session.resolve_with(fixture, e2e_config, lang, &field_resolver);
     let api_key_var = crate::e2e::fixture::FixtureEnv::api_key_var_or_default(fixture.env.as_ref());
     let body = crate::e2e::template_env::render(
         "php/snippet_body.jinja",

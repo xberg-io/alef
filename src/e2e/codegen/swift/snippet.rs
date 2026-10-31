@@ -20,14 +20,17 @@ pub(super) fn render(
     render_with_ir(fixture, e2e_config, config, type_defs, enums, &[])
 }
 
-pub(super) fn render_with_ir(
+one_shot_snippet_renderer!(pub(super) render_with_ir -> Result<String>, render_in_session);
+
+pub(super) fn render_in_session(
     fixture: &Fixture,
     e2e_config: &E2eConfig,
     config: &ResolvedCrateConfig,
-    type_defs: &[crate::core::ir::TypeDef],
-    enums: &[crate::core::ir::EnumDef],
-    functions: &[crate::core::ir::FunctionDef],
+    session: &crate::e2e::codegen::SnippetRenderSession<'_>,
 ) -> Result<String> {
+    let type_defs = session.type_defs();
+    let enums = session.enums();
+    let functions = session.functions();
     let mut snippet_fixture = fixture.clone();
     // Naming a credential variable is what selects `test_method`'s environment-reading
     // client constructor (`let _apiKey = ProcessInfo…` + `let _baseUrl: String? = …`),
@@ -72,23 +75,26 @@ pub(super) fn render_with_ir(
     let mut call_fixture = fixture.clone();
     call_fixture.assertions.clear();
     let mut method = String::new();
-    test_method::render_test_method(
-        &mut method,
-        &call_fixture,
-        e2e_config,
-        "",
-        "",
-        &[],
-        false,
-        override_config.and_then(|value| value.client_factory.as_deref()),
-        &first_class_map,
-        &module,
-        config,
-        type_defs,
-        enums,
-        functions,
-        &[],
-    );
+    {
+        let _span = tracing::trace_span!("snippet_call_body").entered();
+        test_method::render_test_method(
+            &mut method,
+            &call_fixture,
+            e2e_config,
+            "",
+            "",
+            &[],
+            false,
+            override_config.and_then(|value| value.client_factory.as_deref()),
+            &first_class_map,
+            &module,
+            config,
+            type_defs,
+            enums,
+            functions,
+            &[],
+        );
+    }
     let body_line_count = method.lines().count().saturating_sub(3);
     let api_key_var = crate::e2e::fixture::FixtureEnv::api_key_var_or_default(fixture.env.as_ref());
     // A `configuration/custom-base-url`-style topic documents `docs.client.base_url` so the
@@ -161,16 +167,8 @@ pub(super) fn render_with_ir(
             e2e_config.effective_fields_method_calls(call),
             &std::collections::HashMap::new(),
         )
-        .with_swift_first_class_map(first_class_map.clone());
-        crate::e2e::codegen::presentation::resolve_with(
-            fixture,
-            e2e_config,
-            "swift",
-            &field_resolver,
-            type_defs,
-            enums,
-            functions,
-        )
+        .with_swift_first_class_map(first_class_map);
+        session.resolve_with(fixture, e2e_config, "swift", &field_resolver)
     };
     if !expects_error && !call.returns_void && presentation.is_empty() {
         body.push_str(&format!("\nprint({result_var})"));

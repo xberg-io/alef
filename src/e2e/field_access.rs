@@ -4,6 +4,7 @@
 //! actual API struct paths (e.g., "metadata.document.title") and generates
 //! language-specific accessor expressions.
 
+mod anchored_maps;
 mod enum_payload_access;
 mod internally_tagged_variants;
 mod ir_collection;
@@ -11,6 +12,7 @@ mod ir_enum;
 mod ir_result_fields;
 mod json_union_accessor;
 mod leaf_anchor;
+mod optional_fields;
 mod optional_renderers;
 mod parse;
 mod python_access_steps;
@@ -19,13 +21,16 @@ mod python_typeddict;
 mod python_wire_shapes;
 mod renderers;
 mod resolver;
+mod shared_metadata;
 mod text_projection;
 mod types;
 mod variant_crossings;
 
 pub use enum_payload_access::{EnumFieldMetadata, WireAccessStep};
 pub(crate) use internally_tagged_variants::push_owner_segment;
+pub(crate) use ir_result_fields::OptionalityRule;
 pub use leaf_anchor::LeafAnchor;
+pub(crate) use shared_metadata::SharedIrFields;
 pub(crate) use types::WasmEnumRepresentation;
 pub use types::{
     DartFirstClassMap, FieldResolver, IrCollectionMap, IrEnumMap, IrResultFieldMap, JsonNavStep, PhpGetterMap,
@@ -120,3 +125,7 @@ mod enum_payload_parts_tests;
 #[cfg(test)]
 #[path = "field_access/union_payload_tests.rs"]
 mod union_payload_tests;
+
+#[cfg(test)]
+#[path = "field_access/metadata_storage_tests.rs"]
+pub(crate) mod metadata_storage_tests;

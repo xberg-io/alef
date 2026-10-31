@@ -20,14 +20,21 @@ pub(super) struct RenderedSnippetBody {
     pub placeholder_class: Option<PlaceholderClass>,
 }
 
+pub(super) struct RenderContext<'a> {
+    pub inputs: &'a SnippetRenderContext<'a>,
+    pub session: &'a crate::e2e::codegen::SnippetRenderSession<'a>,
+}
+
 pub(super) fn render_snippet_body(
     extensions: &[Box<dyn crate::Extension>],
     generator: &dyn E2eCodegen,
     fixture: &Fixture,
     language: &str,
-    context: &SnippetRenderContext<'_>,
+    run: &RenderContext<'_>,
     sample_url: &FixtureSampleUrl<'_>,
 ) -> Result<RenderedSnippetBody> {
+    let context = run.inputs;
+    let session = run.session;
     let docs_fixture = fixture.docs_call_fixture_with_sample_url(
         sample_url.base().base(),
         sample_url.template(),
@@ -94,15 +101,7 @@ pub(super) fn render_snippet_body(
             "built-in `{language}` snippet recipe has no function identity; configure a call function or provide an extension-owned documentation recipe"
         );
     }
-    let rendered_body = generator.render_snippet_body_with_functions(
-        fixture,
-        context.e2e,
-        context.crate_config,
-        context.type_defs,
-        context.enums,
-        context.functions,
-        context.errors,
-    );
+    let rendered_body = generator.render_snippet_body_in_session(fixture, context.e2e, context.crate_config, session);
     // Drained here, unconditionally, for the same reason `E2eCodegen::generate_gated` drains it:
     // a builder that recognised an undeclared fixture key many frames down cannot return a
     // `Result`, and a refusal left on the ledger would be reported against whichever backend

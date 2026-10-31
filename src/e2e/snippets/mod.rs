@@ -336,6 +336,16 @@ fn generate_snippet_report_with_extensions(
     )
     .map_err(|error| anyhow::anyhow!("invalid `[crates.e2e.snippets].acknowledged_warnings`: {error}"))?;
     let generators = snippet_generators(languages)?;
+    let session = crate::e2e::codegen::SnippetRenderSession::new(
+        context.type_defs,
+        context.enums,
+        context.functions,
+        context.errors,
+    );
+    let render_context = render_body::RenderContext {
+        inputs: context,
+        session: &session,
+    };
     let mut generated = BTreeMap::<PathBuf, GeneratedSnippet>::new();
     let mut guard_rejections = Vec::<SnippetGuardRejection>::new();
     let mut placeholder_sample_urls = render_body::PlaceholderSampleUrlLedger::default();
@@ -439,7 +449,7 @@ fn generate_snippet_report_with_extensions(
                 generator.as_ref(),
                 fixture,
                 language,
-                context,
+                &render_context,
                 &sample_url,
             )
             .and_then(|rendered| {

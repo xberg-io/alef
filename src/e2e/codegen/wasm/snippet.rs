@@ -1,18 +1,22 @@
 use anyhow::{Result, bail};
 
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::{EnumDef, FunctionDef, TypeDef};
+#[cfg(test)]
+use crate::core::ir::FunctionDef;
 use crate::e2e::config::E2eConfig;
 use crate::e2e::fixture::Fixture;
 
-pub(super) fn render(
+one_shot_snippet_renderer!(pub(super) render -> Result<String>, render_in_session);
+
+pub(super) fn render_in_session(
     fixture: &Fixture,
     e2e_config: &E2eConfig,
     config: &ResolvedCrateConfig,
-    type_defs: &[TypeDef],
-    enums: &[EnumDef],
-    functions: &[FunctionDef],
+    session: &crate::e2e::codegen::SnippetRenderSession<'_>,
 ) -> Result<String> {
+    let type_defs = session.type_defs();
+    let enums = session.enums();
+    let functions = session.functions();
     let docs_fixture = fixture.docs_call_fixture();
     let call = e2e_config.resolve_call_for_fixture(
         docs_fixture.call.as_deref(),
@@ -91,8 +95,8 @@ pub(super) fn render(
         .resolve_package("wasm")
         .and_then(|package| package.name)
         .unwrap_or_else(|| config.wasm_package_name());
-    let body =
-        super::super::typescript::test_file::render_snippet_body(super::super::typescript::test_file::SnippetContext {
+    let body = super::super::typescript::test_file::render_in_session(
+        super::super::typescript::test_file::SnippetContext {
             lang: "wasm",
             fixture,
             module: &module,
@@ -103,7 +107,9 @@ pub(super) fn render(
             functions,
             wasm_type_prefix: &wasm_type_prefix,
             config,
-        });
+        },
+        session,
+    );
     // A `configuration/custom-base-url`-style topic documents `docs.client.base_url` so the
     // reader sees the setting the topic is about, mirroring the Java/Rust/Elixir/Python
     // generators' `docs_client` handling. `render_snippet_body` above is shared with

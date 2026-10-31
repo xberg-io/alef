@@ -1,3 +1,5 @@
+use super::anchored_maps::MetadataView;
+use super::optional_fields::OptionalFieldSet;
 use crate::codegen::naming::to_go_name;
 
 use super::optional_renderers::{
@@ -6,7 +8,6 @@ use super::optional_renderers::{
 };
 use super::types::{PathSegment, SwiftFirstClassMap};
 use heck::{ToLowerCamelCase, ToSnakeCase};
-use std::collections::HashSet;
 
 /// Render `key` as a double-quoted string literal.
 ///
@@ -103,12 +104,13 @@ pub(super) fn render_swift(segments: &[PathSegment], result_var: &str) -> String
 pub(super) fn render_swift_with_first_class_map(
     segments: &[PathSegment],
     result_var: &str,
-    optional_fields: &HashSet<String>,
-    map: &SwiftFirstClassMap,
+    optional_fields: &impl OptionalFieldSet,
+    map: &impl MetadataView<SwiftFirstClassMap>,
 ) -> String {
     let mut out = result_var.to_string();
     let mut path_so_far = String::new();
-    let mut current_type: Option<String> = map.root_type.clone();
+    let mut current_type = map.root().map(str::to_owned);
+    let map = map.data();
     // Once a chain crosses an `ArrayField` segment, every subsequent segment
     // operates on an element pulled from a `RustVec<T>` — and `RustVec[i]`
     // yields the OPAQUE `RustBridge.T` (whose fields are swift-bridge methods),

@@ -1,3 +1,4 @@
+use super::super::anchored_maps::AnchoredMap;
 use super::super::ir_collection::{build_ir_collection_map, build_non_string_scalar_element_fields};
 use super::super::ir_enum::build_ir_enum_map;
 use super::super::ir_result_fields::{OptionalityRule, build_ir_result_field_map, is_optional_path};
@@ -7,6 +8,7 @@ use super::super::types::{
     PythonTypedDictMap, SwiftFirstClassMap, VariantAccessorMap,
 };
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 /// Every key an accessor renderer will look up in `optional_fields` while walking `path`, in
 /// order, one per segment.
@@ -82,23 +84,23 @@ impl FieldResolver {
     ) -> Self {
         Self {
             aliases: fields.clone(),
-            optional_fields: optional.clone(),
+            optional_fields: optional.clone().into(),
             config_declared_optional_fields: optional.clone(),
             result_fields: result_fields.clone(),
             array_fields: array_fields.clone(),
             enum_fields: HashSet::new(),
             method_calls: method_calls.clone(),
             error_field_aliases: HashMap::new(),
-            php_getter_map: PhpGetterMap::default(),
-            variant_accessors: VariantAccessorMap::default(),
-            swift_first_class_map: SwiftFirstClassMap::default(),
+            php_getter_map: Arc::default(),
+            variant_accessors: Arc::default(),
+            swift_first_class_map: AnchoredMap::default(),
             swift_lossless_text_fields: HashMap::new(),
             dart_first_class_map: DartFirstClassMap::default(),
             display_as_text_fields: HashSet::new(),
-            ir_reachable_fields: HashSet::new(),
-            ir_known_excluded_fields: HashSet::new(),
+            ir_reachable_fields: Arc::default(),
+            ir_known_excluded_fields: Arc::default(),
             wire_optional_fields: HashSet::new(),
-            ir_enum_map: IrEnumMap::default(),
+            ir_enum_map: AnchoredMap::default(),
             rust_enum_module: None,
             wasm_untagged_enum_names: HashSet::new(),
             text_projected_enum_names: HashSet::new(),
@@ -108,9 +110,9 @@ impl FieldResolver {
             java_wrapper_enum_names: HashSet::new(),
             ruby_hash_serialized_enum_names: HashSet::new(),
             ruby_typed_variant_payloads: HashSet::new(),
-            ir_collection_map: IrCollectionMap::default(),
+            ir_collection_map: AnchoredMap::default(),
             non_string_scalar_collection_fields: HashMap::new(),
-            ir_result_field_map: IrResultFieldMap::default(),
+            ir_result_field_map: AnchoredMap::default(),
             result_is_byte_payload: false,
             python_typeddict_map: PythonTypedDictMap::default(),
             python_map_value_edges: HashMap::new(),
@@ -132,23 +134,23 @@ impl FieldResolver {
     ) -> Self {
         Self {
             aliases: fields.clone(),
-            optional_fields: optional.clone(),
+            optional_fields: optional.clone().into(),
             config_declared_optional_fields: optional.clone(),
             result_fields: result_fields.clone(),
             array_fields: array_fields.clone(),
             enum_fields: HashSet::new(),
             method_calls: method_calls.clone(),
             error_field_aliases: error_field_aliases.clone(),
-            php_getter_map: PhpGetterMap::default(),
-            variant_accessors: VariantAccessorMap::default(),
-            swift_first_class_map: SwiftFirstClassMap::default(),
+            php_getter_map: Arc::default(),
+            variant_accessors: Arc::default(),
+            swift_first_class_map: AnchoredMap::default(),
             swift_lossless_text_fields: HashMap::new(),
             dart_first_class_map: DartFirstClassMap::default(),
             display_as_text_fields: HashSet::new(),
-            ir_reachable_fields: HashSet::new(),
-            ir_known_excluded_fields: HashSet::new(),
+            ir_reachable_fields: Arc::default(),
+            ir_known_excluded_fields: Arc::default(),
             wire_optional_fields: HashSet::new(),
-            ir_enum_map: IrEnumMap::default(),
+            ir_enum_map: AnchoredMap::default(),
             rust_enum_module: None,
             wasm_untagged_enum_names: HashSet::new(),
             text_projected_enum_names: HashSet::new(),
@@ -158,9 +160,9 @@ impl FieldResolver {
             java_wrapper_enum_names: HashSet::new(),
             ruby_hash_serialized_enum_names: HashSet::new(),
             ruby_typed_variant_payloads: HashSet::new(),
-            ir_collection_map: IrCollectionMap::default(),
+            ir_collection_map: AnchoredMap::default(),
             non_string_scalar_collection_fields: HashMap::new(),
-            ir_result_field_map: IrResultFieldMap::default(),
+            ir_result_field_map: AnchoredMap::default(),
             result_is_byte_payload: false,
             python_typeddict_map: PythonTypedDictMap::default(),
             python_map_value_edges: HashMap::new(),
@@ -182,7 +184,7 @@ impl FieldResolver {
     /// `outer.inner.content` through the IR, advancing the current-type cursor at each
     /// segment.
     pub fn with_php_getter_map(mut self, php_getter_map: PhpGetterMap) -> Self {
-        self.php_getter_map = php_getter_map;
+        self.php_getter_map = Arc::new(php_getter_map);
         self
     }
 
@@ -206,7 +208,8 @@ impl FieldResolver {
     /// type. Mirrors `with_php_getter_map` but for the Swift
     /// `render_swift_with_first_class_map` path.
     pub fn with_swift_first_class_map(mut self, swift_first_class_map: SwiftFirstClassMap) -> Self {
-        self.swift_first_class_map = swift_first_class_map;
+        let root_type = swift_first_class_map.root_type.clone();
+        self.swift_first_class_map = AnchoredMap::new(Arc::new(swift_first_class_map), root_type);
         self
     }
 
@@ -263,9 +266,8 @@ impl FieldResolver {
     /// hand-maintained `fields_enum` config, so an explicit config entry always wins and this
     /// only rescues fields the config never mentioned — the same precedence `with_ir_fields`
     /// already established for `result_fields`. ~keep
-    pub fn with_ir_enum_map(mut self, mut map: IrEnumMap, root_type: Option<String>) -> Self {
-        map.root_type = root_type;
-        self.ir_enum_map = map;
+    pub fn with_ir_enum_map(mut self, map: IrEnumMap, root_type: Option<String>) -> Self {
+        self.ir_enum_map = AnchoredMap::new(Arc::new(map), root_type);
         self
     }
 
@@ -361,6 +363,11 @@ impl FieldResolver {
     /// e2e codegen are the only callers; every other resolver leaves this empty, which renders
     /// exactly as it did before the map existed. See `variant_accessors`' field doc.
     pub fn with_variant_accessors(mut self, accessors: VariantAccessorMap) -> Self {
+        self.variant_accessors = Arc::new(accessors);
+        self
+    }
+
+    pub(crate) fn with_shared_variant_accessors(mut self, accessors: Arc<VariantAccessorMap>) -> Self {
         self.variant_accessors = accessors;
         self
     }
@@ -407,9 +414,8 @@ impl FieldResolver {
     /// this AFTER the hand-maintained `fields_array`/`fields_optional` config, so an explicit
     /// config entry always wins and this only rescues fields the config never mentioned — the
     /// same precedence [`Self::with_ir_enum_map`] already established for `is_enum`. ~keep
-    pub fn with_ir_collection_map(mut self, mut map: IrCollectionMap, root_type: Option<String>) -> Self {
-        map.root_type = root_type;
-        self.ir_collection_map = map;
+    pub fn with_ir_collection_map(mut self, map: IrCollectionMap, root_type: Option<String>) -> Self {
+        self.ir_collection_map = AnchoredMap::new(Arc::new(map), root_type);
         self
     }
 
@@ -544,9 +550,8 @@ impl FieldResolver {
     /// `map` should come from [`Self::ir_result_field_facts`]; only `root_type` varies per call.
     /// A `None` root leaves every anchored answer disabled, which is exactly the behaviour
     /// before this map existed — so wiring it in can never, on its own, change a verdict. ~keep
-    pub(crate) fn with_ir_result_fields(mut self, mut map: IrResultFieldMap, root_type: Option<String>) -> Self {
-        map.root_type = root_type;
-        self.ir_result_field_map = map;
+    pub(crate) fn with_ir_result_fields(mut self, map: IrResultFieldMap, root_type: Option<String>) -> Self {
+        self.ir_result_field_map = AnchoredMap::new(Arc::new(map), root_type);
         self
     }
 
@@ -631,8 +636,8 @@ impl FieldResolver {
         excluded: HashSet<String>,
         optional: HashSet<String>,
     ) -> Self {
-        self.ir_reachable_fields = reachable;
-        self.ir_known_excluded_fields = excluded;
+        self.ir_reachable_fields = Arc::new(reachable);
+        self.ir_known_excluded_fields = Arc::new(excluded);
         self.optional_fields.extend(optional);
         self.warn_on_result_fields_contradicting_ir();
         self
@@ -665,7 +670,7 @@ impl FieldResolver {
     /// fact about the crate's config and IR, but this method runs once per (fixture, language,
     /// reachable/excluded pass) resolver build, so without the dedup the same field warned
     /// thousands of times in one run and buried the one thing worth reading.
-    fn warn_on_result_fields_contradicting_ir(&self) {
+    pub(in crate::e2e::field_access) fn warn_on_result_fields_contradicting_ir(&self) {
         for field in &self.result_fields {
             if self.ir_known_excluded_fields.contains(field)
                 && WARNED_CONTRADICTING_FIELDS.with(|warned| warned.borrow_mut().insert(field.clone()))
@@ -703,6 +708,7 @@ impl FieldResolver {
     pub fn ir_field_sets(
         type_defs: &[crate::core::ir::TypeDef],
     ) -> (HashSet<String>, HashSet<String>, HashSet<String>) {
+        tracing::trace!(ir_metadata_fact = "fields");
         let mut reachable = HashSet::new();
         let mut excluded = HashSet::new();
         let mut optionality: HashMap<String, (bool, bool)> = HashMap::new();

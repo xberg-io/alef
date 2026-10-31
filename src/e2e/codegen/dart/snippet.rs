@@ -1,5 +1,6 @@
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{EnumDef, TypeDef};
+use crate::e2e::codegen::presentation::VariantAccessorBackend;
 use crate::e2e::config::E2eConfig;
 use crate::e2e::fixture::Fixture;
 use anyhow::{Context, Result};
@@ -19,14 +20,17 @@ pub(super) fn render_snippet_body(
     render_snippet_body_with_ir(fixture, e2e_config, config, type_defs, enums, &[])
 }
 
-pub(super) fn render_snippet_body_with_ir(
+one_shot_snippet_renderer!(pub(super) render_snippet_body_with_ir -> Result<String>, render_in_session);
+
+pub(super) fn render_in_session(
     fixture: &Fixture,
     e2e_config: &E2eConfig,
     config: &ResolvedCrateConfig,
-    type_defs: &[TypeDef],
-    enums: &[EnumDef],
-    functions: &[crate::core::ir::FunctionDef],
+    session: &crate::e2e::codegen::SnippetRenderSession<'_>,
 ) -> Result<String> {
+    let type_defs = session.type_defs();
+    let enums = session.enums();
+    let functions = session.functions();
     if fixture.is_http_test() {
         return render_http_snippet(fixture);
     }
@@ -61,24 +65,27 @@ pub(super) fn render_snippet_body_with_ir(
     let bridge_class = config.dart_bridge_class_name();
     let first_class_map = super::values::build_dart_first_class_map(type_defs, enums, e2e_config);
     let mut test_case = String::new();
-    super::test_case::render_test_case(
-        &mut test_case,
-        &fixture_without_assertions,
-        super::test_case::DartTestCaseContext {
-            e2e_config,
-            lang: "dart",
-            bridge_class: &bridge_class,
-            dart_first_class_map: &first_class_map,
-            adapters: &config.adapters,
-            config,
-            type_defs,
-            enums,
-            functions,
-            errors: &[],
-            native_typed_dtos: true,
-            is_snippet: true,
-        },
-    );
+    {
+        let _span = tracing::trace_span!("snippet_call_body").entered();
+        super::test_case::render_test_case(
+            &mut test_case,
+            &fixture_without_assertions,
+            super::test_case::DartTestCaseContext {
+                e2e_config,
+                lang: "dart",
+                bridge_class: &bridge_class,
+                dart_first_class_map: &first_class_map,
+                adapters: &config.adapters,
+                config,
+                type_defs,
+                enums,
+                functions,
+                errors: &[],
+                native_typed_dtos: true,
+                is_snippet: true,
+            },
+        );
+    }
     let statements = extract_test_statements(&test_case)
         .with_context(|| format!("extracting Dart snippet body for fixture `{}`", fixture.id))?;
     let package = e2e_config
@@ -105,26 +112,19 @@ pub(super) fn render_snippet_body_with_ir(
     // stepping into a tagged-union variant rendered as `format?.html?` -- a getter a freezed
     // sealed class does not have. Mirrors `build_resolver`'s `new` + `with_ir_fields`, which
     // `resolve_with` does not apply, so this is a superset of the previous behaviour. ~keep
-    let (ir_reachable_fields, ir_known_excluded_fields, ir_optional_fields) =
-        crate::e2e::field_access::FieldResolver::ir_field_sets(type_defs);
     let field_resolver = crate::e2e::field_access::FieldResolver::new(
         e2e_config.effective_fields(call),
         e2e_config.effective_fields_optional(call),
         e2e_config.effective_result_fields(call),
         e2e_config.effective_fields_array(call),
         e2e_config.effective_fields_method_calls(call),
-    )
-    .with_ir_fields(ir_reachable_fields, ir_known_excluded_fields, ir_optional_fields)
-    .with_variant_accessors(super::variant_accessors::build_variant_accessor_map(enums));
-    let presentation = crate::e2e::codegen::presentation::resolve_with(
-        fixture,
-        e2e_config,
-        "dart",
-        &field_resolver,
-        type_defs,
-        enums,
-        functions,
     );
+    let field_resolver = session.enrich_variant_fields(
+        field_resolver,
+        VariantAccessorBackend::Dart,
+        super::variant_accessors::build_variant_accessor_map,
+    );
+    let presentation = session.resolve_with(fixture, e2e_config, "dart", &field_resolver);
     Ok(crate::e2e::template_env::render(
         "dart/snippet_body.jinja",
         crate::alef_context! {

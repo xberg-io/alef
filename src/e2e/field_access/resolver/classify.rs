@@ -6,6 +6,7 @@ mod swift_leaf;
 use super::super::internally_tagged_variants::push_owner_segment;
 use super::super::ir_collection::is_collection_path;
 use super::super::leaf_anchor::LeafAnchor;
+use super::super::optional_fields::OptionalFieldSet;
 use super::super::parse::{
     normalize_indices_to_wildcards, normalize_numeric_indices, parse_path, strip_numeric_indices,
 };
@@ -349,7 +350,7 @@ impl FieldResolver {
     /// [`Self::is_config_declared_optional`] (provenance, against the unmerged config-only set)
     /// so the two can never drift on what counts as "the same path" while disagreeing only on
     /// which set they consult.
-    fn optional_set_contains(set: &HashSet<String>, array_fields: &HashSet<String>, field: &str) -> bool {
+    fn optional_set_contains(set: &impl OptionalFieldSet, array_fields: &HashSet<String>, field: &str) -> bool {
         if set.contains(field) {
             return true;
         }
