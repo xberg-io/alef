@@ -400,7 +400,7 @@ fn test_scaffold_dart() {
         pubspec.content
     );
     assert!(
-        pubspec.content.contains("build_runner: '^2.16.0'"),
+        pubspec.content.contains("build_runner: '^2.17.1'"),
         "got: {}",
         pubspec.content
     );

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Generate manifests with the latest @napi-rs/cli 3.10.9, vitest 5.0.5, @types/node 26.6.6,
+  rollup 4.67.2, Dart test 1.33.0, crypto 3.0.8, freezed 4.0.3, build_runner 2.17.1 and
+  json_serializable 6.15.2.
+- Pin the Elixir NIF brotli-decompressor to 6.2.0, which brotli 9.1 requires.
+- Install PIE 1.5.5 in generated PHP e2e setup scripts.
+
 ## [0.115.10] - 2026-10-31
 
 ### Changed

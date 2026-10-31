@@ -22,16 +22,16 @@ pub mod npm {
     pub const NODE_ENGINE: &str = ">= 22";
 
     // renovate: datasource=npm depName=@napi-rs/cli
-    pub const NAPI_RS_CLI_DEVDEPS: &str = "^3.8.6";
+    pub const NAPI_RS_CLI_DEVDEPS: &str = "^3.10.9";
 
     // renovate: datasource=npm depName=@napi-rs/cli
-    pub const NAPI_RS_CLI_CRATE: &str = "^3.8.6";
+    pub const NAPI_RS_CLI_CRATE: &str = "^3.10.9";
 
     // renovate: datasource=npm depName=typescript
     pub const TYPESCRIPT: &str = "^7.0.2";
 
     // renovate: datasource=npm depName=vitest
-    pub const VITEST: &str = "^5.0.0";
+    pub const VITEST: &str = "^5.0.5";
 
     // ~keep `@vitest/coverage-v8` ships one release per vitest core release and declares an
     // exact-match peerDependency on that same version (npm rejects installing a mismatched
@@ -39,10 +39,10 @@ pub mod npm {
     // identical value to VITEST above -- if a Renovate run ever bumps one without the other,
     // realign them by hand before merging rather than letting the pair drift apart.
     // renovate: datasource=npm depName=@vitest/coverage-v8
-    pub const VITEST_COVERAGE_V8: &str = "^5.0.0";
+    pub const VITEST_COVERAGE_V8: &str = "^5.0.5";
 
     // renovate: datasource=npm depName=@types/node
-    pub const TYPES_NODE: &str = "^26.4.0";
+    pub const TYPES_NODE: &str = "^26.6.6";
 
     /// Filename `napi build` writes its own auto-derived type declarations to.
     ///
@@ -57,7 +57,7 @@ pub mod npm {
     pub const NAPI_AUTO_DTS_FILENAME: &str = "index.native.d.ts";
 
     // renovate: datasource=npm depName=rollup
-    pub const ROLLUP: &str = "^4.63.1";
+    pub const ROLLUP: &str = "^4.67.2";
 
     // renovate: datasource=npm depName=vite-plugin-top-level-await
     pub const VITE_PLUGIN_TOP_LEVEL_AWAIT: &str = "^1.6.0";
@@ -182,8 +182,8 @@ pub mod cargo {
     // direct `=` dependencies are the only way to hold a consumer's NIF tree on one chosen
     // allocator version. Fourteen Elixir NIF matrix cells and the Hex publish failed before it.
     //
-    // They track the brotli 9.x line (brotli 9.0.0 wants alloc-no-stdlib >=3.0.0,<4,
-    // alloc-stdlib >=0.3.0,<0.4, brotli-decompressor ~6.0), because that is the brotli a
+    // They track the brotli 9.x line (brotli 9.1 wants alloc-no-stdlib >=3.0.0,<4,
+    // alloc-stdlib >=0.3.0,<0.4, brotli-decompressor >=6.2,<7), because that is the brotli a
     // consumer's own crates depend on directly. A brotli 8.0.x copy is ALSO present in such a
     // tree -- every published `compression-codecs` still requires `brotli ^8`, so anything
     // reaching brotli through tower-http/async-compression drags it in -- but the two majors
@@ -202,7 +202,7 @@ pub mod cargo {
     pub const ALLOC_STDLIB: &str = "0.3.0";
 
     // renovate: datasource=crate depName=brotli-decompressor
-    pub const BROTLI_DECOMPRESSOR: &str = "6.0.1";
+    pub const BROTLI_DECOMPRESSOR: &str = "6.2.0";
 
     // renovate: datasource=crate depName=tokio-stream
     pub const TOKIO_STREAM: &str = "0.1";
@@ -362,11 +362,11 @@ pub mod github_release {
     // Pinning at all is the point: the generated `install.sh` used to fetch
     // `releases/latest/download/pie.phar`, so whatever was published upstream at run time was
     // executed with no integrity check and no way to reproduce a past run.
-    pub const PIE_VERSION: &str = "1.4.10";
+    pub const PIE_VERSION: &str = "1.5.5";
 
     /// SHA-256 of the `pie.phar` asset of [`PIE_VERSION`]. Verified against a real download of
-    /// `https://github.com/php/pie/releases/download/1.4.10/pie.phar` (6956483 bytes).
-    pub const PIE_PHAR_SHA256: &str = "b88792235c8e80be568436d4cb043b49fd1869c89b64e83d23e2882ae19d70a8";
+    /// `https://github.com/php/pie/releases/download/1.5.5/pie.phar` (9289244 bytes).
+    pub const PIE_PHAR_SHA256: &str = "2ca0dff6868f1b53c095625674deef38ac698588e0a25e4321cd834a5b7553bc";
 }
 
 pub mod maven {
@@ -574,7 +574,7 @@ pub mod hex {
 /// pub.dev (Dart) ecosystem.
 pub mod pub_dev {
     // renovate: datasource=dart depName=test
-    pub const TEST_PACKAGE: &str = "^1.31.2";
+    pub const TEST_PACKAGE: &str = "^1.33.0";
 
     // renovate: datasource=dart depName=lints
     pub const LINTS: &str = "^6.1.0";
@@ -586,7 +586,7 @@ pub mod pub_dev {
     pub const HTTP_PACKAGE: &str = "^1.6.0";
 
     // renovate: datasource=dart depName=crypto
-    pub const CRYPTO: &str = "^3.0.7";
+    pub const CRYPTO: &str = "^3.0.8";
 
     // renovate: datasource=dart depName=freezed_annotation
     pub const FREEZED_ANNOTATION: &str = "^3.1.0";
@@ -595,13 +595,13 @@ pub mod pub_dev {
     pub const JSON_ANNOTATION: &str = "^4.12.0";
 
     // renovate: datasource=dart depName=freezed
-    pub const FREEZED: &str = "^4.0.0";
+    pub const FREEZED: &str = "^4.0.3";
 
     // renovate: datasource=dart depName=build_runner
-    pub const BUILD_RUNNER: &str = "^2.16.0";
+    pub const BUILD_RUNNER: &str = "^2.17.1";
 
     // renovate: datasource=dart depName=json_serializable
-    pub const JSON_SERIALIZABLE: &str = "^6.14.1";
+    pub const JSON_SERIALIZABLE: &str = "^6.15.2";
 
     // renovate: datasource=dart depName=native_assets_cli
     pub const NATIVE_ASSETS_CLI: &str = "^0.18.0";
