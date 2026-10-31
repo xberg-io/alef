@@ -203,7 +203,7 @@ fn resolve_ref(tag: &str, git_ref: Option<&str>, event: &str) -> String {
 
 fn resolve_checkout(git_ref: &str) -> (String, String) {
     if git_ref.len() == 40 && git_ref.chars().all(|c| c.is_ascii_hexdigit()) {
-        return ("refs/heads/main".to_string(), git_ref.to_string());
+        return (git_ref.to_string(), git_ref.to_string());
     }
     (git_ref.to_string(), String::new())
 }
@@ -451,9 +451,75 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(meta.checkout_ref, "refs/heads/main");
+        assert_eq!(meta.checkout_ref, sha);
+        assert!(!meta.is_tag);
         assert_eq!(meta.target_sha, sha);
         assert_eq!(meta.matrix_ref, "main");
+    }
+
+    #[test]
+    fn emitted_sha_metadata_preserves_exact_source_without_tag_identity() {
+        let sha = "50f29ae3f52070cebe331060a820dc96299625ac";
+        let meta = compute(
+            "v2.4.4",
+            ComputeReleaseMetadataInputs {
+                targets_csv: "none",
+                git_ref: Some(sha),
+                event: "workflow_dispatch",
+                dry_run: false,
+                force_republish: false,
+                config: None,
+            },
+        )
+        .unwrap();
+        let actual: serde_json::Value = serde_json::from_str(&meta.to_json().unwrap()).unwrap();
+        assert_eq!(
+            actual,
+            json!({
+                "tag": "v2.4.4", "version": "2.4.4", "npm_tag": "latest",
+                "ref": sha, "checkout_ref": sha, "target_sha": sha, "matrix_ref": "main",
+                "dry_run": false, "force_republish": false, "is_tag": false, "is_prerelease": false,
+                "release_targets": "none", "release_any": false,
+                "release_python": false, "release_node": false, "release_ruby": false,
+                "release_cli": false, "release_crates": false, "release_docker": false,
+                "release_homebrew": false, "release_scoop": false, "release_java": false,
+                "release_csharp": false, "release_go": false, "release_wasm": false,
+                "release_php": false, "release_elixir": false, "release_r": false,
+                "release_c_ffi": false, "release_dart": false, "release_swift": false,
+                "release_gleam": false, "release_zig": false,
+                "release_kotlin": false, "release_kotlin_android": false
+            })
+        );
+    }
+
+    #[test]
+    fn emitted_ref_controls_preserve_branch_and_tag_identity() {
+        for (input, checkout, matrix, is_tag) in [
+            (None, "refs/tags/v4.0.0", "v4.0.0", true),
+            (Some("v4.0.0"), "refs/tags/v4.0.0", "v4.0.0", true),
+            (Some("refs/tags/v4.0.0"), "refs/tags/v4.0.0", "v4.0.0", true),
+            (Some("my-branch"), "refs/heads/my-branch", "my-branch", false),
+            (Some("refs/heads/my-branch"), "refs/heads/my-branch", "my-branch", false),
+        ] {
+            let meta = compute(
+                "v4.0.0",
+                ComputeReleaseMetadataInputs {
+                    targets_csv: "none",
+                    git_ref: input,
+                    event: "workflow_dispatch",
+                    dry_run: false,
+                    force_republish: false,
+                    config: None,
+                },
+            )
+            .unwrap();
+            let actual: serde_json::Value = serde_json::from_str(&meta.to_json().unwrap()).unwrap();
+            assert_eq!(actual["ref"], checkout);
+            assert_eq!(actual["checkout_ref"], checkout);
+            assert_eq!(actual["target_sha"], "");
+            assert_eq!(actual["matrix_ref"], matrix);
+            assert_eq!(actual["is_tag"], is_tag);
+        }
     }
 
     #[test]
