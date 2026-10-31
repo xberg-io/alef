@@ -23,6 +23,7 @@ def recording_cargo(root):
         "from pathlib import Path\n"
         "Path(os.environ['CARGO_TEST_RECEIPT']).write_text(json.dumps({\n"
         "    'argv': sys.argv[1:],\n"
+        "    'platform': sys.platform,\n"
         "    'target': os.environ.get('CARGO_TARGET_DIR'),\n"
         "    'sentinel': os.environ.get('CARGO_TEST_SENTINEL'),\n"
         "}))\n"
@@ -30,7 +31,7 @@ def recording_cargo(root):
     )
 
 
-def prepare_fixture(root, wrapper_source):
+def prepare_fixture(root, wrapper_source, trace_target=False):
     config = tomllib.loads((REPO / "mise.toml").read_text())
     command = config["tasks"]["test:run"]["run"]
     assert command.count("cargo ") == 1, "expected one Cargo executable boundary"
@@ -47,7 +48,22 @@ def prepare_fixture(root, wrapper_source):
     if wrapper.exists():
         (root / "scripts").mkdir()
         destination = root / "scripts/run_test_cargo.py"
-        if wrapper_source is None:
+        if trace_target:
+            source = wrapper.read_text() if wrapper_source is None else wrapper_source
+            anchor = "    arguments, environment = isolated_command(sys.argv[1:], os.environ)\n"
+            assert source.count(anchor) == 1, "diagnostic must wrap exactly the real isolation boundary"
+            diagnostic = (
+                "    import json\n"
+                "    from pathlib import Path\n"
+                "    entry = {'platform': sys.platform, 'argv': sys.argv[1:], "
+                "'target': os.environ.get('CARGO_TARGET_DIR')}\n"
+                + anchor
+                + "    diagnostic = {'entry': entry, 'forwarded': {'argv': arguments, "
+                "'target': environment.get('CARGO_TARGET_DIR')}}\n"
+                + f"    Path({str(root / 'wrapper-boundary.json')!r}).write_text(json.dumps(diagnostic))\n"
+            )
+            destination.write_text(source.replace(anchor, diagnostic, 1))
+        elif wrapper_source is None:
             shutil.copyfile(wrapper, destination)
         else:
             destination.write_text(wrapper_source)
@@ -59,7 +75,8 @@ def invoke_task(arguments=(), target="outer target", exit_code=0, wrapper_source
         root = Path(directory).resolve()
         recording_cargo(root)
         receipt = root / "receipt.json"
-        prepare_fixture(root, wrapper_source)
+        trace_target = target == "/absolute target/with spaces"
+        prepare_fixture(root, wrapper_source, trace_target=trace_target)
         environment = {
             **parent_environment,
             "MISE_TRUSTED_CONFIG_PATHS": str(root),
@@ -84,6 +101,15 @@ def invoke_task(arguments=(), target="outer target", exit_code=0, wrapper_source
         )
         assert receipt.is_file(), f"recording Cargo was not invoked: {result.stderr}"
         captured = json.loads(receipt.read_text())
+        if trace_target:
+            trace = root / "wrapper-boundary.json"
+            assert trace.is_file(), "diagnostic wrapper did not reach its forwarding boundary"
+            captured["diagnostic"] = {
+                "parent_platform": sys.platform,
+                "parent_target": target,
+                "mise_input_target": environment.get("CARGO_TARGET_DIR"),
+                "wrapper": json.loads(trace.read_text()),
+            }
     assert dict(os.environ) == parent_environment, "task invocation changed the parent environment"
     return (result, captured)
 
@@ -132,7 +158,10 @@ class CargoTestRunner(unittest.TestCase):
                 result, captured = invoke_task(target=target)
                 assert result.returncode == 0, result.stderr
                 assert captured["target"] is None
-                assert captured["argv"] == canonical_arguments("--target-dir", target)
+                expected = canonical_arguments("--target-dir", target)
+                assert captured["argv"] == expected, json.dumps(
+                    {"expected_argv": expected, "received": captured}, ensure_ascii=True, sort_keys=True
+                )
 
     def test_both_explicit_target_forms_override_the_outer_target(self):
         for arguments in [["--target-dir", "explicit target"], ["--target-dir=explicit target"]]:
