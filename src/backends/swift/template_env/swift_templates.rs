@@ -1,5 +1,9 @@
 pub(super) static TEMPLATES: &[(&str, &str)] = &[
     (
+        "swift_alias_decoding.swift.jinja",
+        include_str!("../templates/swift_alias_decoding.swift.jinja"),
+    ),
+    (
         "swift_strict_wire_key.swift.jinja",
         include_str!("../templates/swift_strict_wire_key.swift.jinja"),
     ),

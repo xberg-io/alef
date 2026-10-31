@@ -1,3 +1,4 @@
+mod aliases;
 mod decoder;
 pub(super) mod ffi_initializer;
 mod field_defaults;
@@ -292,21 +293,21 @@ pub(super) fn emit_first_class_struct(
         }
     }
 
-    let decoder_helper = if ty.serde_deserialization.deny_unknown_fields {
-        serde_policy::key_type()
-    } else {
-        String::new()
-    };
+    let decoder_helper =
+        if ty.serde_deserialization.deny_unknown_fields || !ty.serde_deserialization.field_aliases.is_empty() {
+            serde_policy::key_type()
+        } else {
+            String::new()
+        };
     let mut decoder_init = String::new();
     if super::decoder_gate::needs_decoder_init(ty) {
-        emit_decoder_init(
+        aliases::emit_decoder_init(
+            ty,
             mapper,
             &visible_fields,
             zero_arg_constructible_names,
-            ty.has_default,
-            ty.serde_deserialization.deny_unknown_fields,
             &mut decoder_init,
-        );
+        )?;
     }
 
     let ffi_init_assignments = ffi_initializer::assignments(ffi_initializer::Initializer {

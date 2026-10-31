@@ -414,6 +414,9 @@ pub struct VersionAnnotation {
 /// Decoder policy retained separately from field defaults and container conversions.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct SerdeDeserializationPolicy {
+    /// Input aliases keyed by the original Rust field name; encoding keeps its canonical name.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub field_aliases: std::collections::BTreeMap<String, Vec<String>>,
     #[serde(default)]
     pub deny_unknown_fields: bool,
     /// Field attributes whose input-key semantics are not yet modeled by the Swift decoder.
@@ -423,7 +426,7 @@ pub struct SerdeDeserializationPolicy {
 
 impl SerdeDeserializationPolicy {
     pub fn is_empty(&self) -> bool {
-        !self.deny_unknown_fields && self.unsupported_field_attributes.is_empty()
+        !self.deny_unknown_fields && self.unsupported_field_attributes.is_empty() && self.field_aliases.is_empty()
     }
 }
 
@@ -478,6 +481,7 @@ mod deserialization_policy_tests {
             serde_deserialization: SerdeDeserializationPolicy {
                 deny_unknown_fields: true,
                 unsupported_field_attributes: vec!["alias".to_string()],
+                field_aliases: Default::default(),
             },
             ..Default::default()
         };

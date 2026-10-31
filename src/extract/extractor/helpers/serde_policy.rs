@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::core::ir::SerdeDeserializationPolicy;
 
@@ -17,14 +17,7 @@ fn serde_entries(attrs: &[syn::Attribute]) -> Vec<syn::Meta> {
 }
 
 fn unsupported_attribute(meta: &syn::Meta) -> Option<&'static str> {
-    for key in [
-        "alias",
-        "flatten",
-        "skip",
-        "skip_deserializing",
-        "skip_serializing",
-        "tag",
-    ] {
+    for key in ["flatten", "skip", "skip_deserializing", "skip_serializing", "tag"] {
         if meta.path().is_ident(key) {
             return Some(key);
         }
@@ -51,10 +44,36 @@ pub(crate) fn extract_serde_deserialization_policy(item: &syn::ItemStruct) -> Se
         }))
         .map(str::to_string)
         .collect();
+    let field_aliases = extract_field_aliases(item);
     SerdeDeserializationPolicy {
+        field_aliases,
         deny_unknown_fields,
         unsupported_field_attributes: unsupported.into_iter().collect(),
     }
+}
+
+fn extract_field_aliases(item: &syn::ItemStruct) -> BTreeMap<String, Vec<String>> {
+    item.fields
+        .iter()
+        .filter_map(|field| {
+            let name = field.ident.as_ref()?.to_string();
+            let aliases: Vec<_> = serde_entries(&field.attrs)
+                .into_iter()
+                .filter_map(|meta| {
+                    let syn::Meta::NameValue(value) = meta else { return None };
+                    if !value.path.is_ident("alias") {
+                        return None;
+                    }
+                    let syn::Expr::Lit(value) = value.value else {
+                        return None;
+                    };
+                    let syn::Lit::Str(value) = value.lit else { return None };
+                    Some(value.value())
+                })
+                .collect();
+            (!aliases.is_empty()).then_some((name, aliases))
+        })
+        .collect::<BTreeMap<_, _>>()
 }
 
 #[cfg(test)]

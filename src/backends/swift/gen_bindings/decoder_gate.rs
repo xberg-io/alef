@@ -23,6 +23,7 @@ use crate::core::ir::TypeDef;
 pub(crate) fn needs_decoder_init(ty: &TypeDef) -> bool {
     ty.has_default
         || ty.serde_deserialization.deny_unknown_fields
+        || !ty.serde_deserialization.field_aliases.is_empty()
         || binding_fields(&ty.fields).any(|field| {
             field.serde_skip_serializing_if || field.has_bare_serde_default() || field.typed_default.is_some()
         })

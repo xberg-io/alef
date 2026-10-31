@@ -4,7 +4,7 @@ use crate::core::ir::TypeDef;
 
 pub(super) fn validate(ty: &TypeDef, exclude_fields: &HashSet<String>) -> anyhow::Result<()> {
     let policy = &ty.serde_deserialization;
-    if !policy.deny_unknown_fields {
+    if !policy.deny_unknown_fields && policy.field_aliases.is_empty() {
         return Ok(());
     }
     if !policy.unsupported_field_attributes.is_empty() {

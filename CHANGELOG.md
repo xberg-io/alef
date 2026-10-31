@@ -23,9 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Preserve missing-versus-null serde defaults in every Swift DTO decoder and reject unknown keys for
-  strict source structs; diagnose unsupported strict alias, flatten and skipped-input key contracts.
+  strict source structs; diagnose unsupported strict flatten and skipped-input key contracts.
   Keep strict decoder helper types in DTO scope and preserve collection-default producer controls.
-- Add source-derived producer and Rust/Swift runtime regressions for existing public option aliases.
+- Preserve serde aliases in Swift decoders while encoding only canonical keys; reject duplicate
+  canonical/alias inputs and ambiguous cross-field keys, including strict option structs.
 - Keep the alef skill description within the 250-character context-exposure limit.
 
 ## [0.115.10] - 2026-10-31
