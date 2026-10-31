@@ -7,4 +7,5 @@ mod serde_aliases;
 mod serde_contract;
 mod serde_policy_edges;
 mod serde_policy_inventory;
+mod serde_skipped_caches;
 mod trait_box_swiftpm_compile;
