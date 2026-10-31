@@ -136,7 +136,7 @@ fn run_task_with_tools(directory: &std::path::Path, command: &str, tools: &[&str
         mise_task::fixture_config_with_tools(&config, tools)
     };
     std::fs::write(directory.join("mise.toml"), config).unwrap();
-    let output = mise_task::mise_run(directory, "probe")
+    let output = mise_task::mise_run_without_lock(directory, "probe")
         .env("RUSTC_WRAPPER", "")
         .env("CARGO_INCREMENTAL", "0")
         .env("CARGO_BUILD_JOBS", "2")

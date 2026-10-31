@@ -30,7 +30,26 @@ pub(crate) fn mise_run(directory: &Path, task: &str) -> Command {
     command
 }
 
+/// Run a deliberately lockless temporary fixture without inheriting the parent's lock requirement.
+///
+/// Fixtures with their own committed lock must use [`mise_run`] so lock enforcement is preserved.
+pub(crate) fn mise_run_without_lock(directory: &Path, task: &str) -> Command {
+    assert!(
+        !directory
+            .join("mise.lock")
+            .try_exists()
+            .expect("inspect fixture lockfile"),
+        "mise_run_without_lock requires a fixture without mise.lock"
+    );
+    let mut command = mise_run(directory, task);
+    command.env_remove("MISE_LOCKED");
+    command
+}
+
 /// Add only the fixture's required tools, using their exact committed repository declarations.
+///
+/// Temporary fixtures have declarations but no lock: they reuse already-installed exact tools
+/// without installing or generating locks. Run these fixtures with [`mise_run_without_lock`].
 pub(crate) fn fixture_config_with_tools(tasks: &str, tools: &[&str]) -> String {
     let canonical: toml::Value = toml::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/mise.toml")))
         .expect("committed Mise configuration");
