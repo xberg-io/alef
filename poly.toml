@@ -1313,7 +1313,7 @@ hooks = ["ai-rulez-validate"]
 [[hooks.sources]]
 id = "adrlint"
 git = "https://github.com/Goldziher/adrlint.git"
-revision = "v0.4.0"
+revision = "v0.4.1"
 hooks = ["adrlint-lint", "adrlint-format-check", "adrlint-lock-check"]
 
 # Shell is two-space in this tree. Both keys are load-bearing: without `enabled` poly runs no
