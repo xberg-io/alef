@@ -82,14 +82,48 @@ run = "./scripts/toolchain-census.sh"
 
 [tasks."gate:generated-output"]
 description = "Run the consumer toolchain gate (clippy, cargo sort, poly fmt) over an emitted tree"
-run = [
-  "cargo test --test generated_output_downstream_gate -- --nocapture",
-  "cargo test --test generated_output_downstream_gate -- --ignored --nocapture --test-threads=1",
-]
+run = [{ task = "gate:generated-output:isolation" }, { task = "gate:generated-output:lanes" }]
+
+[tasks."gate:generated-output:isolation"]
+description = "Prove the generated-output gate refuses to lint alef itself (needs no consumer tooling)"
+run = "cargo test --test generated_output_downstream_gate -- --nocapture"
+
+[tasks."gate:generated-output:lanes"]
+description = "Run every ignored generated-output gate lane, serialized"
+run = ["cargo test --test generated_output_downstream_gate -- --ignored --nocapture --test-threads=1"]
 
 [tasks.check]
 description = "Type-check all crates"
 run = "cargo check --workspace"
+
+[tasks."rust:fmt:check"]
+description = "Check Rust formatting with rustfmt"
+run = "cargo fmt --all -- --check"
+
+[tasks."rust:clippy"]
+description = "Lint every workspace target with clippy (deny warnings)"
+run = "cargo clippy --workspace --all-targets -- -D warnings -A clippy::needless_update"
+
+[tasks."rust:machete"]
+description = "Check for unused dependencies with cargo-machete"
+run = "cargo machete"
+
+[tasks."rust:deny"]
+description = "Audit dependency advisories, licenses and sources with cargo-deny"
+run = "cargo deny check"
+
+[tasks."rust:sort:check"]
+description = "Check that every Cargo.toml in the workspace is sorted"
+run = "cargo sort --check --workspace"
+
+[tasks."rust:msrv:check"]
+description = "Compile the library with the given toolchain, overriding rust-toolchain.toml"
+usage = 'arg "<toolchain>" help="Installed rustup toolchain, e.g. the rust-version from Cargo.toml"'
+run = 'cargo "+{{usage.toolchain}}" check --lib --locked'
+
+[tasks."e2e:kotlin-android:generate"]
+description = "Generate the Kotlin Android e2e test sources"
+run = "cargo run -p alef -- generate --lang kotlin_android"
 
 [tasks."gate:publish-verify"]
 description = "Verify package task arguments and archive guards with synthetic Cargo output"

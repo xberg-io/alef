@@ -47,7 +47,7 @@ jobs:
           packages: platform-tools
 
       - name: Generate e2e Android test sources
-        run: cargo run -p alef -- generate --lang kotlin_android 2>/dev/null || echo "codegen step skipped"
+        run: mise run e2e:kotlin-android:generate 2>/dev/null || echo "codegen step skipped"
 
       - name: Run connectedAndroidTest via emulator
         uses: reactivecircus/android-emulator-runner@v2

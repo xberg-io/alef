@@ -1112,9 +1112,10 @@ fn isolation_guard_accepts_a_standalone_temp_tree() {
 /// away from not existing.
 ///
 /// This test is the load-bearing half of that trade: it needs no tooling, is not ignored,
-/// and asserts the job still invokes this test binary with `--ignored` and still installs
-/// what the lanes need. Delete the job or drop `--ignored` and the ordinary suite goes
-/// red on every platform. ~keep
+/// and asserts the job still runs the lanes task (which passes `--ignored`; see
+/// [`task_and_ci_serialize_ignored_generated_output_lanes`]) and still installs what the
+/// lanes need. Delete the job or drop `--ignored` and the ordinary suite goes red on every
+/// platform. ~keep
 /// The name of the CI job, in one place, since both this test and the workflow depend on
 /// it matching.
 const GATE_JOB: &str = "generated-output-gate";
@@ -1137,13 +1138,9 @@ fn ci_workflow_runs_the_generated_output_gate() {
 
     let required: &[(&str, &str)] = &[
         (
-            "--test generated_output_downstream_gate",
-            "the gate job must invoke this test binary by name",
-        ),
-        (
-            "--ignored",
-            "every lane in this file is #[ignore]d, so the gate job must pass --ignored or it \
-             runs none of them",
+            "mise run gate:generated-output:lanes",
+            "every lane in this file is #[ignore]d, so the gate job must run the lanes task, \
+             which passes --ignored, or it runs none of them",
         ),
         (
             "cargo-sort",

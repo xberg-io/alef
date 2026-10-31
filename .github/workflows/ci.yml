@@ -60,15 +60,15 @@ jobs:
         with:
           install-args: cargo-deny github:bnjbvr/cargo-machete github:DevinR528/cargo-sort
       - name: Check formatting
-        run: cargo fmt --all -- --check
+        run: mise run rust:fmt:check
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings -A clippy::needless_update
+        run: mise run rust:clippy
       - name: Check unused dependencies
-        run: cargo machete
+        run: mise run rust:machete
       - name: Security and license audit
-        run: cargo deny check
+        run: mise run rust:deny
       - name: Check Cargo.toml sorting
-        run: cargo sort --check --workspace
+        run: mise run rust:sort:check
 
   poly-validate:
     uses: xberg-io/actions/.github/workflows/reusable-validate.yml@v1
@@ -402,12 +402,13 @@ jobs:
       # its own step so "the gate refuses to lint alef itself" is a named, visible result
       # in the CI log rather than an assertion buried inside a long run.
       - name: Prove the gate refuses to lint alef itself
-        run: cargo test --test generated_output_downstream_gate -- --nocapture
+        run: mise run gate:generated-output:isolation
       # The lanes and their sabotage proofs. Every test here is #[ignore]d, so dropping
       # `--ignored` would run none of them and still exit 0 — which is why
-      # `ci_workflow_runs_the_generated_output_gate` asserts this flag is still here.
+      # `task_and_ci_serialize_ignored_generated_output_lanes` asserts the task keeps that
+      # flag and this step still runs the task.
       - name: Run downstream gate over the emitted tree
-        run: cargo test --test generated_output_downstream_gate -- --ignored --nocapture --test-threads=1
+        run: mise run gate:generated-output:lanes
 
   # Compiles alef at the exact floor `Cargo.toml` declares. Nothing else in this workflow
   # does: `rust-toolchain.toml` pins a far newer toolchain, so every other job builds with a
@@ -433,10 +434,13 @@ jobs:
           echo "Declared MSRV: $version"
       - name: Install the declared toolchain
         run: rustup toolchain install "${{ steps.msrv.outputs.version }}" --profile minimal
+      - uses: xberg-io/actions/setup-mise@v1
+        with:
+          install: "false"
       # `+toolchain` on the command line overrides rust-toolchain.toml, which is the entire
       # point of this job.
       - name: Compile at the declared MSRV
-        run: cargo "+${{ steps.msrv.outputs.version }}" check --lib --locked
+        run: mise run rust:msrv:check "${{ steps.msrv.outputs.version }}"
 
   build:
     name: Build release
