@@ -395,18 +395,33 @@ fn info_values(own: &[InfoField], class_fields: Option<&Vec<InfoField>>) -> Vec<
         .collect()
 }
 
+fn allocated_interfaces(api: &ApiSurface, root: Option<&str>) -> super::FamilyInterfaceNames {
+    let mut reserved = root.into_iter().map(str::to_string).collect::<Vec<_>>();
+    if let Some(companion_name) = root.and_then(|root| root.strip_prefix("Interface")) {
+        reserved.push(companion_name.into());
+    }
+    super::family_interface_names_with_reserved(api, family_interface_name, Language::Php, &reserved)
+}
+
 /// The marker interface of every error family, parents before children.
-pub(super) fn family_interfaces(api: &ApiSurface, namespace: &str) -> anyhow::Result<Vec<FamilyInterface>> {
-    super::validate_family_interface_names(api, "PHP", family_interface_name)?;
+pub(super) fn family_interfaces(
+    api: &ApiSurface,
+    namespace: &str,
+    root: Option<&str>,
+) -> anyhow::Result<Vec<FamilyInterface>> {
+    let names = allocated_interfaces(api, root);
     Ok(exception_families(api, ExceptionNaming::Python)?
         .into_iter()
         .map(|family| {
-            let name = family_interface_name(&family.error.name);
+            let name = super::interface_name(&names, &family.error.name);
             FamilyInterface {
                 family: family.error.name.clone(),
                 php_name_literal: format!("{:?}", format!("{namespace}\\{name}")),
                 name,
-                parent: family.parent.as_deref().map(family_interface_name),
+                parent: family
+                    .parent
+                    .as_deref()
+                    .map(|parent| super::interface_name(&names, parent)),
             }
         })
         .collect())
@@ -414,6 +429,7 @@ pub(super) fn family_interfaces(api: &ApiSurface, namespace: &str) -> anyhow::Re
 
 pub(super) fn classes(api: &ApiSurface, namespace: &str, root: Option<&str>) -> anyhow::Result<Vec<ExceptionClass>> {
     let families = exception_families(api, ExceptionNaming::Python)?;
+    let names = allocated_interfaces(api, root);
     let mut layouts = payload_layouts(&api.errors)?;
     let info_layouts = info_layouts(&api.errors)?;
     // A root named like an error of the API would be two classes with one name.
@@ -464,7 +480,7 @@ pub(super) fn classes(api: &ApiSurface, namespace: &str, root: Option<&str>) -> 
             error.name.clone(),
             family.parent.or_else(|| root.map(str::to_string)),
             Vec::new(),
-            vec![family_interface_name(&error.name)],
+            vec![super::interface_name(&names, &error.name)],
         );
         for variant in &error.variants {
             let name = python_exception_name(&variant.name, &error.name);
@@ -472,7 +488,7 @@ pub(super) fn classes(api: &ApiSurface, namespace: &str, root: Option<&str>) -> 
             let interfaces =
                 additional_exception_families(&api.errors, &error.name, &variant.name, ExceptionNaming::Python)
                     .iter()
-                    .map(|family| family_interface_name(family))
+                    .map(|family| super::interface_name(&names, family))
                     .collect();
             add(name, Some(error.name.clone()), fields, interfaces);
         }
@@ -486,7 +502,7 @@ pub fn gen_php_error_types(api: &ApiSurface, namespace: &str, root: Option<&str>
         "error_gen/php_error_types.jinja",
         crate::alef_context! {
             classes => classes(api, namespace, root)?,
-            interfaces => family_interfaces(api, namespace)?,
+            interfaces => family_interfaces(api, namespace, root)?,
         },
     ))
 }
@@ -496,14 +512,18 @@ pub fn gen_php_error_stubs(api: &ApiSurface, root: Option<&str>) -> anyhow::Resu
         "error_gen/php_error_stubs.jinja",
         crate::alef_context! {
             classes => classes(api, "", root)?,
-            interfaces => family_interfaces(api, "")?,
+            interfaces => family_interfaces(api, "", root)?,
         },
     ))
 }
 
 /// The Rust names of the family marker interfaces, which the module registers before any class.
 pub fn php_error_interface_names(api: &ApiSurface) -> anyhow::Result<Vec<String>> {
-    Ok(family_interfaces(api, "")?
+    php_error_interface_names_with_root(api, None)
+}
+
+pub fn php_error_interface_names_with_root(api: &ApiSurface, root: Option<&str>) -> anyhow::Result<Vec<String>> {
+    Ok(family_interfaces(api, "", root)?
         .into_iter()
         .map(|interface| format!("PhpInterface{}", interface.name))
         .collect())

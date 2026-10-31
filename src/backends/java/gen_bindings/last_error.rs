@@ -121,6 +121,7 @@ struct CaseContext {
     code: u32,
     class_name: String,
     args: String,
+    factory: bool,
 }
 
 fn local_name(field_name: &str) -> String {
@@ -174,8 +175,6 @@ fn shared_class_args(api: &ApiSurface, error: &ErrorDef, class: &str, captured: 
         {
             args.push_str(&format!(", {}", local_name(&method.name)));
         } else {
-            // Typed, since a bare `null` would not pick between the `(String, Throwable)` and
-            // `(String, <value>)` constructors of a class whose base family has no values. ~keep
             args.push_str(&format!(
                 ", ({}) null",
                 crate::codegen::error_gen::java_boxed_type(java_type)
@@ -210,6 +209,7 @@ pub(crate) fn gen_last_error_exception(api: &ApiSurface, prefix: &str, main_clas
             code: *code,
             class_name: (*name).to_string(),
             args: String::new(),
+            factory: false,
         })
         .collect();
     for entry in api.error_taxonomy() {
@@ -223,10 +223,13 @@ pub(crate) fn gen_last_error_exception(api: &ApiSurface, prefix: &str, main_clas
                 .map(|error| shared_class_args(api, error, &class_name, &captured))
                 .unwrap_or_default()
         };
+        let factory = !infrastructure_names.contains(&class_name.as_str())
+            && !crate::codegen::error_gen::shared_extra_methods(&api.errors, &class_name).is_empty();
         cases.push(CaseContext {
             code: entry.code,
             class_name,
             args,
+            factory,
         });
     }
 

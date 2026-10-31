@@ -110,8 +110,12 @@ fn error_enum_base_exception_extends_the_method_exception() {
         .errors
         .first()
         .expect("fixture must declare a divergent-base error enum for #454 coverage");
-    let files =
-        crate::codegen::error_gen::gen_java_error_types(error, std::slice::from_ref(error), "dev.sample", "Sample");
+    let files = crate::codegen::error_gen::gen_java_error_types_with_errors(
+        error,
+        std::slice::from_ref(error),
+        "dev.sample",
+        "Sample",
+    );
     let (base_name, base_content) = &files[0];
 
     assert_eq!(base_name, "SampleErrorException");

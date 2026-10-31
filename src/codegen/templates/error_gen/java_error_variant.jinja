@@ -46,7 +46,11 @@ public class {{ class_name }} extends {{ base_name }}{{ (" implements " ~ interf
 {% if extra_methods %}
 
   /** Creates a new {{ class_name }} with the given message and every raising family's introspection values. */
-  public {{ class_name }}(final String message{% for m in methods %}, final {{ m.java_type }} {{ m.field_name }}{% endfor %}{% for m in extra_methods %}, final {{ m.java_type }} {{ m.field_name }}{% endfor %}) {
+  public static {{ class_name }} withIntrospection(final String message{% for m in methods %}, final {{ m.java_type }} {{ m.field_name }}{% endfor %}{% for m in extra_methods %}, final {{ m.java_type }} {{ m.field_name }}{% endfor %}) {
+    return new {{ class_name }}(true, message{% for m in methods %}, {{ m.field_name }}{% endfor %}{% for m in extra_methods %}, {{ m.field_name }}{% endfor %});
+  }
+
+  private {{ class_name }}(final boolean __alefSharedPayload, final String message{% for m in methods %}, final {{ m.java_type }} {{ m.field_name }}{% endfor %}{% for m in extra_methods %}, final {{ m.java_type }} {{ m.field_name }}{% endfor %}) {
     super(message{% for m in methods %}, {{ m.field_name }}{% endfor %});
 {% for m in extra_methods %}
     this.{{ m.field_name }} = {{ m.field_name }};

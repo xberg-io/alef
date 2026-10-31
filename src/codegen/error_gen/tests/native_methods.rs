@@ -86,7 +86,8 @@ fn test_gen_go_error_types_stutter_strip() {
 #[test]
 fn test_gen_java_error_types() {
     let error = sample_error();
-    let files = gen_java_error_types(&error, std::slice::from_ref(&error), "dev.sample_crate.test", "Sample");
+    let files =
+        gen_java_error_types_with_errors(&error, std::slice::from_ref(&error), "dev.sample_crate.test", "Sample");
     assert_eq!(files.len(), 4);
     assert_eq!(files[0].0, "ConversionErrorException");
     assert!(
@@ -110,7 +111,7 @@ fn test_gen_java_error_types() {
 #[test]
 fn test_gen_csharp_error_types() {
     let error = sample_error();
-    let files = gen_csharp_error_types(&error, std::slice::from_ref(&error), "SampleCrate.Test", None, &[]);
+    let files = gen_csharp_error_types_with_errors(&error, std::slice::from_ref(&error), "SampleCrate.Test", None, &[]);
     assert_eq!(files.len(), 4);
     assert_eq!(files[0].0, "ConversionErrorException");
     assert!(files[0].1.contains("public class ConversionErrorException : Exception"));
@@ -128,7 +129,7 @@ fn test_gen_csharp_error_types() {
 #[test]
 fn test_gen_csharp_error_types_with_fallback() {
     let error = sample_error();
-    let files = gen_csharp_error_types(
+    let files = gen_csharp_error_types_with_errors(
         &error,
         std::slice::from_ref(&error),
         "SampleCrate.Test",

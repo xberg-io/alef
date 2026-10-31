@@ -526,7 +526,7 @@ fn test_gen_wasm_error_converter_uses_match_for_multiple_payload_variants() {
 #[test]
 fn test_gen_php_error_converter() {
     let error = sample_error();
-    let output = gen_php_error_converter(&error, std::slice::from_ref(&error), "sample_markup_rs");
+    let output = gen_php_error_converter(&error, "sample_markup_rs");
     assert!(output.contains(
         "fn conversion_error_to_php_err(e: sample_markup_rs::ConversionError) -> ext_php_rs::exception::PhpException {"
     ));
@@ -685,12 +685,7 @@ fn test_gen_go_error_struct_maps_optional_duration_to_duration_millis_pointer() 
 #[test]
 fn test_gen_java_error_types_with_methods() {
     let error = error_with_methods();
-    let files = gen_java_error_types(
-        &error,
-        std::slice::from_ref(&error),
-        "dev.sample_crate.sampleapp",
-        "SampleApp",
-    );
+    let files = gen_java_error_types(&error, "dev.sample_crate.sampleapp", "SampleApp");
     assert_eq!(files.len(), 1);
     let base = &files[0].1;
     assert!(
@@ -734,7 +729,7 @@ fn test_gen_java_error_types_with_methods() {
 #[test]
 fn test_gen_java_error_types_no_methods() {
     let error = sample_error();
-    let files = gen_java_error_types(&error, std::slice::from_ref(&error), "dev.sample_crate.test", "Sample");
+    let files = gen_java_error_types(&error, "dev.sample_crate.test", "Sample");
     let base = &files[0].1;
     assert!(!base.contains("private final"), "no fields when no methods: {base}");
     assert!(
@@ -750,7 +745,7 @@ fn test_gen_java_error_types_no_methods() {
 #[test]
 fn test_gen_csharp_error_types_with_methods() {
     let error = error_with_methods();
-    let files = gen_csharp_error_types(&error, std::slice::from_ref(&error), "SampleCrate.SampleApp", None, &[]);
+    let files = gen_csharp_error_types(&error, "SampleCrate.SampleApp", None, &[]);
     assert_eq!(files.len(), 1);
     let base = &files[0].1;
     assert!(
@@ -778,7 +773,7 @@ fn test_gen_csharp_error_types_with_methods() {
 #[test]
 fn test_gen_csharp_error_types_no_methods() {
     let error = sample_error();
-    let files = gen_csharp_error_types(&error, std::slice::from_ref(&error), "SampleCrate.Test", None, &[]);
+    let files = gen_csharp_error_types(&error, "SampleCrate.Test", None, &[]);
     let base = &files[0].1;
     assert!(!base.contains("{ get; }"), "no properties when no methods: {base}");
     assert!(
@@ -807,7 +802,7 @@ fn test_gen_csharp_error_types_strips_rust_idioms_in_doc() {
             assert_eq!(error.status_code(), 401);\n\
             ```\n"
         .to_string();
-    let files = gen_csharp_error_types(&error, std::slice::from_ref(&error), "SampleRouter", None, &[]);
+    let files = gen_csharp_error_types(&error, "SampleRouter", None, &[]);
     let base = &files[0].1;
     assert!(
         !base.contains("```"),

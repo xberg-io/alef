@@ -126,7 +126,11 @@ pub fn magnus_error_methods_registrations(error: &ErrorDef) -> Vec<String> {
 ///
 /// `errors` is every error of the API: a variant class shared with another family carries both
 /// families' fields, and the converter fills those this family lacks with `None`.
-pub fn gen_php_error_converter(error: &ErrorDef, errors: &[ErrorDef], core_import: &str) -> String {
+pub fn gen_php_error_converter(error: &ErrorDef, core_import: &str) -> String {
+    gen_php_error_converter_with_errors(error, std::slice::from_ref(error), core_import)
+}
+
+pub fn gen_php_error_converter_with_errors(error: &ErrorDef, errors: &[ErrorDef], core_import: &str) -> String {
     super::php::gen_converter(error, errors, core_import)
 }
 

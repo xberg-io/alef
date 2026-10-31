@@ -1,4 +1,4 @@
-use alef::codegen::error_gen::{gen_php_error_converter, gen_php_error_types};
+use alef::codegen::error_gen::{gen_php_error_converter_with_errors, gen_php_error_types};
 use alef::core::ir::{ApiSurface, ErrorDef, ErrorVariant, FieldDef, PrimitiveType, TypeRef};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -38,8 +38,8 @@ fn should_compile_and_throw_shared_errors_with_cfg_features_disabled_and_enabled
         "{}\n{}\n{}\n{}",
         fixture_source(),
         gen_php_error_types(&api, "Sample", None).unwrap(),
-        gen_php_error_converter(&first, &api.errors, "sample"),
-        gen_php_error_converter(&second, &api.errors, "sample")
+        gen_php_error_converter_with_errors(&first, &api.errors, "sample"),
+        gen_php_error_converter_with_errors(&second, &api.errors, "sample")
     );
     let fixture = tempfile::tempdir().unwrap();
     write_fixture(fixture.path(), &source);

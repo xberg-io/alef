@@ -1,5 +1,5 @@
 use alef::codegen::error_gen::{
-    gen_php_error_converter, gen_php_error_stubs, gen_php_error_types, php_error_class_names,
+    gen_php_error_converter_with_errors, gen_php_error_stubs, gen_php_error_types, php_error_class_names,
 };
 use alef::core::ir::{ApiSurface, ErrorDef, ErrorVariant, FieldDef, PrimitiveType, TypeRef};
 
@@ -144,9 +144,9 @@ fn should_make_payload_fields_nullable_on_a_class_shared_with_a_unit_variant() {
     assert_eq!(types.matches("pub struct PhpRejectedError").count(), 1);
     assert!(types.contains("pub vendor: Option<String>"), "{types}");
     assert!(types.contains("#[php(extends(PhpErrorA))]\n#[php(implements(PhpInterfaceErrorBInterface))]"));
-    let unit_converter = gen_php_error_converter(&api.errors[1], &api.errors, "sample");
+    let unit_converter = gen_php_error_converter_with_errors(&api.errors[1], &api.errors, "sample");
     assert!(unit_converter.contains("vendor: None,"), "{unit_converter}");
-    let payload_converter = gen_php_error_converter(&api.errors[0], &api.errors, "sample");
+    let payload_converter = gen_php_error_converter_with_errors(&api.errors[0], &api.errors, "sample");
     assert!(
         payload_converter.contains("vendor: Some(ToString::to_string(vendor)),"),
         "{payload_converter}"
@@ -161,7 +161,7 @@ fn should_omit_cfg_gated_fields_from_native_classes_stubs_and_converter_patterns
     let api = surface(vec![error.clone()]);
     let types = gen_php_error_types(&api, "Sample", None).unwrap();
     let stubs = gen_php_error_stubs(&api, None).unwrap();
-    let converter = gen_php_error_converter(&error, std::slice::from_ref(&error), "sample");
+    let converter = gen_php_error_converter_with_errors(&error, std::slice::from_ref(&error), "sample");
     assert!(types.contains("pub reason: String"));
     assert!(!types.contains("pub status:"), "{types}");
     assert!(stubs.contains("$reason"));

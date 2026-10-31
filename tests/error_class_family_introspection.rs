@@ -6,8 +6,8 @@
 use alef::backends::csharp::CsharpBackend;
 use alef::backends::java::JavaBackend;
 use alef::codegen::error_gen::{
-    gen_magnus_error_class_registrations, gen_php_error_converter, gen_php_error_stubs, gen_php_error_types,
-    php_error_class_names,
+    gen_magnus_error_class_registrations, gen_php_error_converter_with_errors, gen_php_error_stubs,
+    gen_php_error_types, php_error_class_names,
 };
 use alef::core::backend::{Backend, GeneratedFile};
 use alef::core::config::{NewAlefConfig, ResolvedCrateConfig};
@@ -134,7 +134,7 @@ fn php_shared_class_carries_every_family_introspection() {
 #[test]
 fn php_converters_fill_their_own_introspection_and_default_the_other_family() {
     let api = introspection_api();
-    let graphql = gen_php_error_converter(&api.errors[0], &api.errors, "demo");
+    let graphql = gen_php_error_converter_with_errors(&api.errors[0], &api.errors, "demo");
     assert!(
         graphql.contains(
             "PhpComplexityLimitExceededError {\n            info_status_code: e.status_code(),\n            \
@@ -146,7 +146,7 @@ fn php_converters_fill_their_own_introspection_and_default_the_other_family() {
         graphql.contains("PhpParseError {\n            info_status_code: e.status_code(),\n        }"),
         "{graphql}"
     );
-    let schema = gen_php_error_converter(&api.errors[1], &api.errors, "demo");
+    let schema = gen_php_error_converter_with_errors(&api.errors[1], &api.errors, "demo");
     assert!(
         schema.contains(
             "PhpComplexityLimitExceededError {\n            info_status_code: Default::default(),\n            \
@@ -194,7 +194,7 @@ fn java_files() -> Vec<GeneratedFile> {
         .expect("java bindings")
 }
 
-/// The `case <code> -> new ...;` arms of the generated last-error dispatch.
+/// The `case <code> -> ...;` arms of the generated last-error dispatch.
 fn dispatch_arms(files: &[GeneratedFile]) -> Vec<String> {
     files
         .iter()
@@ -211,7 +211,7 @@ fn java_dispatch_builds_the_shared_class_with_both_family_introspection() {
     let shared = file(&files, "ComplexityLimitExceededException.java");
     assert!(
         shared.contains(
-            "public ComplexityLimitExceededException(final String message, final int statusCode, \
+            "public static ComplexityLimitExceededException withIntrospection(final String message, final int statusCode, \
              final String errorType) {"
         ),
         "{shared}"
@@ -431,8 +431,8 @@ pub fn get_module(module: ModuleBuilder) -> ModuleBuilder {{
             .map(|class| format!(".class::<{class}>()"))
             .collect::<String>(),
         gen_php_error_types(&api, "Demo", None).unwrap(),
-        gen_php_error_converter(&api.errors[0], &api.errors, "demo"),
-        gen_php_error_converter(&api.errors[1], &api.errors, "demo"),
+        gen_php_error_converter_with_errors(&api.errors[0], &api.errors, "demo"),
+        gen_php_error_converter_with_errors(&api.errors[1], &api.errors, "demo"),
     );
     let fixture = tempfile::tempdir().unwrap();
     let library = php_native::build_php_extension(fixture.path(), &source);

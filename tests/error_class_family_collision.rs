@@ -9,7 +9,7 @@ use alef::backends::java::JavaBackend;
 use alef::backends::magnus::MagnusBackend;
 use alef::backends::pyo3::Pyo3Backend;
 use alef::codegen::error_gen::{
-    gen_php_error_converter, gen_php_error_stubs, gen_php_error_types, php_error_class_names,
+    gen_php_error_converter_with_errors, gen_php_error_stubs, gen_php_error_types, php_error_class_names,
 };
 use alef::core::backend::{Backend, GeneratedFile};
 use alef::core::config::{NewAlefConfig, ResolvedCrateConfig};
@@ -227,7 +227,7 @@ fn php_families_implement_their_marker_interfaces() {
 #[test]
 fn php_converters_fill_the_fields_their_family_has_and_null_the_rest() {
     let api = colliding_api();
-    let graphql = gen_php_error_converter(&api.errors[0], &api.errors, "demo");
+    let graphql = gen_php_error_converter_with_errors(&api.errors[0], &api.errors, "demo");
     assert!(
         graphql.contains(
             "demo::GraphQLError::ComplexityLimitExceeded => ext_php_rs::convert::IntoZval::into_zval(\
@@ -235,7 +235,7 @@ fn php_converters_fill_the_fields_their_family_has_and_null_the_rest() {
         ),
         "{graphql}"
     );
-    let schema = gen_php_error_converter(&api.errors[1], &api.errors, "demo");
+    let schema = gen_php_error_converter_with_errors(&api.errors[1], &api.errors, "demo");
     assert!(
         schema.contains(
             "demo::SchemaError::ComplexityLimitExceeded { actual, limit, .. } => \
@@ -608,8 +608,8 @@ pub fn get_module(module: ModuleBuilder) -> ModuleBuilder {{
             .map(|class| format!(".class::<{class}>()"))
             .collect::<String>(),
         gen_php_error_types(&api, "Demo", None).unwrap(),
-        gen_php_error_converter(&api.errors[0], &api.errors, "demo"),
-        gen_php_error_converter(&api.errors[1], &api.errors, "demo"),
+        gen_php_error_converter_with_errors(&api.errors[0], &api.errors, "demo"),
+        gen_php_error_converter_with_errors(&api.errors[1], &api.errors, "demo"),
     );
     let fixture = tempfile::tempdir().unwrap();
     let library = php_native::build_php_extension(fixture.path(), &source);
@@ -700,37 +700,18 @@ fn with_type(mut api: ApiSurface, name: &str, is_trait: bool) -> ApiSurface {
 }
 
 #[test]
-fn a_marker_interface_name_another_type_takes_is_rejected() {
-    let csharp_config = config(
-        "\"csharp\", \"ffi\"",
-        "[crates.ffi]\nprefix = \"demo\"\n\n[crates.csharp]\nnamespace = \"Demo\"\n",
-    );
-    let java_config = config(
-        "\"java\", \"ffi\"",
-        "[crates.ffi]\nprefix = \"demo\"\n\n[crates.java]\npackage = \"demo\"\n",
-    );
+fn a_marker_interface_yields_to_user_owned_type_names() {
     let taken = with_type(colliding_api(), "ISchemaError", false);
-    for message in [
-        CsharpBackend
-            .generate_bindings(&taken, &csharp_config)
-            .unwrap_err()
-            .to_string(),
-        JavaBackend
-            .generate_bindings(&taken, &java_config)
-            .unwrap_err()
-            .to_string(),
-    ] {
-        assert!(
-            message.contains("ISchemaError") && message.contains("SchemaError"),
-            "{message}"
-        );
+    for files in [csharp(&taken), java(&taken)] {
+        let source = joined(&files);
+        assert!(source.contains("interface ISchemaErrorFamily"), "{source}");
+        assert!(!source.contains("interface ISchemaError {"), "{source}");
     }
-    let php = gen_php_error_types(&with_type(colliding_api(), "SchemaErrorInterface", false), "Demo", None)
-        .unwrap_err()
-        .to_string();
-    assert!(php.contains("SchemaErrorInterface"), "{php}");
-    let trait_interface = gen_php_error_types(&with_type(colliding_api(), "SchemaError", true), "Demo", None)
-        .unwrap_err()
-        .to_string();
-    assert!(trait_interface.contains("SchemaErrorInterface"), "{trait_interface}");
+    let php = gen_php_error_types(&with_type(colliding_api(), "SchemaErrorInterface", false), "Demo", None).unwrap();
+    assert!(php.contains("SchemaErrorInterfaceFamily"), "{php}");
+    let trait_interface = gen_php_error_types(&with_type(colliding_api(), "SchemaError", true), "Demo", None).unwrap();
+    assert!(
+        trait_interface.contains("SchemaErrorInterfaceFamily"),
+        "{trait_interface}"
+    );
 }

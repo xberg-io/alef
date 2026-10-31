@@ -1,4 +1,4 @@
-use alef::codegen::error_gen::{gen_php_error_converter, gen_php_error_types};
+use alef::codegen::error_gen::{gen_php_error_converter_with_errors, gen_php_error_types};
 use alef::core::ir::{ApiSurface, ErrorDef, ErrorVariant, FieldDef, PrimitiveType, TypeRef};
 use std::process::Command;
 
@@ -17,7 +17,7 @@ fn should_throw_generated_php_exception_with_message_and_payload() {
         "{}\n{}\n{}",
         fixture_source(),
         gen_php_error_types(&api, "Sample", None).unwrap(),
-        gen_php_error_converter(&error, std::slice::from_ref(&error), "sample")
+        gen_php_error_converter_with_errors(&error, std::slice::from_ref(&error), "sample")
     );
     let fixture = tempfile::tempdir().unwrap();
     let library = build_extension(fixture.path(), &source);

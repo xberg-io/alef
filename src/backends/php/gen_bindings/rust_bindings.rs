@@ -830,7 +830,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     )?);
     builder.add_item(&crate::codegen::error_gen::gen_php_error_dispatch(api, &core_import));
     for error in &api.errors {
-        builder.add_item(&crate::codegen::error_gen::gen_php_error_converter(
+        builder.add_item(&crate::codegen::error_gen::gen_php_error_converter_with_errors(
             error,
             &api.errors,
             &core_import,
@@ -881,7 +881,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             crate::alef_context! { class_name => &enum_def.name },
         ));
     }
-    for interface_name in crate::codegen::error_gen::php_error_interface_names(api)? {
+    for interface_name in crate::codegen::error_gen::php_error_interface_names_with_root(api, Some(&root_exception))? {
         class_registrations.push_str(&format!("        .interface::<{interface_name}>()\n"));
     }
     for class_name in crate::codegen::error_gen::php_error_class_names(api, Some(&root_exception))? {
