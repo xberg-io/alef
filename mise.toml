@@ -61,6 +61,19 @@ description = "Run Rust tests with platform-specific test profile settings"
 # alef's test profile to shrink it while retaining panic unwinding. Arguments are appended. ~keep
 run = 'python scripts/run_test_cargo.py cargo {% if os() == "macos" %}--config profile.test.package.alef.opt-level=1 {% endif %}test --workspace'
 
+[tasks."test:run".env]
+# Git Bash converts environment paths before native Python can isolate the outer target. ~keep
+MSYS2_ENV_CONV_EXCL = """
+{%- set excluded = get_env(name="MSYS2_ENV_CONV_EXCL", default="") -%}
+{%- if excluded == "*" -%}
+*
+{%- elif excluded -%}
+{{ excluded }};CARGO_TARGET_DIR=
+{%- else -%}
+CARGO_TARGET_DIR=
+{%- endif -%}
+"""
+
 [tasks."gate:swift-callback-policy"]
 description = "Compile and verify emitted Swift callback link policy"
 run = "mise run test:run -- --lib swift_callback_link_tests -- --ignored --test-threads=1"
