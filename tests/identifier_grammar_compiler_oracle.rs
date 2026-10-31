@@ -416,7 +416,16 @@ fn required_kotlinc_mode_fails_when_toolchain_is_unavailable() {
 #[test]
 fn ci_installs_and_requires_javac_for_runtime_regressions() {
     let workflow = include_str!("../.github/workflows/ci.yml");
-    assert!(workflow.lines().any(|line| line.trim() == "tools: java"));
+    let parsed: serde_json::Value = serde_saphyr::from_str(workflow).expect("CI workflow YAML");
+    let steps = parsed["jobs"]["test"]["steps"].as_array().expect("test job steps");
+    let jdk: Vec<_> = steps
+        .iter()
+        .filter(|step| step["name"].as_str() == Some("Set up JDK"))
+        .collect();
+    assert_eq!(jdk.len(), 1, "exactly one JDK setup step");
+    assert_eq!(jdk[0]["uses"].as_str(), Some("xberg-io/actions/setup-mise@v1"));
+    assert_eq!(jdk[0]["with"]["tools"].as_str(), Some("java"));
+    assert!(jdk[0].get("if").is_none(), "the JDK must be installed on every leg");
     assert!(workflow.contains("ALEF_REQUIRE_JAVAC: \"1\""));
 }
 
