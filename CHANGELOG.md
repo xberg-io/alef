@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pin the Elixir NIF brotli-decompressor to 6.2.0, which brotli 9.1 requires.
 - Install PIE 1.5.5 in generated PHP e2e setup scripts.
 
+- Dart FRB bindings preserve Rust `u64` as `BigInt` and `Vec<u64>` as FRB `Uint64List`, including
+  DTOs, transparent newtypes, containers and callback carriers. This is a breaking API change
+  intended for the next major release; narrower integers and signed `i64` keep their existing types.
+  Reject out-of-range scalar and recursive DTO arguments before native entry. A value already
+  truncated by construction of a typed `Uint64List` cannot be recovered or rejected afterward.
+
 ### Fixed
 
 - Keep the alef skill description within the 250-character context-exposure limit.

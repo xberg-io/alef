@@ -4,8 +4,8 @@ use std::borrow::Cow;
 
 /// TypeMapper for Dart bindings.
 ///
-/// Dart has a unified `int` type for all integer widths (both signed and
-/// unsigned), `double` for all floating-point, and `Uint8List` for raw byte
+/// Dart uses `BigInt` for full-width `u64`, `int` for other integer widths,
+/// `double` for all floating-point, and `Uint8List` for raw byte
 /// arrays (from `dart:typed_data`). Optional types use the Dart nullable
 /// suffix `?`. The `error_wrapper` returns `"Result"` as a placeholder for
 /// the sealed-class result type that lands in Phase 2B.
@@ -15,13 +15,13 @@ impl TypeMapper for DartMapper {
     fn primitive(&self, prim: &PrimitiveType) -> Cow<'static, str> {
         match prim {
             PrimitiveType::Bool => Cow::Borrowed("bool"),
+            PrimitiveType::U64 => Cow::Borrowed("BigInt"),
             PrimitiveType::U8
             | PrimitiveType::I8
             | PrimitiveType::U16
             | PrimitiveType::I16
             | PrimitiveType::U32
             | PrimitiveType::I32
-            | PrimitiveType::U64
             | PrimitiveType::I64
             | PrimitiveType::Usize
             | PrimitiveType::Isize => Cow::Borrowed("int"),
@@ -110,21 +110,20 @@ pub fn needs_dart_typed_data(rendered: &str) -> bool {
     DART_TYPED_DATA_CLASSES.iter().any(|class| rendered.contains(class))
 }
 
-/// Map `Vec<primitive>` to the matching `dart:typed_data` typed list, mirroring
-/// the FRB widening alef applies in `gen_rust_crate`: every Rust integer is
-/// widened to `i64` (→ `Int64List`) and every float to `f64` (→ `Float64List`).
+/// Map numeric vectors to FRB's typed lists: `u64` uses its generalized `Uint64List`,
+/// other integer widths widen to `i64` (`Int64List`), and floats to `f64` (`Float64List`).
 /// `Vec<u8>` is special-cased to `Uint8List` because alef preserves byte arrays
 /// for FRB's binary fast path. Non-primitive elements fall back to `List<T>`.
 fn dart_typed_list_for(inner: &TypeRef) -> Option<&'static str> {
     if let TypeRef::Primitive(p) = inner {
         match p {
             PrimitiveType::U8 => Some("Uint8List"),
+            PrimitiveType::U64 => Some("Uint64List"),
             PrimitiveType::I8
             | PrimitiveType::U16
             | PrimitiveType::I16
             | PrimitiveType::U32
             | PrimitiveType::I32
-            | PrimitiveType::U64
             | PrimitiveType::I64
             | PrimitiveType::Usize
             | PrimitiveType::Isize => Some("Int64List"),
@@ -154,7 +153,7 @@ mod tests {
         assert_eq!(DartMapper.primitive(&PrimitiveType::I16), "int");
         assert_eq!(DartMapper.primitive(&PrimitiveType::U32), "int");
         assert_eq!(DartMapper.primitive(&PrimitiveType::I32), "int");
-        assert_eq!(DartMapper.primitive(&PrimitiveType::U64), "int");
+        assert_eq!(DartMapper.primitive(&PrimitiveType::U64), "BigInt");
         assert_eq!(DartMapper.primitive(&PrimitiveType::I64), "int");
         assert_eq!(DartMapper.primitive(&PrimitiveType::Usize), "int");
         assert_eq!(DartMapper.primitive(&PrimitiveType::Isize), "int");

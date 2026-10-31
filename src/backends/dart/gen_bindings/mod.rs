@@ -5,6 +5,7 @@ mod render_type;
 pub(super) mod service_api;
 mod trait_bridge;
 mod types;
+mod unsigned;
 mod wire_value;
 
 use crate::backends::dart::naming::{dart_frb_version, dart_style};
@@ -158,10 +159,16 @@ impl Backend for DartBackend {
         // `traits.dart`, which has no FRB import of its own), so drop it here
         // once the FRB import supersedes it, to avoid an `unused_import` lint
         // on the now-redundant SDK import.
-        if body.contains("Int64List") || body.contains("Uint8List") || body.contains("Float64List") {
+        if body.contains("Int64List")
+            || body.contains("Uint64List")
+            || body.contains("Uint8List")
+            || body.contains("Float64List")
+        {
             imports.insert("import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';".to_string());
             imports.remove("import 'dart:typed_data';");
         }
+
+        unsigned::emit_helpers(api, &exclude_types, &mut body);
 
         let dart_trait_names: Vec<&str> = config
             .trait_bridges_for(Language::Dart)

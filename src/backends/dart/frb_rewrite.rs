@@ -44,6 +44,8 @@ mod single_variant_copy_with;
 mod tests;
 #[path = "frb_rewrite/text_transformations.rs"]
 mod text_transformations;
+#[path = "frb_rewrite/unsigned.rs"]
+mod unsigned;
 
 pub use bridge_coverage::{missing_bridge_functions, missing_bridge_struct_fields, undeclared_gate_features};
 pub use cfg_gates::{carry_lib_rs_cfg_gates_into_frb_generated, cfg_gated_free_functions, inject_frb_cfg_gates};

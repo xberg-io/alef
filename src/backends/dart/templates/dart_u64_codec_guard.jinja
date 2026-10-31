@@ -1,0 +1,6 @@
+BigInt _alefCheckU64BeforeEncode(BigInt value) {
+  if (value.isNegative || value.bitLength > 64) {
+    throw RangeError('u64 unsigned value must be between 0 and 18446744073709551615: $value');
+  }
+  return value;
+}

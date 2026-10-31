@@ -9,7 +9,7 @@ use crate::backends::dart::gen_rust_crate::trait_types::{
 ///
 /// The method signature must match the **original** trait signature (ref-aware,
 /// original primitive widths). The closures stored in the struct hold
-/// FRB-friendly widened types (e.g. `i64` for `u64`, `f64` for `f32`). The
+/// FRB-friendly types (`u64` stays lossless; `f32` widens to `f64`). The
 /// impl body converts between the two representations.
 ///
 /// For methods with an `error_type`, the return type is
