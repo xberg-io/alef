@@ -18,6 +18,10 @@ const SOURCE: &str = r#"
         pub fn tree(value: std::collections::BTreeMap<String, Wide>) -> std::collections::BTreeMap<String, Wide> { value }
         pub fn narrow_map(value: std::collections::HashMap<String, Narrow>) -> std::collections::HashMap<String, Narrow> { value }
         pub fn nested(value: Vec<Option<Narrow>>) -> Vec<Option<Narrow>> { value }
+        pub fn double_optional(value: Option<Option<Wide>>) -> Option<Option<Wide>> { value }
+        pub fn optional_tree(value: Option<std::collections::BTreeMap<String, Wide>>) -> Option<std::collections::BTreeMap<String, Wide>> { value }
+        pub fn hashed(value: ahash::AHashMap<String, Wide>) -> ahash::AHashMap<String, Wide> { value }
+        pub fn hashed_cow(mut value: ahash::AHashMap<std::borrow::Cow<'static, str>, Wide>) -> Wide { value.remove("a").unwrap() }
         pub struct Location(pub std::path::PathBuf);
         pub fn path(value: Location) -> Location { value }
         pub struct Delay(pub std::time::Duration);
@@ -35,7 +39,7 @@ fn functions() -> Vec<syn::ItemFn> {
     let source = directory.path().join("lib.rs");
     std::fs::write(&source, SOURCE).unwrap();
     let api = alef::extract::extractor::extract(&[&source], "sample", "1.0.0", None).unwrap();
-    assert_eq!(api.functions.len(), 16);
+    assert_eq!(api.functions.len(), 20);
     assert!(
         api.functions
             .iter()
@@ -90,10 +94,23 @@ fn dart_function_scalar_newtypes_wrap_arguments_and_unwrap_results() {
 
 #[test]
 fn dart_function_container_newtypes_convert_both_sides() {
-    for name in ["optional", "vector", "map", "tree", "narrow_map", "nested"] {
+    for (name, wrapper) in [
+        ("optional", "Wide"),
+        ("vector", "Wide"),
+        ("map", "Wide"),
+        ("tree", "Wide"),
+        ("narrow_map", "Narrow"),
+        ("nested", "Narrow"),
+        ("double_optional", "Wide"),
+        ("optional_tree", "Wide"),
+        ("hashed", "Wide"),
+    ] {
         let f = function(name);
         let body = f.block.to_token_stream().to_string();
-        assert!(body.contains("sample :: Wide"), "missing container constructor: {body}");
+        assert!(
+            body.contains(&format!("sample :: {wrapper}")),
+            "missing container constructor: {body}"
+        );
         assert!(body.contains(". 0"), "missing container newtype projection: {body}");
         assert!(body.contains(". map"), "missing per-element conversion: {body}");
     }
@@ -171,7 +188,7 @@ fn dart_newtype_source_and_generated_functions_typecheck_and_execute_together() 
     use alef::snippets::validators::run_command_streams;
     let directory = tempfile::tempdir().unwrap();
     let functions = functions();
-    assert_eq!(functions.len(), 16);
+    assert_eq!(functions.len(), 20);
     let declarations = functions
         .iter()
         .map(|f| f.to_token_stream().to_string())
@@ -192,9 +209,30 @@ fn dart_newtype_source_and_generated_functions_typecheck_and_execute_together() 
         assert_eq!(nested(vec![Some(-1), None]), vec![Some(-1), None]);
         assert_eq!(path(String::from(\"kept\")), \"kept\");
         assert_eq!(duration(42), 42);
+        assert_eq!(double_optional(None), None);
+        assert_eq!(double_optional(Some(None)), Some(None));
+        assert_eq!(double_optional(Some(Some(u64::MAX))), Some(Some(u64::MAX)));
+        let ordered = std::collections::HashMap::from([(String::from(\"a\"), u64::MAX)]);
+        assert_eq!(optional_tree(Some(ordered.clone())), Some(ordered.clone()));
+        assert_eq!(optional_tree(None), None);
+        assert_eq!(hashed(ordered.clone()), ordered.clone());
+        assert_eq!(hashed_cow(ordered), u64::MAX);
     }}"
     );
-    std::fs::write(directory.path().join("probe.rs"), program).unwrap();
+    std::fs::create_dir(directory.path().join("src")).unwrap();
+    std::fs::write(directory.path().join("src/main.rs"), program).unwrap();
+    let lock: toml::Value = toml::from_str(include_str!("../Cargo.lock")).unwrap();
+    let ahash: Vec<_> = lock["package"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|package| package["name"].as_str() == Some("ahash"))
+        .collect();
+    assert_eq!(ahash.len(), 1, "use the real producer's locked ahash dependency");
+    let ahash_version = ahash[0]["version"].as_str().unwrap();
+    std::fs::write(directory.path().join("Cargo.toml"), format!(
+        "[package]\nname = \"dart-newtype-probe\"\nversion = \"0.0.0\"\nedition = \"2024\"\n[dependencies]\nahash = \"={ahash_version}\"\n"
+    )).unwrap();
     std::fs::write(
         directory.path().join("rust-toolchain.toml"),
         include_str!("../rust-toolchain.toml"),
@@ -203,13 +241,17 @@ fn dart_newtype_source_and_generated_functions_typecheck_and_execute_together() 
     std::fs::write(
         directory.path().join("mise.toml"),
         format!(
-            "[tasks.compile]\nrun = 'rustc --edition=2024 probe.rs -o probe{0}'\n[tasks.execute]\nrun = './probe{0}'\n",
+            "[tasks.compile]\nrun = 'cargo build --offline --jobs 1'\n[tasks.execute]\nrun = './target/debug/dart-newtype-probe{0}'\n",
             std::env::consts::EXE_SUFFIX
         ),
     )
     .unwrap();
     for task in ["compile", "execute"] {
         let mut command = mise_task::mise_run(directory.path(), task);
+        command.env("RUSTC_WRAPPER", "");
+        if let Some(cache) = std::env::var_os("CARGO_HOME") {
+            command.env("CARGO_HOME", cache);
+        }
         let output = run_command_streams(&mut command, 60).unwrap();
         assert!(output.success, "{task}: {}\n{}", output.stdout, output.stderr);
     }
@@ -310,4 +352,27 @@ fn borrowed_private_newtypes_require_extracted_clone_proof() {
             assert!(generated.unwrap_err().to_string().contains("proven Clone"));
         }
     }
+}
+
+#[test]
+fn optional_shapes_and_map_kinds_are_taken_from_extracted_source() {
+    use alef::core::ir::{PrimitiveType, TypeRef};
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("lib.rs");
+    std::fs::write(&source, SOURCE).unwrap();
+    let api = alef::extract::extractor::extract(&[&source], "sample", "1.0.0", None).unwrap();
+    assert_eq!(api.functions.len(), 20);
+    let double = api.functions.iter().find(|f| f.name == "double_optional").unwrap();
+    assert!(double.params[0].optional);
+    assert_eq!(
+        double.params[0].ty,
+        TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::U64)))
+    );
+    let ordered = api.functions.iter().find(|f| f.name == "optional_tree").unwrap();
+    assert!(ordered.params[0].optional && ordered.params[0].map_is_btree);
+    assert!(!ordered.params[0].map_is_ahash);
+    let hashed = api.functions.iter().find(|f| f.name == "hashed").unwrap();
+    assert!(hashed.params[0].map_is_ahash && !hashed.params[0].map_is_btree);
+    let cow = api.functions.iter().find(|f| f.name == "hashed_cow").unwrap();
+    assert!(cow.params[0].map_is_ahash && cow.params[0].map_key_is_cow);
 }

@@ -38,14 +38,20 @@ pub(super) fn validate(function: &FunctionDef) -> anyhow::Result<()> {
 
 pub(super) fn argument(param: &ParamDef, checked: bool) -> String {
     let mut ty = param.ty.clone();
-    if param.optional && !matches!(ty, TypeRef::Optional(_)) {
+    if param.optional {
         ty = TypeRef::Optional(Box::new(ty));
     }
     let wrapper = param
         .newtype_wrapper
         .as_deref()
         .expect("caller checked newtype metadata");
-    let collection = param.map_is_btree.then_some("std::collections::BTreeMap<_, _>");
+    let collection = Some(if param.map_is_btree {
+        "std::collections::BTreeMap<_, _>"
+    } else if param.map_is_ahash {
+        "ahash::AHashMap<_, _>"
+    } else {
+        "std::collections::HashMap<_, _>"
+    });
     let wrapped = rewrite(&param.name, &ty, &paths(wrapper), Mode::Argument(param), collection);
     let wrapped = if checked {
         let checks = unsigned_checks(&format!("&{}", param.name), &ty, &param.name);
@@ -112,7 +118,13 @@ fn rewrite(
     }
     match ty {
         TypeRef::Optional(inner) => {
-            let value = rewrite("value", inner, &descend(paths, NewtypeContainer::Optional), mode, None);
+            let value = rewrite(
+                "value",
+                inner,
+                &descend(paths, NewtypeContainer::Optional),
+                mode,
+                collection,
+            );
             let borrow = if matches!(mode, Mode::Borrowed) {
                 ".as_ref()"
             } else {
@@ -132,6 +144,11 @@ fn rewrite(
         TypeRef::Map(key, value) => {
             let key = rewrite("key", key, &descend(paths, NewtypeContainer::MapKey), mode, None);
             let value = rewrite("value", value, &descend(paths, NewtypeContainer::MapValue), mode, None);
+            let key = if collection.is_some() && matches!(mode, Mode::Argument(param) if param.map_key_is_cow) {
+                format!("std::borrow::Cow::Owned({key})")
+            } else {
+                key
+            };
             let iter = if matches!(mode, Mode::Borrowed) {
                 "iter"
             } else {
