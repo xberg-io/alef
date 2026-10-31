@@ -186,7 +186,7 @@ jobs:
       # step proves the fixture executed rather than skipped. `sorbet-runtime` is pinned to the
       # exact gem the fixture was measured against. ~keep
       - name: Set up Ruby for generated Data regression
-        uses: ruby/setup-ruby@v1.335.0
+        uses: ruby/setup-ruby@v1.336.0
         with:
           ruby-version: "4.0"
       - name: Install Steep for generated Ruby signature regression
