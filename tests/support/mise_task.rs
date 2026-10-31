@@ -46,13 +46,13 @@ fn isolate(command: &mut Command, directory: &Path) {
     command
         .env("MISE_TRUSTED_CONFIG_PATHS", join(&trusted))
         .env("MISE_CEILING_PATHS", join(&ceilings))
-        // Go-task never prefixed a step's output with its task name; keep the streams raw. ~keep
+        // Tests read a step's output verbatim, so mise must not prefix it with the task name. ~keep
         .env("MISE_TASK_OUTPUT", "interleave")
         // ~keep a developer's global config or profile must not add tools, env or settings to a fixture.
         .env("MISE_GLOBAL_CONFIG_FILE", directory.join(".no-global-mise.toml"))
         .env_remove("MISE_ENV");
     if cfg!(windows) {
-        // ~keep mise's Windows default is `cmd /c`; the fixtures' steps are POSIX shell, as under go-task.
+        // ~keep mise's Windows default is `cmd /c`, but the fixtures' steps are POSIX shell.
         let bash = git_bash().expect("Git for Windows bash.exe is required to run POSIX fixture tasks");
         let bash = bash.to_string_lossy().replace('\\', "/");
         command.env(
