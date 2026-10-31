@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.115.9] - 2026-10-31
+
 ### Fixed
 
 - Stop advertising unsupported `verify --compile`, `--lint` and `--lang` flags while retaining explicit rejection. (#755)
