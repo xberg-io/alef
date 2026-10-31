@@ -5,4 +5,5 @@ mod field_default_policy;
 mod none_case_runtime;
 mod serde_aliases;
 mod serde_contract;
+mod serde_policy_edges;
 mod trait_box_swiftpm_compile;

@@ -1,0 +1,53 @@
+import Foundation
+
+{{ declarations }}
+
+func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
+    try JSONDecoder().decode(type, from: Data(json.utf8))
+}
+
+var cases = [[String: Any]]()
+func check(_ name: String, _ passed: Bool) {
+    cases.append(["case": name, "passed": passed])
+}
+
+func rejectsUnknownOrDuplicate(_ name: String, _ operation: () throws -> Void) {
+    do {
+        try operation()
+        check(name, false)
+    } catch DecodingError.dataCorrupted(_) {
+        check(name, true)
+    } catch {
+        cases.append(["case": name, "passed": false, "error": String(describing: error)])
+    }
+}
+
+let strict = try decode(StrictOwner.self, #"{"payload":{"label":"strict"}}"#)
+check("strict parent preserves the source DTO", strict.payload.label == "strict")
+rejectsUnknownOrDuplicate("strict parent rejects unknown wire keys") {
+    _ = try decode(StrictOwner.self, #"{"payload":{"label":"strict"},"unknown":1}"#)
+}
+let canonical = try decode(AliasOwner.self, #"{"payload":{"label":"canonical"}}"#)
+check("alias parent decodes canonical spelling", canonical.payload.label == "canonical")
+let legacy = try decode(AliasOwner.self, #"{"legacy_payload":{"label":"legacy"}}"#)
+check("alias parent decodes alternate spelling", legacy.payload.label == "legacy")
+rejectsUnknownOrDuplicate("alias parent rejects duplicate spellings") {
+    _ = try decode(AliasOwner.self, #"{"payload":{"label":"a"},"legacy_payload":{"label":"b"}}"#)
+}
+let future = try decode(AliasOwner.self, #"{"legacy_payload":{"label":"future"},"unknown":1}"#)
+check("permissive alias parent retains unrelated-key behavior", future.payload.label == "future")
+let encoded = try JSONEncoder().encode(AliasOwner(payload: AlefWireKey(label: "encoded")))
+let object = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+let payload = object["payload"] as? [String: Any]
+check(
+    "encoding preserves only canonical wire keys",
+    Set(object.keys) == ["payload"] && payload?["label"] as? String == "encoded"
+)
+
+let passed = cases.filter { $0["passed"] as? Bool == true }.count
+let report: [String: Any] = [
+    "collected": cases.count, "cases": cases, "passed": passed, "failed": cases.count - passed
+]
+let data = try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
+print(String(data: data, encoding: .utf8)!)
+exit(passed == 7 ? 0 : 1)
