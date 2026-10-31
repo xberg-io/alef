@@ -57,7 +57,7 @@ fn opaque_function_parameter_ownership_matches_core_source() {
 
 #[test]
 fn actual_opaque_function_borrows_reuse_one_nonclone_handle_and_moves_stay_owned() {
-    use alef::cli::subprocess_runner::run_command_streams;
+    use alef::snippets::validators::run_command_streams;
     let directory = tempfile::tempdir().unwrap();
     let items: Vec<_> = generated()
         .into_iter()
