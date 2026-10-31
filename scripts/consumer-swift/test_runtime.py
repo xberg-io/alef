@@ -40,7 +40,7 @@ class ResourceAndCleanup(unittest.TestCase):
                 check=False,
             )
             assert result.returncode == 1
-            assert json.loads((evidence / "census-refusal.json").read_text()) == {"expected": 56, "discovered": 0}
+            assert json.loads((evidence / "census-refusal.json").read_text()) == {"expected": 57, "discovered": 0}
             assert b"control census changed or examined zero cases" in result.stderr
 
     def test_actual_read_only_sink_failure_is_recorded_and_owned_child_killed(self):

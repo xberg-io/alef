@@ -83,3 +83,11 @@ class ConsumerStages(unittest.TestCase):
             assert set(receipt["before"]) == set(receipt["after"]) == {str(gate.evidence)}
             with raises(RuntimeError, "evidence-owned check phase target"):
                 driver.release_check_target(gate.evidence, gate.paths, check, gate.evidence.parent / "check-target")
+
+    def test_alef_post_build_ceiling_ends_inside_the_release_stage(self):
+        env = driver.stage_env({"PATH": "/usr/bin"}, Path("/owned/bin"), Path("/owned/xberg"))
+        ceiling = int(env["ALEF_RUN_COMMAND_TIMEOUT_SECS"])
+        assert ceiling == driver.POST_BUILD_TIMEOUT
+        assert ceiling > 3600
+        assert ceiling + 63 < driver.RELEASE_BUILD_TIMEOUT
+        assert env["PATH"] == "/owned/bin" + driver.os.pathsep + "/usr/bin"

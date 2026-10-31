@@ -24,6 +24,25 @@ from strict_flags import strict_flags
 # Run 41187024458 hit the former 3600 s with 963 of the check build's 979 rustc units started; the 16
 # left include xberg, xberg-ffi and xberg-swift, whose fat-LTO link of the whole graph runs on one job. ~keep
 RELEASE_BUILD_TIMEOUT = 9000
+# alef bounds its own post-build `cargo build` at 3600 s unless told otherwise (run 41197015457 killed
+# it there, compiling xberg, rustc unit 974 of 979). It must end before the stage so alef reports the
+# timeout; alef spent 63 s of that stage outside cargo. ~keep
+POST_BUILD_TIMEOUT = RELEASE_BUILD_TIMEOUT - 300
+
+
+def stage_env(base, tool_bin, xberg):
+    env = dict(base)
+    env.update(
+        {
+            "RUSTUP_TOOLCHAIN": "1.99.1",
+            "CARGO_BUILD_JOBS": "1",
+            "CARGO_INCREMENTAL": "0",
+            "ALEF_RUN_COMMAND_TIMEOUT_SECS": str(POST_BUILD_TIMEOUT),
+            "REPO_ROOT": str(xberg),
+            "PATH": str(tool_bin) + os.pathsep + env["PATH"],
+        }
+    )
+    return env
 
 
 class Gate:
@@ -36,16 +55,7 @@ class Gate:
         self.tools = self.evidence / "tools"
         self.bin = self.tools / "bin"
         self.bin.mkdir(parents=True)
-        self.env = dict(os.environ)
-        self.env.update(
-            {
-                "RUSTUP_TOOLCHAIN": "1.99.1",
-                "CARGO_BUILD_JOBS": "1",
-                "CARGO_INCREMENTAL": "0",
-                "REPO_ROOT": str(self.xberg),
-                "PATH": str(self.bin) + os.pathsep + self.env["PATH"],
-            }
-        )
+        self.env = stage_env(os.environ, self.bin, self.xberg)
         self.paths = [
             self.root,
             Path.home(),
@@ -343,7 +353,7 @@ def harness_controls():
     root = Path(os.environ["GITHUB_WORKSPACE"])
     evidence = Path(os.environ.get("SWIFT_GATE_CONTROL_EVIDENCE", str(root / "consumer-controls-evidence")))
     suite = unittest.defaultTestLoader.discover(str(Path(__file__).parent), pattern="test_*.py")
-    expected = 56
+    expected = 57
     actual = suite.countTestCases()
     if actual != expected:
         (evidence / "census-refusal.json").write_text(json.dumps({"expected": expected, "discovered": actual}))
