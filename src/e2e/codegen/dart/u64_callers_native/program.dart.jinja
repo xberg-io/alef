@@ -1,0 +1,43 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
+import 'lib/wide_codec_probe.dart';
+import 'lib/src/wide_codec_bridge_generated/frb_generated.dart';
+import 'lib/src/wide_codec_bridge_generated/lib.dart' as raw;
+import 'lib/src/wide_codec_bridge_generated/lib.dart' show Envelope, Leaf, createProbeConfigFromJson;
+
+void require(bool value, String message) {
+  if (!value) throw StateError(message);
+}
+
+var completed = 0;
+void receipt(String id, String kind) {
+  completed++;
+  stdout.writeln('caller_receipt=${jsonEncode({'case': id, 'kind': kind})}');
+}
+
+void checkEnvelope(Envelope value, String expected, bool absent) {
+  require((value.optional == null) == absent, 'optional record native value');
+  require(value.leaves.length == 1, 'one native nested list element');
+  final leaves = [value.leaf, if (value.optional != null) value.optional!, ...value.leaves];
+  require(leaves.length == (absent ? 2 : 3), 'native leaf count');
+  for (final leaf in leaves) {
+    require(leaf.wide is BigInt && leaf.wide.toString() == expected, 'native wide field');
+    require(absent ? leaf.optionalWide == null : leaf.optionalWide is BigInt && leaf.optionalWide?.toString() == expected, 'native optional wide field');
+    require(leaf.signed == -1 && leaf.narrow == 17 && leaf.word == 23, 'native non-u64 fields');
+  }
+}
+
+Future<void> main(List<String> args) async {
+  final watchdog = Timer(const Duration(seconds: 60), () { stderr.writeln('emitted caller deadline'); exit(2); });
+  try {
+    require(args.length == 1, 'one actual native library path required');
+    await RustLib.init(externalLibrary: ExternalLibrary.open(args.single)).timeout(const Duration(seconds: 10));
+@@CASES@@
+    require(completed == 15, 'exactly fifteen emitted calls must complete');
+    stdout.writeln('caller_cases=$completed');
+  } finally {
+    watchdog.cancel();
+  }
+}

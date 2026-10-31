@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Generate exact `BigInt.parse` literals for declared `u64` scalar and nested DTO callers in the next-major
   Dart API, preserving narrower integers and numeric JSON passed through Rust constructors.
+  Add a native qualification gate for emitted scalar calls, recursive DTOs and JSON constructor payloads.
 
 - Dart FRB callback serialization failures use the existing callback error transport instead of escaping
   asynchronously and leaving native callers waiting. Reject out-of-range callback `u64` returns through
