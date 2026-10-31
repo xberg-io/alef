@@ -1,0 +1,11 @@
+[tasks.setup]
+run = "dart pub get --offline"
+
+[tasks.generate]
+run = "flutter_rust_bridge_codegen generate --rust-root rust --rust-input crate --rust-output rust/src/frb_generated.rs --dart-root . --dart-output lib/src/wide_sample_bridge_generated --no-add-mod-to-lib --no-web --no-deps-check --no-auto-upgrade-dependency --stop-on-error"
+
+[tasks.build]
+run = "cargo build --offline --manifest-path rust/Cargo.toml"
+
+[tasks.test]
+run = "dart run check.dart"
