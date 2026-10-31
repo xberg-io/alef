@@ -191,7 +191,7 @@ jobs:
       # Ruby on Windows is a mise lock gap (toolchain-management rule); keep it on mise.toml's version. ~keep
       - name: Set up Ruby for generated Data regression (Windows)
         if: runner.os == 'Windows'
-        uses: ruby/setup-ruby@v1.336.0
+        uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.4.12"
       - name: Install Steep for generated Ruby signature regression
@@ -247,7 +247,7 @@ jobs:
       # Kotlin grammar was measured against, so a `fwilhe2/setup-kotlin` default-version bump
       # can't silently change what CI verifies against. ~keep
       - name: Install kotlinc
-        uses: fwilhe2/setup-kotlin@v2.1
+        uses: fwilhe2/setup-kotlin@v2
         with:
           version: "2.4.10"
       # Swift is the one toolchain here that genuinely cannot be installed on every leg: it ships
