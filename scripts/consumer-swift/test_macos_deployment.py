@@ -1,15 +1,17 @@
-"""Actual bootstrap selects one Rust/native minimum without changing explicit policy."""
+"""Bootstrap targets the shipped Swift package floor for Rust and native code alike."""
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
 import bootstrap
+from assertions import raises
 from test_formatter_bootstrap import FormatterGate
 
 
 class DeploymentGate(FormatterGate):
-    def __init__(self, root, report="MACOSX_DEPLOYMENT_TARGET=11.0\n", diagnostics=""):
+    def __init__(self, root, report=None, diagnostics=""):
         super().__init__(root)
         self.report = report
         self.diagnostics = diagnostics
@@ -18,14 +20,15 @@ class DeploymentGate(FormatterGate):
     def command(self, name, argv, cwd, budget, timeout):
         self.observed.append({"name": name, "env": dict(self.env)})
         result = super().command(name, argv, cwd, budget, timeout)
-        if name == "qualified-macos-deployment-target":
+        if name == "qualified-macos-deployment-target" and self.report is not None:
             (result / "stdout.log").write_text(self.report)
+        if name == "qualified-macos-deployment-target":
             (result / "stderr.log").write_text(self.diagnostics)
         return result
 
 
 class MacosDeployment(unittest.TestCase):
-    def test_missing_native_minimum_is_derived_from_actual_rust_selection(self):
+    def test_missing_native_minimum_is_the_swift_package_floor_and_rust_selects_it(self):
         with tempfile.TemporaryDirectory() as directory:
             gate = DeploymentGate(Path(directory))
             gate.env["CFLAGS"] = "-O2"
@@ -34,7 +37,7 @@ class MacosDeployment(unittest.TestCase):
             original = b"[build]\njobs = 1\n[env]\nCFLAGS_x86_64_pc_windows_gnu = '-Wa,-mbig-obj'\n"
             config.write_bytes(original)
             bootstrap.bootstrap(gate)
-            assert gate.env.get("MACOSX_DEPLOYMENT_TARGET") == "11.0"
+            assert gate.env.get("MACOSX_DEPLOYMENT_TARGET") == "13.0"
             assert gate.env["CFLAGS"] == "-O2"
             assert config.read_bytes() == original
             query = [row for row in gate.calls if row["name"] == "qualified-macos-deployment-target"]
@@ -44,21 +47,45 @@ class MacosDeployment(unittest.TestCase):
             names = [row["name"] for row in gate.calls]
             assert names.index("qualified-macos-deployment-target") < names.index("install-cargo-sort")
             for row in gate.observed[names.index("qualified-macos-deployment-target") + 1 :]:
-                assert row["env"]["MACOSX_DEPLOYMENT_TARGET"] == "11.0"
+                assert row["env"]["MACOSX_DEPLOYMENT_TARGET"] == "13.0"
+            assert json.loads((gate.evidence / "macos-deployment-target.json").read_text()) == {
+                "requested": None,
+                "swift_package_floor": "13.0",
+                "rust_selected": "13.0",
+                "effective": "13.0",
+            }
 
     def test_explicit_ambient_target_is_preserved_and_queried_without_replacement(self):
         with tempfile.TemporaryDirectory() as directory:
-            gate = DeploymentGate(Path(directory), report="MACOSX_DEPLOYMENT_TARGET=12.3.0\n")
-            gate.env["MACOSX_DEPLOYMENT_TARGET"] = "12.3"
+            gate = DeploymentGate(Path(directory), report="MACOSX_DEPLOYMENT_TARGET=13.0.0\n")
+            gate.env["MACOSX_DEPLOYMENT_TARGET"] = "13"
             bootstrap.bootstrap(gate)
-            assert gate.env["MACOSX_DEPLOYMENT_TARGET"] == "12.3"
+            assert gate.env["MACOSX_DEPLOYMENT_TARGET"] == "13"
             rows = [row for row in gate.observed if row["name"] == "qualified-macos-deployment-target"]
             assert len(rows) == 1
-            assert rows[0]["env"]["MACOSX_DEPLOYMENT_TARGET"] == "12.3"
+            assert rows[0]["env"]["MACOSX_DEPLOYMENT_TARGET"] == "13"
 
     def test_invalid_or_mismatched_rust_selection_stops_before_native_cargo_tools(self):
         scenarios = [
-            {"requested": "12.3", "message": "explicit macOS deployment target differs from qualified Rust selection"},
+            {
+                "requested": "11.0",
+                "message": "explicit macOS deployment target differs from the Swift package floor",
+                "no_query": True,
+            },
+            {
+                "report": "MACOSX_DEPLOYMENT_TARGET=11.0\n",
+                "message": "qualified Rust macOS deployment target differs from the Swift package floor",
+            },
+            {
+                "root_manifest": "platforms: [.macOS(.v14)]\n",
+                "message": "shipped Swift manifests must declare one shared macOS platform floor",
+                "no_query": True,
+            },
+            {
+                "root_manifest": "platforms: [.iOS(.v16)]\n",
+                "message": "Swift manifest must declare exactly one macOS platform floor: Package.swift",
+                "no_query": True,
+            },
             {
                 "report": "IPHONEOS_DEPLOYMENT_TARGET=11.0\n",
                 "message": "qualified Rust macOS deployment target is invalid or has diagnostics",
@@ -102,9 +129,11 @@ class MacosDeployment(unittest.TestCase):
             with tempfile.TemporaryDirectory() as directory:
                 gate = DeploymentGate(
                     Path(directory),
-                    report=scenario.get("report", "MACOSX_DEPLOYMENT_TARGET=11.0\n"),
+                    report=scenario.get("report"),
                     diagnostics=scenario.get("diagnostics", ""),
                 )
+                if "root_manifest" in scenario:
+                    (gate.xberg / "Package.swift").write_text(scenario["root_manifest"])
                 if "requested" in scenario:
                     gate.env["MACOSX_DEPLOYMENT_TARGET"] = scenario["requested"]
                 if "cargo_target" in scenario:
@@ -126,3 +155,14 @@ class MacosDeployment(unittest.TestCase):
                 assert "install-cargo-sort" not in names
                 if scenario.get("no_query"):
                     assert "qualified-macos-deployment-target" not in names
+
+    def test_swift_package_floor_reads_each_platform_spelling(self):
+        with tempfile.TemporaryDirectory() as directory:
+            xberg = Path(directory)
+            (xberg / "packages/swift").mkdir(parents=True)
+            for declared, floor in [(".v14", "14.0"), (".v10_15", "10.15"), ('"13.4"', "13.4")]:
+                (xberg / "packages/swift/Package.swift").write_text(f"platforms: [.macOS({declared}), .iOS(.v16)]")
+                assert bootstrap.swift_package_macos_floor(xberg) == floor
+            (xberg / "packages/swift/Package.swift").unlink()
+            with raises(RuntimeError, "must declare one shared macOS platform floor"):
+                bootstrap.swift_package_macos_floor(xberg)

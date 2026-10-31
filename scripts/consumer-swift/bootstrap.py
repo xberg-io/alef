@@ -212,11 +212,43 @@ def install_clang_format(gate):
     )
 
 
+def swift_package_macos_floor(xberg):
+    """The `.macOS(...)` platform floor the shipped Swift manifests declare, as `major.minor`."""
+    floors = set()
+    for manifest in [xberg / "packages/swift/Package.swift", xberg / "Package.swift"]:
+        if not manifest.is_file():
+            continue
+        found = re.findall(r'\.macOS\(\s*(?:\.v(\d+)(?:_(\d+))?|"(\d+(?:\.\d+){0,2})")\s*\)', manifest.read_text())
+        if len(found) != 1:
+            raise RuntimeError("Swift manifest must declare exactly one macOS platform floor: " + manifest.name)
+        major, minor, text = found[0]
+        floors.add(text or major + "." + (minor or "0"))
+    if len(floors) != 1:
+        raise RuntimeError("shipped Swift manifests must declare one shared macOS platform floor")
+    return floors.pop()
+
+
+def normalized_version(text):
+    parts = tuple(map(int, text.split(".")))
+    return parts + (0,) * (3 - len(parts))
+
+
 def configure_macos_deployment(gate):
     if gate.env.get("CARGO_BUILD_TARGET"):
         raise RuntimeError("explicit Cargo build target requires deployment-target review")
     require_host_cargo_configuration(gate)
+    # Rust, cc and the prebuilt objects it links (ONNX Runtime's are built for macOS 13.4) must all
+    # target the floor the Swift package ships with; rustc's own 11.0 default qualified a deployment
+    # target no consumer gets, and ld64 reports the newer objects under -fatal_warnings. ~keep
+    floor = swift_package_macos_floor(gate.xberg)
     requested = gate.env.get("MACOSX_DEPLOYMENT_TARGET")
+    if requested is not None:
+        if re.fullmatch(r"[0-9]+(?:\.[0-9]+){0,2}", requested) is None:
+            raise RuntimeError("explicit macOS deployment target requires review")
+        if normalized_version(requested) != normalized_version(floor):
+            raise RuntimeError("explicit macOS deployment target differs from the Swift package floor")
+    else:
+        gate.env["MACOSX_DEPLOYMENT_TARGET"] = floor
     stage = gate.command(
         "qualified-macos-deployment-target",
         ["rustup", "run", "1.99.1", "rustc", "--print=deployment-target"],
@@ -229,21 +261,16 @@ def configure_macos_deployment(gate):
     if match is None or (stage / "stderr.log").read_text():
         raise RuntimeError("qualified Rust macOS deployment target is invalid or has diagnostics")
     selected = match.group(1)
-    if requested is not None:
-        if re.fullmatch(r"[0-9]+(?:\.[0-9]+){0,2}", requested) is None:
-            raise RuntimeError("explicit macOS deployment target requires review")
-
-        def normalized(text):
-            parts = tuple(map(int, text.split(".")))
-            return parts + (0,) * (3 - len(parts))
-
-        if normalized(requested) != normalized(selected):
-            raise RuntimeError("explicit macOS deployment target differs from qualified Rust selection")
-    else:
-        gate.env["MACOSX_DEPLOYMENT_TARGET"] = selected
+    if normalized_version(selected) != normalized_version(floor):
+        raise RuntimeError("qualified Rust macOS deployment target differs from the Swift package floor")
     (gate.evidence / "macos-deployment-target.json").write_text(
         json.dumps(
-            {"requested": requested, "rust_selected": selected, "effective": gate.env["MACOSX_DEPLOYMENT_TARGET"]},
+            {
+                "requested": requested,
+                "swift_package_floor": floor,
+                "rust_selected": selected,
+                "effective": gate.env["MACOSX_DEPLOYMENT_TARGET"],
+            },
             indent=2,
         )
         + "\n"

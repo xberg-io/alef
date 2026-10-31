@@ -39,6 +39,9 @@ class FormatterGate:
         for path in [root / "sysroot/lib", root / "brew-cache"]:
             path.mkdir(parents=True, exist_ok=True)
         (self.xberg / "mise.toml").write_text('[tools]\n"github:Goldziher/poly" = "0.31.2"\n')
+        (self.xberg / "packages/swift").mkdir(parents=True)
+        for manifest in [self.xberg / "Package.swift", self.xberg / "packages/swift/Package.swift"]:
+            manifest.write_text("let package = Package(\n  platforms: [\n    .macOS(.v13),\n    .iOS(.v16),\n  ]\n)\n")
         (self.alef / "mise.toml").write_text('[tools]\n"github:DevinR528/cargo-sort" = "2.1.4"\n')
         for checkout in [self.alef, self.xberg]:
             (checkout / "mise.lock").write_text("# owned boundary fixture\n")
@@ -67,7 +70,7 @@ class FormatterGate:
         result.mkdir()
         output = ""
         if name == "qualified-macos-deployment-target":
-            output = "MACOSX_DEPLOYMENT_TARGET=11.0"
+            output = "MACOSX_DEPLOYMENT_TARGET=" + self.env.get("MACOSX_DEPLOYMENT_TARGET", "11.0")
         elif name == "qualified-rust-sysroot":
             output = str(self.alef.parent / "sysroot")
         elif name == "actual-homebrew-cache":
