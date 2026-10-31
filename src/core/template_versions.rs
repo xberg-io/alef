@@ -425,7 +425,7 @@ pub mod maven {
     pub const JACOCO_MAVEN_PLUGIN: &str = "0.8.16";
 
     // renovate: datasource=maven depName=com.puppycrawl.tools:checkstyle
-    pub const CHECKSTYLE: &str = "14.3.0";
+    pub const CHECKSTYLE: &str = "14.4.0";
 
     // renovate: datasource=maven depName=org.jspecify:jspecify
     pub const JSPECIFY: &str = "1.0.1";
@@ -465,7 +465,7 @@ pub mod maven {
     // redirect to the current `io.github.ben-manes` artifact. Verified against the Portal's own
     // maven-metadata.xml for both coordinates, not assumed. ~keep
     // renovate: datasource=maven depName=io.github.ben-manes:gradle-versions-plugin
-    pub const GRADLE_VERSIONS_PLUGIN: &str = "0.66.0";
+    pub const GRADLE_VERSIONS_PLUGIN: &str = "0.67.0";
 
     // renovate: datasource=maven depName=com.pinterest.ktlint:ktlint-cli
     pub const KTLINT: &str = "1.8.0";
