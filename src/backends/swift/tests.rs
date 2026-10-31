@@ -3,5 +3,6 @@ mod enum_declaration_parity;
 mod field_default_codable;
 mod field_default_policy;
 mod none_case_runtime;
+mod serde_aliases;
 mod serde_contract;
 mod trait_box_swiftpm_compile;

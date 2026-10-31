@@ -1,0 +1,540 @@
+[
+  {
+    "name": "ReaderOptions canonical fields",
+    "dto": "ReaderOptions",
+    "payload": {
+      "cache_dir": "/cache",
+      "hf_revision": "rev",
+      "variant": "base-printed",
+      "device": "cpu"
+    },
+    "accept": true,
+    "canonical": {
+      "cache_dir": "/cache",
+      "hf_revision": "rev",
+      "variant": "base-printed",
+      "device": "cpu"
+    }
+  },
+  {
+    "name": "ReaderOptions alias fields equal canonical fields",
+    "dto": "ReaderOptions",
+    "payload": {
+      "cache-dir": "/cache",
+      "revision": "rev",
+      "variant": "base-printed",
+      "device": "cpu"
+    },
+    "accept": true,
+    "canonical": {
+      "cache_dir": "/cache",
+      "hf_revision": "rev",
+      "variant": "base-printed",
+      "device": "cpu"
+    }
+  },
+  {
+    "name": "ReaderOptions absent optional defaults",
+    "dto": "ReaderOptions",
+    "payload": {},
+    "accept": true,
+    "canonical": {}
+  },
+  {
+    "name": "ReaderOptions explicit null alias is None",
+    "dto": "ReaderOptions",
+    "payload": {
+      "cache-dir": null
+    },
+    "accept": true,
+    "canonical": {}
+  },
+  {
+    "name": "ReaderOptions strict unknown key rejected",
+    "dto": "ReaderOptions",
+    "payload": {
+      "unexpected": true
+    },
+    "accept": false,
+    "canonical": null
+  },
+  {
+    "name": "VisionOptions canonical fields",
+    "dto": "VisionOptions",
+    "payload": {
+      "model_path": "/models",
+      "model_id": "owner/model",
+      "hf_revision": "rev",
+      "cache_dir": "/cache",
+      "task": "ocr",
+      "device": "cpu"
+    },
+    "accept": true,
+    "canonical": {
+      "model_path": "/models",
+      "model_id": "owner/model",
+      "hf_revision": "rev",
+      "cache_dir": "/cache",
+      "task": "ocr",
+      "device": "cpu"
+    }
+  },
+  {
+    "name": "VisionOptions alias fields equal canonical fields",
+    "dto": "VisionOptions",
+    "payload": {
+      "model-path": "/models",
+      "model-id": "owner/model",
+      "hf-revision": "rev",
+      "cache-dir": "/cache",
+      "task": "ocr",
+      "device": "cpu"
+    },
+    "accept": true,
+    "canonical": {
+      "model_path": "/models",
+      "model_id": "owner/model",
+      "hf_revision": "rev",
+      "cache_dir": "/cache",
+      "task": "ocr",
+      "device": "cpu"
+    }
+  },
+  {
+    "name": "VisionOptions absent optional defaults",
+    "dto": "VisionOptions",
+    "payload": {},
+    "accept": true,
+    "canonical": {}
+  },
+  {
+    "name": "VisionOptions explicit null alias is None",
+    "dto": "VisionOptions",
+    "payload": {
+      "cache-dir": null
+    },
+    "accept": true,
+    "canonical": {}
+  },
+  {
+    "name": "VisionOptions strict unknown key rejected",
+    "dto": "VisionOptions",
+    "payload": {
+      "unexpected": true
+    },
+    "accept": false,
+    "canonical": null
+  },
+  {
+    "name": "LayoutOptions canonical fields",
+    "dto": "LayoutOptions",
+    "payload": {
+      "layout_mode": "paired",
+      "enable_chart_understanding": true,
+      "cache_dir": "/cache",
+      "task": "caption",
+      "device": "cpu"
+    },
+    "accept": true,
+    "canonical": {
+      "layout_mode": "paired",
+      "enable_chart_understanding": true,
+      "cache_dir": "/cache",
+      "task": "caption",
+      "device": "cpu"
+    }
+  },
+  {
+    "name": "LayoutOptions alias fields equal canonical fields",
+    "dto": "LayoutOptions",
+    "payload": {
+      "layout-mode": "paired",
+      "enable-chart-understanding": true,
+      "cache-dir": "/cache",
+      "task": "caption",
+      "device": "cpu"
+    },
+    "accept": true,
+    "canonical": {
+      "layout_mode": "paired",
+      "enable_chart_understanding": true,
+      "cache_dir": "/cache",
+      "task": "caption",
+      "device": "cpu"
+    }
+  },
+  {
+    "name": "LayoutOptions absent optional defaults",
+    "dto": "LayoutOptions",
+    "payload": {},
+    "accept": true,
+    "canonical": {}
+  },
+  {
+    "name": "LayoutOptions explicit null alias is None",
+    "dto": "LayoutOptions",
+    "payload": {
+      "cache-dir": null
+    },
+    "accept": true,
+    "canonical": {}
+  },
+  {
+    "name": "LayoutOptions strict unknown key rejected",
+    "dto": "LayoutOptions",
+    "payload": {
+      "unexpected": true
+    },
+    "accept": false,
+    "canonical": null
+  },
+  {
+    "name": "DecoderOptions canonical fields",
+    "dto": "DecoderOptions",
+    "payload": {
+      "model_path": "/models",
+      "model_id": "owner/model",
+      "hf_revision": "rev",
+      "cache_dir": "/cache",
+      "version": 2,
+      "dtype": "f32",
+      "device": "cpu"
+    },
+    "accept": true,
+    "canonical": {
+      "model_path": "/models",
+      "model_id": "owner/model",
+      "hf_revision": "rev",
+      "cache_dir": "/cache",
+      "version": 2,
+      "dtype": "f32",
+      "device": "cpu"
+    }
+  },
+  {
+    "name": "DecoderOptions alias fields equal canonical fields",
+    "dto": "DecoderOptions",
+    "payload": {
+      "model-path": "/models",
+      "model-id": "owner/model",
+      "revision": "rev",
+      "cache-dir": "/cache",
+      "version": 2,
+      "dtype": "f32",
+      "device": "cpu"
+    },
+    "accept": true,
+    "canonical": {
+      "model_path": "/models",
+      "model_id": "owner/model",
+      "hf_revision": "rev",
+      "cache_dir": "/cache",
+      "version": 2,
+      "dtype": "f32",
+      "device": "cpu"
+    }
+  },
+  {
+    "name": "DecoderOptions absent optional defaults",
+    "dto": "DecoderOptions",
+    "payload": {},
+    "accept": true,
+    "canonical": {}
+  },
+  {
+    "name": "DecoderOptions explicit null alias is None",
+    "dto": "DecoderOptions",
+    "payload": {
+      "cache-dir": null
+    },
+    "accept": true,
+    "canonical": {}
+  },
+  {
+    "name": "DecoderOptions strict unknown key rejected",
+    "dto": "DecoderOptions",
+    "payload": {
+      "unexpected": true
+    },
+    "accept": false,
+    "canonical": null
+  },
+  {
+    "name": "ReaderOptions equal canonical plus alias rejected",
+    "dto": "ReaderOptions",
+    "payload": {
+      "cache_dir": "same",
+      "cache-dir": "same"
+    },
+    "accept": false,
+    "canonical": null
+  },
+  {
+    "name": "VisionOptions equal canonical plus alias rejected",
+    "dto": "VisionOptions",
+    "payload": {
+      "model_id": "same",
+      "model-id": "same"
+    },
+    "accept": false,
+    "canonical": null
+  },
+  {
+    "name": "LayoutOptions equal canonical plus alias rejected",
+    "dto": "LayoutOptions",
+    "payload": {
+      "layout_mode": "paired",
+      "layout-mode": "paired"
+    },
+    "accept": false,
+    "canonical": null
+  },
+  {
+    "name": "DecoderOptions equal canonical plus alias rejected",
+    "dto": "DecoderOptions",
+    "payload": {
+      "hf_revision": "same",
+      "revision": "same"
+    },
+    "accept": false,
+    "canonical": null
+  },
+  {
+    "name": "ReaderOptions equal alias plus alias rejected",
+    "dto": "ReaderOptions",
+    "payload": {
+      "hf-revision": "same",
+      "revision": "same"
+    },
+    "accept": false,
+    "canonical": null
+  },
+  {
+    "name": "VisionOptions equal alias plus alias rejected",
+    "dto": "VisionOptions",
+    "payload": {
+      "hf-revision": "same",
+      "revision": "same"
+    },
+    "accept": false,
+    "canonical": null
+  },
+  {
+    "name": "DecoderOptions equal alias plus alias rejected",
+    "dto": "DecoderOptions",
+    "payload": {
+      "hf-revision": "same",
+      "revision": "same"
+    },
+    "accept": false,
+    "canonical": null
+  },
+  {
+    "name": "wrong optional alias type rejected",
+    "dto": "ReaderOptions",
+    "payload": {
+      "cache-dir": 7
+    },
+    "accept": false,
+    "canonical": null
+  },
+  {
+    "name": "required canonical fields",
+    "dto": "RequiredOptions",
+    "payload": {
+      "max_tokens": 7,
+      "optional_limit": 3,
+      "model_name": "caller"
+    },
+    "accept": true,
+    "canonical": {
+      "max_tokens": 7,
+      "optional_limit": 3,
+      "model_name": "caller"
+    }
+  },
+  {
+    "name": "required aliases equal canonical fields",
+    "dto": "RequiredOptions",
+    "payload": {
+      "legacy-model": "caller",
+      "max-tokens": 7,
+      "optional-limit": 3
+    },
+    "accept": true,
+    "canonical": {
+      "max_tokens": 7,
+      "optional_limit": 3,
+      "model_name": "caller"
+    }
+  },
+  {
+    "name": "missing alias defaults select Rust functions",
+    "dto": "RequiredOptions",
+    "payload": {
+      "legacy_model": "caller"
+    },
+    "accept": true,
+    "canonical": {
+      "max_tokens": 512,
+      "optional_limit": 5,
+      "model_name": "caller"
+    }
+  },
+  {
+    "name": "required model omission rejected",
+    "dto": "RequiredOptions",
+    "payload": {},
+    "accept": false,
+    "canonical": null
+  },
+  {
+    "name": "required model alias null rejected",
+    "dto": "RequiredOptions",
+    "payload": {
+      "legacy_model": null
+    },
+    "accept": false,
+    "canonical": null
+  },
+  {
+    "name": "nonoptional scalar alias null rejected",
+    "dto": "RequiredOptions",
+    "payload": {
+      "max-tokens": null,
+      "model_name": "caller"
+    },
+    "accept": false,
+    "canonical": null
+  },
+  {
+    "name": "optional alias null remains None",
+    "dto": "RequiredOptions",
+    "payload": {
+      "optional-limit": null,
+      "model_name": "caller"
+    },
+    "accept": true,
+    "canonical": {
+      "max_tokens": 512,
+      "model_name": "caller"
+    }
+  },
+  {
+    "name": "equal required canonical and alias rejected",
+    "dto": "RequiredOptions",
+    "payload": {
+      "legacy_model": "same",
+      "model_name": "same"
+    },
+    "accept": false,
+    "canonical": null
+  },
+  {
+    "name": "equal required aliases rejected",
+    "dto": "RequiredOptions",
+    "payload": {
+      "legacy_model": "same",
+      "legacy-model": "same"
+    },
+    "accept": false,
+    "canonical": null
+  },
+  {
+    "name": "required strict unknown rejected",
+    "dto": "RequiredOptions",
+    "payload": {
+      "unexpected": true,
+      "model_name": "caller"
+    },
+    "accept": false,
+    "canonical": null
+  },
+  {
+    "name": "permissive alias is decoded and unknown ignored",
+    "dto": "PermissiveOptions",
+    "payload": {
+      "legacy_model": "caller",
+      "unexpected": true
+    },
+    "accept": true,
+    "canonical": {
+      "model": "caller"
+    }
+  },
+  {
+    "name": "permissive canonical unknown ignored",
+    "dto": "PermissiveOptions",
+    "payload": {
+      "model": "caller",
+      "unexpected": true
+    },
+    "accept": true,
+    "canonical": {
+      "model": "caller"
+    }
+  },
+  {
+    "name": "permissive duplicate still rejected",
+    "dto": "PermissiveOptions",
+    "payload": {
+      "model": "same",
+      "legacy_model": "same"
+    },
+    "accept": false,
+    "canonical": null
+  },
+  {
+    "name": "null canonical plus null alias still duplicate",
+    "dto": "ReaderOptions",
+    "payload": {
+      "cache_dir": null,
+      "cache-dir": null
+    },
+    "accept": false,
+    "canonical": null
+  },
+  {
+    "name": "null alias plus null alias still duplicate",
+    "dto": "ReaderOptions",
+    "payload": {
+      "hf-revision": null,
+      "revision": null
+    },
+    "accept": false,
+    "canonical": null
+  },
+  {
+    "name": "ReaderOptions alternate single revision alias",
+    "dto": "ReaderOptions",
+    "payload": {
+      "hf-revision": "alternate"
+    },
+    "accept": true,
+    "canonical": {
+      "hf_revision": "alternate"
+    }
+  },
+  {
+    "name": "VisionOptions alternate single revision alias",
+    "dto": "VisionOptions",
+    "payload": {
+      "revision": "alternate"
+    },
+    "accept": true,
+    "canonical": {
+      "hf_revision": "alternate"
+    }
+  },
+  {
+    "name": "DecoderOptions alternate single revision alias",
+    "dto": "DecoderOptions",
+    "payload": {
+      "hf-revision": "alternate"
+    },
+    "accept": true,
+    "canonical": {
+      "hf_revision": "alternate"
+    }
+  }
+]

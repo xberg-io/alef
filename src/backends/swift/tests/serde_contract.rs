@@ -81,23 +81,13 @@ fn should_leave_ordinary_struct_unknown_key_policy_permissive() {
 }
 
 #[test]
-fn should_reject_strict_alias_or_flatten_shapes_instead_of_claiming_incorrect_keys() {
-    for (attribute, field, diagnostic) in [
-        ("#[serde(alias = \"old_model\")]", "pub model: String", "alias"),
-        (
-            "#[serde(flatten)]",
-            "pub extra: std::collections::HashMap<String, String>",
-            "flatten",
-        ),
-    ] {
-        let source = format!(
-            "#[derive(Clone, serde::Serialize, serde::Deserialize)]\n#[serde(deny_unknown_fields)]\n\
-             pub struct Unsupported {{ {attribute} {field} }}"
-        );
-        let result = SwiftBackend.generate_bindings(&extracted_api(&source), &configuration());
-        let error = result.expect_err("unsupported strict wire contracts must fail generation");
-        assert!(error.to_string().contains(diagnostic), "{error}");
-    }
+fn should_reject_strict_flatten_shapes_instead_of_claiming_incorrect_keys() {
+    let source = "#[derive(Clone, serde::Serialize, serde::Deserialize)]\n\
+        #[serde(deny_unknown_fields)]\n\
+        pub struct Unsupported { #[serde(flatten)] pub extra: std::collections::HashMap<String, String> }";
+    let result = SwiftBackend.generate_bindings(&extracted_api(source), &configuration());
+    let error = result.expect_err("unsupported strict flatten contracts must fail generation");
+    assert!(error.to_string().contains("flatten"), "{error}");
 }
 
 fn swift_program() -> String {

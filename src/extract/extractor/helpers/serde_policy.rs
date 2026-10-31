@@ -87,6 +87,8 @@ mod tests {
         };
         let policy = extract_serde_deserialization_policy(&item);
         assert!(policy.deny_unknown_fields);
-        assert_eq!(policy.unsupported_field_attributes, ["alias", "skip_deserializing"]);
+        let metadata = serde_json::to_value(&policy).unwrap();
+        assert_eq!(metadata["field_aliases"]["value"], serde_json::json!(["old_value"]));
+        assert_eq!(policy.unsupported_field_attributes, ["skip_deserializing"]);
     }
 }
