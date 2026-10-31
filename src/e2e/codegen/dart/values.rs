@@ -2,6 +2,14 @@
 
 use crate::core::ir::TypeRef;
 
+pub(super) fn render_numeric_value(value: &serde_json::Number, declared: Option<&TypeRef>) -> String {
+    match declared {
+        Some(TypeRef::Optional(inner)) => render_numeric_value(value, Some(inner)),
+        Some(TypeRef::Primitive(crate::core::ir::PrimitiveType::U64)) => format!("BigInt.parse('{value}')"),
+        _ => value.to_string(),
+    }
+}
+
 pub(super) fn render_native_dart_dto(
     type_name: &str,
     value: &serde_json::Value,
@@ -75,7 +83,7 @@ fn render_native_dart_value(
         (serde_json::Value::Bool(value), TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)) => {
             Some(value.to_string())
         }
-        (serde_json::Value::Number(value), TypeRef::Primitive(_)) => Some(value.to_string()),
+        (serde_json::Value::Number(value), TypeRef::Primitive(_)) => Some(render_numeric_value(value, Some(ty))),
         _ => None,
     }
 }
