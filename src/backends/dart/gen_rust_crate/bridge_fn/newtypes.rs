@@ -147,8 +147,8 @@ fn rewrite(
         TypeRef::Map(key, value) => {
             let key = rewrite("key", key, &descend(paths, NewtypeContainer::MapKey), mode, None);
             let value = rewrite("value", value, &descend(paths, NewtypeContainer::MapValue), mode, None);
-            let key = if collection.is_some() && matches!(mode, Mode::Argument(param) if param.map_key_is_cow) {
-                format!("std::borrow::Cow::Owned({key})")
+            let key = if matches!(mode, Mode::Argument(_)) {
+                format!("({key}).into()")
             } else {
                 key
             };
