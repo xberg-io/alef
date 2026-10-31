@@ -33,6 +33,7 @@ pub(crate) fn emit_bridge_fn(
     errors: &[crate::core::ir::ErrorDef],
 ) -> anyhow::Result<()> {
     borrowed_error_inputs::validate(f, errors, types)?;
+    newtypes::validate(f)?;
     let opaque_ahash: ahash::AHashSet<String> = opaque_type_names.iter().cloned().collect();
     mut_writeback::reject_unsupported_writeback(&f.name, &f.params, &f.return_type, &opaque_ahash)?;
     let writeback_plan: Option<WritebackPlan> =
@@ -221,7 +222,7 @@ pub(crate) fn emit_bridge_fn(
         )
     } else {
         let ret_transform = if let Some(wrapper) = &f.return_newtype_wrapper {
-            RetTransform::Newtype(f.return_type.clone(), wrapper.clone())
+            RetTransform::Newtype(f.return_type.clone(), wrapper.clone(), f.returns_ref)
         } else {
             return_transform(
                 &f.return_type,
@@ -306,19 +307,7 @@ fn dart_call_arg_with_mirror_transmute(
     checked: bool,
 ) -> String {
     if p.newtype_wrapper.is_some() {
-        let mut primitive = p.clone();
-        primitive.newtype_wrapper = None;
-        primitive.is_ref = false;
-        primitive.is_mut = false;
-        let inner = dart_call_arg_with_mirror_transmute(
-            &primitive,
-            source_crate_name,
-            type_paths,
-            types_needing_from_conversion,
-            opaque_type_names,
-            checked,
-        );
-        return newtypes::argument(p, &inner);
+        return newtypes::argument(p, checked);
     }
     let name = &p.name;
     let original = p.original_type.as_deref().unwrap_or("");
@@ -674,7 +663,7 @@ fn build_named_in_transmute(
 /// Variants are chosen to keep generated Rust clean under clippy 1.95:
 /// no `(|v| ...)(expr)` shapes (`clippy::redundant_closure_call`) and no
 /// `.into_iter()` on `&[T]` (`clippy::into_iter_on_ref`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum RetTransform {
     /// No mirror transform needed; the raw call value is used as-is (with optional
     /// `result_cast` suffix appended for primitive/string casts).
@@ -689,7 +678,7 @@ pub(crate) enum RetTransform {
     /// around the call site.
     Suffix(String),
     /// Unwrap core newtypes before converting their primitive/container representation.
-    Newtype(TypeRef, String),
+    Newtype(TypeRef, String, bool),
 }
 
 /// Decide how to convert the core-fn return into the bridge return.
@@ -904,9 +893,9 @@ fn build_body(
         RetTransform::Map(callable) => (callable.clone(), call_callable(callable, &call)),
         RetTransform::Suffix(suffix) => (format!("|v| v{suffix}"), format!("{call}{suffix}")),
         RetTransform::None => (format!("|v| v{result_cast}"), format!("{call}{result_cast}")),
-        RetTransform::Newtype(ty, wrapper) => (
-            format!("|v| {}", newtypes::result("v", ty, wrapper)),
-            newtypes::result(&call, ty, wrapper),
+        RetTransform::Newtype(ty, wrapper, borrowed) => (
+            format!("|v| {}", newtypes::result("v", ty, wrapper, *borrowed)),
+            newtypes::result(&call, ty, wrapper, *borrowed),
         ),
     };
     crate::backends::dart::template_env::render(

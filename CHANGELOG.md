@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Dart Rust facades reconstruct newtype arguments and unwrap returned newtypes from extracted conversion metadata.
+  Preserve function container paths and borrowed inner values; reject mutable newtype references requiring writeback.
 
 - Extract the unsigned Dart native fixture from its actual crate root so generated paths match the compiled core.
 

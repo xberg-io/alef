@@ -121,6 +121,10 @@ fn convert_wrapper(expr: &str, metadata: &NewtypeWrapperMetadata, direction: Dir
     }
 }
 
+pub(super) fn to_core_value(expr: &str, ty: &TypeRef) -> String {
+    fallback(expr, ty, Direction::ToCore)
+}
+
 pub(super) fn from_core_value(expr: &str, ty: &TypeRef) -> String {
     fallback(expr, ty, Direction::FromCore)
 }
