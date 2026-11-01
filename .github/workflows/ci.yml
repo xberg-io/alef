@@ -205,6 +205,27 @@ jobs:
         run: gem install steep --version 2.1.0 --no-document
       - name: Install generated Ruby runtime dependency
         run: gem install sorbet-runtime --version 0.6.13506 --no-document
+      - name: Verify selected Ruby runtime and gems
+        shell: bash
+        env:
+          ALEF_TEST_RUBY_EXECUTABLE: >-
+            ${{ steps.windows_ruby.outputs.ruby-prefix
+                && format('{0}/bin/ruby.exe', steps.windows_ruby.outputs.ruby-prefix) || '' }}
+        run: |
+          mise exec -- python - <<'PY'
+          import os
+          import subprocess
+          import sys
+
+          ruby = os.environ.get("ALEF_TEST_RUBY_EXECUTABLE") or "ruby"
+          gems = ["sorbet-runtime"] + (["steep"] if sys.platform != "win32" else [])
+          script = (
+              'require "json"; ARGV.each { |name| require name }; '
+              'puts JSON.generate(ruby: RbConfig.ruby, version: RUBY_VERSION, '
+              'gems: ARGV.to_h { |name| [name, Gem.loaded_specs.fetch(name).full_gem_path] })'
+          )
+          subprocess.run([ruby, "-e", script, *gems], check=True)
+          PY
       - name: Cache uv downloads
         uses: actions/cache@v6
         with:
