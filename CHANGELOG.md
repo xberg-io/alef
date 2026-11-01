@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep documentation catalogs within the requested reference languages and generation scope,
+  so their links point only to emitted pages. (#785)
+
 ## [0.115.14] - 2026-11-01
 
 ### Fixed
