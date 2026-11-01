@@ -2,7 +2,7 @@ use std::process::Command;
 
 use crate::snippets::validators::run_command_streams;
 
-pub(crate) fn assert_resource_edges(script: &str) {
+fn dependency_rule(script: &str) -> &str {
     let blocks: Vec<_> = script
         .match_indices("tasks.matching {")
         .filter_map(|(start, _)| {
@@ -14,6 +14,11 @@ pub(crate) fn assert_resource_edges(script: &str) {
         })
         .collect();
     assert_eq!(blocks.len(), 1, "exactly one actual emitted resource dependency rule");
+    blocks[0]
+}
+
+pub(crate) fn assert_resource_edges(script: &str) {
+    let rule = dependency_rule(script);
     let root = tempfile::tempdir().expect("isolated real Gradle project");
     let fixture = format!(
         r#"val consumers = listOf("processDebugUnitTestJavaRes", "processReleaseUnitTestJavaRes",
@@ -41,7 +46,7 @@ tasks.register("verifyGeneratedResourceEdges") {{
     }}
 }}
 "#,
-        blocks[0]
+        rule
     );
     std::fs::write(root.path().join("build.gradle.kts"), fixture).unwrap();
     std::fs::write(
