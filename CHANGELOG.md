@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Link OpenDirectory only on macOS in Swift static-library packages, and repair recognized
+  existing RustBridge linker settings without overwriting consumer customizations.
+
 ## [0.115.12] - 2026-11-01
 
 ### Fixed

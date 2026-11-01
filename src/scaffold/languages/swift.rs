@@ -1,3 +1,6 @@
+mod static_frameworks;
+pub(crate) use static_frameworks::migrate_swift_static_frameworks;
+
 use crate::backends::swift::gen_bindings::bridge_artifacts::umbrella_header;
 use crate::backends::swift::naming::swift_source_ident;
 use crate::codegen::shared::binding_fields;
@@ -204,6 +207,7 @@ let package = Package(
         .linkedFramework("Security", .when(platforms: [.macOS, .iOS])),
         .linkedFramework("CoreFoundation", .when(platforms: [.macOS, .iOS])),
         .linkedFramework("SystemConfiguration", .when(platforms: [.macOS])),
+        .linkedFramework("OpenDirectory", .when(platforms: [.macOS])),
       ]
     ),
     .target(
@@ -384,6 +388,7 @@ let package = Package(
         .linkedFramework("Security", .when(platforms: [.macOS, .iOS])),
         .linkedFramework("CoreFoundation", .when(platforms: [.macOS, .iOS])),
         .linkedFramework("SystemConfiguration", .when(platforms: [.macOS])),
+        .linkedFramework("OpenDirectory", .when(platforms: [.macOS])),
       ]
     ),
     .target(

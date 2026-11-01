@@ -230,3 +230,41 @@ fn canonical_writer_rejects_escape_without_modifying_outside_file() {
     assert!(alef::cli::pipeline::write_scaffold_files_report(&[file], &root, false).is_err());
     assert_eq!(std::fs::read_to_string(outside).expect("outside artifact"), original);
 }
+
+#[test]
+fn commented_framework_does_not_satisfy_bridge_link() {
+    let legacy = without_directory(&manifest("packages/swift/Package.swift").content);
+    let custom = add_after_anchor(&legacy, &format!("// {DIRECTORY}"));
+    assert_framework_and_preservation(&run_writer("packages/swift/Package.swift", &custom), &custom);
+}
+
+#[test]
+fn unsafe_flags_string_does_not_satisfy_bridge_link() {
+    let legacy = without_directory(&manifest("packages/swift/Package.swift").content);
+    let custom = add_after_anchor(&legacy, r#".unsafeFlags([".linkedFramework(\"OpenDirectory\")"]),"#);
+    assert_framework_and_preservation(&run_writer("packages/swift/Package.swift", &custom), &custom);
+}
+
+#[test]
+fn commented_system_anchor_is_not_a_framework_call() {
+    let legacy = without_directory(&manifest("packages/swift/Package.swift").content);
+    let custom = legacy.replace(SYSTEM, &format!("// {SYSTEM}"));
+    assert_eq!(run_writer("packages/swift/Package.swift", &custom), custom);
+}
+
+#[test]
+fn commented_target_does_not_make_real_bridge_ambiguous() {
+    let legacy = without_directory(&manifest("packages/swift/Package.swift").content);
+    let custom = format!("/* .target(name: \"RustBridge\", path: \"fake\"), */\n{legacy}");
+    let after = run_writer("packages/swift/Package.swift", &custom);
+    assert_eq!(after.matches(DIRECTORY).count(), 1);
+    assert_eq!(without_directory(&after), custom);
+}
+
+#[test]
+fn inline_closed_linker_list_is_not_patched_outside_the_list() {
+    let legacy = without_directory(&manifest("packages/swift/Package.swift").content);
+    let custom = legacy.replace(&format!("{SYSTEM}\n      ]"), &format!("{SYSTEM} ]"));
+    assert_ne!(custom, legacy);
+    assert_eq!(run_writer("packages/swift/Package.swift", &custom), custom);
+}
