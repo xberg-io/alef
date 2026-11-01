@@ -29,6 +29,46 @@ pub(in crate::e2e::codegen::rust) fn is_skipped(fixture: &Fixture, language: &st
     fixture.skip.as_ref().is_some_and(|s| s.should_skip(language))
 }
 
+pub(super) fn client_trait_imports(
+    fixtures: &[&Fixture],
+    e2e_config: &E2eConfig,
+) -> std::collections::BTreeSet<String> {
+    let mut imports = std::collections::BTreeSet::new();
+    for fixture in fixtures {
+        if fixture.http.is_some() {
+            continue;
+        }
+        let call = e2e_config.resolve_call_for_fixture(
+            fixture.call.as_deref(),
+            &fixture.id,
+            &fixture.resolved_category(),
+            &fixture.tags,
+            &fixture.input,
+        );
+        if fixture.mock_response.is_none() && resolve_function_name_for_call(call).is_empty()
+            || crate::e2e::codegen::client_factory::is_free_function_call(e2e_config, call, "rust")
+        {
+            continue;
+        }
+        let traits = call
+            .overrides
+            .get("rust")
+            .map(|overrides| &overrides.trait_imports)
+            .filter(|traits| !traits.is_empty())
+            .or_else(|| {
+                e2e_config
+                    .call
+                    .overrides
+                    .get("rust")
+                    .map(|overrides| &overrides.trait_imports)
+            });
+        if let Some(traits) = traits {
+            imports.extend(traits.iter().cloned());
+        }
+    }
+    imports
+}
+
 /// Returns true when the rendered test body contains a word-boundary reference to `symbol`.
 /// Used to decide whether a `use ...::Symbol;` import is needed; emitting it unconditionally
 /// trips `-D unused_imports` for fixtures whose bodies never reference the symbol.
