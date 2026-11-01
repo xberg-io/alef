@@ -9,12 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Link OpenDirectory only on macOS in Swift static-library packages, and repair recognized
+  existing RustBridge linker settings without overwriting consumer customizations.
+
+## [0.115.13] - 2026-11-01
+
+### Fixed
+
 - Preserve populated Swift bridge files during source-only generation, while still materializing
   complete output and rejecting partial output, including projects without Cargo.lock. (#776)
 - Register Ruby leaf exception classes without unused Rust bindings, preserving constructors,
   inheritance and shared-family rescue behavior. (#778)
-- Link OpenDirectory only on macOS in Swift static-library packages, and repair recognized
-  existing RustBridge linker settings without overwriting consumer customizations.
+- Pass Zig `bool` parameters to the C ABI's `int32_t` through `@intFromBool`, with the `-1`
+  sentinel for an absent optional bool, in free functions and opaque-handle methods.
+- Type R options-bridge function primitive parameters as their extendr scalar and pass them by
+  value, casting remapped integers back to the core type, instead of `Robj` passed by reference.
+- Make AGP 9's `compress*UnitTestJavaRes` tasks depend on `copyHostJni` alongside
+  `process*UnitTestJavaRes` in generated Kotlin Android package and e2e Gradle builds.
 
 ## [0.115.12] - 2026-11-01
 

@@ -28,7 +28,7 @@ const POLY_ACTION_MAJOR_TAG: &str = "v0";
 
 /// The `version:` value the action's `with:` block, and the "Verify downstream tooling"
 /// step's own runtime check, must both agree on.
-const PINNED_POLY_VERSION: &str = "v0.31.2";
+const PINNED_POLY_VERSION: &str = "v0.32.1";
 
 /// Whether `block` has an actual `uses:` step line installing `Goldziher/poly` at its major tag.
 ///

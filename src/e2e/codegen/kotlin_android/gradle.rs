@@ -272,8 +272,10 @@ tasks.withType<Test> {{
     }}
 }}
 
-tasks.matching {{ it.name.startsWith("processDebug") || it.name.startsWith("processRelease") }}.configureEach {{
-    if (project.properties["alef.skipHostJni"] != "true" && name.contains("UnitTestJavaRes")) {{
+// `process*UnitTestJavaRes` and AGP 9's `compress*UnitTestJavaRes` both read the
+// `copyHostJni` output; Gradle 9 fails the build unless each declares the dependency.
+tasks.matching {{ it.name.endsWith("UnitTestJavaRes") && (it.name.startsWith("process") || it.name.startsWith("compress")) }}.configureEach {{
+    if (project.properties["alef.skipHostJni"] != "true") {{
         dependsOn("copyHostJni")
     }}
 }}"#,
@@ -377,8 +379,10 @@ tasks.withType<Test> {{
     }}
 }}
 
-tasks.matching {{ it.name.startsWith("processDebug") || it.name.startsWith("processRelease") }}.configureEach {{
-    if (project.properties["alef.skipHostJni"] != "true" && name.contains("UnitTestJavaRes")) {{
+// `process*UnitTestJavaRes` and AGP 9's `compress*UnitTestJavaRes` both read the
+// `copyHostJni` output; Gradle 9 fails the build unless each declares the dependency.
+tasks.matching {{ it.name.endsWith("UnitTestJavaRes") && (it.name.startsWith("process") || it.name.startsWith("compress")) }}.configureEach {{
+    if (project.properties["alef.skipHostJni"] != "true") {{
         dependsOn("copyHostJni")
     }}
 }}"#,

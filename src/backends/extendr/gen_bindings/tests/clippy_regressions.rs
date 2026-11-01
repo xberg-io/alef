@@ -120,3 +120,58 @@ fn options_field_bridge_maps_decode_errors_with_the_variant_constructor() {
         "{output}"
     );
 }
+
+/// A primitive parameter beside the bridged options must take its extendr scalar type and pass
+/// by value; typing it `Robj` and passing `&name` cannot satisfy a core `bool`/integer param. ~keep
+#[test]
+fn options_field_bridge_passes_primitive_params_by_value_with_their_extendr_type() {
+    use crate::codegen::generators::trait_bridge::BridgeFieldMatch;
+    use crate::core::config::TraitBridgeConfig;
+    let mut api = make_api_surface();
+    api.functions[0].params = vec![
+        ParamDef {
+            name: "html".to_string(),
+            ty: TypeRef::String,
+            ..ParamDef::default()
+        },
+        ParamDef {
+            name: "use_accessible_names".to_string(),
+            ty: TypeRef::Primitive(PrimitiveType::Bool),
+            ..ParamDef::default()
+        },
+        ParamDef {
+            name: "max_depth".to_string(),
+            ty: TypeRef::Primitive(PrimitiveType::U32),
+            ..ParamDef::default()
+        },
+        ParamDef {
+            name: "options".to_string(),
+            ty: TypeRef::Named("Config".to_string()),
+            optional: true,
+            ..ParamDef::default()
+        },
+    ];
+    let field = make_field("visitor", TypeRef::Named("VisitorHandle".to_string()), true);
+    let bridge = TraitBridgeConfig {
+        trait_name: "Visitor".to_string(),
+        ..Default::default()
+    };
+    let bridge_match = BridgeFieldMatch {
+        param_index: 3,
+        param_name: "options".to_string(),
+        options_type: "Config".to_string(),
+        param_is_optional: true,
+        field_name: "visitor".to_string(),
+        field: &field,
+        bridge: &bridge,
+    };
+    let output = bridges::gen_extendr_bridge_field_function(&api, &api.functions[0], &bridge_match, "test_lib");
+    assert!(
+        output.contains("(html: String, use_accessible_names: bool, max_depth: i32, options: Robj)"),
+        "{output}"
+    );
+    assert!(
+        output.contains("test_lib::process(&html, use_accessible_names, max_depth as u32, Some(opts))"),
+        "{output}"
+    );
+}

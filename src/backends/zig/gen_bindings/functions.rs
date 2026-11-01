@@ -604,6 +604,21 @@ pub(super) fn optional_int_sentinel(prim: &PrimitiveType) -> Option<&'static str
     }
 }
 
+/// The C argument for a `bool` or optional `bool` parameter, or `None` for any other type.
+///
+/// The C ABI carries `bool` as `int32_t` and Zig does not coerce `bool` to an integer, so a
+/// bool crosses as `@intFromBool`. An optional bool uses the FFI's `-1 = None` sentinel.
+pub(super) fn bool_c_arg(p: &ParamDef) -> Option<String> {
+    let is_bool = |ty: &TypeRef| matches!(ty, TypeRef::Primitive(PrimitiveType::Bool));
+    match &p.ty {
+        TypeRef::Optional(inner) if is_bool(inner) => {}
+        ty if is_bool(ty) && p.optional => {}
+        ty if is_bool(ty) => return Some(format!("@intFromBool({})", p.name)),
+        _ => return None,
+    }
+    Some(format!("if ({}) |v| @as(i32, @intFromBool(v)) else -1", p.name))
+}
+
 /// Emit the deallocation lines for allocations made in `emit_param_conversion`.
 ///
 /// These are emitted after the C call (and after the error check) so the
@@ -667,6 +682,9 @@ fn c_arg_names(
         );
     if is_optional_string && matches!(unwrap_optional(&p.ty), TypeRef::String | TypeRef::Path) {
         return vec![format!("if ({0}_z) |z| z.ptr else null", p.name)];
+    }
+    if let Some(arg) = bool_c_arg(p) {
+        return vec![arg];
     }
     {
         let prim_opt = match &p.ty {
