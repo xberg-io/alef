@@ -14,6 +14,7 @@ mod version_python;
 mod version_regen;
 mod version_registry;
 mod version_swift;
+mod version_swift_prebuilt;
 mod version_text;
 mod version_workspace;
 mod workspace_lints;
@@ -58,6 +59,7 @@ pub(crate) use lock_freshness::{
 };
 pub use toolchains::{enforce_required_toolchains, enforce_required_toolchains_for_all};
 pub use version::sync_versions;
+pub(crate) use version::{prepare_version_sync, sync_versions_prepared};
 pub use version_core::{set_version, verify_versions};
 pub(crate) use version_lockfiles::check_release_lock_freshness;
 pub(crate) use version_registry::sync_registry_package_versions;

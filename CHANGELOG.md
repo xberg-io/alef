@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Render empty WASM wire enums as `never`, preserving non-empty aliases. (#786)
 - Avoid unused Rust streaming result bindings while preserving stream drainage, documentation
   presentation and literal argument bytes. (#788)
+- Validate prebuilt Swift bundle receipts and ZIP integrity before syncing versions, rejecting
+  stale or mismatched artifacts before source changes. (#787)
 
 ## [0.115.14] - 2026-11-01
 
