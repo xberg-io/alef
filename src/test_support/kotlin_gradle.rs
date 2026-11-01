@@ -17,6 +17,13 @@ fn dependency_rule(script: &str) -> &str {
     blocks[0]
 }
 
+fn report_gradle_probe(skip_host_jni: bool, stdout: &str, stderr: &str) {
+    let subscriber = tracing_subscriber::fmt().with_ansi(false).with_test_writer().finish();
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::info!(skip_host_jni, stdout = %stdout, stderr = %stderr, "actual Gradle resource dependency probe");
+    });
+}
+
 pub(crate) fn assert_resource_edges(script: &str) {
     let rule = dependency_rule(script);
     let root = tempfile::tempdir().expect("isolated real Gradle project");
@@ -76,12 +83,14 @@ tasks.register("verifyGeneratedResourceEdges") {{
             command.arg("-Palef.skipHostJni=true");
         }
         let output = run_command_streams(&mut command, 300).expect("bounded actual Gradle invocation");
-        eprintln!("skipHostJni={skip}\n{}\n{}", output.stdout, output.stderr);
+        report_gradle_probe(skip, &output.stdout, &output.stderr);
         if !output.success {
             let retained = root.keep();
             panic!(
-                "actual generated dependency graph failed; retained {}",
-                retained.display()
+                "actual generated dependency graph failed; retained {}\nstdout:\n{}\nstderr:\n{}",
+                retained.display(),
+                output.stdout,
+                output.stderr
             );
         }
         assert!(
