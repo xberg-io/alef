@@ -199,7 +199,8 @@ fn insertion(source: &str, relative: &Path) -> Option<(usize, String)> {
     if line_end > next {
         return None;
     }
-    Some((line_end, format!("{indent}{DIRECTORY}\n")))
+    // A trailing block comment can cross newlines; the proven whitespace-only prefix is outside it. ~keep
+    Some((line_start, format!("{indent}{DIRECTORY}\n")))
 }
 
 pub(crate) fn migrate_swift_static_frameworks(base_dir: &Path, relative: &Path) -> anyhow::Result<bool> {
