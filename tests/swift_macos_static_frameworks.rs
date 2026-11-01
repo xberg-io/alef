@@ -268,3 +268,34 @@ fn inline_closed_linker_list_is_not_patched_outside_the_list() {
     assert_ne!(custom, legacy);
     assert_eq!(run_writer("packages/swift/Package.swift", &custom), custom);
 }
+
+#[test]
+fn trailing_multiline_comment_keeps_framework_executable_and_migration_idempotent() {
+    let relative = "packages/swift/Package.swift";
+    let file = manifest(relative);
+    let legacy = without_directory(&file.content);
+    let custom = legacy.replace(SYSTEM, &format!("{SYSTEM} /* consumer comment\ncontinued\n*/"));
+    assert_ne!(custom, legacy);
+    let root = tempfile::tempdir().expect("private fixture");
+    let path = root.path().join(relative);
+    std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+    std::fs::write(&path, &custom).expect("existing manifest with trailing block comment");
+    alef::cli::pipeline::write_scaffold_files_report(std::slice::from_ref(&file), root.path(), false)
+        .expect("first canonical migration");
+    let first = std::fs::read_to_string(&path).expect("first artifact");
+    alef::cli::pipeline::write_scaffold_files_report(&[file], root.path(), false).expect("second canonical migration");
+    let second = std::fs::read_to_string(&path).expect("second artifact");
+    assert_eq!(
+        second, first,
+        "framework migration must not add a commented-out call on each run"
+    );
+    assert_eq!(first.matches(DIRECTORY).count(), 1);
+    let call = first.find(DIRECTORY).expect("framework call");
+    let comment = first.find("/* consumer comment").expect("preserved comment");
+    let end = comment + first[comment..].find("*/").expect("comment end") + 2;
+    assert!(
+        call < comment || call >= end,
+        "framework call must be outside the block comment"
+    );
+    assert_eq!(without_directory(&first), custom, "consumer bytes must be preserved");
+}
