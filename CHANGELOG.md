@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.115.13] - 2026-11-01
+
 ### Fixed
 
 - Inspect native Swift linker-map archive entries without requiring all symbol bytes to be UTF-8. (#779)
