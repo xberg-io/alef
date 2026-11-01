@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inheritance and shared-family rescue behavior. (#778)
 - Pass Zig `bool` parameters to the C ABI's `int32_t` through `@intFromBool`, with the `-1`
   sentinel for an absent optional bool, in free functions and opaque-handle methods.
+- Type R options-bridge function primitive parameters as their extendr scalar and pass them by
+  value, casting remapped integers back to the core type, instead of `Robj` passed by reference.
 
 ## [0.115.12] - 2026-11-01
 
