@@ -337,41 +337,122 @@ fn unfiltered_arguments(arguments: &str) -> bool {
         .all(|argument| matches!(argument, "--no-fail-fast" | "--locked" | "--offline"))
 }
 
-fn test_job_installs_python(workflow: &str) -> bool {
-    let Ok(workflow) = serde_saphyr::from_str::<serde_json::Value>(workflow) else {
+const PYTHON_SETUP_STEP: &str = "Install Python, uv and Bats";
+const MISE_SETUP_ACTION: &str = "xberg-io/actions/setup-mise@v1";
+
+fn python_tool_branches(arguments: &str) -> Option<[&str; 2]> {
+    let expression = regex::Regex::new(
+        r"(?s)^\s*\$\{\{\s*runner\.os\s*==\s*'Windows'\s*&&\s*'([^']*)'\s*\|\|\s*'([^']*)'\s*\}\}\s*$",
+    )
+    .expect("valid platform tool-list expression");
+    let branches = expression.captures(arguments)?;
+    Some([branches.get(1)?.as_str(), branches.get(2)?.as_str()])
+}
+
+fn installs_python_on_both_platforms(step: &serde_json::Value) -> bool {
+    if step["name"] != PYTHON_SETUP_STEP || step["uses"] != MISE_SETUP_ACTION {
         return false;
-    };
-    workflow["jobs"][TEST_JOB]["steps"].as_array().is_some_and(|steps| {
-        steps.iter().any(|step| {
-            step["uses"] == "xberg-io/actions/setup-mise@v1"
-                && step["with"]["install-args"]
-                    == "${{ runner.os == 'Windows' && 'python uv node' || 'python uv bats node' }}"
-        }) && ["java", "go", "ruby", "github:wasm-bindgen/wasm-bindgen"]
-            .iter()
-            .all(|tool| {
-                steps
-                    .iter()
-                    .any(|step| step["uses"] == "xberg-io/actions/setup-mise@v1" && step["with"]["tools"] == *tool)
-            })
+    }
+    step["with"]["install-args"].as_str().is_some_and(|arguments| {
+        python_tool_branches(arguments).is_some_and(|branches| {
+            branches
+                .into_iter()
+                .all(|branch| !branch.contains('#') && branch.split_whitespace().any(|tool| tool == "python"))
+        })
     })
+}
+
+fn parsed_test_job_installs_python(workflow: &serde_json::Value) -> bool {
+    workflow["jobs"][TEST_JOB]["steps"].as_array().is_some_and(|steps| {
+        steps.iter().any(installs_python_on_both_platforms)
+            && ["java", "go", "ruby", "github:wasm-bindgen/wasm-bindgen"]
+                .iter()
+                .all(|tool| {
+                    steps
+                        .iter()
+                        .any(|step| step["uses"] == MISE_SETUP_ACTION && step["with"]["tools"] == *tool)
+                })
+    })
+}
+
+fn python_setup_step_mut(workflow: &mut serde_json::Value) -> &mut serde_json::Value {
+    workflow["jobs"][TEST_JOB]["steps"]
+        .as_array_mut()
+        .expect("actual test steps")
+        .iter_mut()
+        .find(|step| step["name"] == PYTHON_SETUP_STEP)
+        .expect("actual named Python setup step")
+}
+
+fn with_python_tool_branches(workflow: &serde_json::Value, branches: [&str; 2]) -> serde_json::Value {
+    let mut changed = workflow.clone();
+    python_setup_step_mut(&mut changed)["with"]["install-args"] = format!(
+        "${{{{ runner.os == 'Windows'\n    && '{}'\n    || '{}' }}}}",
+        branches[0], branches[1]
+    )
+    .into();
+    assert_ne!(*workflow, changed, "tool-list mutation changed nothing");
+    changed
+}
+
+fn assert_python_branch_controls(workflow: &serde_json::Value) {
+    let mut original = workflow.clone();
+    let arguments = python_setup_step_mut(&mut original)["with"]["install-args"]
+        .as_str()
+        .expect("actual install arguments");
+    let branches = python_tool_branches(arguments).expect("two actual platform branches");
+    for index in 0..branches.len() {
+        let without_python = branches[index]
+            .split_whitespace()
+            .filter(|tool| *tool != "python")
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert_ne!(branches[index], without_python, "branch contained no Python token");
+        for replacement in [without_python.as_str(), "", "# python"] {
+            let mut changed_branches = branches;
+            changed_branches[index] = replacement;
+            let mutant = with_python_tool_branches(workflow, changed_branches);
+            assert!(
+                !parsed_test_job_installs_python(&mutant),
+                "accepted invalid Python tool list in branch {index}: {replacement:?}"
+            );
+        }
+    }
+    let mut compact = workflow.clone();
+    python_setup_step_mut(&mut compact)["with"]["install-args"] = format!(
+        "${{{{ runner.os == 'Windows' && '{}' || '{}' }}}}",
+        branches[0], branches[1]
+    )
+    .into();
+    assert!(parsed_test_job_installs_python(&compact), "compact expression rejected");
+    let extra_tools = [format!("{} jq", branches[0]), format!("{} jq", branches[1])];
+    let positive = with_python_tool_branches(workflow, [&extra_tools[0], &extra_tools[1]]);
+    assert!(
+        parsed_test_job_installs_python(&positive),
+        "extra tools or folded whitespace rejected"
+    );
 }
 
 #[test]
 fn ci_test_job_installs_the_pinned_python_runner_on_every_platform() {
-    let workflow = std::fs::read_to_string(repo_root().join(CI_WORKFLOW)).expect("read workflow");
-    assert!(test_job_installs_python(&workflow));
-    for tools in ["'python uv node'", "'python uv bats node'"] {
-        let mutant = workflow.replace(tools, &tools.replacen("python ", "", 1));
-        assert_ne!(workflow, mutant, "Python removal changed nothing");
+    let source = std::fs::read_to_string(repo_root().join(CI_WORKFLOW)).expect("read workflow");
+    let workflow: serde_json::Value = serde_saphyr::from_str(&source).expect("parse actual workflow YAML");
+    assert!(parsed_test_job_installs_python(&workflow));
+    assert_python_branch_controls(&workflow);
+    for field in ["name", "uses"] {
+        let mut mutant = workflow.clone();
+        python_setup_step_mut(&mut mutant)[field] = "wrong-step".into();
+        assert_ne!(workflow, mutant);
         assert!(
-            !test_job_installs_python(&mutant),
-            "Python must be installed on every leg"
+            !parsed_test_job_installs_python(&mutant),
+            "lost setup step {field} requirement"
         );
     }
     for tool in ["java", "go", "ruby", "github:wasm-bindgen/wasm-bindgen"] {
-        let mutant = workflow.replace(&format!("tools: {tool}\n"), "tools: missing-tool\n");
-        assert_ne!(workflow, mutant, "required tool removal changed nothing");
-        assert!(!test_job_installs_python(&mutant), "lost required tool {tool}");
+        let mutant = source.replace(&format!("tools: {tool}\n"), "tools: missing-tool\n");
+        assert_ne!(source, mutant, "required tool removal changed nothing");
+        let mutant = serde_saphyr::from_str(&mutant).expect("parse required-tool mutant");
+        assert!(!parsed_test_job_installs_python(&mutant), "lost required tool {tool}");
     }
 }
 
