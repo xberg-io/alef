@@ -1,6 +1,6 @@
 use std::process::Command;
 
-use crate::snippets::validators::process::run_command_streams;
+use crate::snippets::validators::run_command_streams;
 
 pub(crate) fn assert_resource_edges(script: &str) {
     let blocks: Vec<_> = script
