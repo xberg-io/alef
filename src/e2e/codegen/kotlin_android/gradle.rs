@@ -272,7 +272,10 @@ tasks.withType<Test> {{
     }}
 }}
 
-tasks.matching {{ it.name.startsWith("processDebug") || it.name.startsWith("processRelease") }}.configureEach {{
+tasks.matching {{
+    it.name.startsWith("processDebug") || it.name.startsWith("processRelease") ||
+        (it.name.startsWith("compress") && it.name.endsWith("UnitTestJavaRes"))
+}}.configureEach {{
     if (project.properties["alef.skipHostJni"] != "true" && name.contains("UnitTestJavaRes")) {{
         dependsOn("copyHostJni")
     }}
@@ -377,7 +380,10 @@ tasks.withType<Test> {{
     }}
 }}
 
-tasks.matching {{ it.name.startsWith("processDebug") || it.name.startsWith("processRelease") }}.configureEach {{
+tasks.matching {{
+    it.name.startsWith("processDebug") || it.name.startsWith("processRelease") ||
+        (it.name.startsWith("compress") && it.name.endsWith("UnitTestJavaRes"))
+}}.configureEach {{
     if (project.properties["alef.skipHostJni"] != "true" && name.contains("UnitTestJavaRes")) {{
         dependsOn("copyHostJni")
     }}

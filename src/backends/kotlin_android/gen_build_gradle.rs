@@ -310,7 +310,10 @@ tasks.withType<Test> {{
 // `src/test/resources` tree into the unit-test runtime classpath. They consume
 // the dylib emitted by `copyHostJni`, so AGP 8.10+ requires an explicit
 // dependency declaration to satisfy Gradle's task-output validation.
-tasks.matching {{ it.name.startsWith("processDebug") || it.name.startsWith("processRelease") }}.configureEach {{
+tasks.matching {{
+    it.name.startsWith("processDebug") || it.name.startsWith("processRelease") ||
+        (it.name.startsWith("compress") && it.name.endsWith("UnitTestJavaRes"))
+}}.configureEach {{
     if (project.providers.gradleProperty("alef.skipHostJni").orNull != "true" && name.contains("UnitTestJavaRes")) {{
         dependsOn("copyHostJni")
     }}

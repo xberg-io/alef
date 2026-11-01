@@ -7,7 +7,8 @@ pub(crate) fn assert_resource_edges(script: &str) {
         .match_indices("tasks.matching {")
         .filter_map(|(start, _)| {
             let rest = &script[start..];
-            let end = rest.find("\n}")? + 2;
+            let configure = rest.find("}.configureEach {")? + "}.configureEach {".len();
+            let end = configure + rest[configure..].find("\n}")? + 2;
             let block = &rest[..end];
             (block.contains("UnitTestJavaRes") && block.contains("dependsOn(\"copyHostJni\")")).then_some(block)
         })
@@ -16,8 +17,8 @@ pub(crate) fn assert_resource_edges(script: &str) {
     let root = tempfile::tempdir().expect("isolated real Gradle project");
     let fixture = format!(
         r#"val consumers = listOf("processDebugUnitTestJavaRes", "processReleaseUnitTestJavaRes",
-    "compressDebugUnitTestJavaRes", "compressReleaseUnitTestJavaRes")
-val unrelated = listOf("compressDebugJavaRes", "compileDebugUnitTestKotlin")
+    "compressDebugUnitTestJavaRes", "compressReleaseUnitTestJavaRes", "processDebugUnitTestJavaResCustom")
+val unrelated = listOf("compressDebugJavaRes", "compileDebugUnitTestKotlin", "processDebugResources")
 tasks.register("copyHostJni")
 (consumers + unrelated).forEach {{ tasks.register(it) }}
 
@@ -33,10 +34,10 @@ tasks.register("verifyGeneratedResourceEdges") {{
         }}
         println("ALEF_RESOURCE_EDGE_ROWS=" + rows.size)
         rows.forEach {{ (name, actual, expected) -> println("EDGE:$name:$actual:$expected") }}
-        check(rows.size == 6)
+        check(rows.size == 8)
         val mismatches = rows.filter {{ it.second != it.third }}
         check(mismatches.isEmpty()) {{ "GENERATED_JNI_DEPENDENCY_MISMATCH: $mismatches" }}
-        println("ALEF_RESOURCE_EDGES_QUALIFIED=6")
+        println("ALEF_RESOURCE_EDGES_QUALIFIED=8")
     }}
 }}
 "#,
@@ -79,9 +80,9 @@ tasks.register("verifyGeneratedResourceEdges") {{
             );
         }
         assert!(
-            output.stdout.contains("ALEF_RESOURCE_EDGE_ROWS=6"),
-            "all six actual tasks must be inspected"
+            output.stdout.contains("ALEF_RESOURCE_EDGE_ROWS=8"),
+            "all eight actual tasks must be inspected"
         );
-        assert!(output.stdout.contains("ALEF_RESOURCE_EDGES_QUALIFIED=6"));
+        assert!(output.stdout.contains("ALEF_RESOURCE_EDGES_QUALIFIED=8"));
     }
 }

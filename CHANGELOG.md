@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Wire host JNI copy dependencies into Android unit-test resource compression as well as
+  processing tasks, preserving disabled-host-JNI behavior in package and E2E Gradle projects.
+
 ## [0.115.12] - 2026-11-01
 
 ### Fixed
