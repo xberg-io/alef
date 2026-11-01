@@ -516,7 +516,8 @@ pub fn field_conversion_from_core_cfg(
     }
 
     if config.map_uses_jsvalue {
-        let is_nested_vec = matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Vec(_)));
+        // A `Vec<Map<..>>` is declared as `JsValue` like a nested `Vec`, so it cannot be iterated.
+        let is_nested_vec = matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Primitive(PrimitiveType::Bool)));
         let is_map = matches!(ty, TypeRef::Map(_, _));
         if is_map {
             if optional {
@@ -535,7 +536,7 @@ pub fn field_conversion_from_core_cfg(
             return format!("{name}: serde_wasm_bindgen::to_value(&val.{name}).unwrap_or(JsValue::NULL)");
         }
         if let TypeRef::Optional(inner) = ty {
-            let is_inner_nested = matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Vec(_)));
+            let is_inner_nested = matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Primitive(PrimitiveType::Bool)));
             let is_inner_map = matches!(inner.as_ref(), TypeRef::Map(_, _));
             if is_inner_map {
                 return format!(
@@ -861,6 +862,17 @@ pub fn field_conversion_from_core_cfg(
                 format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k.into(), v)).collect())")
             } else {
                 format!("{name}: val.{name}.into_iter().map(|(k, v)| (k.into(), v)).collect()")
+            }
+        }
+        TypeRef::Vec(inner)
+            if config.json_as_value
+                && matches!(inner.as_ref(), TypeRef::Map(k, v) if matches!(k.as_ref(), TypeRef::String) && matches!(v.as_ref(), TypeRef::Json)) =>
+        {
+            let converted = "items.into_iter().map(|m| m.into_iter().collect()).collect()";
+            if optional {
+                format!("{name}: val.{name}.map(|items| {converted})")
+            } else {
+                format!("{name}: {}", converted.replacen("items", &format!("val.{name}"), 1))
             }
         }
         TypeRef::Json if config.map_uses_jsvalue => {

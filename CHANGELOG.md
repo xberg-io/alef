@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- napi: with `json_as_value`, convert a `Vec<Map<String, Json>>` field by changing only the map
+  container (the binding keeps `serde_json::Value`), instead of stringifying values and reparsing
+  them, which did not type-check. (#798)
+- wasm: convert a `Vec<Map<..>>` field through `serde_wasm_bindgen` like the other `JsValue`
+  containers instead of iterating the `JsValue`, and declare `Vec<bool>` as `JsValue` because
+  wasm-bindgen has no vector ABI for `bool`. (#791)
+
 ## [0.115.14] - 2026-11-01
 
 ### Fixed

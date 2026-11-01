@@ -48,9 +48,10 @@ impl TypeMapper for WasmMapper {
         "JsValue".to_string()
     }
 
-    /// WASM can't handle nested Vec or optional elements — use JsValue instead.
+    /// WASM can't handle nested Vec, optional elements or `Vec<bool>` (wasm-bindgen has no vector
+    /// ABI for `bool`) — use JsValue instead.
     fn vec(&self, inner: &str) -> String {
-        if inner.starts_with("Vec<") || inner.starts_with("Option<") || inner == "JsValue" {
+        if inner.starts_with("Vec<") || inner.starts_with("Option<") || inner == "JsValue" || inner == "bool" {
             "JsValue".to_string()
         } else {
             format!("Vec<{inner}>")
@@ -74,6 +75,13 @@ impl TypeMapper for WasmMapper {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vec_of_bool_uses_jsvalue() {
+        let mapper = WasmMapper::new(HashMap::new(), "Wasm".to_string());
+        assert_eq!(mapper.vec("bool"), "JsValue");
+        assert_eq!(mapper.vec("u32"), "Vec<u32>");
+    }
 
     #[test]
     fn vec_of_optional_values_uses_jsvalue() {
