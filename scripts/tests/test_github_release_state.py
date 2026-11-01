@@ -21,6 +21,11 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 
+if __package__:
+    from .managed_python_fixture import assert_archive_digests, workflow_environment
+else:
+    from managed_python_fixture import assert_archive_digests, workflow_environment
+
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / "scripts/publish/github-release-state.py"
 TARGETS = json.loads((ROOT / ".github/cli-targets.json").read_text())
@@ -88,8 +93,8 @@ def workflow_guard():
 
 
 class WorkflowBoundaryTest(unittest.TestCase):
-    def guard(self, missing=None):
-        with tempfile.TemporaryDirectory() as temporary:
+    def guard(self, missing=None, poisoned_python=False):
+        with tempfile.TemporaryDirectory(prefix="alef release archives ") as temporary:
             cwd = Path(temporary)
             archives(cwd / "dist/cli")
             if missing:
@@ -99,22 +104,32 @@ class WorkflowBoundaryTest(unittest.TestCase):
                 target = cwd / "scripts/publish/github-release-state.py"
                 target.parent.mkdir(parents=True)
                 target.write_bytes(HELPER.read_bytes())
-            return subprocess.run(
+            environment, calls = workflow_environment(cwd, poisoned_python)
+            result = subprocess.run(
                 ["bash", "-euo", "pipefail", "-c", workflow_guard()],
                 cwd=cwd,
                 capture_output=True,
                 text=True,
                 check=False,
                 timeout=10,
+                env=environment,
             )
+            assert calls.exists(), result.stdout + result.stderr
+            assert calls.read_text() == "native-python\n", result.stdout + result.stderr
+            return result
 
     def test_actual_workflow_accepts_five_nonempty_real_archives(self):
         assert len(NAMES) == 5
-        assert self.guard().returncode == 0
+        for poisoned in (False, True):
+            with self.subTest(poisoned_python=poisoned):
+                result = self.guard(poisoned_python=poisoned)
+                assert result.returncode == 0, result.stdout + result.stderr
+                assert_archive_digests(result.stdout, SPEC["assets"])
 
     def test_actual_workflow_rejects_four_archives(self):
         result = self.guard(NAMES[-1])
         assert result.returncode != 0, result.stdout
+        assert "Local CLI archives do not match the complete expected set" in result.stderr
 
     def test_upload_cannot_publish_before_completeness(self):
         workflow = (ROOT / ".github/workflows/publish.yaml").read_text()

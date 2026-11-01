@@ -4,6 +4,9 @@ use alef::scaffold::scaffold;
 use std::path::Path;
 use std::process::Command;
 
+#[path = "support/managed_tool.rs"]
+mod managed_tool;
+
 fn emitted_loader() -> (String, String) {
     let api = ApiSurface {
         crate_name: "toolkit".into(),
@@ -25,12 +28,21 @@ fn emitted_loader() -> (String, String) {
 }
 
 fn format_check(seed: &str, config: &str) -> (bool, serde_json::Value) {
+    format_check_with_path(seed, config, None)
+}
+
+fn format_check_with_path(seed: &str, config: &str, path: Option<&std::ffi::OsStr>) -> (bool, serde_json::Value) {
     let directory = tempfile::tempdir().expect("create isolated consumer formatter fixture");
     std::fs::write(directory.path().join("index.js"), seed).unwrap();
     std::fs::write(directory.path().join("poly.toml"), config).unwrap();
-    let output = Command::new("poly")
+    let mut command = Command::new(managed_tool::executable("poly"));
+    command
         .args(["fmt", "--check", "--no-cache", "--format", "json", "index.js"])
-        .current_dir(directory.path())
+        .current_dir(directory.path());
+    if let Some(path) = path {
+        command.env("PATH", path);
+    }
+    let output = command
         .output()
         .expect("the managed Poly formatter is required; do not skip this regression");
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
@@ -48,6 +60,26 @@ fn format_check(seed: &str, config: &str) -> (bool, serde_json::Value) {
         seed
     );
     (output.status.success(), report)
+}
+
+#[test]
+fn consumer_formatter_bypasses_path_shims_without_project_configuration() {
+    let poisoned = tempfile::Builder::new().prefix("alef poly shim ").tempdir().unwrap();
+    std::fs::copy(
+        std::env::current_exe().unwrap(),
+        poisoned.path().join(format!("poly{}", std::env::consts::EXE_SUFFIX)),
+    )
+    .unwrap();
+    let inherited = std::env::var_os("PATH").expect("test process has PATH");
+    let path =
+        std::env::join_paths(std::iter::once(poisoned.path().to_path_buf()).chain(std::env::split_paths(&inherited)))
+            .unwrap();
+    let (seed, config) = emitted_loader();
+    let (passed, report) = format_check_with_path(&seed, &config, Some(&path));
+    assert!(
+        passed,
+        "the repository-managed native formatter must bypass the poisoned shim: {report}"
+    );
 }
 
 #[test]

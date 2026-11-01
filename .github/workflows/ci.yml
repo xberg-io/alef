@@ -98,7 +98,10 @@ jobs:
       - name: Install Python, uv and Bats
         uses: xberg-io/actions/setup-mise@v1
         with:
-          install-args: ${{ runner.os == 'Windows' && 'python uv node' || 'python uv bats node' }}
+          install-args: >-
+            ${{ runner.os == 'Windows'
+                && 'python uv node github:Goldziher/poly'
+                || 'python uv bats node github:Goldziher/poly' }}
       - name: Check the Cargo task boundary before compilation
         run: python scripts/test_run_test_cargo.py -v
       - name: Hosted Swift consumer harness controls
@@ -192,6 +195,7 @@ jobs:
           tools: ruby
       # Ruby on Windows is a mise lock gap (toolchain-management rule); keep it on mise.toml's version. ~keep
       - name: Set up Ruby for generated Data regression (Windows)
+        id: windows_ruby
         if: runner.os == 'Windows'
         uses: ruby/setup-ruby@v1
         with:
@@ -271,6 +275,9 @@ jobs:
         run: rm -rf "$(scripts/toolchain-census-dir.sh)"
       - name: Run tests
         env:
+          ALEF_TEST_RUBY_EXECUTABLE: >-
+            ${{ steps.windows_ruby.outputs.ruby-prefix
+                && format('{0}/bin/ruby.exe', steps.windows_ruby.outputs.ruby-prefix) || '' }}
           ALEF_REQUIRE_ELIXIR: "1"
           ALEF_REQUIRE_PYREFLY: "1"
           ALEF_REQUIRE_TSC: "1"

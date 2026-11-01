@@ -1,5 +1,7 @@
 //! Compile actual Magnus registrations/converters and exercise Ruby rescue dispatch.
 
+#[path = "support/managed_tool.rs"]
+mod managed_tool;
 #[path = "support/mise_task.rs"]
 mod mise_task;
 
@@ -114,14 +116,16 @@ fn write_fixture(directory: &Path) {
     }
 }
 
-fn ruby_configuration(ruby: &Path) -> serde_json::Value {
+fn ruby_configuration(ruby: &Path, directory: &Path) -> serde_json::Value {
+    let query = directory.join("ruby-configuration.rb");
+    std::fs::write(
+        &query,
+        "print({arch:RbConfig::CONFIG.fetch('arch'),extension:RbConfig::CONFIG.fetch('DLEXT')}.to_json)\n",
+    )
+    .expect("write the Ruby query without carrying program text through command-line quoting");
     let output = Command::new(ruby)
-        .args([
-            "-rjson",
-            "-rrbconfig",
-            "-e",
-            "print({arch:RbConfig::CONFIG.fetch('arch'),extension:RbConfig::CONFIG.fetch('DLEXT')}.to_json)",
-        ])
+        .args(["-rjson", "-rrbconfig"])
+        .arg(&query)
         .output()
         .expect("selected Ruby is required, not skipped");
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -137,7 +141,7 @@ fn build_extension(directory: &Path, ruby: &Path, config: &serde_json::Value) ->
     command
         .env("RUBY", ruby)
         .env("CARGO_TARGET_DIR", directory.join("target"))
-        .env("CARGO_BUILD_JOBS", "2")
+        .env("CARGO_BUILD_JOBS", "1")
         .env("CARGO_PROFILE_DEV_DEBUG", "0")
         .env("CARGO_INCREMENTAL", "0")
         .env("RUSTC_WRAPPER", "")
@@ -180,10 +184,10 @@ fn assert_success(output: &Output) {
 
 #[test]
 fn should_rescue_real_shared_magnus_errors_through_both_families_and_ancestors() {
-    let ruby = which::which("ruby").expect("managed Ruby and its development headers are required");
+    let ruby = managed_tool::executable("ruby");
     let directory = tempfile::tempdir().expect("owned isolated native target, removed with the fixture");
     write_fixture(directory.path());
-    let config = ruby_configuration(&ruby);
+    let config = ruby_configuration(&ruby, directory.path());
     let extension = build_extension(directory.path(), &ruby, &config);
     let invoke = |poison: Option<&str>| {
         let mut command = Command::new(&ruby);

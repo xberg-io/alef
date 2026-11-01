@@ -20,6 +20,8 @@ use std::process::Command;
 const WORKFLOW: &str = ".github/workflows/publish.yaml";
 const CARGO_MANIFEST: &str = "Cargo.toml";
 const TARGETS_FILE: &str = ".github/cli-targets.json";
+#[path = "support/managed_tool.rs"]
+mod managed_tool;
 #[cfg(unix)]
 const RESOLVE_STEP_ID: &str = "cli-targets";
 
@@ -355,11 +357,8 @@ fn draft_flow_and_offline_state_controls_are_part_of_the_native_gate() {
                 .any(|v| v == dependency)
         );
     }
-    let controls = std::process::Command::new("mise")
+    let controls = std::process::Command::new(managed_tool::executable("python"))
         .args([
-            "exec",
-            "--",
-            "python",
             "-W",
             "error::ResourceWarning",
             "scripts/tests/test_github_release_state.py",

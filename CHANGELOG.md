@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Run Windows release, Ruby and Node formatter controls with explicitly selected native tools,
+  preserving managed versions across temporary directories and shell argument boundaries. (#762)
 - Preserve existing Swift manifest permissions when both legacy language-mode and framework
   migrations run, including custom 0640 and 0644 modes. (#781)
 - Inspect native Swift linker-map archive entries without requiring all symbol bytes to be UTF-8. (#779)
