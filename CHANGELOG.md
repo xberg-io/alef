@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   complete output and rejecting partial output, including projects without Cargo.lock. (#776)
 - Register Ruby leaf exception classes without unused Rust bindings, preserving constructors,
   inheritance and shared-family rescue behavior. (#778)
+- Pass Zig `bool` parameters to the C ABI's `int32_t` through `@intFromBool`, with the `-1`
+  sentinel for an absent optional bool, in free functions and opaque-handle methods.
 
 ## [0.115.12] - 2026-11-01
 
