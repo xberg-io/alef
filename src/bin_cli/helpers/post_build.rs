@@ -6,6 +6,10 @@ use anyhow::Result;
 
 use crate::core::backend::CompilePolicy;
 
+#[cfg(test)]
+#[path = "post_build/swift_preservation_tests.rs"]
+mod swift_preservation_tests;
+
 /// Run every language's required post-build step, isolating one language's failure from
 /// every other language's.
 ///
@@ -124,7 +128,7 @@ pub(super) fn run_required_post_builds(
     compile: CompilePolicy,
 ) -> Result<()> {
     let resolved = resolve_post_build_configs(languages, config, compile);
-    run_resolved_post_builds(&resolved, languages.len(), config, base_dir)
+    run_resolved_post_builds(&resolved, languages.len(), config, base_dir, compile)
 }
 
 /// Run post-build steps for an already-resolved `(language, build_config)` list, aggregating
@@ -145,6 +149,7 @@ fn run_resolved_post_builds(
     total_languages: usize,
     config: &crate::core::config::ResolvedCrateConfig,
     base_dir: &std::path::Path,
+    compile: CompilePolicy,
 ) -> Result<()> {
     let mut failures: Vec<String> = Vec::new();
     for (language, build_config) in resolved {
@@ -156,13 +161,7 @@ fn run_resolved_post_builds(
         // `PreferOnDisk`: the two look in the same places, but this caller is a generation
         // command that never asked for a cdylib, so a missing one is the ordinary state of an
         // unbuilt tree rather than the missed build `alef test --e2e` reports. ~keep
-        match crate::cli::pipeline::run_post_build(
-            language,
-            build_config,
-            config,
-            base_dir,
-            crate::cli::pipeline::StagingProfile::NoBuildRequested,
-        ) {
+        match crate::cli::pipeline::run_post_build_for_generation(language, build_config, config, base_dir, compile) {
             Ok(outcome) if outcome.skipped_missing_tools.is_empty() => {
                 tracing::info!("  [{language}] post-build processing complete");
             }
@@ -494,7 +493,8 @@ mod tests {
             (Language::Swift, swift_build_config),
             (Language::Dart, dart_build_config),
         ];
-        let result = run_resolved_post_builds(&resolved, resolved.len(), &config, directory.path());
+        let compile = CompilePolicy::Allowed;
+        let result = run_resolved_post_builds(&resolved, resolved.len(), &config, directory.path(), compile);
 
         let error = result.expect_err("missing Swift build project and a stale Dart bridge must both fail");
         let message = error.to_string();
