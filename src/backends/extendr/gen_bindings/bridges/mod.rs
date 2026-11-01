@@ -328,6 +328,9 @@ pub(super) fn gen_extendr_bridge_field_function(
         } else {
             match &param.ty {
                 TypeRef::String => param_parts.push(format!("{}: String", param.name)),
+                TypeRef::Primitive(prim) if !param.optional => {
+                    param_parts.push(format!("{}: {}", param.name, super::ExtendrBackend.primitive(prim)));
+                }
                 _ => param_parts.push(format!("{}: Robj", param.name)),
             }
         }
@@ -336,10 +339,18 @@ pub(super) fn gen_extendr_bridge_field_function(
 
     let return_type = "Result<Robj>";
 
+    let binding_cfg = super::ExtendrBackend::binding_config(core_import, &[]);
     let mut call_args = Vec::new();
     for param in &func.params {
         if param.name == *options_param {
             call_args.push("Some(opts)".to_string());
+        } else if matches!(param.ty, TypeRef::Primitive(_)) && !param.optional {
+            call_args.push(crate::codegen::generators::binding_helpers::gen_call_args_cfg(
+                std::slice::from_ref(param),
+                &AHashSet::new(),
+                binding_cfg.cast_uints_to_i32,
+                binding_cfg.cast_large_ints_to_f64,
+            ));
         } else {
             call_args.push(format!("&{}", param.name));
         }

@@ -3,7 +3,7 @@ use heck::AsSnakeCase;
 use std::collections::HashSet;
 
 use super::render;
-use crate::backends::zig::gen_bindings::functions::optional_int_sentinel;
+use crate::backends::zig::gen_bindings::functions::{bool_c_arg, optional_int_sentinel};
 
 pub(super) fn method_param_needs_alloc(p: &ParamDef) -> bool {
     let inner = match &p.ty {
@@ -236,6 +236,10 @@ pub(super) fn static_method_c_arg_names(
         return vec![format!("{}.ptr", p.name), format!("{}.len", p.name)];
     }
 
+    if let Some(arg) = bool_c_arg(p) {
+        return vec![arg];
+    }
+
     vec![p.name.clone()]
 }
 
@@ -439,6 +443,10 @@ pub(super) fn method_c_arg_names(
         return vec![format!("if ({0}_z) |z| z.ptr else null", p.name)];
     }
 
+    if let Some(arg) = bool_c_arg(p) {
+        return vec![arg];
+    }
+
     let prim_opt: Option<&PrimitiveType> = match &p.ty {
         TypeRef::Optional(inner) => {
             if let TypeRef::Primitive(prim) = inner.as_ref() {
@@ -462,5 +470,35 @@ pub(super) fn method_c_arg_names(
         }
         TypeRef::Bytes => vec![format!("{}.ptr", p.name), format!("{}.len", p.name)],
         _ => vec![p.name.clone()],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn method_bool_params_cross_the_c_abi_as_int() {
+        let flag = ParamDef {
+            name: "flag".to_string(),
+            ty: TypeRef::Primitive(PrimitiveType::Bool),
+            ..ParamDef::default()
+        };
+        let maybe = ParamDef {
+            name: "maybe".to_string(),
+            ty: TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::Bool))),
+            optional: true,
+            ..ParamDef::default()
+        };
+        let none = HashSet::new();
+        let optional_arg = "if (maybe) |v| @as(i32, @intFromBool(v)) else -1";
+
+        assert_eq!(method_c_arg_names(&flag, &none, &none), vec!["@intFromBool(flag)"]);
+        assert_eq!(method_c_arg_names(&maybe, &none, &none), vec![optional_arg]);
+        assert_eq!(
+            static_method_c_arg_names(&flag, &none, &none),
+            vec!["@intFromBool(flag)"]
+        );
+        assert_eq!(static_method_c_arg_names(&maybe, &none, &none), vec![optional_arg]);
     }
 }
