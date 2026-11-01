@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Keep documentation catalogs within the requested reference languages and generation scope,
   so their links point only to emitted pages. (#785)
 - Render empty WASM wire enums as `never`, preserving non-empty aliases. (#786)
+- Avoid unused Rust streaming result bindings while preserving stream drainage, documentation
+  presentation and literal argument bytes. (#788)
 
 ## [0.115.14] - 2026-11-01
 
