@@ -182,6 +182,39 @@ fn assert_success(output: &Output) {
     );
 }
 
+fn is_complete_ruby_receipt(stdout: &[u8]) -> bool {
+    stdout == b"PASS: 39 checks; 2 converters; 8 negative oracles\n"
+        || stdout == b"PASS: 39 checks; 2 converters; 8 negative oracles\r\n"
+}
+
+#[test]
+fn should_accept_only_one_exact_ruby_receipt_with_lf_or_crlf() {
+    for receipt in [
+        b"PASS: 39 checks; 2 converters; 8 negative oracles\n".as_slice(),
+        b"PASS: 39 checks; 2 converters; 8 negative oracles\r\n".as_slice(),
+    ] {
+        assert!(is_complete_ruby_receipt(receipt), "{receipt:?}");
+    }
+    for malformed in [
+        b"".as_slice(),
+        b"PASS: 39 checks; 2 converters; 8 negative oracles".as_slice(),
+        b"PASS: 39 checks; 2 converters; 8 negative oracles\r".as_slice(),
+        b"PASS: 39 checks; 2 converters; 8 negative oracles\r\r\n".as_slice(),
+        b"PASS: 38 checks; 2 converters; 8 negative oracles\n".as_slice(),
+        b"PASS: 39 checks; 1 converters; 8 negative oracles\n".as_slice(),
+        b"PASS: 39 checks; 2 converters; 7 negative oracles\n".as_slice(),
+        b" PASS: 39 checks; 2 converters; 8 negative oracles\n".as_slice(),
+        b"PASS: 39 checks; 2 converters; 8 negative oracles \n".as_slice(),
+        b"PASS: 39 checks; 2 converters; 8 negative oracles\n\n".as_slice(),
+        b"PASS: 39 checks; 2 converters; 8 negative oracles\nextra\n".as_slice(),
+        b"PASS: 39 checks; 2 converters; 8 negative oracles\nPASS: 39 checks; 2 converters; 8 negative oracles\n"
+            .as_slice(),
+        b"PASS: 39 checks; 2 converters; 8 negative oracles\xff\n".as_slice(),
+    ] {
+        assert!(!is_complete_ruby_receipt(malformed), "{malformed:?}");
+    }
+}
+
 #[test]
 fn should_rescue_real_shared_magnus_errors_through_both_families_and_ancestors() {
     let ruby = managed_tool::executable("ruby");
@@ -199,10 +232,7 @@ fn should_rescue_real_shared_magnus_errors_through_both_families_and_ancestors()
     };
     let positive = invoke(None);
     assert_success(&positive);
-    assert_eq!(
-        String::from_utf8(positive.stdout).unwrap(),
-        "PASS: 39 checks; 2 converters; 8 negative oracles\n"
-    );
+    assert!(is_complete_ruby_receipt(&positive.stdout), "{:?}", positive.stdout);
     let negative = invoke(Some("--poison-family"));
     assert!(
         !negative.status.success(),
