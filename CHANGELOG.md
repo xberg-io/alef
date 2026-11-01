@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Keep Swift consumer Rust links fatal for other warnings while tolerating duplicate native library
+  flags emitted by rustc; retain the SwiftPM duplicate-library negative control. (#772)
 - Preserve legacy public error-generator signatures and Java message/cause constructors while
   supporting shared error-family introspection. (#771)
 - Keep locked Mise settings isolated from intentionally lockless native test fixtures. (#769)
