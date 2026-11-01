@@ -303,7 +303,7 @@ class Gate:
             stage = self.command(name, argv, package, 2 * 1024**3, 900)
             output += (stage / "stdout.log").read_text() + (stage / "stderr.log").read_text()
         tests = receipts.tests_passed(output)
-        if "dynamic_lookup" in output or "warning:" in output:
+        if "dynamic_lookup" in output or receipts.strict_output_warnings(output):
             raise RuntimeError("strict positive contains global allowance or compiler/linker warning")
         self.inspect_executable(package, release, output)
         negatives = negative.qualify(self, Path(release["archives"][0]), package)
@@ -353,7 +353,7 @@ def harness_controls():
     root = Path(os.environ["GITHUB_WORKSPACE"])
     evidence = Path(os.environ.get("SWIFT_GATE_CONTROL_EVIDENCE", str(root / "consumer-controls-evidence")))
     suite = unittest.defaultTestLoader.discover(str(Path(__file__).parent), pattern="test_*.py")
-    expected = 62
+    expected = 64
     actual = suite.countTestCases()
     if actual != expected:
         (evidence / "census-refusal.json").write_text(json.dumps({"expected": expected, "discovered": actual}))

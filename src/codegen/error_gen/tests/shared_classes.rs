@@ -33,14 +33,64 @@ fn error(name: &str, variants: &[(&str, bool)]) -> ErrorDef {
     }
 }
 
+#[test]
+fn magnus_binds_registered_classes_only_for_rust_parent_or_attribute_uses() {
+    let mut child = error("ChildError", &[("ChildOnly", false)]);
+    child.exception_base = Some("RootError".into());
+    let mut detailed = error("DetailedError", &[("DetailedOnly", false)]);
+    detailed.methods.push(crate::core::ir::MethodDef {
+        name: "status_code".into(),
+        return_type: TypeRef::Primitive(PrimitiveType::U16),
+        receiver: Some(crate::core::ir::ReceiverKind::Ref),
+        ..Default::default()
+    });
+    let api = ApiSurface {
+        errors: vec![
+            error("RootError", &[("RootOnly", false)]),
+            child,
+            detailed,
+            error("EmptyError", &[]),
+        ],
+        ..Default::default()
+    };
+    let lines = gen_magnus_error_class_registrations(&api).unwrap();
+    for (name, parent) in [
+        ("RootOnlyError", "root_error_class"),
+        ("ChildOnlyError", "child_error_class"),
+        ("EmptyError", "ruby.exception_standard_error()"),
+    ] {
+        assert!(
+            lines.contains(&format!("    module.define_error(\"{name}\", {parent})?;")),
+            "{lines:#?}"
+        );
+    }
+    for name in ["RootError", "ChildError", "DetailedError", "DetailedOnlyError"] {
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("    let ") && line.contains(&format!("define_error(\"{name}\"")))
+        );
+    }
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("detailed_only_error_class.define_attr(\"status_code\""))
+    );
+    assert!(
+        !lines
+            .iter()
+            .any(|line| line.contains("allow(unused") || line.contains("let _"))
+    );
+}
+
 /// Ruby equivalent of the magnus registrations: `define_error` becomes a class definition, and
 /// each `module_eval` call keeps its Rust string literal, whose escapes Ruby reads the same way.
 fn registrations_as_ruby(lines: &[String]) -> String {
     let mut classes: Vec<(String, String)> = Vec::new();
     let mut script = String::from("module Demo; end\n");
     for line in lines {
-        if let Some(rest) = line.trim().strip_prefix("let ") {
-            let (var, call) = rest.split_once(" = module.define_error(\"").expect("define_error line");
+        if let Some((binding, call)) = line.trim().split_once("module.define_error(\"") {
+            let var = binding.strip_prefix("let ").and_then(|var| var.strip_suffix(" = "));
             let (name, parent) = call.split_once("\", ").expect("define_error arguments");
             let parent = parent.trim_end_matches(")?;");
             let parent = classes
@@ -48,7 +98,9 @@ fn registrations_as_ruby(lines: &[String]) -> String {
                 .find(|(class_var, _)| class_var == parent)
                 .map_or_else(|| "StandardError".to_string(), |(_, class)| format!("Demo::{class}"));
             script.push_str(&format!("class Demo::{name} < {parent}; end\n"));
-            classes.push((var.to_string(), name.to_string()));
+            if let Some(var) = var {
+                classes.push((var.to_string(), name.to_string()));
+            }
         } else if let Some(rest) = line
             .trim()
             .strip_prefix("module.funcall::<_, _, magnus::Value>(\"module_eval\", (")

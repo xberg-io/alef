@@ -22,7 +22,7 @@ pub use cleanup::cleanup_orphaned_files;
 pub use commands::{
     StagingProfile, build, clean, fmt, fmt_post_generate, lint, run_post_build, setup, test, test_apps_run, update,
 };
-pub(crate) use commands::{build_with_environment, canonical_frb_generated};
+pub(crate) use commands::{build_with_environment, canonical_frb_generated, run_post_build_for_generation};
 pub use extract::extract;
 pub(crate) use extract::sanitize_binding_projection;
 pub(crate) use format::{

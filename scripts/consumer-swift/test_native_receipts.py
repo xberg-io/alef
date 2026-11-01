@@ -65,22 +65,27 @@ class NativeReceipts(unittest.TestCase):
             }
 
     def test_ort_without_a_linked_static_archive_is_rejected(self):
-        with tempfile.TemporaryDirectory() as raw:
-            root = Path(raw)
-            tesseract_out = root / "tesseract/out"
-            write_archive(tesseract_out / "libtesseract.a")
-            write_archive(tesseract_out / "libleptonica.a")
-            ort_out = root / "ort/out"
-            write_archive(ort_out / "libunrelated.a")
-            invocation = root / "release-cargo/1-1"
-            invocation.mkdir(parents=True)
-            rows = [
-                receipt("path+file:///w/crates/xberg-tesseract#1.4.0", tesseract_out, [], []),
-                receipt("registry+https://example#ort-sys@2.0.0", ort_out, ["dylib=onnxruntime"], []),
-            ]
-            (invocation / "stdout.log").write_text("\n".join(json.dumps(row) for row in rows) + "\n")
-            with raises(RuntimeError, "static ORT"):
-                collect(root / "release-cargo")
+        cases = [
+            ("libunrelated.a", ["static=onnxruntime"]),
+            ("libonnxruntime.a", ["dylib=onnxruntime"]),
+        ]
+        for archive_name, linked_libs in cases:
+            with self.subTest(archive=archive_name, linked_libs=linked_libs), tempfile.TemporaryDirectory() as raw:
+                root = Path(raw)
+                tesseract_out = root / "tesseract/out"
+                write_archive(tesseract_out / "libtesseract.a")
+                write_archive(tesseract_out / "libleptonica.a")
+                ort_out = root / "ort/out"
+                write_archive(ort_out / archive_name)
+                invocation = root / "release-cargo/1-1"
+                invocation.mkdir(parents=True)
+                rows = [
+                    receipt("path+file:///w/crates/xberg-tesseract#1.4.0", tesseract_out, [], []),
+                    receipt("registry+https://example#ort-sys@2.0.0", ort_out, linked_libs, []),
+                ]
+                (invocation / "stdout.log").write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+                with raises(RuntimeError, "static ORT"):
+                    collect(root / "release-cargo")
 
 
 if __name__ == "__main__":
