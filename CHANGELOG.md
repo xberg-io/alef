@@ -7,12 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.115.13] - 2026-11-01
+## [0.115.14] - 2026-11-01
 
 ### Fixed
 
 - Honor per-call Rust E2E client trait imports with global fallback, keeping unrelated traits out of
   generated suites. (#784)
+
+## [0.115.13] - 2026-11-01
+
+### Fixed
+
 - Link OpenDirectory only on macOS in Swift static-library packages, and repair recognized
   existing RustBridge linker settings without overwriting consumer customizations.
 - Run Windows release, Ruby and Node formatter controls with explicitly selected native tools,
