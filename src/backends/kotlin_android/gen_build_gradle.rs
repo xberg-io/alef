@@ -310,7 +310,10 @@ tasks.withType<Test> {{
 // `src/test/resources` tree into the unit-test runtime classpath. They consume
 // the dylib emitted by `copyHostJni`, so AGP 8.10+ requires an explicit
 // dependency declaration to satisfy Gradle's task-output validation.
-tasks.matching {{ it.name.startsWith("processDebug") || it.name.startsWith("processRelease") }}.configureEach {{
+tasks.matching {{
+    it.name.startsWith("processDebug") || it.name.startsWith("processRelease") ||
+        (it.name.startsWith("compress") && it.name.endsWith("UnitTestJavaRes"))
+}}.configureEach {{
     if (project.providers.gradleProperty("alef.skipHostJni").orNull != "true" && name.contains("UnitTestJavaRes")) {{
         dependsOn("copyHostJni")
     }}
@@ -762,5 +765,29 @@ description = "Test library"
             "gradle-versions-plugin {version} predates the Gradle 9 fix in v0.55.0; \
              bump `template_versions::maven::GRADLE_VERSIONS_PLUGIN`"
         );
+    }
+}
+
+#[cfg(test)]
+mod resource_dependency_tests {
+    #[test]
+    #[ignore = "requires managed Gradle and JDK; run the explicit native task-graph gate"]
+    fn package_compress_resource_dependencies() {
+        let config: crate::core::config::NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["kotlin_android"]
+[[crates]]
+name = "resource-probe"
+sources = []
+[crates.kotlin_android]
+package = "dev.example"
+[crates.jni]
+"#,
+        )
+        .unwrap();
+        let resolved = config.resolve().unwrap();
+        let generated = super::emit(&resolved[0]);
+        crate::test_support::kotlin_gradle::assert_resource_edges(&generated);
     }
 }

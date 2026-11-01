@@ -272,7 +272,10 @@ tasks.withType<Test> {{
     }}
 }}
 
-tasks.matching {{ it.name.startsWith("processDebug") || it.name.startsWith("processRelease") }}.configureEach {{
+tasks.matching {{
+    it.name.startsWith("processDebug") || it.name.startsWith("processRelease") ||
+        (it.name.startsWith("compress") && it.name.endsWith("UnitTestJavaRes"))
+}}.configureEach {{
     if (project.properties["alef.skipHostJni"] != "true" && name.contains("UnitTestJavaRes")) {{
         dependsOn("copyHostJni")
     }}
@@ -377,7 +380,10 @@ tasks.withType<Test> {{
     }}
 }}
 
-tasks.matching {{ it.name.startsWith("processDebug") || it.name.startsWith("processRelease") }}.configureEach {{
+tasks.matching {{
+    it.name.startsWith("processDebug") || it.name.startsWith("processRelease") ||
+        (it.name.startsWith("compress") && it.name.endsWith("UnitTestJavaRes"))
+}}.configureEach {{
     if (project.properties["alef.skipHostJni"] != "true" && name.contains("UnitTestJavaRes")) {{
         dependsOn("copyHostJni")
     }}
@@ -591,4 +597,38 @@ org.gradle.jvm.toolchain.download.repository=adoptium
 org.gradle.jvmargs=-Xmx4g
 "#
     )
+}
+
+#[cfg(test)]
+mod resource_dependency_tests {
+    use super::*;
+
+    fn check(mode: crate::e2e::config::DependencyMode) {
+        let env = std::collections::BTreeMap::new();
+        let capsules = std::collections::HashMap::new();
+        let generated = render_build_gradle_kotlin_android(&KotlinAndroidBuildGradleInputs {
+            kotlin_pkg_id: "dev.example",
+            maven_coordinate: "dev.example:probe:1.0.0",
+            dep_mode: mode,
+            jni_lib_name: "probe_jni",
+            jni_crate_path: "crates/probe-jni/Cargo.toml",
+            e2e_env: &env,
+            capsule_types: &capsules,
+            test_documents_path: "test_documents",
+            timeout_seconds: 30,
+        });
+        crate::test_support::kotlin_gradle::assert_resource_edges(&generated);
+    }
+
+    #[test]
+    #[ignore = "requires managed Gradle and JDK; run the explicit native task-graph gate"]
+    fn local_e2e_compress_resource_dependencies() {
+        check(crate::e2e::config::DependencyMode::Local);
+    }
+
+    #[test]
+    #[ignore = "requires managed Gradle and JDK; run the explicit native task-graph gate"]
+    fn registry_e2e_compress_resource_dependencies() {
+        check(crate::e2e::config::DependencyMode::Registry);
+    }
 }
