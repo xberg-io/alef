@@ -1,4 +1,4 @@
-"""Bind extracted Bash workflow controls to their already-selected Python interpreter."""
+"""Bind extracted workflow controls to their selected native Bash and Python tools."""
 
 import json
 import os
@@ -6,6 +6,24 @@ import re
 import shlex
 import sys
 from pathlib import Path
+
+
+def workflow_bash(environment):
+    if sys.platform != "win32":
+        return "bash"
+    selected = environment.get("ALEF_TEST_BASH_EXECUTABLE")
+    if not selected:
+        raise ValueError("native Git Bash requires an explicit ALEF_TEST_BASH_EXECUTABLE")
+    shell = Path(selected)
+    if (
+        not shell.is_absolute()
+        or shell.name.lower() != "bash.exe"
+        or not shell.is_file()
+        or not os.access(shell, os.X_OK)
+        or not (shell.parent / "msys-2.0.dll").is_file()
+    ):
+        raise ValueError("native Git Bash requires an absolute executable with its MSYS runtime DLL")
+    return str(shell)
 
 
 def workflow_environment(cwd, poisoned_python):

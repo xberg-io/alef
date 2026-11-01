@@ -273,6 +273,17 @@ jobs:
         # `CARGO_TARGET_DIR` override resets the same directory the census step below reads back
         # (`scripts/toolchain-census.sh` resolves its own default the same way).
         run: rm -rf "$(scripts/toolchain-census-dir.sh)"
+      - name: Bind native Git Bash and verify workflow shell selection
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          [[ "$OSTYPE" == msys ]]
+          test -x /usr/bin/bash.exe
+          test -f /usr/bin/msys-2.0.dll
+          native_bash="$(/usr/bin/cygpath.exe -am /usr/bin/bash.exe)"
+          export ALEF_TEST_BASH_EXECUTABLE="$native_bash"
+          printf 'ALEF_TEST_BASH_EXECUTABLE=%s\n' "$ALEF_TEST_BASH_EXECUTABLE" >> "$GITHUB_ENV"
+          mise exec -- python scripts/tests/test_managed_bash_fixture.py
       - name: Run tests
         env:
           ALEF_TEST_RUBY_EXECUTABLE: >-

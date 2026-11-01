@@ -22,9 +22,9 @@ from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 
 if __package__:
-    from .managed_python_fixture import assert_archive_digests, workflow_environment
+    from .managed_python_fixture import assert_archive_digests, workflow_bash, workflow_environment
 else:
-    from managed_python_fixture import assert_archive_digests, workflow_environment
+    from managed_python_fixture import assert_archive_digests, workflow_bash, workflow_environment
 
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / "scripts/publish/github-release-state.py"
@@ -106,7 +106,7 @@ class WorkflowBoundaryTest(unittest.TestCase):
                 target.write_bytes(HELPER.read_bytes())
             environment, calls = workflow_environment(cwd, poisoned_python)
             result = subprocess.run(
-                ["bash", "-euo", "pipefail", "-c", workflow_guard()],
+                [workflow_bash(environment), "-euo", "pipefail", "-c", workflow_guard()],
                 cwd=cwd,
                 capture_output=True,
                 text=True,
