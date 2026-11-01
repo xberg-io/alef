@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve literal native strings in Swift constructors, including JSON-looking text, quotes, Unicode, and NUL bytes.
+
 - Preserve public Swift properties for fully skipped serde caches while omitting their wire keys and aliases.
   Decode only proven skipped-field defaults; retain strict unknown-key and directional-skip validation.
 
