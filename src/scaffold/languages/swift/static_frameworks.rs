@@ -212,15 +212,8 @@ pub(crate) fn migrate_swift_static_frameworks(base_dir: &Path, relative: &Path) 
         tracing::debug!(path = %path.display(), "Swift framework migration unchanged: existing or unrecognized settings");
         return Ok(false);
     };
-    let parent = path.parent().context("Swift manifest has no parent directory")?;
-    let mut temporary = tempfile::NamedTempFile::new_in(parent).context("create Swift framework migration file")?;
-    use std::io::Write as _;
-    write!(temporary, "{}{}{}", &existing[..offset], line, &existing[offset..])
-        .context("write Swift framework migration")?;
-    temporary
-        .persist(&path)
-        .map_err(|error| error.error)
-        .context("replace Swift manifest")?;
+    let updated = format!("{}{}{}", &existing[..offset], line, &existing[offset..]);
+    crate::cli::pipeline::generate::write::atomic_write(&path, updated.as_bytes()).context("replace Swift manifest")?;
     tracing::info!(path = %path.display(), "added macOS OpenDirectory framework to existing RustBridge target");
     Ok(true)
 }

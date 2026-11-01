@@ -299,3 +299,53 @@ fn trailing_multiline_comment_keeps_framework_executable_and_migration_idempoten
     );
     assert_eq!(without_directory(&first), custom, "consumer bytes must be preserved");
 }
+
+#[cfg(unix)]
+fn existing_manifest_preserves_permissions(relative: &str, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let file = manifest(relative);
+    let legacy = without_directory(&file.content);
+    let root = tempfile::tempdir().expect("private permission fixture");
+    let path = root.path().join(relative);
+    std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+    std::fs::write(&path, &legacy).expect("legacy seed");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).expect("set explicit fixture mode");
+    assert_eq!(
+        std::fs::metadata(&path).expect("seed metadata").permissions().mode() & 0o7777,
+        mode,
+        "fixture must begin with the requested permissions"
+    );
+    alef::cli::pipeline::write_scaffold_files_report(std::slice::from_ref(&file), root.path(), false)
+        .expect("first canonical migration");
+    let first = std::fs::read_to_string(&path).expect("first artifact");
+    assert_framework_and_preservation(&first, &legacy);
+    assert_eq!(
+        std::fs::metadata(&path).expect("first metadata").permissions().mode() & 0o7777,
+        mode,
+        "migration must preserve manifest permissions for {relative}"
+    );
+    alef::cli::pipeline::write_scaffold_files_report(&[file], root.path(), false).expect("second canonical write");
+    assert_eq!(std::fs::read_to_string(&path).expect("second artifact"), first);
+    assert_eq!(
+        std::fs::metadata(&path).expect("second metadata").permissions().mode() & 0o7777,
+        mode,
+        "idempotent regeneration must preserve manifest permissions for {relative}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn existing_dev_manifest_preserves_permissions_and_reaches_fixed_point() {
+    for mode in [0o640, 0o644] {
+        existing_manifest_preserves_permissions("packages/swift/Package.swift", mode);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn existing_distribution_manifest_preserves_permissions_and_reaches_fixed_point() {
+    for mode in [0o640, 0o644] {
+        existing_manifest_preserves_permissions("Package.swift", mode);
+    }
+}
