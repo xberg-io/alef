@@ -764,3 +764,27 @@ description = "Test library"
         );
     }
 }
+
+#[cfg(test)]
+mod resource_dependency_tests {
+    #[test]
+    #[ignore = "requires managed Gradle and JDK; run the explicit native task-graph gate"]
+    fn package_compress_resource_dependencies() {
+        let config: crate::core::config::NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["kotlin_android"]
+[[crates]]
+name = "resource-probe"
+sources = []
+[crates.kotlin_android]
+package = "dev.example"
+[crates.jni]
+"#,
+        )
+        .unwrap();
+        let resolved = config.resolve().unwrap();
+        let generated = super::emit(&resolved[0]);
+        crate::test_support::kotlin_gradle::assert_resource_edges(&generated);
+    }
+}

@@ -12,6 +12,7 @@
 //! test in this crate now shares. ~keep
 
 mod isolated_process;
+pub(crate) mod kotlin_gradle;
 pub(crate) use isolated_process::run_in_isolated_process;
 pub(crate) mod ci_workflow;
 #[path = "../tests/support/mise_task.rs"]
