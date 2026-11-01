@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   presentation and literal argument bytes. (#788)
 - Validate prebuilt Swift bundle receipts and ZIP integrity before syncing versions, rejecting
   stale or mismatched artifacts before source changes. (#787)
+- Invalidate Zig package content hashes on version changes while preserving per-platform
+  asset selection. (#789)
 
 ## [0.115.14] - 2026-11-01
 

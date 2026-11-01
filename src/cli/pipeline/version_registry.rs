@@ -31,61 +31,63 @@ pub(crate) fn render_registry_version(lang: &str, workspace_version: &str, exist
     }
 }
 
-/// Extract the embedded semver version from a zig package hash of the form
-/// `<pkg-name>-<version>-<base64sha>`. Used when `[crates.e2e.registry.packages.zig]`
-/// carries only a `hash` field (no separate `version`), so version-sync can still
-/// refresh the hash's version component on workspace bumps.
-///
-/// Returns `None` when the hash is malformed or the base64 segment is unidentifiable.
-pub(super) fn extract_zig_hash_version(hash: &str) -> Option<String> {
-    let parts: Vec<&str> = hash.split('-').collect();
-    if parts.len() < 3 {
+// ~keep Modern Zig package IDs end in 44 URL-safe base64 characters; '-' can occur inside that suffix.
+const ZIG_CONTENT_ID_LENGTH: usize = 44;
+const STALE_ZIG_CONTENT_ID: &str = "STALE_HASH_REGENERATE";
+
+fn extract_zig_hash_version(hash: &str, package_name: Option<&str>) -> Option<String> {
+    let content_start = hash.len().checked_sub(ZIG_CONTENT_ID_LENGTH)?;
+    let content = hash.get(content_start..)?;
+    if !content
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
         return None;
     }
-    let base64_part = parts[parts.len() - 1];
-    let is_base64 = base64_part.contains('_') || base64_part.chars().next().is_some_and(|c| c.is_ascii_uppercase());
-    if !is_base64 {
-        return None;
+    let prefix = hash.get(..content_start)?.strip_suffix('-')?;
+    if let Some(version) = package_name.and_then(|name| prefix.strip_prefix(name)?.strip_prefix('-')) {
+        return semver::Version::parse(version).ok().map(|_| version.to_string());
     }
-    let middle_parts = &parts[1..parts.len() - 1];
-    if middle_parts.is_empty() {
-        return None;
-    }
-    Some(middle_parts.join("-"))
+    let mut versions = prefix.match_indices('-').filter_map(|(index, _)| {
+        let version = &prefix[index + 1..];
+        (index > 0 && semver::Version::parse(version).is_ok()).then_some(version)
+    });
+    let version = versions.next()?;
+    versions.next().is_none().then(|| version.to_string())
 }
 
-/// Update a zig package hash by substituting the version component.
-/// Zig hashes have the format: `<pkg-name>-<version>-<base64sha>`.
-/// When the version changes, we substitute just the version part, leaving the
-/// base64 sha unchanged (marked as stale until the zig publish step refreshes it
-/// via `zig fetch --save`).
-///
-/// Returns `Some(new_hash)` if the version component changed, `None` otherwise.
-pub(super) fn update_zig_package_hash(existing_hash: &str, old_version: &str, new_version: &str) -> Option<String> {
-    let parts: Vec<&str> = existing_hash.split('-').collect();
-    if parts.len() < 3 {
-        return None;
+fn zig_package_hash_version(package: &dyn toml_edit::TableLike, workspace_version: &str) -> Option<String> {
+    let name = package.get("name").and_then(toml_edit::Item::as_str);
+    let generic = package.get("hash").and_then(toml_edit::Item::as_str).into_iter();
+    let platforms = package.get("platform_hashes").and_then(toml_edit::Item::as_table_like);
+    let hashes = generic.chain(
+        platforms
+            .into_iter()
+            .flat_map(|table| table.iter().filter_map(|(_, item)| item.as_str())),
+    );
+    let mut current = None;
+    for version in hashes.filter_map(|hash| extract_zig_hash_version(hash, name)) {
+        if version != workspace_version {
+            return Some(version);
+        }
+        current = Some(version);
     }
+    current
+}
 
-    let base64_part = parts[parts.len() - 1];
-    let is_base64 = base64_part.contains('_') || base64_part.chars().next().is_some_and(|c| c.is_ascii_uppercase());
-
-    if !is_base64 {
-        return None;
-    }
-
-    let middle_parts = &parts[1..parts.len() - 1];
-    let joined_middle = middle_parts.join("-");
-
-    if joined_middle.contains(old_version) {
-        let new_middle = joined_middle.replace(old_version, new_version);
-        let new_hash = format!("{}-{}-{}", parts[0], new_middle, base64_part);
-        if new_hash != existing_hash {
-            return Some(new_hash);
+fn invalidate_zig_package_hashes(package: &mut dyn toml_edit::TableLike) -> bool {
+    let mut changed = package.remove("hash").is_some();
+    // ~keep Platform keys select per-platform asset URLs; dropping the map would select a generic asset instead.
+    if let Some(platforms) = package
+        .get_mut("platform_hashes")
+        .and_then(toml_edit::Item::as_table_like_mut)
+    {
+        for (_, hash) in platforms.iter_mut() {
+            *hash = toml_edit::value(STALE_ZIG_CONTENT_ID);
+            changed = true;
         }
     }
-
-    None
+    changed
 }
 
 /// Rewrite `version` fields inside a `[….packages.<lang>]` table (either the base
@@ -93,8 +95,8 @@ pub(super) fn update_zig_package_hash(existing_hash: &str, old_version: &str, ne
 /// `[crates.<name>.e2e.registry.packages.<lang>]` block — both hold the same
 /// per-language package shape) to track the current workspace version.
 ///
-/// Only entries that already have a `version` field are touched — this never inserts a new
-/// `version` field. Returns `true` when at least one field was rewritten.
+/// Existing versions are updated; Zig content identities are invalidated when their version changes.
+/// Hash-only Zig references can infer a version, but never gain a new `version` field.
 fn patch_packages_table(packages: &mut dyn toml_edit::TableLike, workspace_version: &str) -> bool {
     let lang_keys: Vec<String> = packages.iter().map(|(k, _)| k.to_string()).collect();
     let mut any = false;
@@ -107,16 +109,10 @@ fn patch_packages_table(packages: &mut dyn toml_edit::TableLike, workspace_versi
 
         let existing_version = match existing_version_opt.clone() {
             Some(v) => v,
-            None if lang == "zig" => {
-                match pkg
-                    .get("hash")
-                    .and_then(|i| i.as_str())
-                    .and_then(extract_zig_hash_version)
-                {
-                    Some(v) => v,
-                    None => continue,
-                }
-            }
+            None if lang == "zig" => match zig_package_hash_version(pkg, workspace_version) {
+                Some(version) => version,
+                None => continue,
+            },
             None => continue,
         };
         if let Some(new_ver) = render_registry_version(lang, workspace_version, &existing_version) {
@@ -127,13 +123,8 @@ fn patch_packages_table(packages: &mut dyn toml_edit::TableLike, workspace_versi
                 any = true;
             }
 
-            if lang == "zig"
-                && let Some(hash_item) = pkg.get_mut("hash")
-                && let Some(existing_hash) = hash_item.as_str()
-                && let Some(new_hash) = update_zig_package_hash(existing_hash, &existing_version, &new_ver)
-            {
-                *hash_item = toml_edit::value(new_hash);
-                any = true;
+            if lang == "zig" {
+                any |= invalidate_zig_package_hashes(pkg);
             }
         }
     }
@@ -145,8 +136,8 @@ fn patch_packages_table(packages: &mut dyn toml_edit::TableLike, workspace_versi
 /// workspace version.
 ///
 /// Uses `toml_edit` for format-preserving surgery: comments, blank lines, and
-/// key ordering are all preserved.  Only entries that already have a `version`
-/// field are touched — this function never inserts a new `version` field.
+/// key ordering are preserved. Zig content hashes are invalidated on version changes,
+/// including recognizable hash-only references. No new `version` field is inserted.
 ///
 /// `[crates.<name>.e2e.packages.<lang>]` is the base per-language package reference
 /// (`E2eConfig::packages`) that local-mode e2e generation and `effective_package_for`
@@ -218,3 +209,7 @@ pub(crate) fn sync_registry_package_versions(
 
     Ok(changed)
 }
+
+#[cfg(test)]
+#[path = "version_registry/zig_hash_invalidation_tests.rs"]
+mod zig_hash_invalidation_tests;
