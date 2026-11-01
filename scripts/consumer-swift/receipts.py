@@ -86,6 +86,15 @@ def binding_receipt(evidence, manifest, package_id, target, release):
     return result
 
 
+# SwiftPM 6.3 `-v` echoes the manifest compile as `warning: '<package>': <path>/swift-frontend -frontend -c ...`
+# (run 41259357507); only that exact echo is dropped. ~keep
+SWIFTPM_MANIFEST_ECHO = re.compile(r"^warning: '[^']+': /\S*/swift-frontend -frontend -c ")
+
+
+def strict_output_warnings(text):
+    return [line for line in text.splitlines() if "warning:" in line and not SWIFTPM_MANIFEST_ECHO.match(line)]
+
+
 def tests_passed(text):
     names = re.findall(r"Test Case '-\[[^\]\n]+ (test\w+)\]' passed", text)
     if len(names) != 2 or set(names) != SAFE_TESTS:

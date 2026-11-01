@@ -2,6 +2,7 @@ use crate::cli::pipeline::helpers::{
     check_precondition, precondition_passes, run_before, run_command_captured_with_env, run_command_with_env,
 };
 use crate::cli::registry;
+use crate::core::backend::CompilePolicy;
 use crate::core::config::{BuildCommandConfig, Language, ResolvedCrateConfig};
 use crate::process::capture::{OUTPUT_DRAIN_GRACE, collect_output_within, output_reader_tee};
 use crate::process::timed::{Deadline, GroupChild};
@@ -590,6 +591,32 @@ pub fn run_post_build(
 
 type BeforeSpawn<'a> = &'a dyn Fn(&mut std::process::Command) -> anyhow::Result<()>;
 
+struct PostBuildOptions<'a> {
+    staging_profile: StagingProfile,
+    before_spawn: Option<BeforeSpawn<'a>>,
+    compile: CompilePolicy,
+}
+
+pub(crate) fn run_post_build_for_generation(
+    lang: Language,
+    bc: &crate::core::backend::BuildConfig,
+    config: &ResolvedCrateConfig,
+    base_dir: &Path,
+    compile: CompilePolicy,
+) -> anyhow::Result<PostBuildOutcome> {
+    run_post_build_with_policy(
+        lang,
+        bc,
+        config,
+        base_dir,
+        PostBuildOptions {
+            staging_profile: StagingProfile::NoBuildRequested,
+            before_spawn: None,
+            compile,
+        },
+    )
+}
+
 fn run_post_build_with_spawn(
     lang: Language,
     bc: &crate::core::backend::BuildConfig,
@@ -598,7 +625,32 @@ fn run_post_build_with_spawn(
     staging_profile: StagingProfile,
     before_spawn: Option<BeforeSpawn<'_>>,
 ) -> anyhow::Result<PostBuildOutcome> {
+    run_post_build_with_policy(
+        lang,
+        bc,
+        config,
+        base_dir,
+        PostBuildOptions {
+            staging_profile,
+            before_spawn,
+            compile: CompilePolicy::Allowed,
+        },
+    )
+}
+
+fn run_post_build_with_policy(
+    lang: Language,
+    bc: &crate::core::backend::BuildConfig,
+    config: &ResolvedCrateConfig,
+    base_dir: &Path,
+    options: PostBuildOptions<'_>,
+) -> anyhow::Result<PostBuildOutcome> {
     use crate::core::backend::PostBuildStep;
+    let PostBuildOptions {
+        staging_profile,
+        before_spawn,
+        compile,
+    } = options;
 
     let crate_dir = output_path_for(lang, config)
         .map(resolve_crate_dir)
@@ -768,10 +820,11 @@ fn run_post_build_with_spawn(
                 package_root,
             } => {
                 let package_root = base_dir.join(package_root);
-                crate::backends::swift::gen_bindings::bridge_artifacts::materialize_from_build_output(
+                crate::backends::swift::gen_bindings::bridge_artifacts::materialize_from_build_output_for_generation(
                     binding_crate_name,
                     &package_root,
                     base_dir,
+                    compile,
                 )?;
             }
             PostBuildStep::VerifyFrbBridgeCoverage {

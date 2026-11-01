@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Wire host JNI copy dependencies into Android unit-test resource compression as well as
   processing tasks, preserving disabled-host-JNI behavior in package and E2E Gradle projects.
+- Preserve populated Swift bridge files during source-only generation, while still materializing
+  complete output and rejecting partial output, including projects without Cargo.lock. (#776)
+- Register Ruby leaf exception classes without unused Rust bindings, preserving constructors,
+  inheritance and shared-family rescue behavior. (#778)
 
 ## [0.115.12] - 2026-11-01
 

@@ -13,7 +13,9 @@ use alef::codegen::error_gen::{
 };
 use alef::core::backend::{Backend, GeneratedFile};
 use alef::core::config::{NewAlefConfig, ResolvedCrateConfig};
-use alef::core::ir::{ApiSurface, ErrorDef, ErrorVariant, FieldDef, FunctionDef, PrimitiveType, TypeDef, TypeRef};
+#[cfg(unix)]
+use alef::core::ir::FunctionDef;
+use alef::core::ir::{ApiSurface, ErrorDef, ErrorVariant, FieldDef, PrimitiveType, TypeDef, TypeRef};
 use std::process::Command;
 
 #[path = "support/php_native.rs"]
