@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Inspect native Swift linker-map archive entries without requiring all symbol bytes to be UTF-8. (#779)
 - Preserve populated Swift bridge files during source-only generation, while still materializing
   complete output and rejecting partial output, including projects without Cargo.lock. (#776)
 - Register Ruby leaf exception classes without unused Rust bindings, preserving constructors,

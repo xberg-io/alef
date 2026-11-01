@@ -318,7 +318,11 @@ class Gate:
         if re_search_rust_dylib(text):
             raise RuntimeError("Rust dynamic library substituted for produced archive")
         linkmap = Path(self.env["SWIFT_GATE_LINK_MAP"])
-        if not linkmap.is_file() or release["archives"][0] not in log or "libxberg_swift.a(" not in linkmap.read_text():
+        if (
+            not linkmap.is_file()
+            or release["archives"][0] not in log
+            or b"libxberg_swift.a(" not in linkmap.read_bytes()
+        ):
             raise RuntimeError("actual link map and verbose linker argv do not prove static archive")
 
 
@@ -353,7 +357,7 @@ def harness_controls():
     root = Path(os.environ["GITHUB_WORKSPACE"])
     evidence = Path(os.environ.get("SWIFT_GATE_CONTROL_EVIDENCE", str(root / "consumer-controls-evidence")))
     suite = unittest.defaultTestLoader.discover(str(Path(__file__).parent), pattern="test_*.py")
-    expected = 64
+    expected = 67
     actual = suite.countTestCases()
     if actual != expected:
         (evidence / "census-refusal.json").write_text(json.dumps({"expected": expected, "discovered": actual}))
