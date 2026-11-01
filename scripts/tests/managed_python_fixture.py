@@ -11,9 +11,19 @@ from pathlib import Path
 def workflow_bash(environment):
     if sys.platform != "win32":
         return "bash"
-    selected = environment.get("ALEF_TEST_BASH_EXECUTABLE")
-    if not selected:
-        raise ValueError("native Git Bash requires an explicit ALEF_TEST_BASH_EXECUTABLE")
+    if "ALEF_TEST_BASH_EXECUTABLE" in environment:
+        selected = environment["ALEF_TEST_BASH_EXECUTABLE"]
+    else:
+        # ~keep setup-mise records Git Bash before Ruby can replace the parent MSYS shell.
+        try:
+            arguments = shlex.split(environment.get("MISE_WINDOWS_DEFAULT_INLINE_SHELL_ARGS", ""))
+        except ValueError as error:
+            raise ValueError("native Git Bash requires valid setup-mise shell argv") from error
+        if len(arguments) != 4 or arguments[1:] != ["-o", "errexit", "-c"]:
+            raise ValueError("native Git Bash requires the explicit setup-mise shell argv")
+        selected = arguments[0]
+    if not selected or "\n" in selected or "\r" in selected:
+        raise ValueError("native Git Bash requires an explicit single-line executable binding")
     shell = Path(selected)
     if (
         not shell.is_absolute()
@@ -54,3 +64,7 @@ def assert_archive_digests(output, expected):
     digests = json.loads(output)
     assert set(digests) == set(expected)
     assert all(re.fullmatch("[0-9a-f]{64}", value) for value in digests.values())
+
+
+if __name__ == "__main__":
+    print(workflow_bash(os.environ))

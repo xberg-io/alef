@@ -275,15 +275,15 @@ jobs:
         run: rm -rf "$(scripts/toolchain-census-dir.sh)"
       - name: Bind native Git Bash and verify workflow shell selection
         if: runner.os == 'Windows'
-        shell: bash
+        shell: pwsh
         run: |
-          [[ "$OSTYPE" == msys ]]
-          test -x /usr/bin/bash.exe
-          test -f /usr/bin/msys-2.0.dll
-          native_bash="$(/usr/bin/cygpath.exe -am /usr/bin/bash.exe)"
-          export ALEF_TEST_BASH_EXECUTABLE="$native_bash"
-          printf 'ALEF_TEST_BASH_EXECUTABLE=%s\n' "$ALEF_TEST_BASH_EXECUTABLE" >> "$GITHUB_ENV"
+          $nativeBash = mise exec -- python scripts/tests/managed_python_fixture.py
+          if ($LASTEXITCODE -ne 0) { throw "Native Git Bash selection failed" }
+          if (@($nativeBash).Count -ne 1) { throw "Expected exactly one native Git Bash binding" }
+          "ALEF_TEST_BASH_EXECUTABLE=$nativeBash" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $env:ALEF_TEST_BASH_EXECUTABLE = $nativeBash
           mise exec -- python scripts/tests/test_managed_bash_fixture.py
+          if ($LASTEXITCODE -ne 0) { throw "Native Git Bash selector controls failed" }
       - name: Run tests
         env:
           ALEF_TEST_RUBY_EXECUTABLE: >-
