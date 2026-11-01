@@ -19,6 +19,7 @@ capture = lambda do |label, call, family|
 end
 
 m = RubyFamilyNative
+m.send(:remove_const, :RootOnlyError) if ARGV.include?("--poison-root-only")
 shared = m::SharedError
 manual = shared.new("manual")
 check.call("shared_name", "RubyFamilyNative::SharedError", shared.name)
@@ -75,8 +76,11 @@ check.call("schema_only_converter", m::SchemaOnlyError, schema_only.class)
 check.call("graph_only_converter_nonmember", false, m::SchemaError === graph_only)
 check.call("schema_only_converter_nonmember", false, m::GraphQLError === schema_only)
 check.call("root_legacy_superclass", StandardError, m::RootError.superclass)
+check.call("root_only_superclass", m::RootError, m::RootOnlyError.superclass)
+check.call("root_only_constructor", "root", m::RootOnlyError.new("root").message)
+check.call("root_only_family", true, m::RootError === m::RootOnlyError.new("root"))
 check.call("base_constructor", "base", m::GraphQLError.new("base").message)
 check.call("ancestor_rejects_unrelated", false, m::RootError === RuntimeError.new("unrelated"))
 check.call("schema_rejects_unrelated", false, m::SchemaError === RuntimeError.new("unrelated"))
-abort("CHECK_FAILED census: #{checks}/36") unless checks == 36
-puts("PASS: 36 checks; 2 converters; 7 negative oracles")
+abort("CHECK_FAILED census: #{checks}/39") unless checks == 39
+puts("PASS: 39 checks; 2 converters; 8 negative oracles")

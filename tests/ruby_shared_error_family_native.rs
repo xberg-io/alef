@@ -185,21 +185,21 @@ fn should_rescue_real_shared_magnus_errors_through_both_families_and_ancestors()
     write_fixture(directory.path());
     let config = ruby_configuration(&ruby);
     let extension = build_extension(directory.path(), &ruby, &config);
-    let invoke = |poison: bool| {
+    let invoke = |poison: Option<&str>| {
         let mut command = Command::new(&ruby);
         command.arg(directory.path().join("check.rb")).arg(&extension);
-        if poison {
-            command.arg("--poison-family");
+        if let Some(flag) = poison {
+            command.arg(flag);
         }
         command.output().expect("execute real Ruby rescue dispatch")
     };
-    let positive = invoke(false);
+    let positive = invoke(None);
     assert_success(&positive);
     assert_eq!(
         String::from_utf8(positive.stdout).unwrap(),
-        "PASS: 36 checks; 2 converters; 7 negative oracles\n"
+        "PASS: 39 checks; 2 converters; 8 negative oracles\n"
     );
-    let negative = invoke(true);
+    let negative = invoke(Some("--poison-family"));
     assert!(
         !negative.status.success(),
         "removing secondary family rescue must break the behavioral oracle"
@@ -208,5 +208,16 @@ fn should_rescue_real_shared_magnus_errors_through_both_families_and_ancestors()
         String::from_utf8_lossy(&negative.stderr).contains("CHECK_FAILED secondary_graph_schema"),
         "{}",
         String::from_utf8_lossy(&negative.stderr)
+    );
+    let missing_class = invoke(Some("--poison-root-only"));
+    assert!(
+        !missing_class.status.success(),
+        "removing RootOnlyError must break its public class oracle"
+    );
+    assert!(
+        String::from_utf8_lossy(&missing_class.stderr)
+            .contains("uninitialized constant RubyFamilyNative::RootOnlyError"),
+        "{}",
+        String::from_utf8_lossy(&missing_class.stderr)
     );
 }

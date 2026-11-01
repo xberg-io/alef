@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Register Ruby leaf exception classes without unused Rust bindings, preserving constructors,
+  inheritance and shared-family rescue behavior. (#778)
+
 ## [0.115.12] - 2026-11-01
 
 ### Fixed

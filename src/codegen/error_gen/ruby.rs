@@ -8,6 +8,7 @@ use super::php::{classes, error_info};
 use super::shared::{error_variant_wildcard_pattern, python_exception_name, to_snake_case};
 use super::{ExceptionNaming, exception_lineage, shared_exception_classes};
 use crate::core::ir::{ApiSurface, ErrorDef};
+use std::collections::HashSet;
 
 fn rust_path_of(error: &ErrorDef, core_import: &str) -> String {
     if error.rust_path.is_empty() {
@@ -20,16 +21,20 @@ fn rust_path_of(error: &ErrorDef, core_import: &str) -> String {
 /// `ruby_init` statements that define the exception classes and their attribute readers.
 pub fn gen_magnus_error_class_registrations(api: &ApiSurface) -> anyhow::Result<Vec<String>> {
     let mut lines = Vec::new();
-    for class in classes(api, "", None)? {
+    let classes = classes(api, "", None)?;
+    let parents: HashSet<_> = classes.iter().filter_map(|class| class.parent.as_deref()).collect();
+    for class in &classes {
         let var = format!("{}_class", to_snake_case(&class.name));
         let parent = match &class.parent {
             Some(parent) => format!("{}_class", to_snake_case(parent)),
             None => "ruby.exception_standard_error()".to_string(),
         };
-        lines.push(format!(
-            "    let {var} = module.define_error(\"{}\", {parent})?;",
-            class.name
-        ));
+        let registration = format!("module.define_error(\"{}\", {parent})?", class.name);
+        if class.info.is_empty() && !parents.contains(class.name.as_str()) {
+            lines.push(format!("    {registration};"));
+        } else {
+            lines.push(format!("    let {var} = {registration};"));
+        }
         for field in &class.info {
             lines.push(format!(
                 "    {var}.define_attr(\"{}\", magnus::Attr::Read)?;",
