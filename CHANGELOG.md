@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Go: send required `Vec`/`Map` fields (non-optional, no serde default) as `[]`/`{}` instead of
+  omitting them, so Rust types that require the key accept empty collections. Defaulted
+  collections keep `omitempty`. (#792)
+- Go: inline `#[serde(flatten)]` fields on the wire. The flattened field is hidden from
+  encoding/json and its members are merged into (and decoded from) the parent object; a flattened
+  map keeps only the keys no other field owns. (#793)
+
 ## [0.115.14] - 2026-11-01
 
 ### Fixed

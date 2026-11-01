@@ -1,0 +1,38 @@
+func (s *{{ go_name }}) UnmarshalJSON(data []byte) error {
+	type plain {{ go_name }}
+	var raw plain
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*s = {{ go_name }}(raw)
+{% for field in flattened %}{% if not field.is_map %}	if err := json.Unmarshal(data, &s.{{ field.go_field }}); err != nil {
+		return err
+	}
+{% endif %}{% endfor %}{% for field in flattened %}{% if field.is_map %}	{
+		// A flattened map keeps only the keys no other field owns.
+		rest := map[string]json.RawMessage{}
+		if err := json.Unmarshal(data, &rest); err != nil {
+			return err
+		}
+{% for name in owned_names %}		delete(rest, "{{ name }}")
+{% endfor %}{% for other in flattened %}{% if not other.is_map %}		if inline, err := json.Marshal(s.{{ other.go_field }}); err == nil {
+			var members map[string]json.RawMessage
+			if json.Unmarshal(inline, &members) == nil {
+				for key := range members {
+					delete(rest, key)
+				}
+			}
+		}
+{% endif %}{% endfor %}		s.{{ field.go_field }} = nil
+		if len(rest) > 0 {
+			encoded, err := json.Marshal(rest)
+			if err != nil {
+				return err
+			}
+			if err := json.Unmarshal(encoded, &s.{{ field.go_field }}); err != nil {
+				return err
+			}
+		}
+	}
+{% endif %}{% endfor %}	return nil
+}
