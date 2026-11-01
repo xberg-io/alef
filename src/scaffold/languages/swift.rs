@@ -642,14 +642,7 @@ pub(crate) fn migrate_swift_rust_bridge_language_mode(base_dir: &Path, relative_
         return Ok(false);
     };
 
-    let parent = path.parent().context("swift manifest path has no parent directory")?;
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)
-        .with_context(|| format!("failed to create temporary file in {}", parent.display()))?;
-    std::io::Write::write_all(&mut temporary, patched.as_bytes())
-        .with_context(|| format!("failed to write temporary file for {}", path.display()))?;
-    temporary
-        .persist(&path)
-        .map_err(|error| error.error)
+    crate::cli::pipeline::generate::write::atomic_write(&path, patched.as_bytes())
         .with_context(|| format!("failed to replace {}", path.display()))?;
     tracing::info!(
         path = %path.display(),

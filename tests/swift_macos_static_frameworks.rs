@@ -301,11 +301,36 @@ fn trailing_multiline_comment_keeps_framework_executable_and_migration_idempoten
 }
 
 #[cfg(unix)]
-fn existing_manifest_preserves_permissions(relative: &str, mode: u32) {
+fn without_language_mode(content: &str) -> String {
+    let start = content
+        .find("      // swift-bridge's generated async glue")
+        .expect("real language-mode rationale");
+    let setting = "      swiftSettings: [.swiftLanguageMode(.v5)],\n";
+    assert_eq!(content.matches(setting).count(), 1, "one actual language-mode setting");
+    let end = content.find(setting).expect("real language-mode setting") + setting.len();
+    let legacy = format!("{}{}", &content[..start], &content[end..]);
+    assert!(
+        !legacy.contains("swiftSettings:"),
+        "combined fixture must predate the language-mode pin"
+    );
+    legacy
+}
+
+#[cfg(unix)]
+fn existing_manifest_preserves_permissions(relative: &str, mode: u32, combined: bool) {
     use std::os::unix::fs::PermissionsExt;
 
     let file = manifest(relative);
-    let legacy = without_directory(&file.content);
+    let with_language_mode = without_directory(&file.content);
+    let legacy = if combined {
+        without_language_mode(&with_language_mode)
+    } else {
+        with_language_mode.clone()
+    };
+    assert!(
+        !legacy.contains(DIRECTORY),
+        "fixture must predate OpenDirectory migration"
+    );
     let root = tempfile::tempdir().expect("private permission fixture");
     let path = root.path().join(relative);
     std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
@@ -319,11 +344,11 @@ fn existing_manifest_preserves_permissions(relative: &str, mode: u32) {
     alef::cli::pipeline::write_scaffold_files_report(std::slice::from_ref(&file), root.path(), false)
         .expect("first canonical migration");
     let first = std::fs::read_to_string(&path).expect("first artifact");
-    assert_framework_and_preservation(&first, &legacy);
+    assert_framework_and_preservation(&first, &with_language_mode);
     assert_eq!(
         std::fs::metadata(&path).expect("first metadata").permissions().mode() & 0o7777,
         mode,
-        "migration must preserve manifest permissions for {relative}"
+        "migration must preserve mode {mode:#o} for {relative}"
     );
     alef::cli::pipeline::write_scaffold_files_report(&[file], root.path(), false).expect("second canonical write");
     assert_eq!(std::fs::read_to_string(&path).expect("second artifact"), first);
@@ -338,7 +363,7 @@ fn existing_manifest_preserves_permissions(relative: &str, mode: u32) {
 #[test]
 fn existing_dev_manifest_preserves_permissions_and_reaches_fixed_point() {
     for mode in [0o640, 0o644] {
-        existing_manifest_preserves_permissions("packages/swift/Package.swift", mode);
+        existing_manifest_preserves_permissions("packages/swift/Package.swift", mode, false);
     }
 }
 
@@ -346,6 +371,22 @@ fn existing_dev_manifest_preserves_permissions_and_reaches_fixed_point() {
 #[test]
 fn existing_distribution_manifest_preserves_permissions_and_reaches_fixed_point() {
     for mode in [0o640, 0o644] {
-        existing_manifest_preserves_permissions("Package.swift", mode);
+        existing_manifest_preserves_permissions("Package.swift", mode, false);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn combined_legacy_manifests_preserve_mode_0640() {
+    for relative in ["Package.swift", "packages/swift/Package.swift"] {
+        existing_manifest_preserves_permissions(relative, 0o640, true);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn combined_legacy_manifests_preserve_mode_0644() {
+    for relative in ["Package.swift", "packages/swift/Package.swift"] {
+        existing_manifest_preserves_permissions(relative, 0o644, true);
     }
 }
