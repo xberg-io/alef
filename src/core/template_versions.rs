@@ -641,7 +641,7 @@ pub mod cran {
 }
 
 pub mod precommit {
-    pub const ALEF_REV: &str = "v0.115.14";
+    pub const ALEF_REV: &str = "v0.115.15";
 
     /// Codegen format version — bumped only when output-affecting codegen
     /// changes require all generated files to be re-stamped. Unlike
