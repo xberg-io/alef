@@ -1,0 +1,49 @@
+impl DirectText {
+    // The non-Default serde type has no public bridge constructor; exercise its
+    // internal field emitter without changing the supported constructor surface. ~keep
+    fn probe_direct_field_inits(
+        text: String,
+        optional_text: Option<String>,
+        json: String,
+        optional_json: Option<String>,
+        path: String,
+        optional_path: Option<String>,
+        projected: String,
+        optional_projected: Option<String>,
+    ) -> Self {
+        Self(sample_core::DirectText {
+            __DIRECT_FIELD_INITS__
+        })
+    }
+}
+
+fn construct(kind: &str, input: Option<&str>) -> serde_json::Value {
+    let text = input.unwrap_or_default().to_string();
+    let optional_text = input.map(str::to_string);
+    let json = r#"{"kind":"literal","text":"null"}"#.to_string();
+    let path = "samples/界.txt".to_string();
+    let projected = r#"{"marker":"projection"}"#.to_string();
+    match kind {
+        "default" => serde_json::to_value(DefaultText::new(
+            text, optional_text, json.clone(), Some(json), path.clone(), Some(path),
+            projected.clone(), Some(projected),
+        ).0).unwrap(),
+        "internal_direct_field_inits" => serde_json::to_value(DirectText::probe_direct_field_inits(
+            text, optional_text, json.clone(), Some(json), path.clone(), Some(path),
+            projected.clone(), Some(projected),
+        ).0).unwrap(),
+        other => panic!("unknown constructor: {other}"),
+    }
+}
+
+fn main() {
+    let kind = std::env::args().nth(1).expect("constructor selection");
+    let cases = [
+        None, Some(""), Some("ordinary text"), Some("null"), Some("true"), Some("false"),
+        Some("123"), Some(r#""quoted""#), Some(r#"{"key":"value"}"#), Some("[]"),
+        Some("עברית e\u{301} 界 🦀"), Some("before\0after"), Some(r#""\u0061""#),
+        Some("line\nback\\slash"),
+    ];
+    let rows: Vec<_> = cases.into_iter().map(|input| construct(&kind, input)).collect();
+    println!("{}", serde_json::to_string(&rows).unwrap());
+}
