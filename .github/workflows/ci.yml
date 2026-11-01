@@ -146,7 +146,7 @@ jobs:
         if: runner.os != 'Windows'
         uses: Goldziher/poly@v0
         with:
-          version: v0.31.2
+          version: v0.32.1
       # Matches `template_versions::toolchain::JAVA_JVM_TARGET`: alef's generated Java service
       # bindings use the `java.lang.foreign` FFM API, stable only from JDK 22. This JDK is also
       # `javac`, the oracle `ALEF_REQUIRE_JAVAC` below requires. ~keep
@@ -195,7 +195,7 @@ jobs:
         if: runner.os == 'Windows'
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.4.12"
+          ruby-version: "4.0.9"
       - name: Install Steep for generated Ruby signature regression
         if: runner.os != 'Windows'
         run: gem install steep --version 2.1.0 --no-document
@@ -373,7 +373,7 @@ jobs:
         # `tests/ci_poly_pin_gate.rs` enforces both. ~keep
         uses: Goldziher/poly@v0
         with:
-          version: v0.31.2
+          version: v0.32.1
       # Both tools must be present *before* the lanes run. The lanes fail on a missing
       # tool rather than skipping, so this step exists to fail earlier and more legibly,
       # not to decide whether the gate runs. The poly assertions are deliberately strict
@@ -389,8 +389,8 @@ jobs:
           cargo sort --version
 
           installed_poly_version="$(poly --version | awk '{print $2}')"
-          if [ "$installed_poly_version" != "0.31.2" ]; then
-            echo "::error::expected poly 0.31.2 (pinned for the poly.toml added-large-files hook), got ${installed_poly_version:-<empty>}. Update the Goldziher/poly version: input above together with this check." >&2
+          if [ "$installed_poly_version" != "0.32.1" ]; then
+            echo "::error::expected poly 0.32.1 (pinned for the poly.toml added-large-files hook), got ${installed_poly_version:-<empty>}. Update the Goldziher/poly version: input above together with this check." >&2
             exit 1
           fi
           echo "poly ${installed_poly_version} matches the pinned version."
