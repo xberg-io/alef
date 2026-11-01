@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- napi: route an adjacently tagged enum (`#[serde(tag, content)]`) with two or more data variants
+  through the `serde_json::Value` passthrough wrapper. Every variant writes its payload under the
+  same content key, so the flat `#[napi(object)]` struct declared that field once per variant at
+  different types (E0124). The `.d.ts` keeps the per-variant discriminated union. (#790)
+
 ## [0.115.14] - 2026-11-01
 
 ### Fixed

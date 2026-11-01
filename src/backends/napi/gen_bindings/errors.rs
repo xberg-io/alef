@@ -394,6 +394,18 @@ pub(super) fn gen_dts(
                             .into_iter()
                             .map(|member| format!("  | {member}")),
                     );
+                } else if enums::is_adjacent_content_collision_enum(e) {
+                    // Routed through JSON passthrough like the untagged case: the shared content
+                    // key carries a different payload per variant, so there is no nominal napi
+                    // struct. `WireTypes` already derives the exact
+                    // `{ tag: '...', content: Payload }` member per variant. (~keep)
+                    lines.push(format!("export type {ts_name} ="));
+                    lines.extend(
+                        wire_types_camel
+                            .enum_members(e)
+                            .into_iter()
+                            .map(|member| format!("  | {member}")),
+                    );
                 } else if enums::is_fully_flattened_internal_enum(e, &api.types) {
                     // Routed through JSON passthrough (`gen_untagged_data_enum_as_value_wrapper`):
                     // every data-carrying variant's payload flattens onto the tag object, so there
