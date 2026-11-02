@@ -7,12 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Python 3.11 is now the minimum supported version; Python 3.10 reached end of life.
+
 ### Fixed
 
-- Resolve crate-local Result error aliases before lowering APIs, preserving source-order independence,
-  module-specific and foreign errors, reexports and crate isolation. Scan private alias metadata
-  without exposing private APIs, preserve foreign identities through import chains, and keep
-  test-only hint setup out of normal generator builds. (#813)
+- Resolve forward-declared Result aliases before lowering APIs, preserving private-module and foreign
+  import scopes, reexports and crate isolation. (#813)
+- Qualify the strict Swift consumer against its corrected macOS 14 native deployment requirement. (#772, #774, #779)
 
 ## [0.116.0] - 2026-11-02
 

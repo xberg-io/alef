@@ -25,11 +25,11 @@ pub const PYO3_EXTENSION_MODULE_FEATURE: &str = "extension-module";
 ///
 /// `pyo3/extension-module` is what stops pyo3's build script from linking libpython
 /// (`pyo3_build_config::is_linking_libpython_for_target` returns true for *every* target when the
-/// feature is off) and, on Darwin, what adds `-undefined dynamic_lookup`. `pyo3/abi3-py310` is
-/// what makes the artifact stable-ABI, so one wheel per platform covers Python 3.10+. Neither is
+/// feature is off) and, on Darwin, what adds `-undefined dynamic_lookup`. `pyo3/abi3-py311` is
+/// what makes the artifact stable-ABI, so one wheel per platform covers Python 3.11+. Neither is
 /// on by default, so a build that omits the feature silently produces a libpython-linked,
 /// version-locked module wherever the link happens to succeed. ~keep
-pub const PYO3_EXTENSION_MODULE_PYO3_FEATURES: &[&str] = &["pyo3/extension-module", "pyo3/abi3-py310"];
+pub const PYO3_EXTENSION_MODULE_PYO3_FEATURES: &[&str] = &["pyo3/extension-module", "pyo3/abi3-py311"];
 
 /// The `[features]` line `scaffold::languages::python` emits into the binding crate's
 /// `Cargo.toml`, rendered from the two constants above so the declared feature and the flag the
@@ -174,7 +174,7 @@ mod tests {
     fn feature_line_matches_the_flag_the_build_passes() {
         assert_eq!(
             extension_module_feature_line(),
-            "extension-module = [\"pyo3/extension-module\", \"pyo3/abi3-py310\"]"
+            "extension-module = [\"pyo3/extension-module\", \"pyo3/abi3-py311\"]"
         );
         assert!(extension_module_feature_line().starts_with(PYO3_EXTENSION_MODULE_FEATURE));
     }
