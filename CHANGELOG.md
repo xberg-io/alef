@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Split documentation formatting and snippet validation helpers, remove 13 resolved quality
-  exemptions, and retain a 60-case enum documentation byte-comparison harness. (#338)
+  exemptions, and retain a 60-case enum documentation byte-comparison harness that resolves
+  evidence paths from both main and worktree checkouts. (#338)
 
 ## [0.115.15] - 2026-11-02
 

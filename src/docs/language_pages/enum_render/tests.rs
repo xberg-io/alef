@@ -113,13 +113,7 @@ fn baseline_directory() -> PathBuf {
         directory.components().all(|part| !matches!(part, Component::ParentDir)),
         "parent traversal is forbidden"
     );
-    let reports = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .canonicalize()
-        .expect("resolve polyrepo root")
-        .join("reports")
-        .canonicalize()
-        .expect("resolve task-local reports directory");
+    let reports = reports_directory(Path::new(env!("CARGO_MANIFEST_DIR")));
     let parent = directory.parent().expect("capture directory has a parent");
     assert_eq!(parent.canonicalize().expect("resolve capture parent"), reports);
     let name = directory
@@ -135,6 +129,33 @@ fn baseline_directory() -> PathBuf {
         );
     }
     directory
+}
+
+fn reports_directory(checkout: &Path) -> PathBuf {
+    let checkout = checkout.canonicalize().expect("resolve repository checkout");
+    let repository_parent = checkout.parent().expect("checkout has a parent");
+    let root = match repository_parent.parent() {
+        Some(worktrees) if worktrees.file_name().is_some_and(|name| name == ".worktrees") => {
+            worktrees.parent().expect("worktrees have a polyrepo parent")
+        }
+        _ => repository_parent,
+    };
+    root.join("reports")
+        .canonicalize()
+        .expect("resolve task-local reports directory")
+}
+
+#[test]
+fn enum_evidence_directory_resolves_for_main_and_worktree_checkouts() {
+    let directory = tempfile::tempdir().expect("layout fixture");
+    let reports = directory.path().join("reports");
+    fs::create_dir(&reports).expect("reports directory");
+    let expected = reports.canonicalize().expect("canonical reports directory");
+    for relative in ["alef", ".worktrees/alef/enum-render"] {
+        let checkout = directory.path().join(relative);
+        fs::create_dir_all(&checkout).expect("checkout layout");
+        assert_eq!(reports_directory(&checkout), expected, "{relative}");
+    }
 }
 
 fn rendered_cases() -> Vec<RenderedCase> {
