@@ -428,10 +428,9 @@ requires = [ "{maturin_build_requires}" ]
 name = "{pip_name}"
 version = "{version}"
 description = "{description}"
-{keywords}{license_toml}{authors}requires-python = ">=3.10"
+{keywords}{license_toml}{authors}requires-python = ">=3.11"
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
@@ -445,13 +444,13 @@ dev = {dev_group}
 profile = "release"
 module-name = "{python_package}.{module_name}"
 manifest-path = "../../crates/{crate_dir}-py/Cargo.toml"
-# abi3-py310 produces a single wheel per platform that loads on Python 3.10+,
+# abi3-py311 produces a single wheel per platform that loads on Python 3.11+,
 # avoiding a per-Python-version build matrix.
 features = {maturin_features}
 python-packages = [ "{python_package}" ]
 {sdist_include}
 [tool.pyrefly]
-python-version = "3.10"
+python-version = "3.11"
 preset = "strict"
 # `bad-return` and `bad-argument-type` used to be suppressed here for every generated
 # `api.py`: the wrapper's declared type (an `options.*` dataclass) and the value pyo3
@@ -489,7 +488,7 @@ preset = "strict"
 # The two alternatives were both measured and both rejected. Marking the helper
 # `closed=True` silences it, but `closed` is a `TypeError` on `typing.TypedDict` through
 # Python 3.14 (PEP 728 lands in the 3.15 stdlib), so it forces a `typing-extensions` RUNTIME
-# dependency into every published wheel at `requires-python = ">=3.10"`. Returning a plain
+# dependency into every published wheel at `requires-python = ">=3.11"`. Returning a plain
 # `dict[str, V]` instead needs no dependency and is clean when every unpacked value in one
 # constructor call has the SAME type -- but pyrefly resolves an unpacked `dict[str, V]`
 # against every remaining parameter, so a call with heterogeneous value types (the shape
@@ -762,7 +761,7 @@ sources = []
              passes --features): {default_line}"
         );
         assert!(
-            cargo_toml.contains(r#"extension-module = ["pyo3/extension-module", "pyo3/abi3-py310"]"#),
+            cargo_toml.contains(r#"extension-module = ["pyo3/extension-module", "pyo3/abi3-py311"]"#),
             "the pre-existing extension-module feature must be preserved:\n{cargo_toml}"
         );
     }
