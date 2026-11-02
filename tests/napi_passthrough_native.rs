@@ -5,7 +5,7 @@ use alef::backends::napi::NapiBackend;
 use alef::core::backend::Backend;
 use alef::core::config::{Language, NewAlefConfig};
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
 
 const CORE: &str = include_str!("fixtures/napi_passthrough/core.rs.txt");
 
@@ -39,7 +39,7 @@ fn generate(root: &Path, api: &alef::core::ir::ApiSurface) {
     )
     .expect("configuration");
     let mut config = raw.resolve().expect("resolved configuration").remove(0);
-    config.sources = vec![root.join("crates/sample-core/src/lib.rs")];
+    config.workspace_root = Some(root.to_path_buf());
     config
         .output_paths
         .insert("node".into(), root.join("crates/sample-core-node/src"));

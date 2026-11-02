@@ -59,7 +59,7 @@ fn prepare(root: &Path) {
     )
     .expect("configuration");
     let mut config = raw.resolve().expect("resolved configuration").remove(0);
-    config.sources = vec![source];
+    config.workspace_root = Some(root.to_path_buf());
     config
         .output_paths
         .insert("node".into(), root.join("crates/sample-core-node/src"));
@@ -84,6 +84,30 @@ fn prepare(root: &Path) {
     );
     let tasks = mise_task::fixture_config_with_tools("[tasks.build]\nrun='cargo build --jobs 2'\n", &["node"]);
     write(root, Path::new("crates/sample-core-node/mise.toml"), &tasks);
+    verify_core_dependency(root);
+}
+
+fn verify_core_dependency(root: &Path) {
+    let binding = root.join("crates/sample-core-node");
+    let manifest: toml::Value =
+        toml::from_str(&std::fs::read_to_string(binding.join("Cargo.toml")).expect("generated native manifest"))
+            .expect("valid generated manifest");
+    let dependency = manifest["dependencies"]["sample-core"]["path"]
+        .as_str()
+        .expect("generated core dependency");
+    assert_eq!(
+        binding
+            .join(dependency)
+            .canonicalize()
+            .expect("existing core dependency"),
+        root.join("crates/sample-core").canonicalize().expect("fixture core"),
+    );
+}
+
+#[test]
+fn scaffolded_function_fixture_references_its_real_core() {
+    let directory = tempfile::tempdir().expect("scaffold fixture");
+    prepare(directory.path());
 }
 
 fn assert_success(output: &Output) {

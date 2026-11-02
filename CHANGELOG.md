@@ -29,6 +29,8 @@ Migration details and remaining platform qualification are recorded in
 
 ### Fixed
 
+- Resolve native NAPI fixture dependencies from project-relative core sources and verify both
+  scaffolded fixture manifests reference their actual core directories.
 - Preserve owned locals while borrowing optional NAPI enum inputs, and retain core-type context
   and serde details in catchable input errors. (#796)
 - Propagate malformed NAPI input through nested structs, enum variants, containers, constructors,

@@ -133,7 +133,6 @@ fn write_inputs(root: &Path, source: &str) -> ResolvedCrateConfig {
     let raw: NewAlefConfig = toml::from_str(text).unwrap();
     let mut config = raw.resolve().unwrap().remove(0);
     config.workspace_root = Some(root.to_path_buf());
-    config.sources = vec![root.join("crates/wrapper-core/src/lib.rs")];
     config
         .output_paths
         .insert("node".into(), root.join("crates/wrapper-core-node/src"));
