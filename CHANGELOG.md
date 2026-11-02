@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Qualify generated Python E2E calls through their language-specific callable resolver.
+
 ## [0.117.0] - 2026-11-02
 
 ### Changed (BREAKING)

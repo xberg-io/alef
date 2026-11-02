@@ -40,7 +40,15 @@ version = "1.2.3"
             .as_deref(),
         Some("_sample")
     );
-    assert_eq!(config.e2e.as_ref().expect("E2E configuration").call.function, "ping");
+    assert_eq!(
+        config
+            .e2e
+            .as_ref()
+            .expect("E2E configuration")
+            .call
+            .effective_function("python"),
+        Some("ping")
+    );
     config
 }
 
