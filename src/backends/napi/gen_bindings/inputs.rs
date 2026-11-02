@@ -5,8 +5,38 @@ use crate::core::ir::{ParamDef, TypeRef};
 use quote::ToTokens;
 use syn::parse::Parser;
 
+#[cfg(test)]
+mod tests;
+
 pub(in crate::backends::napi) const INVALID_ARG: &str =
-    ".map_err(|error| napi::Error::new(napi::Status::InvalidArg, error.to_string()))";
+    ".map_err(|error| napi::Error::new(napi::Status::InvalidArg, format!(\"invalid JSON input: {error}\")))";
+
+pub(super) fn invalid_arg(core: &str) -> String {
+    let message = format!("invalid JSON for {core}: {{error}}");
+    format!(".map_err(|error| napi::Error::new(napi::Status::InvalidArg, format!({message:?})))")
+}
+
+fn binding_identifier(local: &syn::Local) -> Option<&syn::Ident> {
+    let pattern = match &local.pat {
+        syn::Pat::Type(typed) => typed.pat.as_ref(),
+        other => other,
+    };
+    match pattern {
+        syn::Pat::Ident(ident) => Some(&ident.ident),
+        _ => None,
+    }
+}
+
+fn input_binding_name(block: &syn::Block, parameter: &ParamDef) -> String {
+    let owned = format!("{}_owned", parameter.name);
+    if block.stmts.iter().any(|statement| {
+        matches!(statement, syn::Stmt::Local(local) if binding_identifier(local).is_some_and(|name| name == &owned))
+    }) {
+        owned
+    } else {
+        format!("{}_core", parameter.name)
+    }
+}
 
 pub(in crate::backends::napi) fn has_inputs(context: Option<&ContainerContext>, params: &[ParamDef]) -> bool {
     context.is_some_and(|context| params.iter().any(|parameter| context.is_fallible(&parameter.ty)))
@@ -28,7 +58,7 @@ pub(in crate::backends::napi) fn prepare_bindings(
         if !context.is_fallible(&parameter.ty) {
             continue;
         }
-        let name = format!("{}_core", parameter.name);
+        let name = input_binding_name(&block, parameter);
         let optional_default = declared.optional && !parameter.optional && !required_unwrapped;
         let expression = context.input_expression(parameter, optional_default);
         let mut found = false;
@@ -36,11 +66,7 @@ pub(in crate::backends::napi) fn prepare_bindings(
             let syn::Stmt::Local(local) = statement else {
                 continue;
             };
-            let pattern = match &local.pat {
-                syn::Pat::Type(typed) => typed.pat.as_ref(),
-                other => other,
-            };
-            if matches!(pattern, syn::Pat::Ident(ident) if ident.ident == name) {
+            if binding_identifier(local).is_some_and(|identifier| identifier == &name) {
                 assert!(!found, "duplicate generated input binding {name}");
                 *local.init.as_mut().expect("input binding must have a value").expr =
                     syn::parse_str(&expression).expect("fallible input expression must parse");
@@ -118,9 +144,10 @@ pub(in crate::backends::napi) fn binding_type(context: Option<&ContainerContext>
 }
 
 pub(super) fn serde_try_from_impl(binding: &str, core: &str, expression: &str) -> String {
+    let error = invalid_arg(core);
     format!(
         "impl TryFrom<{binding}> for {core} {{\n    type Error = serde_json::Error;\n    fn try_from(val: {binding}) -> std::result::Result<Self, Self::Error> {{\n        {expression}\n    }}\n}}\n\
-         impl {binding} {{\n    fn try_into_core(self) -> napi::Result<{core}> {{\n        <{core} as TryFrom<Self>>::try_from(self).map_err(|error| napi::Error::new(napi::Status::InvalidArg, error.to_string()))\n    }}\n}}\n"
+         impl {binding} {{\n    fn try_into_core(self) -> napi::Result<{core}> {{\n        <{core} as TryFrom<Self>>::try_from(self){error}\n    }}\n}}\n"
     )
 }
 

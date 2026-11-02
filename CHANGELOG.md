@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve owned locals while borrowing optional NAPI enum inputs, and retain core-type context
+  and serde details in catchable input errors. (#796)
 - Propagate malformed NAPI input through nested structs, enum variants, containers, constructors,
   methods and callbacks without panicking or substituting defaults; encode enum map keys with their
   serde names and preserve structured JSON in optional containers. (#796, #797, #798)

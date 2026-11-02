@@ -139,8 +139,20 @@ impl ContainerContext {
         };
         format!(
             "(|| -> std::result::Result<_, serde_json::Error> {{ Ok({converted}) }})(){}?",
-            super::inputs::INVALID_ARG
+            super::inputs::invalid_arg(&self.input_error_context(&parameter.ty))
         )
+    }
+
+    fn input_error_context(&self, ty: &TypeRef) -> String {
+        match ty {
+            TypeRef::Named(name) => self.type_paths.get(name).unwrap_or(name).clone(),
+            TypeRef::Optional(inner) | TypeRef::Vec(inner) => self.input_error_context(inner),
+            TypeRef::Map(key, _) if matches!(key.as_ref(), TypeRef::Named(name) if self.enum_keys.contains_key(name)) => {
+                self.input_error_context(key)
+            }
+            TypeRef::Map(_, value) => self.input_error_context(value),
+            _ => "input value".into(),
+        }
     }
 
     pub(super) fn binding_enum(&self, definition: &crate::core::ir::EnumDef) -> crate::core::ir::EnumDef {
