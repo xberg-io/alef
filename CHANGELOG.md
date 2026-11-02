@@ -9,8 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Python 3.11 is now the minimum supported version; Python 3.10 reached end of life.
 - Record a [full-corpus snippet metadata benchmark](docs/benchmarks/snippet-metadata-cache.md) with equivalent
   verification outcomes, actual construction counts and a stale-content negative control. (#753)
+
+### Fixed
+
+- Qualify the strict Swift consumer against its corrected macOS 14 native deployment requirement. (#772, #774, #779)
 
 ## [0.116.0] - 2026-11-02
 
