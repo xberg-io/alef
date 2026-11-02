@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Resolve forward-declared Result aliases before lowering APIs, preserving private modules, foreign
   imports, qualified aliases and glob namespaces without borrowing unrelated errors. Retain explicit
-  declaration/import precedence, reexports and crate isolation. (#813)
+  declaration/import precedence, restricted binding visibility, module-import renames and crate isolation. (#813)
 - Qualify the strict Swift consumer against its corrected macOS 14 native deployment requirement. (#772, #774, #779)
 
 ## [0.116.0] - 2026-11-02

@@ -1,5 +1,5 @@
 use crate::core::ir::{PrimitiveType, TypeRef};
-use crate::extract::extractor::helpers::result_alias_scope::scope_for_result_type_path;
+use crate::extract::extractor::helpers::result_alias_scope::{resolve_result_module_scope, scope_for_result_type_path};
 use std::cell::RefCell;
 
 /// Which `Result` type alias the module currently being extracted resolves `Result` to.
@@ -12,20 +12,19 @@ pub enum ResultAliasScope {
     Foreign,
 }
 
-/// Foreign aliases retain their identity even when they carry no local error name.
-#[derive(Clone)]
+/// Alias identities and module prefixes needed to resolve a Result name.
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) enum ResultAliasHint {
     Error(String),
     Foreign,
+    /// Forward an imported module prefix without making it a canonical error hint.
+    Module(ResultAliasScope),
 }
 
 thread_local! {
-    /// Thread-local storage for Result type alias error hints.
-    ///
-    /// Maps the module path a `Result` alias is *declared* in (`""` = crate root) to the error
-    /// type it carries (e.g. `"SampleCrateError"`). Keying by declaring module — rather than by
-    /// the alias name — is what keeps a module-private `Result` (a format-specific `error.rs`,
-    /// say) from overwriting the crate's canonical alias. ~keep
+    /// Result identities and imported-module forwarding paths for this extraction.
+    /// Module forwarding never participates in canonical error fallback, and declaring
+    /// namespaces keep subsystem aliases distinct. ~keep
     static RESULT_ERROR_HINTS: RefCell<ahash::AHashMap<String, ResultAliasHint>> = RefCell::new(ahash::AHashMap::new());
 
     /// The `Result` alias in scope for the module whose items are being extracted right now.
@@ -46,16 +45,6 @@ pub fn reset_result_error_hints() {
     RESULT_ALIAS_SCOPE.with(|s| {
         *s.borrow_mut() = None;
     });
-}
-
-/// Record the error type of a `Result` alias declared in `module_path`.
-///
-/// Extraction walks one file at a time, but a crate's `Result` alias is declared in one module
-/// (`error.rs`) and used from others (`convert_api.rs`). Replacing the map per file would drop the
-/// alias before the functions that return it are resolved, so hints must accumulate. ~keep
-#[cfg(test)]
-pub fn record_result_error_hint(module_path: &str, error_type: String) {
-    record_result_alias_hint(module_path, ResultAliasHint::Error(error_type));
 }
 
 pub(crate) fn record_result_alias_hint(module_path: &str, hint: ResultAliasHint) {
@@ -90,7 +79,7 @@ fn canonical_result_error_hint() -> Option<String> {
             .iter()
             .filter_map(|(module, hint)| match hint {
                 ResultAliasHint::Error(error_type) => Some((module, error_type)),
-                ResultAliasHint::Foreign => None,
+                ResultAliasHint::Foreign | ResultAliasHint::Module(_) => None,
             })
             .min_by(|(left, _), (right, _)| {
                 module_depth(left.as_str())
@@ -110,12 +99,20 @@ fn get_result_error_hint() -> Option<String> {
 fn hint_for_scope(scope: Option<ResultAliasScope>) -> Option<String> {
     match scope {
         Some(ResultAliasScope::Foreign) => None,
-        Some(ResultAliasScope::Crate(module_path)) => {
-            match RESULT_ERROR_HINTS.with(|hints| hints.borrow().get(&module_path).cloned()) {
-                Some(ResultAliasHint::Error(error_type)) => Some(error_type),
-                Some(ResultAliasHint::Foreign) | None => None,
+        Some(scope @ ResultAliasScope::Crate(_)) => RESULT_ERROR_HINTS.with(|hints| {
+            let hints = hints.borrow();
+            let scope = resolve_result_module_scope(&scope, |prefix| match hints.get(prefix) {
+                Some(ResultAliasHint::Module(target)) => Some(target.clone()),
+                _ => None,
+            });
+            match scope {
+                ResultAliasScope::Foreign => None,
+                ResultAliasScope::Crate(module_path) => match hints.get(&module_path) {
+                    Some(ResultAliasHint::Error(error_type)) => Some(error_type.clone()),
+                    Some(ResultAliasHint::Foreign | ResultAliasHint::Module(_)) | None => None,
+                },
             }
-        }
+        }),
         None => canonical_result_error_hint(),
     }
 }
@@ -563,6 +560,10 @@ pub fn unwrap_result_type(ty: &syn::Type) -> Option<&syn::Type> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn record_result_error_hint(module_path: &str, error_type: String) {
+        record_result_alias_hint(module_path, ResultAliasHint::Error(error_type));
+    }
 
     fn parse_type(s: &str) -> syn::Type {
         syn::parse_str(s).unwrap()

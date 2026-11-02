@@ -396,3 +396,187 @@ fn absolute_foreign_imports_ignore_same_named_local_modules() {
         assert_error(&surface, "foreign", "anyhow::Error");
     }
 }
+
+#[test]
+fn sibling_globs_do_not_import_private_result_aliases() {
+    let source = r#"
+        pub struct PublicError;
+        pub mod hidden { pub struct HiddenError; type Result<T> = std::result::Result<T, HiddenError>; }
+        pub mod visible { pub type Result<T> = std::result::Result<T, crate::PublicError>; }
+        pub mod api {
+            use crate::hidden::*;
+            use crate::visible::*;
+            pub fn run() -> Result<()> { unimplemented!() }
+        }
+    "#;
+    let surface = extract_files(&[("lib.rs", source)], &["lib.rs"]);
+    assert_eq!(surface.functions.len(), 1);
+    assert_error(&surface, "run", "crate::PublicError");
+}
+
+#[test]
+fn descendants_can_glob_import_their_parents_private_result_alias() {
+    let source = r#"
+        pub struct RootError;
+        pub type Result<T> = std::result::Result<T, RootError>;
+        pub mod parent {
+            pub struct Selected;
+            type Result<T> = std::result::Result<T, Selected>;
+            pub mod child { use super::*; pub fn run() -> Result<()> { unimplemented!() } }
+        }
+    "#;
+    let surface = extract_files(&[("lib.rs", source)], &["lib.rs"]);
+    assert_eq!(surface.functions.len(), 1);
+    assert_error(&surface, "run", "Selected");
+}
+
+#[test]
+fn restricted_result_alias_visibility_allows_only_the_declared_scope() {
+    for visibility in ["pub(crate)", "pub(super)", "pub(in crate::outer)"] {
+        let source = format!(
+            r#"
+            pub struct RootError;
+            pub type Result<T> = std::result::Result<T, RootError>;
+            pub mod outer {{
+                pub struct Selected;
+                pub mod source {{ {visibility} type Result<T> = std::result::Result<T, crate::outer::Selected>; }}
+                pub mod api {{ use super::source::*; pub fn run() -> Result<()> {{ unimplemented!() }} }}
+            }}
+            "#
+        );
+        let surface = extract_files(&[("lib.rs", &source)], &["lib.rs"]);
+        assert_eq!(surface.functions.len(), 1);
+        assert_error(&surface, "run", "crate::outer::Selected");
+    }
+}
+
+#[test]
+fn restricted_result_aliases_are_not_imported_outside_their_scope() {
+    for visibility in ["", "pub(self)", "pub(super)", "pub(in crate::outer)"] {
+        let source = format!(
+            r#"
+            pub struct PublicError;
+            pub mod outer {{
+                pub struct Hidden;
+                pub mod source {{ {visibility} type Result<T> = std::result::Result<T, crate::outer::Hidden>; }}
+            }}
+            pub mod visible {{ pub type Result<T> = std::result::Result<T, crate::PublicError>; }}
+            pub mod api {{
+                use crate::outer::source::*;
+                use crate::visible::*;
+                pub fn run() -> Result<()> {{ unimplemented!() }}
+            }}
+            "#
+        );
+        let surface = extract_files(&[("lib.rs", &source)], &["lib.rs"]);
+        assert_eq!(surface.functions.len(), 1);
+        assert_error(&surface, "run", "crate::PublicError");
+    }
+}
+
+#[test]
+fn result_reexports_respect_the_bridge_import_visibility() {
+    for target in ["Result", "*"] {
+        for (visibility, extra_import, expected) in [
+            ("", "use crate::visible::*;", "crate::PublicError"),
+            ("pub", "", "Selected"),
+            ("pub(crate)", "", "Selected"),
+            ("pub(super)", "", "Selected"),
+        ] {
+            let source = format!(
+                r#"
+                pub struct PublicError;
+                pub mod source {{ pub struct Selected; pub type Result<T> = std::result::Result<T, Selected>; }}
+                pub mod visible {{ pub type Result<T> = std::result::Result<T, crate::PublicError>; }}
+                pub mod bridge {{ {visibility} use crate::source::{target}; }}
+                pub mod api {{ use crate::bridge::*; {extra_import} pub fn run() -> Result<()> {{ unimplemented!() }} }}
+                "#
+            );
+            let surface = extract_files(&[("lib.rs", &source)], &["lib.rs"]);
+            assert_eq!(surface.functions.len(), 1);
+            assert_error(&surface, "run", expected);
+        }
+    }
+}
+
+#[test]
+fn public_globs_do_not_widen_a_parent_private_result_alias() {
+    let source = r#"
+        pub struct PublicError;
+        pub mod parent {
+            pub struct Hidden;
+            type Result<T> = std::result::Result<T, Hidden>;
+            pub mod bridge { pub use super::*; pub fn inside() -> Result<()> { unimplemented!() } }
+        }
+        pub mod visible { pub type Result<T> = std::result::Result<T, crate::PublicError>; }
+        pub mod api {
+            use crate::parent::bridge::*;
+            use crate::visible::*;
+            pub fn outside() -> Result<()> { unimplemented!() }
+        }
+    "#;
+    let surface = extract_files(&[("lib.rs", source)], &["lib.rs"]);
+    assert_eq!(surface.functions.len(), 2);
+    assert_error(&surface, "inside", "Hidden");
+    assert_error(&surface, "outside", "crate::PublicError");
+}
+
+#[test]
+fn module_import_aliases_resolve_result_rhs_independently_of_import_order() {
+    for imports in [
+        "use crate::error as errors;",
+        "use first as errors; use crate::error as first;",
+        "pub use crate::error as errors;",
+        "use crate::error::{self as errors};",
+        "use crate::{error as errors};",
+    ] {
+        let source = format!(
+            r#"
+            pub mod error {{ pub struct Selected; pub type Result<T> = std::result::Result<T, Selected>; }}
+            {imports}
+            pub type Result<T> = errors::Result<T>;
+            pub fn run() -> Result<()> {{ unimplemented!() }}
+            "#
+        );
+        let surface = extract_files(&[("lib.rs", &source)], &["lib.rs"]);
+        assert_eq!(surface.functions.len(), 1);
+        assert_error(&surface, "run", "Selected");
+    }
+}
+
+#[test]
+fn public_module_aliases_work_in_qualified_returns_and_glob_imports() {
+    let source = r#"
+        pub struct RootError;
+        pub type Result<T> = std::result::Result<T, RootError>;
+        pub mod error { pub struct Selected; pub type Result<T> = std::result::Result<T, Selected>; }
+        pub mod outer {
+            pub use crate::error as renamed;
+            pub mod api {
+                use super::renamed::*;
+                pub fn globbed() -> Result<()> { unimplemented!() }
+                pub fn qualified() -> crate::outer::renamed::Result<()> { unimplemented!() }
+            }
+        }
+    "#;
+    let surface = extract_files(&[("lib.rs", source)], &["lib.rs"]);
+    assert_eq!(surface.functions.len(), 2);
+    assert_error(&surface, "globbed", "Selected");
+    assert_error(&surface, "qualified", "Selected");
+}
+
+#[test]
+fn foreign_module_alias_globs_do_not_preempt_a_known_local_result() {
+    let source = format!(
+        r#"{GLOB_ALIASES}
+        use std::collections as collections;
+        pub mod api {{
+            use super::collections::*;
+            use crate::chosen::*;
+            pub fn run() -> Result<()> {{ unimplemented!() }}
+        }}"#
+    );
+    let surface = extract_files(&[("lib.rs", &source)], &["lib.rs"]);
+    assert_eq!(surface.functions.len(), 1);
+    assert_error(&surface, "run", "Selected");
+}

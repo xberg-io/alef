@@ -5,17 +5,26 @@ use anyhow::{Context, Result};
 
 use super::helpers::is_test_gated;
 use super::helpers::result_alias_scope::{
-    collect_result_glob_scopes, resolve_named_result_alias_scope, result_alias_target_scope,
+    ResultAliasImport, collect_result_glob_scopes, collect_result_module_imports, resolve_named_result_alias_import,
+    resolve_result_module_scope, result_alias_target_scope, visibility_scope,
 };
 use super::paths::{derive_module_path, module_children_dir};
 use crate::extract::type_resolver::{self, ResultAliasHint, ResultAliasScope};
 
+#[derive(Clone, PartialEq, Eq)]
+struct AliasBinding {
+    hint: ResultAliasHint,
+    visible_from: String,
+}
+
 #[derive(Default)]
 struct AliasIndex {
-    declarations: AHashMap<String, ResultAliasHint>,
-    imports: AHashMap<String, ResultAliasScope>,
+    bindings: AHashMap<String, AliasBinding>,
+    alias_visibility: AHashMap<String, String>,
     alias_targets: AHashMap<String, ResultAliasScope>,
-    globs: AHashMap<String, Vec<ResultAliasScope>>,
+    imports: AHashMap<String, ResultAliasImport>,
+    globs: AHashMap<String, Vec<ResultAliasImport>>,
+    module_imports: AHashMap<String, ResultAliasScope>,
     visited: AHashSet<PathBuf>,
 }
 
@@ -58,27 +67,19 @@ impl AliasIndex {
         is_crate_root: bool,
         module_path: &str,
     ) -> Result<()> {
-        if let Some(scope) = resolve_named_result_alias_scope(items, module_path) {
-            self.imports.insert(module_path.to_string(), scope);
+        if let Some(import) = resolve_named_result_alias_import(items, module_path) {
+            self.imports.insert(module_path.to_string(), import);
         }
         let globs = collect_result_glob_scopes(items, module_path);
         if !globs.is_empty() {
             self.globs.insert(module_path.to_string(), globs);
         }
+        self.module_imports
+            .extend(collect_result_module_imports(items, module_path));
         for item in items {
             match item {
                 syn::Item::Type(alias) if alias.ident == "Result" && !is_test_gated(&alias.attrs) => {
-                    if let Some(error_type) =
-                        type_resolver::extract_result_error_type_from_alias(&alias.ty, &alias.generics)
-                    {
-                        self.declarations
-                            .insert(module_path.to_string(), ResultAliasHint::Error(error_type));
-                    } else if let Some(scope) = result_alias_target_scope(&alias.ty, items, module_path) {
-                        self.alias_targets.insert(module_path.to_string(), scope);
-                    } else {
-                        self.declarations
-                            .insert(module_path.to_string(), ResultAliasHint::Foreign);
-                    }
+                    self.collect_alias(alias, items, module_path);
                 }
                 // Private aliases can feed public signatures; item lowering still owns IR visibility.
                 syn::Item::Mod(module) if !is_test_gated(&module.attrs) => {
@@ -88,6 +89,23 @@ impl AliasIndex {
             }
         }
         Ok(())
+    }
+
+    fn collect_alias(&mut self, alias: &syn::ItemType, items: &[syn::Item], module_path: &str) {
+        let visible_from = visibility_scope(&alias.vis, module_path);
+        self.alias_visibility
+            .insert(module_path.to_string(), visible_from.clone());
+        let hint =
+            if let Some(error_type) = type_resolver::extract_result_error_type_from_alias(&alias.ty, &alias.generics) {
+                ResultAliasHint::Error(error_type)
+            } else if let Some(scope) = result_alias_target_scope(&alias.ty, items, module_path) {
+                self.alias_targets.insert(module_path.to_string(), scope);
+                return;
+            } else {
+                ResultAliasHint::Foreign
+            };
+        self.bindings
+            .insert(module_path.to_string(), AliasBinding { hint, visible_from });
     }
 
     fn collect_module(
@@ -118,87 +136,177 @@ impl AliasIndex {
         Ok(())
     }
 
-    fn resolve_alias_targets(&mut self) {
+    fn normalize_module_scopes(&mut self) {
+        let modules = &self.module_imports;
+        let normalize =
+            |scope: &ResultAliasScope| resolve_result_module_scope(scope, |prefix| modules.get(prefix).cloned());
+        for scope in self.alias_targets.values_mut() {
+            *scope = normalize(scope);
+        }
+        for import in self.imports.values_mut() {
+            import.scope = normalize(&import.scope);
+        }
+        for import in self.globs.values_mut().flatten() {
+            import.scope = normalize(&import.scope);
+        }
+    }
+
+    fn source_binding(&self, scope: &ResultAliasScope, destination: &str) -> Option<AliasBinding> {
+        match scope {
+            ResultAliasScope::Foreign => Some(AliasBinding {
+                hint: ResultAliasHint::Foreign,
+                visible_from: String::new(),
+            }),
+            ResultAliasScope::Crate(target) => self
+                .bindings
+                .get(target)
+                .filter(|binding| is_within(destination, &binding.visible_from))
+                .cloned(),
+        }
+    }
+
+    fn resolve_alias_targets(&mut self) -> bool {
+        let mut changed = false;
         for (module, scope) in &self.alias_targets {
-            if self.declarations.contains_key(module) {
+            if self.bindings.contains_key(module) {
                 continue;
             }
-            let hint = match scope {
-                ResultAliasScope::Foreign => Some(ResultAliasHint::Foreign),
-                ResultAliasScope::Crate(target) => self.declarations.get(target).cloned(),
-            };
-            if let Some(hint) = hint {
-                self.declarations.insert(module.clone(), hint);
+            if let Some(mut binding) = self.source_binding(scope, module) {
+                binding.visible_from = self.alias_visibility[module].clone();
+                changed |= update_binding(&mut self.bindings, module, binding);
             }
         }
+        changed
     }
 
-    fn resolve_named_imports(&mut self) {
-        for (module, scope) in &self.imports {
-            if self.declarations.contains_key(module) || self.alias_targets.contains_key(module) {
+    fn resolve_named_imports(&mut self) -> bool {
+        let mut changed = false;
+        for (module, import) in &self.imports {
+            if self.alias_visibility.contains_key(module) {
                 continue;
             }
-            let hint = match scope {
-                ResultAliasScope::Foreign => Some(ResultAliasHint::Foreign),
-                ResultAliasScope::Crate(target) => self.declarations.get(target).cloned(),
-            };
-            if let Some(hint) = hint {
-                self.declarations.insert(module.clone(), hint);
+            if let Some(mut binding) = self.source_binding(&import.scope, module) {
+                binding.visible_from = narrower_scope(&binding.visible_from, &import.visible_from);
+                changed |= update_binding(&mut self.bindings, module, binding);
             }
         }
+        changed
     }
 
-    fn resolve_known_globs(&mut self) {
-        for (module, scopes) in &self.globs {
-            if self.declarations.contains_key(module)
-                || self.imports.contains_key(module)
-                || self.alias_targets.contains_key(module)
-            {
+    fn resolve_known_globs(&mut self) -> bool {
+        let mut changed = false;
+        for (module, imports) in &self.globs {
+            if self.alias_visibility.contains_key(module) || self.imports.contains_key(module) {
                 continue;
             }
-            let hint = scopes.iter().find_map(|scope| match scope {
-                ResultAliasScope::Crate(target) => self.declarations.get(target).cloned(),
-                ResultAliasScope::Foreign => None,
-            });
-            if let Some(hint) = hint {
-                self.declarations.insert(module.clone(), hint);
+            let mut selected = self.bindings.get(module).cloned();
+            for import in imports {
+                if matches!(import.scope, ResultAliasScope::Foreign) {
+                    continue;
+                }
+                let Some(mut binding) = self.source_binding(&import.scope, module) else {
+                    continue;
+                };
+                binding.visible_from = narrower_scope(&binding.visible_from, &import.visible_from);
+                match &mut selected {
+                    Some(existing) if existing.hint == binding.hint => {
+                        existing.visible_from = broader_scope(&existing.visible_from, &binding.visible_from);
+                    }
+                    None => selected = Some(binding),
+                    _ => {}
+                }
+            }
+            if let Some(binding) = selected {
+                changed |= update_binding(&mut self.bindings, module, binding);
             }
         }
+        changed
     }
 
     fn resolve_known_bindings(&mut self) {
         loop {
-            let before = self.declarations.len();
-            self.resolve_alias_targets();
-            self.resolve_named_imports();
-            self.resolve_known_globs();
-            if self.declarations.len() == before {
+            let mut changed = self.resolve_alias_targets();
+            changed |= self.resolve_named_imports();
+            changed |= self.resolve_known_globs();
+            if !changed {
                 break;
             }
         }
     }
 
-    fn install(mut self) {
-        self.resolve_known_bindings();
-        // Foreign globs are opaque: first let known local paths establish which globs supply Result.
-        for (module, scopes) in &self.globs {
-            if !self.declarations.contains_key(module)
-                && !self.imports.contains_key(module)
-                && !self.alias_targets.contains_key(module)
-                && scopes.iter().any(|scope| matches!(scope, ResultAliasScope::Foreign))
+    fn install_foreign_glob_fallbacks(&mut self) {
+        for (module, imports) in &self.globs {
+            if self.bindings.contains_key(module)
+                || self.alias_visibility.contains_key(module)
+                || self.imports.contains_key(module)
             {
-                self.declarations.insert(module.clone(), ResultAliasHint::Foreign);
+                continue;
+            }
+            let visible_from = imports
+                .iter()
+                .filter(|import| matches!(import.scope, ResultAliasScope::Foreign))
+                .map(|import| import.visible_from.clone())
+                .reduce(|left, right| broader_scope(&left, &right));
+            if let Some(visible_from) = visible_from {
+                self.bindings.insert(
+                    module.clone(),
+                    AliasBinding {
+                        hint: ResultAliasHint::Foreign,
+                        visible_from,
+                    },
+                );
             }
         }
+    }
+
+    fn install(mut self) {
+        self.normalize_module_scopes();
+        self.resolve_known_bindings();
+        // Foreign globs are opaque: first let known local paths establish which globs supply Result.
+        self.install_foreign_glob_fallbacks();
         self.resolve_known_bindings();
         for module in self.alias_targets.keys() {
-            self.declarations
-                .entry(module.clone())
-                .or_insert(ResultAliasHint::Foreign);
+            self.bindings.entry(module.clone()).or_insert_with(|| AliasBinding {
+                hint: ResultAliasHint::Foreign,
+                visible_from: self.alias_visibility[module].clone(),
+            });
         }
         self.resolve_known_bindings();
-        for (module, hint) in self.declarations {
-            type_resolver::record_result_alias_hint(&module, hint);
+        for (module, target) in self.module_imports {
+            type_resolver::record_result_alias_hint(&module, ResultAliasHint::Module(target));
+        }
+        for (module, binding) in self.bindings {
+            type_resolver::record_result_alias_hint(&module, binding.hint);
         }
     }
+}
+
+fn is_within(module: &str, boundary: &str) -> bool {
+    boundary.is_empty()
+        || module == boundary
+        || module.strip_prefix(boundary).is_some_and(|tail| tail.starts_with("::"))
+}
+
+fn narrower_scope(left: &str, right: &str) -> String {
+    if is_within(left, right) {
+        left.to_string()
+    } else {
+        right.to_string()
+    }
+}
+
+fn broader_scope(left: &str, right: &str) -> String {
+    if is_within(left, right) {
+        right.to_string()
+    } else {
+        left.to_string()
+    }
+}
+
+fn update_binding(bindings: &mut AHashMap<String, AliasBinding>, module: &str, binding: AliasBinding) -> bool {
+    if bindings.get(module) == Some(&binding) {
+        return false;
+    }
+    bindings.insert(module.to_string(), binding);
+    true
 }
