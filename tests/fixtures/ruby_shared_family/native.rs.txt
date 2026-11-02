@@ -1,0 +1,45 @@
+use magnus::prelude::*;
+
+mod core_types {
+    #[derive(Debug)]
+    pub enum GraphQLError { Shared, GraphOnly }
+    #[derive(Debug)]
+    pub enum SchemaError { Shared, SchemaOnly }
+    impl std::fmt::Display for GraphQLError {
+        fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { output.write_str("graphql") }
+    }
+    impl std::fmt::Display for SchemaError {
+        fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { output.write_str("schema") }
+    }
+    impl GraphQLError { pub fn status_code(&self) -> u16 { 403 } }
+    impl SchemaError {
+        pub fn status_code(&self) -> u16 { 429 }
+        pub fn error_type(&self) -> String { "schema-kind".into() }
+    }
+}
+
+// CONVERTERS
+
+fn graph_shared() -> Result<(), magnus::Error> {
+    Err(graph_ql_error_to_magnus_err(core_types::GraphQLError::Shared))
+}
+fn graph_only() -> Result<(), magnus::Error> {
+    Err(graph_ql_error_to_magnus_err(core_types::GraphQLError::GraphOnly))
+}
+fn schema_shared() -> Result<(), magnus::Error> {
+    Err(schema_error_to_magnus_err(core_types::SchemaError::Shared))
+}
+fn schema_only() -> Result<(), magnus::Error> {
+    Err(schema_error_to_magnus_err(core_types::SchemaError::SchemaOnly))
+}
+
+#[magnus::init]
+fn init(ruby: &magnus::Ruby) -> Result<(), magnus::Error> {
+    let module = ruby.define_module("RubyFamilyNative")?;
+    // REGISTRATIONS
+    module.define_singleton_method("graph_shared", magnus::function!(graph_shared, 0))?;
+    module.define_singleton_method("graph_only", magnus::function!(graph_only, 0))?;
+    module.define_singleton_method("schema_shared", magnus::function!(schema_shared, 0))?;
+    module.define_singleton_method("schema_only", magnus::function!(schema_only, 0))?;
+    Ok(())
+}

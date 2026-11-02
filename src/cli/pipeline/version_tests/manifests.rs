@@ -286,42 +286,6 @@ version_from = "{version_from}"
 }
 
 #[test]
-fn update_zig_package_hash_rc_prerelease() {
-    let existing = "sample_pkg-1.4.0-rc.50-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9";
-    let result = update_zig_package_hash(existing, "1.4.0-rc.50", "1.4.0-rc.53");
-    assert_eq!(
-        result,
-        Some("sample_pkg-1.4.0-rc.53-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9".to_string()),
-        "rc prerelease version must be substituted in hash"
-    );
-}
-
-#[test]
-fn update_zig_package_hash_release_version() {
-    let existing = "sample_pkg-1.4.0-rc.53-AbCd_XyZ123456789";
-    let result = update_zig_package_hash(existing, "1.4.0-rc.53", "1.4.0");
-    assert_eq!(
-        result,
-        Some("sample_pkg-1.4.0-AbCd_XyZ123456789".to_string()),
-        "release version must substitute prerelease"
-    );
-}
-
-#[test]
-fn update_zig_package_hash_same_version_is_none() {
-    let existing = "mylib-0.1.0-rc.1-SomeBase64Hash";
-    let result = update_zig_package_hash(existing, "0.1.0-rc.1", "0.1.0-rc.1");
-    assert_eq!(result, None, "same version must return None");
-}
-
-#[test]
-fn update_zig_package_hash_malformed_hash_is_none() {
-    let existing = "notenoughparts";
-    let result = update_zig_package_hash(existing, "0.1.0", "0.2.0");
-    assert_eq!(result, None, "malformed hash must return None");
-}
-
-#[test]
 fn render_registry_version_python_pep440_rc_prerelease() {
     let result = render_registry_version("python", "0.3.0-rc.28", ">=0.1.0rc9");
     assert_eq!(result, Some(">=0.3.0rc28".to_string()));

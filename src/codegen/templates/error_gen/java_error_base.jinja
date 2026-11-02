@@ -10,7 +10,7 @@ package {{ package }};
 {% else %}
 /** Base exception for {{ base_name }}. */
 {% endif %}
-public class {{ base_name }} extends {{ base_parent }} {
+public class {{ base_name }} extends {{ base_parent }}{{ (" implements " ~ interfaces | join(", ")) if interfaces else "" }} {
   private static final long serialVersionUID = 1L;
 {% if has_methods %}
 {% for m in methods %}

@@ -8,7 +8,10 @@ use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+mod generation;
 pub(crate) mod umbrella_header;
+
+pub(crate) use generation::materialize_from_build_output_for_generation;
 
 /// The directory cargo actually writes build output into for the workspace the process cwd sits
 /// in, or `None` when no ancestor carries a `Cargo.lock` to anchor the search.
@@ -28,7 +31,10 @@ fn swift_bridge_target_root() -> Option<PathBuf> {
 
 pub(crate) fn find_swift_bridge_out_dir(binding_crate_name: &str) -> Option<PathBuf> {
     let target = swift_bridge_target_root()?;
+    find_swift_bridge_out_dir_at_target(binding_crate_name, &target)
+}
 
+fn find_swift_bridge_out_dir_at_target(binding_crate_name: &str, target: &Path) -> Option<PathBuf> {
     let crate_prefix = format!("{binding_crate_name}-");
     let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
 
@@ -101,6 +107,15 @@ pub(crate) fn emit_swift_bridge_files(
     let out_dir = consult_build_output
         .then(|| find_swift_bridge_out_dir(binding_crate_name))
         .flatten();
+    emit_swift_bridge_files_from_output(crate_name, binding_crate_name, package_root, out_dir)
+}
+
+fn emit_swift_bridge_files_from_output(
+    crate_name: &str,
+    binding_crate_name: &str,
+    package_root: &Path,
+    out_dir: Option<PathBuf>,
+) -> anyhow::Result<Option<Vec<GeneratedFile>>> {
     let out_dir = match out_dir {
         Some(d) => d,
         None => {

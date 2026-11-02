@@ -85,7 +85,7 @@ mod tests {
             ),
         )
         .unwrap();
-        let output = crate::test_support::mise_task::mise_run(directory.path(), "test")
+        let output = crate::test_support::mise_task::mise_run_without_lock(directory.path(), "test")
             .output()
             .expect("compile the generated Zig allocation");
         let report = format!(

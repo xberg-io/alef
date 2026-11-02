@@ -64,13 +64,7 @@ fn canonical_docs_api(api: &ApiSurface, config: &ResolvedCrateConfig) -> ApiSurf
     let mut canonical_features: HashSet<String> = HashSet::new();
     let mut has_configured_language = false;
 
-    for &lang in &config.languages {
-        // Mirrors the `Language::C | Language::Jni` skip in `generate_docs`'s own render loop
-        // (see that loop's comment for why neither owns a reference page): neither is ever a
-        // real entry an operator configures either, but skip explicitly rather than assume. ~keep
-        if matches!(lang, Language::C | Language::Jni) {
-            continue;
-        }
+    for lang in reference_languages(&config.languages) {
         has_configured_language = true;
         canonical_features.extend(language_pages::effective_docs_features(api, config, lang));
     }
@@ -83,6 +77,24 @@ fn canonical_docs_api(api: &ApiSurface, config: &ResolvedCrateConfig) -> ApiSurf
     }
     let enabled_features: HashSet<&str> = canonical_features.iter().map(String::as_str).collect();
     crate::codegen::binding_projection::project_owned(api.with_cfg_filtered_deep(&enabled_features))
+}
+
+fn reference_languages(languages: &[Language]) -> impl Iterator<Item = Language> + '_ {
+    // C is an E2E target and JNI is Kotlin's internal shim; neither owns a public reference
+    // page. Both slug to "c", so including either would collide with the FFI reference. ~keep
+    languages
+        .iter()
+        .copied()
+        .filter(|language| !matches!(language, Language::C | Language::Jni))
+}
+
+/// Default docs include the source crate's Rust API alongside its configured bindings.
+pub(crate) fn default_doc_languages(config: &ResolvedCrateConfig) -> Vec<Language> {
+    let mut languages = config.languages.clone();
+    if !languages.contains(&Language::Rust) {
+        languages.push(Language::Rust);
+    }
+    languages
 }
 
 /// Generate API reference documentation for the given languages.
@@ -99,19 +111,7 @@ pub fn generate_docs(
     let ffi_prefix = &config.ffi_prefix().to_pascal_case();
     let binding_api = crate::codegen::binding_projection::project(api);
 
-    for &lang in languages {
-        // `Language::C` is an e2e consumer target, not a generated binding, and
-        // `Language::Jni` is an internal Rust shim crate paired with `kotlin_android`
-        // (see the `Language` variant docs in core/config/extras.rs) -- neither owns a
-        // public API reference page of its own. `readme::generate_readme` already skips
-        // both for the same reason. Both slug to `"c"` in `naming::lang_slug`, so
-        // rendering a page for them here raced `Language::Ffi` -- the actual generated C
-        // binding -- for `api-c.md`, and for `Jni` specifically the content was never
-        // even the right ABI to begin with (see the long comment on
-        // `examples::sample_param_value`'s Jni arm). ~keep
-        if matches!(lang, Language::C | Language::Jni) {
-            continue;
-        }
+    for lang in reference_languages(languages) {
         let language_api = if lang == Language::Rust { api } else { &binding_api };
         files.push(language_pages::generate_lang_doc(
             language_api,
@@ -310,10 +310,16 @@ fn generate_docs_stage_extras(
     files: &mut Vec<GeneratedFile>,
     run_snippet_compile_validation: bool,
 ) -> anyhow::Result<()> {
-    let mut context = build_base_context(api, config, languages, files.as_slice());
     let Some(docs_cfg) = &config.docs else {
         return Ok(());
     };
+    let catalog_languages = if config.languages.is_empty() {
+        languages.to_vec()
+    } else {
+        default_doc_languages(config)
+    };
+    let reference_paths = reference_catalog_paths(&catalog_languages, languages, files, reference_output);
+    let mut context = build_base_context(api, config, &catalog_languages, &reference_paths);
 
     if let Some(cli_cfg) = &docs_cfg.cli
         && cli_cfg.is_enabled()
@@ -390,11 +396,34 @@ fn generate_docs_stage_extras(
     Ok(())
 }
 
+fn reference_catalog_paths(
+    configured_languages: &[Language],
+    rendered_languages: &[Language],
+    rendered_files: &[GeneratedFile],
+    reference_output: &Path,
+) -> Vec<PathBuf> {
+    // Derive unselected names without rendering: a render failure here would prevent shared
+    // outputs from emitting and manufacture false orphans. Keep actual emitted shared paths. ~keep
+    let output_dir = reference_output.to_string_lossy();
+    let rendered_paths: HashSet<_> = reference_languages(rendered_languages)
+        .map(|language| language_pages::reference_path(language, &output_dir))
+        .collect();
+    reference_languages(configured_languages)
+        .map(|language| language_pages::reference_path(language, &output_dir))
+        .chain(
+            rendered_files
+                .iter()
+                .filter(|file| !rendered_paths.contains(&file.path))
+                .map(|file| file.path.clone()),
+        )
+        .collect()
+}
+
 fn build_base_context(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
     languages: &[Language],
-    api_files: &[GeneratedFile],
+    reference_paths: &[PathBuf],
 ) -> DocsRenderContext {
     let description = config
         .scaffold
@@ -406,10 +435,10 @@ fn build_base_context(
         .as_ref()
         .and_then(|scaffold| scaffold.license.clone())
         .unwrap_or_else(|| "MIT".to_string());
-    let api_references = api_files
+    let api_references = reference_paths
         .iter()
-        .map(|file| {
-            let path = file.path.to_string_lossy().to_string();
+        .map(|path| {
+            let path = path.to_string_lossy().to_string();
             context::ReferenceDoc {
                 kind: "api".to_string(),
                 title: path

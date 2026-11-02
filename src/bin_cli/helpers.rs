@@ -299,13 +299,8 @@ pub(crate) fn resolve_languages_inner(
             }
             Ok(result)
         }
-        None => {
-            let mut langs = config.languages.clone();
-            if allow_rust && !langs.contains(&crate::core::config::Language::Rust) {
-                langs.push(crate::core::config::Language::Rust);
-            }
-            Ok(langs)
-        }
+        None if allow_rust => Ok(crate::docs::default_doc_languages(config)),
+        None => Ok(config.languages.clone()),
     }
 }
 

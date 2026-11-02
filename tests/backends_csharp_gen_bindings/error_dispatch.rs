@@ -90,9 +90,12 @@ fn test_typed_exceptions_preserve_native_codes_and_legacy_constructors() {
             let filename = file.path.file_name().unwrap();
             std::fs::write(directory.path().join(filename), file.content).unwrap();
             exception_count += 1;
+        } else if file.content.contains("public interface IRequestError") {
+            std::fs::write(directory.path().join(file.path.file_name().unwrap()), file.content).unwrap();
+            exception_count += 1;
         }
     }
-    assert_eq!(exception_count, 3);
+    assert_eq!(exception_count, 4);
     std::fs::write(
         directory.path().join("Program.cs"),
         include_str!("../fixtures/csharp_error_codes.cs"),

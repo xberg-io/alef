@@ -7,6 +7,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.115.15] - 2026-11-02
+
+### Fixed
+
+- Keep documentation catalogs within the requested reference languages and generation scope,
+  so their links point only to emitted pages. (#785)
+- Render empty WASM wire enums as `never`, preserving non-empty aliases. (#786)
+- Avoid unused Rust streaming result bindings while preserving stream drainage, documentation
+  presentation and literal argument bytes. (#788)
+- Validate prebuilt Swift bundle receipts and ZIP integrity before syncing versions, rejecting
+  stale or mismatched artifacts before source changes. (#787)
+- Invalidate Zig package content hashes on version changes while preserving per-platform
+  asset selection. (#789)
+
+## [0.115.14] - 2026-11-01
+
+### Fixed
+
+- Honor per-call Rust E2E client trait imports with global fallback, keeping unrelated traits out of
+  generated suites. (#784)
+
+## [0.115.13] - 2026-11-01
+
+### Fixed
+
+- Link OpenDirectory only on macOS in Swift static-library packages, and repair recognized
+  existing RustBridge linker settings without overwriting consumer customizations.
+- Run Windows release, Ruby and Node formatter controls with explicitly selected native tools,
+  preserving managed versions across temporary directories and shell argument boundaries. (#762)
+- Preserve existing Swift manifest permissions when both legacy language-mode and framework
+  migrations run, including custom 0640 and 0644 modes. (#781)
+- Inspect native Swift linker-map archive entries without requiring all symbol bytes to be UTF-8. (#779)
+- Wire host JNI copy dependencies into Android unit-test resource compression as well as
+  processing tasks, preserving disabled-host-JNI behavior in package and E2E Gradle projects.
+- Preserve populated Swift bridge files during source-only generation, while still materializing
+  complete output and rejecting partial output, including projects without Cargo.lock. (#776)
+- Register Ruby leaf exception classes without unused Rust bindings, preserving constructors,
+  inheritance and shared-family rescue behavior. (#778)
+- Pass Zig `bool` parameters to the C ABI's `int32_t` through `@intFromBool`, with the `-1`
+  sentinel for an absent optional bool, in free functions and opaque-handle methods.
+- Type R options-bridge function primitive parameters as their extendr scalar and pass them by
+  value, casting remapped integers back to the core type, instead of `Robj` passed by reference.
+
+## [0.115.12] - 2026-11-01
+
+### Fixed
+
+- Keep Swift consumer Rust links fatal for other warnings while tolerating duplicate native library
+  flags emitted by rustc; retain the SwiftPM duplicate-library negative control. (#772)
+- Preserve legacy public error-generator signatures and Java message/cause constructors while
+  supporting shared error-family introspection. (#771)
+- Keep locked Mise settings isolated from intentionally lockless native test fixtures. (#769)
+- Render newly scaffolded Node loaders in canonical formatter form. (#770)
+- Discover draft releases within GitHub response and request limits, preserving source-bound
+  asset validation and atomic promotion. (#768)
+- Include the fixes from 0.115.11, whose publication did not complete.
+
+- Share one exception class among unrelated error families that declare a variant of the same name,
+  and make it a member of every such family: Python lists each family as a base, Ruby gives every
+  family a `<Family>::Family` module so `rescue` of the family or its `exception_base` ancestors
+  matches, and PHP, C# and Java families get marker interfaces (`SchemaErrorInterface`,
+  `ISchemaError`) that every class of the family implements, including a Java infrastructure class
+  standing in for a family base. The class carries the union of the families' payload fields and
+  introspection values, including those a family inherits through `exception_base`, so PHP
+  generation no longer fails on differing payloads and no binding fails to build on differing
+  introspection methods. A value the raising family lacks is the type's default in PHP and `null`
+  in Java and C#, which fill it only for that family's native codes. A field or method two
+  families type differently is rejected. Family markers receive collision-free names without
+  reserving existing user symbols. No class names change.
+
+## [0.115.11] - 2026-10-31
+
 ### Added
 
 - `ALEF_RUN_COMMAND_TIMEOUT_SECS` overrides the 3600 s ceiling on post-build commands such as the
@@ -19,6 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   json_serializable 6.15.2.
 - Pin the Elixir NIF brotli-decompressor to 6.2.0, which brotli 9.1 requires.
 - Install PIE 1.5.5 in generated PHP e2e setup scripts.
+- Generate JVM projects with Checkstyle 14.4.0 and the Gradle versions plugin 0.67.0.
 
 ### Fixed
 
@@ -36,6 +109,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preserve serde aliases in Swift decoders while encoding only canonical keys; reject duplicate
   canonical/alias inputs and ambiguous cross-field keys, including strict option structs.
 - Keep the alef skill description within the 250-character context-exposure limit.
+- Publish source-bound CLI archives to a draft, verify every requested crate before promotion,
+  and preserve historical Latest selection and public releases during retries. (#761)
+- Share immutable snippet metadata within each render session while preserving custom resolvers
+  and identical template output. (#753)
+- Detect ARM64 musl from its shared libraries when generating the Node loader seed. (#760)
+- Keep isolated native fixtures on their managed toolchains and configure their native library paths. (#762)
+- Preserve outer Cargo target paths across Git Bash while retaining existing environment-conversion exclusions. (#756)
+- Match hosted Swift deployment targets to the package floor, including equivalent version spellings. (#765)
+- Preserve explicit commit SHA source checkouts in release metadata. (#763)
 
 ## [0.115.10] - 2026-10-31
 

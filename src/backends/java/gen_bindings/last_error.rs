@@ -121,6 +121,7 @@ struct CaseContext {
     code: u32,
     class_name: String,
     args: String,
+    factory: bool,
 }
 
 fn local_name(field_name: &str) -> String {
@@ -142,6 +143,42 @@ fn variant_args(error: &ErrorDef, captured: &[(String, String)]) -> String {
             args.push_str(&format!(", {local}"));
         } else {
             args.push_str(&format!(", {}", java_default_value(&method.return_type)));
+        }
+    }
+    args
+}
+
+/// Constructor arguments for `class` raised by `error`. A class shared with other families takes its
+/// base family's introspection values, then each other family's, `null` where `error` has none.
+fn shared_class_args(api: &ApiSurface, error: &ErrorDef, class: &str, captured: &[(String, String)]) -> String {
+    let shared = crate::codegen::error_gen::shared_exception_classes(
+        &api.errors,
+        crate::codegen::error_gen::ExceptionNaming::Nominal,
+    );
+    let Some(owner) = shared.get(class).and_then(|members| {
+        api.errors
+            .iter()
+            .find(|candidate| candidate.name == members.families[0])
+    }) else {
+        return variant_args(error, captured);
+    };
+    let mut args = variant_args(owner, captured);
+    for method in crate::codegen::error_gen::shared_extra_methods(&api.errors, class) {
+        let java_type = typeref_to_java_type(&method.return_type);
+        let raised = crate::codegen::error_gen::lineage_methods(&api.errors, &error.name)
+            .iter()
+            .any(|own| own.name == method.name);
+        if raised
+            && captured
+                .iter()
+                .any(|(name, ty)| *name == method.name && ty == java_type)
+        {
+            args.push_str(&format!(", {}", local_name(&method.name)));
+        } else {
+            args.push_str(&format!(
+                ", ({}) null",
+                crate::codegen::error_gen::java_boxed_type(java_type)
+            ));
         }
     }
     args
@@ -172,6 +209,7 @@ pub(crate) fn gen_last_error_exception(api: &ApiSurface, prefix: &str, main_clas
             code: *code,
             class_name: (*name).to_string(),
             args: String::new(),
+            factory: false,
         })
         .collect();
     for entry in api.error_taxonomy() {
@@ -182,13 +220,16 @@ pub(crate) fn gen_last_error_exception(api: &ApiSurface, prefix: &str, main_clas
             api.errors
                 .iter()
                 .find(|error| error.rust_path == entry.error_type)
-                .map(|error| variant_args(error, &captured))
+                .map(|error| shared_class_args(api, error, &class_name, &captured))
                 .unwrap_or_default()
         };
+        let factory = !infrastructure_names.contains(&class_name.as_str())
+            && !crate::codegen::error_gen::shared_extra_methods(&api.errors, &class_name).is_empty();
         cases.push(CaseContext {
             code: entry.code,
             class_name,
             args,
+            factory,
         });
     }
 

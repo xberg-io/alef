@@ -46,3 +46,7 @@ mod sealed_variant_field_tests;
 #[cfg(test)]
 #[path = "types/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "types/flatten_runtime_tests.rs"]
+mod flatten_runtime_tests;

@@ -1,1 +1,1 @@
-export type {{ name }} = {{ members | join(" | ") }};
+export type {{ name }} = {% if members %}{{ members | join(" | ") }}{% else %}never{% endif %};

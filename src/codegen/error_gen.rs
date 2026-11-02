@@ -1,5 +1,13 @@
+mod family_interfaces;
+pub(crate) use family_interfaces::{
+    FamilyInterfaceNames, default_interface_names, family_interface_names_with_reserved, interface_name,
+};
 mod hierarchy;
-pub use hierarchy::{ExceptionNaming, exception_families, validate_exception_hierarchy};
+pub use hierarchy::{
+    ClassFamilies, ExceptionNaming, additional_exception_families, exception_families, exception_lineage,
+    lineage_methods, same_exception_lineage, shared_exception_classes, shared_introspection,
+    validate_exception_hierarchy, validate_family_interface_names,
+};
 mod host_langs;
 mod last_error_fields;
 mod napi_wasm;
@@ -8,17 +16,24 @@ mod php;
 mod pyo3;
 mod ruby;
 mod rustler;
-pub use php::{gen_php_error_dispatch, gen_php_error_stubs, gen_php_error_types, php_error_class_names};
+pub use php::{
+    gen_php_error_dispatch, gen_php_error_stubs, gen_php_error_types, php_error_class_names, php_error_interface_names,
+    php_error_interface_names_with_root,
+};
 pub use ruby::{gen_magnus_error_class_registrations, gen_magnus_error_converter, gen_magnus_error_dispatch};
 mod shared;
 
 pub(crate) use host_langs::{
     DurationShape, csharp_error_bases_with_last_error_fields, csharp_last_error_getter_name, duration_shape,
-    java_default_value, java_field_name, java_getter_name, typeref_to_csharp_type, typeref_to_java_type,
+    gen_csharp_error_types_with_interfaces, gen_csharp_family_interface_with_names,
+    gen_java_error_types_with_interfaces, gen_java_family_interface_with_names, java_boxed_type, java_default_value,
+    java_field_name, java_getter_name, shared_extra_methods, typeref_to_csharp_type, typeref_to_java_type,
 };
 pub use host_langs::{
-    GoErrorMethodField, gen_csharp_error_types, gen_go_error_struct, gen_go_error_types, gen_go_sentinel_errors,
-    gen_java_error_types, gen_java_error_types_with_parent, go_error_method_fields, go_error_sentinel_name,
+    GoErrorMethodField, family_interface_type_name, gen_csharp_error_types, gen_csharp_error_types_with_errors,
+    gen_csharp_family_interface, gen_go_error_struct, gen_go_error_types, gen_go_sentinel_errors, gen_java_error_types,
+    gen_java_error_types_with_errors, gen_java_error_types_with_parent, gen_java_error_types_with_parent_and_errors,
+    gen_java_family_interface, go_error_method_fields, go_error_sentinel_name,
 };
 pub use last_error_fields::{LastErrorField, LastErrorFieldKind, last_error_field_kind, last_error_fields};
 pub use napi_wasm::{
@@ -28,12 +43,14 @@ pub use napi_wasm::{
 };
 pub use native::{
     gen_ffi_error_codes, gen_ffi_error_methods, gen_magnus_error_methods_struct, gen_php_error_converter,
-    gen_php_error_methods_impl, magnus_converter_fn_name, magnus_error_methods_registrations, php_converter_fn_name,
+    gen_php_error_converter_with_errors, gen_php_error_methods_impl, magnus_converter_fn_name,
+    magnus_error_methods_registrations, php_converter_fn_name,
 };
 pub use pyo3::{
     converter_fn_name, gen_pyo3_error_converter, gen_pyo3_error_methods_impl, gen_pyo3_error_registration,
-    gen_pyo3_error_types, gen_pyo3_error_types_with_parent, pyo3_error_attribute_fields, pyo3_error_has_methods,
-    pyo3_error_info_field_specs, pyo3_error_info_fn_name, pyo3_error_info_struct_name,
+    gen_pyo3_error_types, gen_pyo3_error_types_with_parent, gen_pyo3_shared_exception_setup, pyo3_class_attributes,
+    pyo3_error_attribute_fields, pyo3_error_has_methods, pyo3_error_info_field_specs, pyo3_error_info_fn_name,
+    pyo3_error_info_struct_name,
 };
 pub use rustler::{
     gen_rustler_error_converter, gen_rustler_error_support, rustler_converter_fn_name, rustler_error_module_name,

@@ -67,6 +67,7 @@ mod mut_param_writeback;
 mod optional_enum_default;
 mod rust_reference;
 mod rustdoc_fence_attributes;
+mod scoped_catalog;
 mod shared_docs;
 mod snippet_build_dependency_removed;
 mod strict_attribution;

@@ -78,7 +78,7 @@ fn isolated_go_and_zig_tasks_execute_the_exact_committed_mise_binaries() {
             ),
         )
         .unwrap();
-        let output = mise_task::mise_run(directory.path(), "probe")
+        let output = mise_task::mise_run_without_lock(directory.path(), "probe")
             .env("FIXTURE_PYTHON", &python)
             .env("FIXTURE_TOOL", tool)
             .output()
@@ -93,4 +93,28 @@ fn isolated_go_and_zig_tasks_execute_the_exact_committed_mise_binaries() {
         );
         assert_ne!(actual["version"].as_str().unwrap(), "");
     }
+}
+
+#[test]
+fn default_fixture_tasks_preserve_the_callers_locked_mode() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join("mise.lock"), include_str!("../mise.lock")).unwrap();
+    std::fs::write(
+        directory.path().join("mise.toml"),
+        "[tasks.probe]\nrun = 'printf %s \"$MISE_LOCKED\"'\n",
+    )
+    .unwrap();
+    let mut command = mise_task::mise_run(directory.path(), "probe");
+    assert_eq!(command.get_envs().find(|(key, _)| *key == "MISE_LOCKED"), None);
+    let output = command.env("MISE_LOCKED", "1").output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "1");
+}
+
+#[test]
+#[should_panic(expected = "mise_run_without_lock requires a fixture without mise.lock")]
+fn lockless_fixture_tasks_reject_committed_lockfiles() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join("mise.lock"), include_str!("../mise.lock")).unwrap();
+    mise_task::mise_run_without_lock(directory.path(), "probe");
 }

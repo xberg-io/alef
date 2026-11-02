@@ -20,6 +20,8 @@ use std::process::Command;
 const WORKFLOW: &str = ".github/workflows/publish.yaml";
 const CARGO_MANIFEST: &str = "Cargo.toml";
 const TARGETS_FILE: &str = ".github/cli-targets.json";
+#[path = "support/managed_tool.rs"]
+mod managed_tool;
 #[cfg(unix)]
 const RESOLVE_STEP_ID: &str = "cli-targets";
 
@@ -355,11 +357,8 @@ fn draft_flow_and_offline_state_controls_are_part_of_the_native_gate() {
                 .any(|v| v == dependency)
         );
     }
-    let controls = std::process::Command::new("mise")
+    let controls = std::process::Command::new(managed_tool::executable("python"))
         .args([
-            "exec",
-            "--",
-            "python",
             "-W",
             "error::ResourceWarning",
             "scripts/tests/test_github_release_state.py",
@@ -375,7 +374,7 @@ fn draft_flow_and_offline_state_controls_are_part_of_the_native_gate() {
     let summary = String::from_utf8_lossy(&controls.stderr);
     assert!(
         offline_state_controls_passed(&summary),
-        "complete successful 46-test census: {summary}"
+        "complete successful 49-test census: {summary}"
     );
 }
 
@@ -385,27 +384,27 @@ fn offline_state_controls_passed(summary: &str) -> bool {
         .filter(|line| line.starts_with("Ran ") && line.contains(" tests in "))
         .collect();
     census.len() == 1
-        && census[0].starts_with("Ran 46 tests in ")
+        && census[0].starts_with("Ran 49 tests in ")
         && summary.lines().filter(|line| *line == "OK").count() == 1
 }
 
 #[test]
 fn offline_state_summary_accepts_lf_and_crlf_but_rejects_failed_or_vacuous_controls() {
-    let lf = "..............................................\n----------------------------------------------------------------------\nRan 46 tests in 0.071s\n\nOK\n";
+    let lf = ".................................................\n----------------------------------------------------------------------\nRan 49 tests in 0.071s\n\nOK\n";
     let crlf = lf.replace('\n', "\r\n");
     assert!(offline_state_controls_passed(lf));
     assert!(offline_state_controls_passed(&crlf));
     for summary in [
         "Ran 0 tests in 0.000s\n\nOK\n",
-        "Ran 45 tests in 0.001s\n\nOK\n",
-        "Ran 146 tests in 0.001s\n\nOK\n",
-        "Ran 46 tests in 0.001s\n\nFAILED (failures=1)\n",
-        "Ran 46 tests in 0.001s\n",
+        "Ran 48 tests in 0.001s\n\nOK\n",
+        "Ran 149 tests in 0.001s\n\nOK\n",
+        "Ran 49 tests in 0.001s\n\nFAILED (failures=1)\n",
+        "Ran 49 tests in 0.001s\n",
         "OK\n",
         "",
-        "Ran 46 tests in 0.001s\n\nOK (skipped=46)\n",
-        "Ran 46 tests in 0.001s\nRan 0 tests in 0.000s\n\nOK\n",
-        "Ran 46 tests in 0.001s\n\nOK\nOK\n",
+        "Ran 49 tests in 0.001s\n\nOK (skipped=49)\n",
+        "Ran 49 tests in 0.001s\nRan 0 tests in 0.000s\n\nOK\n",
+        "Ran 49 tests in 0.001s\n\nOK\nOK\n",
     ] {
         assert!(!offline_state_controls_passed(summary), "{summary:?}");
         assert!(

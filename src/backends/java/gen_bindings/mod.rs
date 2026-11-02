@@ -335,10 +335,34 @@ impl Backend for JavaBackend {
             generated_header: true,
         });
 
+        let family_names = crate::codegen::error_gen::family_interface_names_with_reserved(
+            api,
+            crate::codegen::error_gen::family_interface_type_name,
+            Language::Java,
+            &[
+                main_class.clone(),
+                format!("{main_class}Exception"),
+                crate::backends::java::naming::public_class_name(&api.crate_name),
+            ],
+        );
         for (class_name, code, doc) in marshal::INFRASTRUCTURE_ERROR_CLASSES {
+            // A family named like this class keeps it as its base, so the class stands in for the
+            // family base and implements the family's marker interface. ~keep
+            let family = api
+                .errors
+                .iter()
+                .find(|error| format!("{}Exception", error.name) == class_name)
+                .map(|error| crate::codegen::error_gen::interface_name(&family_names, &error.name));
             files.push(GeneratedFile {
                 path: base_path.join(format!("{}.java", class_name)),
-                content: gen_infrastructure_exception_class(&package, &main_class, class_name, code as i32, doc),
+                content: gen_infrastructure_exception_class(
+                    &package,
+                    &main_class,
+                    class_name,
+                    code as i32,
+                    doc,
+                    family.as_deref(),
+                ),
                 generated_header: true,
             });
         }
@@ -495,15 +519,29 @@ impl Backend for JavaBackend {
             .iter()
             .map(|(class_name, _code, _doc)| *class_name)
             .collect();
+
         let mut emitted_exception_names: AHashSet<String> = AHashSet::new();
         for family in
             crate::codegen::error_gen::exception_families(api, crate::codegen::error_gen::ExceptionNaming::Nominal)?
         {
-            for (class_name, content) in crate::codegen::error_gen::gen_java_error_types_with_parent(
+            let (interface_name, interface) = crate::codegen::error_gen::gen_java_family_interface_with_names(
+                &family.error.name,
+                family.parent.as_deref(),
+                &package,
+                &family_names,
+            );
+            files.push(GeneratedFile {
+                path: base_path.join(format!("{interface_name}.java")),
+                content: interface,
+                generated_header: true,
+            });
+            for (class_name, content) in crate::codegen::error_gen::gen_java_error_types_with_interfaces(
                 &family.error,
+                &api.errors,
                 &package,
                 &main_class,
                 family.parent.as_deref(),
+                &family_names,
             ) {
                 if infrastructure_exception_names.contains(class_name.as_str()) {
                     continue;

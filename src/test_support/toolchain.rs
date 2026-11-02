@@ -165,7 +165,12 @@ impl ToolchainGate {
     pub(crate) fn open(&self) -> Option<PathBuf> {
         let resolved = self.resolve();
         self.record(&resolved);
-        self.require_available(resolved, std::env::var_os(self.require_env).is_some())
+        let explicitly_bound = self.binary == "ruby"
+            && std::env::var_os("ALEF_TEST_RUBY_EXECUTABLE").is_some_and(|value| !value.is_empty());
+        self.require_available(
+            resolved,
+            explicitly_bound || std::env::var_os(self.require_env).is_some(),
+        )
     }
 
     /// Turn an absent toolchain into a panic when `required`, and pass it through otherwise.
@@ -206,7 +211,13 @@ impl ToolchainGate {
             // `PATH` is process-global; resolve under the mutation lock, then release it before
             // probing the absolute executable so long-running capability checks do not block tests. ~keep
             let _path = PATH_LOCK.lock().unwrap_or_else(|error| error.into_inner());
-            which::which(self.binary)
+            if self.binary == "ruby"
+                && let Some(path) = explicit_ruby(std::env::var_os("ALEF_TEST_RUBY_EXECUTABLE"))
+            {
+                Ok(path)
+            } else {
+                which::which(self.binary)
+            }
         };
         let resolved = match binary {
             Ok(path) => match self.probe(&path) {
@@ -257,6 +268,23 @@ impl ToolchainGate {
         }
         flush(&census.tallies);
     }
+}
+
+fn explicit_ruby(binding: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    let path = PathBuf::from(binding.filter(|value| !value.is_empty())?);
+    assert!(
+        path.is_absolute() && path.is_file() && which::which(&path).is_ok(),
+        "ALEF_TEST_RUBY_EXECUTABLE must name an absolute existing Ruby executable: {path:?}"
+    );
+    if cfg!(windows) {
+        assert!(
+            path.extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("exe")),
+            "ALEF_TEST_RUBY_EXECUTABLE must name a native Windows executable: {path:?}"
+        );
+    }
+    Some(path)
 }
 
 /// A poisoned census is still usable: a fixture that panicked while holding this lock left only
@@ -587,6 +615,69 @@ mod tests {
             Resolution::Absent => panic!("rustc remained absent after PATH was restored"),
             Resolution::Unusable(diagnostic) => panic!("rustc was unexpectedly unusable: {diagnostic}"),
         }
+    }
+
+    #[test]
+    fn should_leave_empty_or_absent_ruby_bindings_to_path_resolution() {
+        assert_eq!(explicit_ruby(None), None);
+        assert_eq!(explicit_ruby(Some("".into())), None);
+    }
+
+    #[test]
+    fn should_reject_relative_or_directory_ruby_bindings() {
+        let directory = tempfile::tempdir().expect("directory binding control");
+        for path in [PathBuf::from("ruby"), directory.path().to_path_buf()] {
+            let panic = std::panic::catch_unwind(|| explicit_ruby(Some(path.into_os_string())))
+                .expect_err("invalid Ruby binding must fail before PATH resolution");
+            let diagnostic = panic.downcast_ref::<String>().expect("string diagnostic");
+            assert!(diagnostic.contains("ALEF_TEST_RUBY_EXECUTABLE"), "{diagnostic}");
+        }
+    }
+
+    #[test]
+    fn should_bind_ruby_to_the_explicit_runtime_instead_of_poisoned_path() {
+        const TEST: &str = concat!(
+            "test_support::toolchain::tests::",
+            "should_bind_ruby_to_the_explicit_runtime_instead_of_poisoned_path"
+        );
+        if crate::test_support::run_in_isolated_process(TEST) {
+            return;
+        }
+        let selected = fake_toolchains(false);
+        let poisoned = fake_toolchains(true);
+        // ~keep Only this isolated child mutates its process environment.
+        unsafe {
+            std::env::set_var("ALEF_TEST_RUBY_EXECUTABLE", &selected.ruby);
+            std::env::set_var("PATH", poisoned.ruby.parent().unwrap());
+        }
+        let Resolution::Available(path) = RUBY.resolve() else {
+            panic!("explicit Ruby must override poisoned PATH");
+        };
+        assert_eq!(path, selected.ruby);
+    }
+
+    #[test]
+    fn should_reject_a_missing_explicit_ruby_without_using_path() {
+        const TEST: &str = concat!(
+            "test_support::toolchain::tests::",
+            "should_reject_a_missing_explicit_ruby_without_using_path"
+        );
+        if crate::test_support::run_in_isolated_process(TEST) {
+            return;
+        }
+        let fallback = fake_toolchains(false);
+        let missing = fallback.ruby.with_file_name("missing-ruby");
+        // ~keep Only this isolated child mutates its process environment.
+        unsafe {
+            std::env::set_var("ALEF_TEST_RUBY_EXECUTABLE", &missing);
+            std::env::set_var("PATH", fallback.ruby.parent().unwrap());
+        }
+        let panic = std::panic::catch_unwind(|| {
+            RUBY.resolve();
+        })
+        .expect_err("an invalid explicit Ruby must fail instead of falling back to PATH");
+        let diagnostic = panic.downcast_ref::<String>().expect("string diagnostic");
+        assert!(diagnostic.contains("ALEF_TEST_RUBY_EXECUTABLE"), "{diagnostic}");
     }
 
     #[test]

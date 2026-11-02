@@ -12,9 +12,39 @@ namespace {{ namespace }};
 {% endfor %}
 /// </summary>
 {% endif %}
-public class {{ class_name }} : {{ base_name }}
+public class {{ class_name }} : {{ ([base_name] + interfaces) | join(", ") }}
 {
+{% for m in extra_methods %}
+{% if m.condition %}
+    /// <summary>Reported only by another family that raises this exception; <c>null</c> otherwise.</summary>
+{% else %}
+    /// <summary>Reported only by another family that raises this exception; the native layer's default (0, empty or <c>null</c>) when the raising family has no such value.</summary>
+{% endif %}
+    public {{ m.cs_type }} {{ m.prop_name }} { get; internal set; }
+
+{% endfor %}
     public {{ class_name }}(string message) : base(message) { }
 
     public {{ class_name }}(string message, Exception innerException) : base(message, innerException) { }
+{% if extra_methods | map(attribute="apply_lines") | select | list %}
+
+    /// <summary>Fills the properties only other families report from the native layer's last-error getters.</summary>
+    internal {{ "new " if hides_apply else "" }}void ApplyLastError()
+    {
+{% for m in extra_methods %}
+{% if m.condition and m.apply_lines %}
+        if ({{ m.condition }})
+        {
+{% for line in m.apply_lines %}
+            {{ line }}
+{% endfor %}
+        }
+{% else %}
+{% for line in m.apply_lines %}
+        {{ line }}
+{% endfor %}
+{% endif %}
+{% endfor %}
+    }
+{% endif %}
 }

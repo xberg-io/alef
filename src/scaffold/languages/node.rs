@@ -401,12 +401,15 @@ const isMusl = () => {{
   // Runtime libc metadata wins over a separately installed cross-architecture musl loader.
   try {{
     const report = typeof process.report?.getReport === "function" ? process.report.getReport() : null;
-    if (typeof report?.header?.glibcVersionRuntime === "string" ||
-        typeof report?.header?.glibcVersion === "string") {{
+    if (typeof report?.header?.glibcVersionRuntime === "string" || typeof report?.header?.glibcVersion === "string") {{
       return false;
     }}
-    if (Array.isArray(report?.sharedObjects) && report.sharedObjects.some((path) =>
-        typeof path === "string" && (path.includes("/ld-musl-") || path.includes("/libc.musl-")))) {{
+    if (
+      Array.isArray(report?.sharedObjects) &&
+      report.sharedObjects.some(
+        (path) => typeof path === "string" && (path.includes("/ld-musl-") || path.includes("/libc.musl-")),
+      )
+    ) {{
       return true;
     }}
   }} catch {{

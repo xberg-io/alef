@@ -5,7 +5,10 @@ use std::fmt::Write as FmtWrite;
 use crate::e2e::config::E2eConfig;
 use crate::e2e::fixture::Fixture;
 
-use super::helpers::{body_references_symbol, resolve_function_name_for_call, resolve_module, resolve_module_for_call};
+use super::helpers::{
+    body_references_symbol, client_trait_imports, resolve_function_name_for_call, resolve_module,
+    resolve_module_for_call,
+};
 use super::test_function::render_test_function;
 use crate::e2e::codegen::rust::args::{resolve_handle_config_type, resolve_visitor_trait};
 
@@ -224,18 +227,8 @@ pub fn render_test_file(
         }
     }
 
-    // When client_factory is set, emit trait imports required to call methods on the client object.
-    // Traits like LlmClient, FileClient, etc. must be in scope for method dispatch to work.
     if client_factory.is_some() && file_has_call_based {
-        let trait_imports: Vec<String> = e2e_config
-            .call
-            .overrides
-            .get("rust")
-            .map(|o| o.trait_imports.clone())
-            .unwrap_or_default();
-        for trait_name in trait_imports {
-            crate_imports.insert(trait_name);
-        }
+        crate_imports.extend(client_trait_imports(fixtures, e2e_config));
     }
 
     // When the rust override specifies an `options_type`,

@@ -298,7 +298,7 @@ fn resolve(config_path: &std::path::Path) -> Vec<crate::core::config::ResolvedCr
 }
 
 #[test]
-fn all_preflight_repairs_stale_zig_registry_hash_version() {
+fn all_preflight_invalidates_stale_zig_registry_content_hash() {
     let temp = tempfile::tempdir().expect("tempdir");
     let stale_hash = "sample_pkg-0.8.0-AbCd_XyZ123456789";
     let config_path = write_neutral_config(
@@ -313,8 +313,14 @@ fn all_preflight_repairs_stale_zig_registry_hash_version() {
 
     assert!(changed);
     let repaired = std::fs::read_to_string(config_path).expect("read repaired config");
-    assert!(repaired.contains("version = \"0.9.0\""));
-    assert!(repaired.contains("hash = \"sample_pkg-0.9.0-AbCd_XyZ123456789\""));
+    let repaired: toml::Value = toml::from_str(&repaired).expect("parse repaired config");
+    let package = &repaired["crates"][0]["e2e"]["registry"]["packages"]["zig"];
+    assert_eq!(package["version"].as_str(), Some("0.9.0"));
+    assert_eq!(package["name"].as_str(), Some("sample_pkg"));
+    assert!(
+        package.get("hash").is_none(),
+        "a version bump cannot authenticate the old package bytes"
+    );
 }
 
 #[test]
