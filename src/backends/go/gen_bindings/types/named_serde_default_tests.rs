@@ -49,7 +49,7 @@ fn emit_struct(typ: &TypeDef) -> String {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        &std::collections::HashSet::new(),
+        (&std::collections::HashSet::new(), &[], &[]),
         &[],
     )
 }

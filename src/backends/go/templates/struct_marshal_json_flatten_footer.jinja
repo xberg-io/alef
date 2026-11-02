@@ -1,0 +1,26 @@
+	encoded, err := json.Marshal(aux)
+	if err != nil {
+		return nil, err
+	}
+	merged := map[string]json.RawMessage{}
+	if err := json.Unmarshal(encoded, &merged); err != nil {
+		return nil, err
+	}
+{% for field in flattened %}	{
+		inline, err := json.Marshal(v.{{ field.go_field }})
+		if err != nil {
+			return nil, err
+		}
+		var members map[string]json.RawMessage
+		if err := json.Unmarshal(inline, &members); err != nil {
+			return nil, err
+		}
+		for key, member := range members {
+{% if field.is_map %}			if _, exists := merged[key]; !exists {
+				merged[key] = member
+			}
+{% else %}			merged[key] = member
+{% endif %}		}
+	}
+{% endfor %}	return json.Marshal(merged)
+}

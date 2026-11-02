@@ -620,6 +620,22 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/struct_marshal_regular_field.jinja"),
     ),
     (
+        "struct_marshal_json_flatten_footer.jinja",
+        include_str!("templates/struct_marshal_json_flatten_footer.jinja"),
+    ),
+    (
+        "struct_unmarshal_flatten_fields.jinja",
+        include_str!("templates/struct_unmarshal_flatten_fields.jinja"),
+    ),
+    (
+        "struct_unmarshal_flatten_only.jinja",
+        include_str!("templates/struct_unmarshal_flatten_only.jinja"),
+    ),
+    (
+        "struct_marshal_required_collection.jinja",
+        include_str!("templates/struct_marshal_required_collection.jinja"),
+    ),
+    (
         "struct_marshal_json_footer.jinja",
         include_str!("templates/struct_marshal_json_footer.jinja"),
     ),
