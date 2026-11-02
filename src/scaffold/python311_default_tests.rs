@@ -161,6 +161,10 @@ fn assert_e2e_files(files: &[GeneratedFile], registry: bool) {
     assert!(test.contains("ping(") && test.contains("assert ") && test.contains("pong"));
 }
 
+#[expect(
+    clippy::print_stdout,
+    reason = "Full generated outputs are captured for release qualification"
+)]
 fn assert_e2e311(registry: bool) {
     let files = e2e(registry);
     let source = &files
@@ -202,6 +206,10 @@ fn current_default_package_metadata_and_typechecking_require_311() {
 }
 
 #[test]
+#[expect(
+    clippy::print_stdout,
+    reason = "Full generated outputs are captured for release qualification"
+)]
 fn current_default_cargo_and_maturin_request_311_abi() {
     let (cargo, project) = scaffold();
     let cargo_value: toml::Value = toml::from_str(&cargo).expect("actual Cargo");
@@ -232,6 +240,10 @@ fn current_default_registry_e2e_requires_311() {
 }
 
 #[test]
+#[expect(
+    clippy::print_stdout,
+    reason = "Full generated outputs are captured for release qualification"
+)]
 fn current_registered_template_without_new_context_requires_311() {
     let rendered = crate::e2e::template_env::render(
         "python/pyproject.toml.jinja",
