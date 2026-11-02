@@ -848,3 +848,7 @@ mod stream_presentation_regression {
         assert!(body.contains("resultChunk.usage?.totalTokens"), "{body}");
     }
 }
+
+#[cfg(test)]
+#[path = "u64_callers_native.rs"]
+mod u64_callers_native;

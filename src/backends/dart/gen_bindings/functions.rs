@@ -198,6 +198,7 @@ pub(super) fn emit_function(
                 params => params_str.as_str(),
             },
         ));
+        super::unsigned::emit_checks(f, type_defs, enums, out);
         out.push_str(&template_env::render(
             "function_await_return.jinja",
             crate::alef_context! {
@@ -266,7 +267,11 @@ fn render_default_value(
     match default {
         DefaultValue::BoolLiteral(value) => Some(value.to_string()),
         DefaultValue::StringLiteral(value) => Some(format!("'{}'", escape_dart_string(value))),
-        DefaultValue::IntLiteral(value) => Some(value.to_string()),
+        DefaultValue::IntLiteral(value) => Some(if matches!(ty, TypeRef::Primitive(PrimitiveType::U64)) {
+            format!("BigInt.parse('{value}')")
+        } else {
+            value.to_string()
+        }),
         // `{f}` on a non-finite `f64` prints `NaN`/`inf`, neither of which names anything in Dart
         // (`double.nan`, `double.infinity`), so the emitted default would not parse. Returning
         // `None` propagates all the way up and routes the whole type through the serde round-trip
@@ -286,7 +291,17 @@ fn render_default_value(
             // An element this renderer cannot express falls back to the empty collection rather
             // than a partial list, matching the extractor's all-or-nothing rule. ~keep
             match rendered {
-                Some(values) => Some(format!("const [{}]", values.join(", "))),
+                Some(values) if matches!(element_ty, TypeRef::Primitive(PrimitiveType::U64)) => {
+                    Some(format!("Uint64List.fromList([{}])", values.join(", ")))
+                }
+                Some(values) => {
+                    let prefix = if !items.iter().any(|item| default_needs_runtime(element_ty, item)) {
+                        "const "
+                    } else {
+                        ""
+                    };
+                    Some(format!("{prefix}[{}]", values.join(", ")))
+                }
                 None => zero_value_for_type(ty, type_defs, enums),
             }
         }
@@ -307,9 +322,31 @@ fn render_default_value(
     }
 }
 
+// A const list also constrains nested BigInt and typed-list constructor calls. ~keep
+fn default_needs_runtime(ty: &TypeRef, default: &DefaultValue) -> bool {
+    match default {
+        DefaultValue::IntLiteral(_) => matches!(ty, TypeRef::Primitive(PrimitiveType::U64)),
+        DefaultValue::ListLiteral(items) => {
+            let element = match ty {
+                TypeRef::Vec(inner) => inner.as_ref(),
+                other => other,
+            };
+            matches!(element, TypeRef::Primitive(PrimitiveType::U64))
+                || items.iter().any(|item| default_needs_runtime(element, item))
+        }
+        DefaultValue::Empty => match ty {
+            TypeRef::Primitive(PrimitiveType::U64) | TypeRef::Bytes => true,
+            TypeRef::Vec(inner) => empty_vec_literal(inner) != "[]",
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
 fn zero_value_for_type(ty: &TypeRef, type_defs: &[TypeDef], enums: &[EnumDef]) -> Option<String> {
     match ty {
         TypeRef::Primitive(PrimitiveType::Bool) => Some("false".to_string()),
+        TypeRef::Primitive(PrimitiveType::U64) => Some("BigInt.zero".to_string()),
         TypeRef::Primitive(PrimitiveType::F32 | PrimitiveType::F64) => Some("0.0".to_string()),
         TypeRef::Primitive(_) => Some("0".to_string()),
         TypeRef::String | TypeRef::Char | TypeRef::Path => Some("''".to_string()),
@@ -330,8 +367,8 @@ fn zero_value_for_type(ty: &TypeRef, type_defs: &[TypeDef], enums: &[EnumDef]) -
 
 /// Empty-`Vec` default that matches the FRB-mapped Dart type.
 ///
-/// Alef's `gen_rust_crate` widens every Rust integer to `i64` and every float
-/// to `f64` in the FRB-facing mirror struct (see `gen_rust_crate::mirror`),
+/// Alef preserves `u64` as FRB `Uint64List`, widens other integers to `i64`,
+/// and widens floats to `f64` in the FRB-facing mirror (see `gen_rust_crate::mirror`),
 /// matching FRB's own widening behavior. FRB then maps `Vec<i64>` →
 /// `Int64List` and `Vec<f64>` → `Float64List` in the Dart class. `Vec<u8>` is
 /// a special case (kept as `Vec<u8>` for byte buffers, mapped to `Uint8List`).
@@ -343,6 +380,7 @@ fn zero_value_for_type(ty: &TypeRef, type_defs: &[TypeDef], enums: &[EnumDef]) -
 fn empty_vec_literal(inner: &TypeRef) -> String {
     match inner {
         TypeRef::Primitive(PrimitiveType::U8) => "Uint8List(0)".to_string(),
+        TypeRef::Primitive(PrimitiveType::U64) => "Uint64List(0)".to_string(),
         TypeRef::Primitive(PrimitiveType::F32 | PrimitiveType::F64) => "Float64List(0)".to_string(),
         TypeRef::Primitive(
             PrimitiveType::I8
@@ -350,8 +388,7 @@ fn empty_vec_literal(inner: &TypeRef) -> String {
             | PrimitiveType::I32
             | PrimitiveType::I64
             | PrimitiveType::U16
-            | PrimitiveType::U32
-            | PrimitiveType::U64,
+            | PrimitiveType::U32,
         ) => "Int64List(0)".to_string(),
         _ => "[]".to_string(),
     }
@@ -394,7 +431,6 @@ mod tests {
         let widened_to_int64 = [
             PrimitiveType::U16,
             PrimitiveType::U32,
-            PrimitiveType::U64,
             PrimitiveType::I8,
             PrimitiveType::I16,
             PrimitiveType::I32,
@@ -405,6 +441,10 @@ mod tests {
             let got = empty_vec_literal(&TypeRef::Primitive(prim));
             assert_eq!(got, "Int64List(0)", "Vec<{prim_dbg}> empty default");
         }
+        assert_eq!(
+            empty_vec_literal(&TypeRef::Primitive(PrimitiveType::U64)),
+            "Uint64List(0)"
+        );
         assert_eq!(
             empty_vec_literal(&TypeRef::Primitive(PrimitiveType::U8)),
             "Uint8List(0)"

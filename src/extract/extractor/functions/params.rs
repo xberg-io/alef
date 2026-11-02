@@ -266,6 +266,19 @@ fn vec_inner_is_ref(ty: &syn::Type) -> bool {
     }
 }
 
+fn has_reference_syntax(ty: &syn::Type) -> bool {
+    use syn::visit::Visit;
+    struct References(bool);
+    impl<'ast> Visit<'ast> for References {
+        fn visit_type_reference(&mut self, _: &'ast syn::TypeReference) {
+            self.0 = true;
+        }
+    }
+    let mut visitor = References(false);
+    visitor.visit_type(ty);
+    visitor.0
+}
+
 /// Extract function/method parameters, skipping `self` receivers.
 pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, syn::token::Comma>) -> Vec<ParamDef> {
     inputs
@@ -290,12 +303,14 @@ pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, sy
 
                 let sanitized = is_tuple_type(&resolved);
 
-                let original_type =
-                    if sanitized || (has_named_leaf(&resolved) && has_qualified_named_type(&pat_type.ty)) {
-                        Some(type_resolver::type_to_string(&pat_type.ty))
-                    } else {
-                        None
-                    };
+                let original_type = if sanitized
+                    || (has_named_leaf(&resolved)
+                        && (has_qualified_named_type(&pat_type.ty) || has_reference_syntax(&pat_type.ty)))
+                {
+                    Some(type_resolver::type_to_string(&pat_type.ty))
+                } else {
+                    None
+                };
 
                 let (ty, optional) = unwrap_optional(resolved);
                 Some(ParamDef {
@@ -371,6 +386,19 @@ mod tests {
         let params = extract_params(&item.sig.inputs);
         assert_eq!(params[0].original_type, None);
         assert_eq!(params[1].original_type, None);
+    }
+
+    #[test]
+    fn preserves_named_reference_placement_before_lossy_type_resolution() {
+        let item: syn::ItemFn = syn::parse_quote! {
+            fn borrow(outer: &Option<Wide>, inner: Option<&Wide>, nested: Vec<Option<&Wide>>) {}
+        };
+        let params = extract_params(&item.sig.inputs);
+        assert_eq!(params[0].original_type.as_deref(), Some("&Option<Wide>"));
+        assert_eq!(params[1].original_type.as_deref(), Some("Option<&Wide>"));
+        assert_eq!(params[2].original_type.as_deref(), Some("Vec<Option<&Wide>>"));
+        assert!(params[0].is_ref && params[0].optional);
+        assert!(params[1].is_ref && params[1].optional);
     }
 
     #[test]

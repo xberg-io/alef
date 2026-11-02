@@ -6,7 +6,9 @@ use ahash::{AHashMap, AHashSet};
 
 use super::SerdeDefaultsByType;
 
+mod function_newtypes;
 mod transparent_string;
+use function_newtypes::resolve_function_typeref;
 
 use transparent_string::{extracted_named_paths, select_unambiguous_candidates, validate_transparent_string_methods};
 
@@ -287,11 +289,9 @@ pub(super) fn resolve_newtypes(surface: &mut ApiSurface) {
     }
     for func in &mut surface.functions {
         for param in &mut func.params {
-            let mut resolved = resolve_typeref(&newtype_map, &mut param.ty, false);
-            resolved.prepend_outer_optional(param.optional);
-            param.newtype_wrapper = resolved.encode();
+            param.newtype_wrapper = function_newtypes::resolve_parameter(&newtype_map, param);
         }
-        func.return_newtype_wrapper = resolve_typeref(&newtype_map, &mut func.return_type, false).encode();
+        func.return_newtype_wrapper = resolve_function_typeref(&newtype_map, &mut func.return_type).encode();
     }
     for enum_def in &mut surface.enums {
         for variant in &mut enum_def.variants {

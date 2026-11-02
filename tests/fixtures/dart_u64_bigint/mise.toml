@@ -1,0 +1,22 @@
+[settings]
+lockfile = true
+lockfile_platforms = ["linux-x64", "linux-arm64", "macos-arm64", "windows-x64"]
+task.run_auto_install = false
+
+[tools]
+dart = "3.13.7"
+
+[tasks.sdk]
+run = "dart --version"
+
+[tasks.setup]
+run = "dart pub get --offline"
+
+[tasks.generate]
+run = "flutter_rust_bridge_codegen generate --rust-root rust --rust-input crate --rust-output rust/src/frb_generated.rs --dart-root . --dart-output lib/src/wide_sample_bridge_generated --no-add-mod-to-lib --no-web --no-deps-check --no-auto-upgrade-dependency --stop-on-error"
+
+[tasks.build]
+run = "cargo build --offline --manifest-path rust/Cargo.toml"
+
+[tasks.test]
+run = "dart run check.dart"

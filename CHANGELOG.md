@@ -7,12 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (BREAKING)
+
+- Dart FRB bindings preserve Rust `u64` as `BigInt` and `Vec<u64>` as FRB `Uint64List`, including
+  DTOs, transparent newtypes, containers and callback carriers. This is a breaking API change
+  intended for the next major release; narrower integers and signed `i64` keep their existing types.
+  Reject out-of-range scalar and recursive DTO arguments before native entry. A value already
+  truncated by construction of a typed `Uint64List` cannot be recovered or rejected afterward.
+
+Migration details and remaining platform qualification are recorded in
+[ADR 0010](adrs/0010-represent-rust-u64-losslessly-in-the-next-major-dart-api.md).
+
 ### Changed
 
 - Refresh locked Windows system and temporary-file randomness dependency selections.
 - Split documentation formatting and snippet validation helpers, remove 13 resolved quality
   exemptions, and retain a 60-case enum documentation byte-comparison harness that resolves
   evidence paths from both main and worktree checkouts. (#338)
+- Pin Dart 3.13.7 for reproducible native codec verification with the consumer CI SDK.
 
 ### Fixed
 
@@ -68,6 +80,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Keep strict decoder helper types in DTO scope and preserve collection-default producer controls.
 - Preserve serde aliases in Swift decoders while encoding only canonical keys; reject duplicate
   canonical/alias inputs and ambiguous cross-field keys, including strict option structs.
+- Avoid constant Dart collection wrappers around nested unsigned defaults that require runtime constructors. (#780)
+- Generate exact `BigInt.parse` literals for declared `u64` scalar and nested DTO callers in the next-major
+  Dart API, preserving narrower integers and numeric JSON passed through Rust constructors.
+  Add a native qualification gate for emitted scalar calls, recursive DTOs and JSON constructor payloads.
+- Dart FRB callback serialization failures use the existing callback error transport instead of escaping
+  asynchronously and leaving native callers waiting. Reject out-of-range callback `u64` returns through
+  the existing warned default-value policy, and reject unsupported callback serializer shapes during generation.
+- Dart Rust facades reconstruct newtype arguments and unwrap returned newtypes from extracted conversion metadata.
+  Preserve function container paths and borrowed inner values; reject mutable newtype references requiring writeback.
+  Keep nested optional layers and the source map collection and hasher when rebuilding arguments.
+  Borrow opaque handles according to the core function signature, preserve optional-reference order,
+  infer nested argument collections from the core type, and reject unsupported interior references.
+  Convert argument map keys into the inferred core key type, including nested owned `Cow<str>` keys.
+- Extract the unsigned Dart native fixture from its actual crate root so generated paths match the compiled core.
 
 ## [0.115.15] - 2026-11-02
 

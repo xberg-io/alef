@@ -1,3 +1,14 @@
+[settings]
+lockfile = true
+lockfile_platforms = ["linux-x64", "linux-arm64", "macos-arm64", "windows-x64"]
+task.run_auto_install = false
+
+[tools]
+dart = "3.13.7"
+
+[tasks.sdk]
+run = "dart --version"
+
 [tasks.setup]
 run = "dart pub get"
 
@@ -9,6 +20,3 @@ run = "cargo build --manifest-path rust/Cargo.toml"
 
 [tasks.test]
 run = "dart run check.dart"
-
-[tasks.compile-cfg]
-run = "rustc --crate-type=lib --edition=2024 cfg_probe.rs --out-dir ."
