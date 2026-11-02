@@ -175,15 +175,7 @@ impl Backend for NapiBackend {
             builder.add_import(&trait_path);
         }
 
-        let has_maps = api
-            .types
-            .iter()
-            .any(|t| t.fields.iter().any(|f| matches!(&f.ty, TypeRef::Map(_, _))))
-            || api
-                .functions
-                .iter()
-                .any(|f| matches!(&f.return_type, TypeRef::Map(_, _)));
-        if has_maps {
+        if support::needs_map_import(api) {
             builder.add_import("std::collections::HashMap");
         }
 

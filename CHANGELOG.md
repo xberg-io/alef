@@ -29,6 +29,8 @@ Migration details and remaining platform qualification are recorded in
 
 ### Fixed
 
+- Detect nested native NAPI map fields and function, method and nominal-enum signatures when
+  adding the required map import. (#799)
 - Verify complete native Node and WASM bindings for boolean-vector DTO constructors and nested
   JSON map fields, including absent optional maps and structured JSON round trips. (#799)
 - Enable NAPI JSON value conversions when generated enum wrappers require them, including APIs

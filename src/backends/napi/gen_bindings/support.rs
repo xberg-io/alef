@@ -1,3 +1,36 @@
+use crate::core::ir::{ApiSurface, ParamDef, TypeRef};
+
+fn contains_map(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Map(_, _) => true,
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => contains_map(inner),
+        _ => false,
+    }
+}
+
+fn signature_contains_map(return_type: &TypeRef, params: &[ParamDef]) -> bool {
+    contains_map(return_type) || params.iter().any(|parameter| contains_map(&parameter.ty))
+}
+
+pub(super) fn needs_map_import(api: &ApiSurface) -> bool {
+    api.types.iter().any(|typ| {
+        crate::codegen::shared::binding_fields(&typ.fields).any(|field| contains_map(&field.ty))
+            || typ
+                .methods
+                .iter()
+                .any(|method| signature_contains_map(&method.return_type, &method.params))
+    }) || api
+        .functions
+        .iter()
+        .any(|function| signature_contains_map(&function.return_type, &function.params))
+        || api
+            .enums
+            .iter()
+            .filter(|definition| !super::enums::is_json_passthrough_data_enum(definition, &api.types))
+            .flat_map(|definition| &definition.variants)
+            .any(|variant| crate::codegen::shared::binding_fields(&variant.fields).any(|field| contains_map(&field.ty)))
+}
+
 /// Prepend `#[cfg(<pred>)]` to a code item when the source symbol carries a cfg predicate.
 pub(super) fn prepend_cfg(cfg: Option<&str>, item: String) -> String {
     match cfg {
