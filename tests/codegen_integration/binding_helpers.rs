@@ -447,7 +447,8 @@ fn test_gen_named_let_bindings_empty_params() {
     let opaque_types = AHashSet::new();
     let params = vec![];
 
-    let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, &ahash::AHashSet::new(), "my_crate");
+    let result =
+        binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, &ahash::AHashSet::new(), "my_crate");
     assert_eq!(result, "");
 }
 
@@ -472,7 +473,8 @@ fn test_gen_named_let_bindings_non_opaque_param() {
         core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
-    let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, &ahash::AHashSet::new(), "my_crate");
+    let result =
+        binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, &ahash::AHashSet::new(), "my_crate");
     assert!(result.contains("let config_core: my_crate::Config = config.into();"));
 }
 
@@ -497,7 +499,8 @@ fn test_gen_named_let_bindings_optional_ref_param() {
         core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
-    let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, &ahash::AHashSet::new(), "my_crate");
+    let result =
+        binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, &ahash::AHashSet::new(), "my_crate");
     assert!(result.contains("let config_owned: Option<my_crate::Config> = config.map(Into::into);"));
     assert!(result.contains("let config_core = config_owned.as_ref();"));
 }
@@ -574,7 +577,8 @@ fn test_gen_named_let_bindings_opaque_skipped() {
         core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
-    let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, &ahash::AHashSet::new(), "my_crate");
+    let result =
+        binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, &ahash::AHashSet::new(), "my_crate");
     assert_eq!(result, "");
 }
 
