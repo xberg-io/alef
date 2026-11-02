@@ -16,7 +16,7 @@ fn run_in_isolated_case(name: &str, body: impl FnOnce()) {
     let marker = format!("alef-569-case-completed:{full_name}");
     if std::env::var("ALEF_569_ISOLATED_CASE").ok().as_deref() == Some(full_name.as_str()) {
         body();
-        eprintln!("{marker}");
+        eprintln!("\n{marker}");
         return;
     }
     let logs = tempfile::tempdir().expect("isolated case logs");

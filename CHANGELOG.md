@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Qualify generated Python E2E calls through their language-specific callable resolver.
-- Reproduce isolated tool-fixture completion receipts after flushed, unterminated child output.
+- Frame isolated tool-fixture completion receipts independently of unterminated child output, retaining strict whole-line verification.
 
 ## [0.117.0] - 2026-11-02
 
