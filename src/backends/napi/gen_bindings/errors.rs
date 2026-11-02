@@ -395,13 +395,14 @@ pub(super) fn gen_dts(
                             .map(|member| format!("  | {member}")),
                     );
                 } else if enums::is_adjacent_content_collision_enum(e) {
-                    // Routed through JSON passthrough like the untagged case: the shared content
-                    // key carries a different payload per variant, so there is no nominal napi
-                    // struct. `WireTypes` already derives the exact
-                    // `{ tag: '...', content: Payload }` member per variant. (~keep)
+                    // Routed through JSON passthrough like the untagged case, so the members must
+                    // be declared in serde's own wire casing (snake_case payload keys, serde
+                    // tag/content names) -- the same `WireTypes::Serde` instance the untagged
+                    // branch uses. `wire_types_camel` would only match the fully-flattened
+                    // internally-tagged shape, whose runtime re-cases payload keys.
                     lines.push(format!("export type {ts_name} ="));
                     lines.extend(
-                        wire_types_camel
+                        wire_types
                             .enum_members(e)
                             .into_iter()
                             .map(|member| format!("  | {member}")),

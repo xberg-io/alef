@@ -655,17 +655,20 @@ impl Backend for NapiBackend {
                          }}\n"
                     ));
                 } else {
+                    // Malformed JS payloads surface as a catchable napi exception (napi-rs turns
+                    // panics into JS throws); a silent `unwrap_or_default` would instead demand a
+                    // `Default` impl on the core enum and mask bad input as a default value.
                     builder.add_item(&format!(
                         "impl From<{binding_name}> for {core_path} {{\n    \
                              fn from(val: {binding_name}) -> Self {{\n        \
-                                 serde_json::from_value(val.0).unwrap_or_default()\n    \
+                                 serde_json::from_value(val.0).unwrap_or_else(|err| panic!(\"invalid JSON for {core_path}: {{err}}\"))\n    \
                              }}\n\
                          }}\n"
                     ));
                     builder.add_item(&format!(
                         "impl From<{core_path}> for {binding_name} {{\n    \
                              fn from(val: {core_path}) -> Self {{\n        \
-                                 Self(serde_json::to_value(val).unwrap_or_default())\n    \
+                                 Self(serde_json::to_value(val).expect(\"serializing {core_path} to JSON failed\"))\n    \
                              }}\n\
                          }}\n"
                     ));
