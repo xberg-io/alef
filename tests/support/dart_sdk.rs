@@ -1,5 +1,13 @@
 use alef::snippets::validators::CapturedStreams;
 
+pub(crate) fn forward_machine_caches(command: &mut std::process::Command) {
+    for key in ["PUB_CACHE", "CARGO_HOME"] {
+        if let Some(cache) = std::env::var_os(key) {
+            command.env(key, cache);
+        }
+    }
+}
+
 #[allow(
     clippy::print_stderr,
     reason = "report the verified SDK version used by native qualification"

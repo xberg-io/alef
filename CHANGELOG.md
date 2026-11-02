@@ -31,6 +31,7 @@ Migration details and remaining platform qualification are recorded in
 
 - Detect nested native NAPI map fields and function, method and nominal-enum signatures when
   adding the required map import. (#799)
+- Forward machine Dart and Cargo caches explicitly in native Dart verification harnesses.
 - Refresh Swift output snapshots for absent-key defaults, explicit null handling, and literal string constructors.
 
 - Verify complete native Node and WASM bindings for boolean-vector DTO constructors and nested

@@ -129,9 +129,7 @@ fn fixture(root: &Path) -> ResolvedCrateConfig {
 fn task(root: &Path, name: &str, arguments: &[&str], seconds: u64) -> CapturedStreams {
     let mut command = mise_task::mise_run(root, name);
     command.args(arguments).env("RUSTC_WRAPPER", "");
-    if let Some(cache) = std::env::var_os("CARGO_HOME") {
-        command.env("CARGO_HOME", cache);
-    }
+    dart_sdk::forward_machine_caches(&mut command);
     run_command_streams(&mut command, seconds).unwrap()
 }
 

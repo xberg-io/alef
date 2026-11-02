@@ -19,6 +19,7 @@ fn task(root: &Path, name: &str, arguments: &[&str], timeout: u64) -> CapturedSt
         .args(arguments)
         .env("RUSTC_WRAPPER", "")
         .env("CARGO_TARGET_DIR", root.join("packages/dart/rust/target"));
+    dart_sdk::forward_machine_caches(&mut command);
     run_command_streams(&mut command, timeout).unwrap()
 }
 

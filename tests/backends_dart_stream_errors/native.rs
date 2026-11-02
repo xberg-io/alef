@@ -11,6 +11,7 @@ const RUNTIME_TIMEOUT_SECONDS: u64 = 60;
 fn task(root: &Path, name: &str, arguments: &[&str]) -> CapturedStreams {
     let mut command = super::mise_task::mise_run(root, name);
     command.args(arguments);
+    dart_sdk::forward_machine_caches(&mut command);
     let timeout = if name == "test" {
         RUNTIME_TIMEOUT_SECONDS
     } else {

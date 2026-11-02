@@ -8,6 +8,7 @@ mod dart_sdk;
 fn task(root: &Path, name: &str, arguments: &[&str]) -> CapturedStreams {
     let mut command = super::mise_task::mise_run(root, name);
     command.args(arguments);
+    dart_sdk::forward_machine_caches(&mut command);
     run_command_streams(&mut command, 600).unwrap()
 }
 
