@@ -6,6 +6,7 @@ import re
 import tomllib
 from pathlib import Path
 
+import rust_symbols
 from receipts import sha
 
 # Generation formatters, each installed from the mise config that pins it: the consumer's poly, and
@@ -20,23 +21,7 @@ def bootstrap(gate):
     gate.env["RUSTUP_AUTO_INSTALL"] = "0"
     gate.command(
         "rust-toolchain",
-        [
-            "rustup",
-            "toolchain",
-            "install",
-            "1.99.1",
-            "--profile",
-            "minimal",
-            "--component",
-            "rust-src",
-            "--component",
-            "rustfmt",
-            "--component",
-            "clippy",
-            "--target",
-            "wasm32-unknown-unknown",
-            "--no-self-update",
-        ],
+        rust_symbols.install_arguments(),
         gate.alef,
         2 * 1024**3,
         600,

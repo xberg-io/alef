@@ -9,7 +9,7 @@ on:
       xberg_ref:
         description: Immutable public Xberg consumer commit
         required: true
-        default: d0ef42437df03e2670c4a95298b26ecd2a59fa63
+        default: 457198931a16a13a82a72a6d08b3b8c13c5be2e7
         type: string
 permissions:
   contents: read

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Record the strict Swift consumer gate's compiler-matched LLVM reader decision in
+  [ADR 0013](adrs/0013-inspect-swift-archives-with-the-selected-rust-toolchain-s-llvm.md).
+
+### Fixed
+
+- Pin Swift qualification to the public consumer revision that reports native build progress without
+  emitting Cargo warnings.
+- Keep Swift negative link controls strict when SwiftPM suppresses duplicate-library warnings, and
+  distinguish manifest command echoes from real compiler and linker diagnostics.
+- Read Swift qualification archives with the selected Rust toolchain’s LLVM and preserve real Mach-O
+  section and Objective-C undefined symbols while rejecting malformed or incomplete symbol evidence.
+
 ## [0.117.0] - 2026-11-02
 
 ### Changed (BREAKING)

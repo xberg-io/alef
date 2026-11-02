@@ -4,7 +4,7 @@ import re
 import shutil
 from pathlib import Path
 
-from receipts import missing_callbacks, sha
+from receipts import missing_callbacks, sha, strict_output_warnings
 
 
 def undefined_symbols(text):
@@ -15,7 +15,12 @@ def undefined_symbols(text):
             continue
         if re.fullmatch(r"[^:\n]+\.(?:o|obj):|[^:\n]+\.a\([^()\n]+\.(?:o|obj)\):", value):
             continue
-        if re.fullmatch(r"_[A-Za-z0-9_$]+", value) is None:
+        valid = (
+            re.fullmatch(r"_[A-Za-z0-9_$]+", value)
+            or re.fullmatch(r"section\$(?:start|end)\$[A-Za-z0-9_]+\$[A-Za-z0-9_]+", value)
+            or re.fullmatch(r"_objc_msgSend\$(?:[A-Za-z_][A-Za-z0-9_]*|(?:[A-Za-z_][A-Za-z0-9_]*:)+)", value)
+        )
+        if not valid:
             raise ValueError("unrecognized Darwin nm -u row; expected bare symbol or archive member header")
         names.add(value)
     if not names:
@@ -43,7 +48,9 @@ def strip_exports(root):
 
 def qualify(gate, archive, package):
     before = sha(archive)
-    undefined = gate.command("archive-undefined", ["nm", "-u", str(archive)], gate.xberg, 0, 90)
+    undefined = gate.command(
+        "archive-undefined", [gate.real_nm, "--undefined-only", "--just-symbol-name", str(archive)], gate.xberg, 0, 90
+    )
     referenced = undefined_symbols((undefined / "stdout.log").read_text())
     negative = gate.xberg / "packages/swift-missing-callbacks"
     if negative.exists():
@@ -74,6 +81,8 @@ def qualify(gate, archive, package):
             "-Xlinker",
             "-fatal_warnings",
             "-Xlinker",
+            "-warn_duplicate_libraries",
+            "-Xlinker",
             "-lSystem",
         ],
         package,
@@ -82,10 +91,14 @@ def qualify(gate, archive, package):
         expected=1,
     )
     diagnostic = (result / "stdout.log").read_text() + (result / "stderr.log").read_text()
-    warnings = [line for line in diagnostic.splitlines() if "warning:" in line]
+    warnings = strict_output_warnings(diagnostic)
     if len(warnings) != 1 or "ignoring duplicate libraries" not in warnings[0] or "System" not in warnings[0]:
         raise RuntimeError("fatal-warning control failed for an unexpected reason")
-    if "fatal" not in diagnostic or "linker command failed" not in diagnostic or "Undefined symbols" in diagnostic:
+    if (
+        "ld: fatal warning(s) induced error (-fatal_warnings)" not in diagnostic
+        or "linker command failed" not in diagnostic
+        or "Undefined symbols" in diagnostic
+    ):
         raise RuntimeError("fatal-warning linker failure not proved")
     if sha(archive) != before:
         raise RuntimeError("negative controls changed actual produced archive")
