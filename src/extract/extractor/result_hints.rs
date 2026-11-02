@@ -3,7 +3,10 @@ use std::path::{Path, PathBuf};
 use ahash::{AHashMap, AHashSet};
 use anyhow::{Context, Result};
 
-use super::helpers::{is_test_gated, resolve_result_alias_scope};
+use super::helpers::is_test_gated;
+use super::helpers::result_alias_scope::{
+    collect_result_glob_scopes, resolve_named_result_alias_scope, result_alias_target_scope,
+};
 use super::paths::{derive_module_path, module_children_dir};
 use crate::extract::type_resolver::{self, ResultAliasHint, ResultAliasScope};
 
@@ -11,6 +14,8 @@ use crate::extract::type_resolver::{self, ResultAliasHint, ResultAliasScope};
 struct AliasIndex {
     declarations: AHashMap<String, ResultAliasHint>,
     imports: AHashMap<String, ResultAliasScope>,
+    alias_targets: AHashMap<String, ResultAliasScope>,
+    globs: AHashMap<String, Vec<ResultAliasScope>>,
     visited: AHashSet<PathBuf>,
 }
 
@@ -53,8 +58,12 @@ impl AliasIndex {
         is_crate_root: bool,
         module_path: &str,
     ) -> Result<()> {
-        if let Some(scope) = resolve_result_alias_scope(items, module_path) {
+        if let Some(scope) = resolve_named_result_alias_scope(items, module_path) {
             self.imports.insert(module_path.to_string(), scope);
+        }
+        let globs = collect_result_glob_scopes(items, module_path);
+        if !globs.is_empty() {
+            self.globs.insert(module_path.to_string(), globs);
         }
         for item in items {
             match item {
@@ -64,6 +73,11 @@ impl AliasIndex {
                     {
                         self.declarations
                             .insert(module_path.to_string(), ResultAliasHint::Error(error_type));
+                    } else if let Some(scope) = result_alias_target_scope(&alias.ty, items, module_path) {
+                        self.alias_targets.insert(module_path.to_string(), scope);
+                    } else {
+                        self.declarations
+                            .insert(module_path.to_string(), ResultAliasHint::Foreign);
                     }
                 }
                 // Private aliases can feed public signatures; item lowering still owns IR visibility.
@@ -104,25 +118,85 @@ impl AliasIndex {
         Ok(())
     }
 
-    fn install(mut self) {
+    fn resolve_alias_targets(&mut self) {
+        for (module, scope) in &self.alias_targets {
+            if self.declarations.contains_key(module) {
+                continue;
+            }
+            let hint = match scope {
+                ResultAliasScope::Foreign => Some(ResultAliasHint::Foreign),
+                ResultAliasScope::Crate(target) => self.declarations.get(target).cloned(),
+            };
+            if let Some(hint) = hint {
+                self.declarations.insert(module.clone(), hint);
+            }
+        }
+    }
+
+    fn resolve_named_imports(&mut self) {
+        for (module, scope) in &self.imports {
+            if self.declarations.contains_key(module) || self.alias_targets.contains_key(module) {
+                continue;
+            }
+            let hint = match scope {
+                ResultAliasScope::Foreign => Some(ResultAliasHint::Foreign),
+                ResultAliasScope::Crate(target) => self.declarations.get(target).cloned(),
+            };
+            if let Some(hint) = hint {
+                self.declarations.insert(module.clone(), hint);
+            }
+        }
+    }
+
+    fn resolve_known_globs(&mut self) {
+        for (module, scopes) in &self.globs {
+            if self.declarations.contains_key(module)
+                || self.imports.contains_key(module)
+                || self.alias_targets.contains_key(module)
+            {
+                continue;
+            }
+            let hint = scopes.iter().find_map(|scope| match scope {
+                ResultAliasScope::Crate(target) => self.declarations.get(target).cloned(),
+                ResultAliasScope::Foreign => None,
+            });
+            if let Some(hint) = hint {
+                self.declarations.insert(module.clone(), hint);
+            }
+        }
+    }
+
+    fn resolve_known_bindings(&mut self) {
         loop {
             let before = self.declarations.len();
-            for (module, scope) in &self.imports {
-                if self.declarations.contains_key(module) {
-                    continue;
-                }
-                let hint = match scope {
-                    ResultAliasScope::Foreign => Some(ResultAliasHint::Foreign),
-                    ResultAliasScope::Crate(target) => self.declarations.get(target).cloned(),
-                };
-                if let Some(hint) = hint {
-                    self.declarations.insert(module.clone(), hint);
-                }
-            }
+            self.resolve_alias_targets();
+            self.resolve_named_imports();
+            self.resolve_known_globs();
             if self.declarations.len() == before {
                 break;
             }
         }
+    }
+
+    fn install(mut self) {
+        self.resolve_known_bindings();
+        // Foreign globs are opaque: first let known local paths establish which globs supply Result.
+        for (module, scopes) in &self.globs {
+            if !self.declarations.contains_key(module)
+                && !self.imports.contains_key(module)
+                && !self.alias_targets.contains_key(module)
+                && scopes.iter().any(|scope| matches!(scope, ResultAliasScope::Foreign))
+            {
+                self.declarations.insert(module.clone(), ResultAliasHint::Foreign);
+            }
+        }
+        self.resolve_known_bindings();
+        for module in self.alias_targets.keys() {
+            self.declarations
+                .entry(module.clone())
+                .or_insert(ResultAliasHint::Foreign);
+        }
+        self.resolve_known_bindings();
         for (module, hint) in self.declarations {
             type_resolver::record_result_alias_hint(&module, hint);
         }

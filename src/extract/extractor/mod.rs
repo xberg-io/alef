@@ -236,9 +236,7 @@ fn extract_items(
             && !is_test_gated(&item_type.attrs)
         {
             let name = item_type.ident.to_string();
-            if name == "Result"
-                && type_resolver::extract_result_error_type_from_alias(&item_type.ty, &item_type.generics).is_some()
-            {
+            if name == "Result" {
                 declares_result_alias = true;
             }
             if is_pub(&item_type.vis) && !item_type.generics.params.is_empty() {

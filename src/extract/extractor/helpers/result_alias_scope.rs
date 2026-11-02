@@ -86,18 +86,110 @@ pub(crate) fn scope_for_result_type_path(path: &syn::Path) -> Option<ResultAlias
     })
 }
 
-/// Find which `Result` alias the module's `use` statements bring into scope.
+/// Resolve explicit imports before consulting this module's preindexed glob namespace.
 ///
-/// Returns `None` when the module imports no `Result` at all; the caller then falls back to the
-/// crate's canonical alias. A `use` of a foreign crate's `Result` (`anyhow::Result`, say) yields
-/// [`ResultAliasScope::Foreign`] so that no crate-local error type is substituted.
+/// A glob may export no `Result`, so it must not fall back to an unrelated crate-wide alias.
 pub(crate) fn resolve_result_alias_scope(items: &[syn::Item], module_path: &str) -> Option<ResultAliasScope> {
+    resolve_named_result_alias_scope(items, module_path).or_else(|| {
+        (!collect_result_glob_scopes(items, module_path).is_empty())
+            .then(|| ResultAliasScope::Crate(module_path.to_string()))
+    })
+}
+
+pub(crate) fn resolve_named_result_alias_scope(items: &[syn::Item], module_path: &str) -> Option<ResultAliasScope> {
     let local_modules = collect_local_module_names(items);
     let mut prefix: Vec<String> = Vec::new();
     items.iter().find_map(|item| match item {
-        syn::Item::Use(item_use) => scope_from_tree(&item_use.tree, module_path, &local_modules, &mut prefix),
+        syn::Item::Use(item_use) if !super::is_test_gated(&item_use.attrs) => {
+            let scope = scope_from_tree(&item_use.tree, module_path, &local_modules, &mut prefix);
+            scope.map(|scope| {
+                if item_use.leading_colon.is_some() {
+                    ResultAliasScope::Foreign
+                } else {
+                    scope
+                }
+            })
+        }
         _ => None,
     })
+}
+
+pub(crate) fn result_alias_target_scope(
+    ty: &syn::Type,
+    items: &[syn::Item],
+    module_path: &str,
+) -> Option<ResultAliasScope> {
+    let syn::Type::Path(type_path) = ty else { return None };
+    let mut prefix = type_path
+        .path
+        .segments
+        .iter()
+        .map(|segment| segment.ident.to_string())
+        .collect::<Vec<_>>();
+    if prefix.pop().as_deref() != Some("Result") || prefix.is_empty() {
+        return None;
+    }
+    if type_path.path.leading_colon.is_some() {
+        return Some(ResultAliasScope::Foreign);
+    }
+    Some(scope_for_prefix(
+        &prefix,
+        module_path,
+        &collect_local_module_names(items),
+    ))
+}
+
+pub(crate) fn collect_result_glob_scopes(items: &[syn::Item], module_path: &str) -> Vec<ResultAliasScope> {
+    let context = ModuleContext {
+        module_path: module_path.to_string(),
+        local_modules: collect_local_module_names(items),
+    };
+    let mut scopes = Vec::new();
+    let mut prefix = Vec::new();
+    for item in items {
+        if let syn::Item::Use(item_use) = item
+            && !super::is_test_gated(&item_use.attrs)
+        {
+            collect_glob_tree(
+                &item_use.tree,
+                &context,
+                &mut prefix,
+                &mut scopes,
+                item_use.leading_colon.is_some(),
+            );
+        }
+    }
+    scopes
+}
+
+fn collect_glob_tree(
+    tree: &syn::UseTree,
+    context: &ModuleContext,
+    prefix: &mut Vec<String>,
+    scopes: &mut Vec<ResultAliasScope>,
+    absolute: bool,
+) {
+    match tree {
+        syn::UseTree::Path(path) => {
+            prefix.push(path.ident.to_string());
+            collect_glob_tree(&path.tree, context, prefix, scopes, absolute);
+            prefix.pop();
+        }
+        syn::UseTree::Group(group) => {
+            for item in &group.items {
+                collect_glob_tree(item, context, prefix, scopes, absolute);
+            }
+        }
+        syn::UseTree::Glob(_) => {
+            let scope = if absolute {
+                ResultAliasScope::Foreign
+            } else {
+                scope_for_prefix(prefix, &context.module_path, &context.local_modules)
+            };
+            scopes.push(scope);
+        }
+        _ => {}
+    }
 }
 
 /// Names of the child modules declared in `items`.

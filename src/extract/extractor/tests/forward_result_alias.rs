@@ -242,3 +242,157 @@ fn forward_private_alias_modules_supply_metadata_without_exposing_private_items(
     names.sort_unstable();
     assert_eq!(names, ["OtherError", "PublicError"]);
 }
+
+#[test]
+fn foreign_result_globs_do_not_borrow_private_alias_errors() {
+    for import in ["use crate::*;", "use std::io::*;"] {
+        let source = format!(
+            r#"
+            pub use std::io::Result;
+            mod hidden {{
+                pub struct HiddenError;
+                pub type Result<T> = std::result::Result<T, HiddenError>;
+            }}
+            pub mod api {{ {import} pub fn foreign() -> Result<()> {{ unimplemented!() }} }}
+            "#
+        );
+        let surface = extract_files(&[("lib.rs", &source)], &["lib.rs"]);
+        assert_eq!(surface.functions.len(), 1);
+        assert_error(&surface, "foreign", "anyhow::Error");
+    }
+}
+
+#[test]
+fn nested_foreign_super_glob_keeps_the_parent_alias_identity() {
+    let source = r#"
+        pub struct RootError;
+        pub type Result<T> = std::result::Result<T, RootError>;
+        pub mod nested {
+            pub use std::io::Result;
+            pub mod child { use super::*; pub fn foreign() -> Result<()> { unimplemented!() } }
+        }
+    "#;
+    let surface = extract_files(&[("lib.rs", source)], &["lib.rs"]);
+    assert_eq!(surface.functions.len(), 1);
+    assert_error(&surface, "foreign", "anyhow::Error");
+}
+
+const GLOB_ALIASES: &str = r#"
+    pub struct RootError;
+    pub type Result<T> = std::result::Result<T, RootError>;
+    pub mod empty { pub struct Noise; }
+    pub mod chosen { pub struct Selected; pub type Result<T> = std::result::Result<T, Selected>; }
+    pub mod exported { pub use crate::chosen::*; }
+"#;
+
+#[test]
+fn local_result_globs_ignore_targets_that_export_no_result() {
+    for imports in [
+        "use crate::empty::*; use crate::exported::*;",
+        "use crate::exported::*; use crate::empty::*;",
+        "use std::collections::*; use crate::empty::*; use crate::exported::*;",
+    ] {
+        let source = format!(
+            "{GLOB_ALIASES} pub mod api {{ {imports} pub fn selected() -> Result<()> {{ unimplemented!() }} }}"
+        );
+        let surface = extract_files(&[("lib.rs", &source)], &["lib.rs"]);
+        assert_eq!(surface.functions.len(), 1);
+        assert_error(&surface, "selected", "Selected");
+    }
+}
+
+#[test]
+fn named_and_declared_result_aliases_take_precedence_over_globs() {
+    for alias in [
+        "use crate::explicit::Result;",
+        "type Result<T> = std::result::Result<T, crate::ExplicitError>;",
+    ] {
+        let source = format!(
+            r#"{GLOB_ALIASES}
+            pub struct ExplicitError;
+            pub mod explicit {{ pub type Result<T> = std::result::Result<T, crate::ExplicitError>; }}
+            pub mod api {{
+                use crate::chosen::*;
+                {alias}
+                pub fn selected() -> Result<()> {{ unimplemented!() }}
+            }}"#
+        );
+        let surface = extract_files(&[("lib.rs", &source)], &["lib.rs"]);
+        assert_eq!(surface.functions.len(), 1);
+        assert_error(&surface, "selected", "crate::ExplicitError");
+    }
+}
+
+#[test]
+fn result_glob_cycles_resolve_when_a_real_alias_is_available() {
+    let source = r#"
+        pub struct RootError;
+        pub type Result<T> = std::result::Result<T, RootError>;
+        pub mod first { pub use crate::second::*; }
+        pub mod second {
+            pub use crate::first::*;
+            pub struct Selected;
+            pub type Result<T> = std::result::Result<T, Selected>;
+        }
+        pub mod api { use crate::first::*; pub fn selected() -> Result<()> { unimplemented!() } }
+    "#;
+    let surface = extract_files(&[("lib.rs", source)], &["lib.rs"]);
+    assert_eq!(surface.functions.len(), 1);
+    assert_error(&surface, "selected", "Selected");
+}
+
+#[test]
+fn foreign_result_alias_declarations_do_not_borrow_private_errors() {
+    for rhs in ["std::io::Result<T>", "anyhow::Result<T>", "eyre::Result<T>"] {
+        let source = format!(
+            r#"
+            pub type Result<T> = {rhs};
+            use imported::*;
+            pub mod imported {{
+                pub struct ImportedError;
+                pub type Result<T> = std::result::Result<T, ImportedError>;
+            }}
+            mod hidden {{
+                pub struct HiddenError;
+                pub type Result<T> = std::result::Result<T, HiddenError>;
+            }}
+            pub fn foreign() -> Result<()> {{ unimplemented!() }}
+            "#
+        );
+        let surface = extract_files(&[("lib.rs", &source)], &["lib.rs"]);
+        assert_eq!(surface.functions.len(), 1);
+        assert_error(&surface, "foreign", "anyhow::Error");
+    }
+}
+
+#[test]
+fn local_result_alias_declarations_resolve_their_qualified_target() {
+    let source = r#"
+        pub type Result<T> = crate::chain::Result<T>;
+        use std::io::*;
+        mod a_hidden { pub struct HiddenError; pub type Result<T> = std::result::Result<T, HiddenError>; }
+        pub fn selected() -> Result<()> { unimplemented!() }
+        pub mod chain { pub type Result<T> = super::error::Result<T>; }
+        pub mod error { pub struct Selected; pub type Result<T> = std::result::Result<T, Selected>; }
+    "#;
+    let surface = extract_files(&[("lib.rs", source)], &["lib.rs"]);
+    assert_eq!(surface.functions.len(), 1);
+    assert_error(&surface, "selected", "Selected");
+}
+
+#[test]
+fn absolute_foreign_imports_ignore_same_named_local_modules() {
+    for import in ["use ::std::io::Result;", "use ::std::io::*;"] {
+        let source = format!(
+            r#"
+            pub mod std {{
+                pub mod io {{ pub struct Shadow; pub type Result<T> = ::std::result::Result<T, Shadow>; }}
+            }}
+            pub mod api {{ {import} pub fn foreign() -> Result<()> {{ unimplemented!() }} }}
+            "#
+        );
+        let surface = extract_files(&[("lib.rs", &source)], &["lib.rs"]);
+        assert_eq!(surface.functions.len(), 1);
+        assert_error(&surface, "foreign", "anyhow::Error");
+    }
+}
