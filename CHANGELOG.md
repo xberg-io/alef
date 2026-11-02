@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Refresh locked Windows system and temporary-file randomness dependency selections.
+
 ### Fixed
 
 - Preserve shared and mutable borrows when R wrappers cast primitive parameters to their core types. (#782)
