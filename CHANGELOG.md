@@ -7,13 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.116.0] - 2026-11-02
+
 ### Changed (BREAKING)
 
 - Dart FRB bindings preserve Rust `u64` as `BigInt` and `Vec<u64>` as FRB `Uint64List`, including
   DTOs, transparent newtypes, containers and callback carriers. This is a breaking API change
-  intended for the next major release; narrower integers and signed `i64` keep their existing types.
+  released in 0.116.0; narrower integers and signed `i64` keep their existing types.
   Reject out-of-range scalar and recursive DTO arguments before native entry. A value already
   truncated by construction of a typed `Uint64List` cannot be recovered or rejected afterward.
+
+Migrate `u64` arguments, DTO fields, results, callbacks and streams from `int` to `BigInt`; use
+`BigInt.parse` for full-width constants. Rebuild `Vec<u64>` values with FRB’s generalized
+`Uint64List.fromList` and BigInt elements, and regenerate Rust facades, Dart declarations and
+FRB codecs together. Do not narrow values through `double` or `.toInt()`.
 
 Migration details and remaining platform qualification are recorded in
 [ADR 0010](adrs/0010-represent-rust-u64-losslessly-in-the-next-major-dart-api.md).
@@ -93,7 +100,7 @@ Migration details and remaining platform qualification are recorded in
 - Preserve serde aliases in Swift decoders while encoding only canonical keys; reject duplicate
   canonical/alias inputs and ambiguous cross-field keys, including strict option structs.
 - Avoid constant Dart collection wrappers around nested unsigned defaults that require runtime constructors. (#780)
-- Generate exact `BigInt.parse` literals for declared `u64` scalar and nested DTO callers in the next-major
+- Generate exact `BigInt.parse` literals for declared `u64` scalar and nested DTO callers in the 0.116
   Dart API, preserving narrower integers and numeric JSON passed through Rust constructors.
   Add a native qualification gate for emitted scalar calls, recursive DTOs and JSON constructor payloads.
 - Dart FRB callback serialization failures use the existing callback error transport instead of escaping
