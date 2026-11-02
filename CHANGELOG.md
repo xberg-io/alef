@@ -51,6 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   containers instead of iterating the `JsValue`, and declare `Vec<bool>` as `JsValue` because
   wasm-bindgen has no vector ABI for `bool`. (#791)
 - Preserve shared and mutable borrows when R wrappers cast primitive parameters to their core types. (#782)
+- Infer complete WASM map parameter containers from their core calls, including nested and optional maps
+  alongside named inputs, while preserving BTreeMap and HashMap identities and map borrows. (#805)
 
 ## [0.115.15] - 2026-11-02
 

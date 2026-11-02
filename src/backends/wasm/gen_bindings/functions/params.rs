@@ -7,6 +7,10 @@ use ahash::{AHashMap, AHashSet};
 
 use crate::backends::wasm::type_map::WasmMapper;
 
+#[cfg(test)]
+#[path = "params_native_tests.rs"]
+mod native_tests;
+
 pub(super) fn mapped_type_contains_jsvalue(mapped_ty: &str) -> bool {
     if crate::codegen::shared::maps_to_js_value(mapped_ty) {
         return true;
@@ -34,6 +38,16 @@ pub(in crate::backends::wasm::gen_bindings) fn typeref_to_core_type_str(
     source_crate_remaps: &[(&str, &str)],
     type_paths: &AHashMap<String, String>,
 ) -> String {
+    decoded_core_type_str(ty, core_import, source_crate_remaps, type_paths, false)
+}
+
+fn decoded_core_type_str(
+    ty: &TypeRef,
+    core_import: &str,
+    source_crate_remaps: &[(&str, &str)],
+    type_paths: &AHashMap<String, String>,
+    infer_maps: bool,
+) -> String {
     use crate::core::ir::PrimitiveType;
     match ty {
         TypeRef::String | TypeRef::Char => "String".to_string(),
@@ -54,16 +68,18 @@ pub(in crate::backends::wasm::gen_bindings) fn typeref_to_core_type_str(
         },
         TypeRef::Vec(inner) => format!(
             "Vec<{}>",
-            typeref_to_core_type_str(inner, core_import, source_crate_remaps, type_paths)
+            decoded_core_type_str(inner, core_import, source_crate_remaps, type_paths, infer_maps)
         ),
         TypeRef::Optional(inner) => format!(
             "Option<{}>",
-            typeref_to_core_type_str(inner, core_import, source_crate_remaps, type_paths)
+            decoded_core_type_str(inner, core_import, source_crate_remaps, type_paths, infer_maps)
         ),
-        TypeRef::Map(k, v) => format!(
+        // Map omits the concrete container identity; the core parameter constrains serde's target. ~keep
+        TypeRef::Map(_, _) if infer_maps => "_".to_string(),
+        TypeRef::Map(key, value) => format!(
             "std::collections::HashMap<{}, {}>",
-            typeref_to_core_type_str(k, core_import, source_crate_remaps, type_paths),
-            typeref_to_core_type_str(v, core_import, source_crate_remaps, type_paths)
+            decoded_core_type_str(key, core_import, source_crate_remaps, type_paths, infer_maps),
+            decoded_core_type_str(value, core_import, source_crate_remaps, type_paths, infer_maps)
         ),
         TypeRef::Json => "serde_json::Value".to_string(),
         TypeRef::Bytes => "Vec<u8>".to_string(),
@@ -136,32 +152,43 @@ pub(in crate::backends::wasm::gen_bindings) fn wasm_newtype_param_bindings(
         let is_jsvalue_container =
             matches!(param.ty, TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Optional(_)) && contains_jsvalue;
         if contains_jsvalue && (param.newtype_wrapper.is_some() || is_jsvalue_container) {
-            let core_ty = typeref_to_core_type_str(&param.ty, core_import, source_crate_remaps, type_paths);
+            let core_ty = decoded_core_type_str(
+                &param.ty,
+                core_import,
+                source_crate_remaps,
+                type_paths,
+                param.newtype_wrapper.is_none(),
+            );
+            let mutable = if param.is_mut && is_decoded_map(param) {
+                "mut "
+            } else {
+                ""
+            };
             let intrinsic_optional = mapped_type_is_optional_jsvalue(&mapped_ty);
             if param.optional && intrinsic_optional {
                 bindings.push_str(&format!(
-                    "let {name}: Option<{core_ty}> = {name}.map(|value| value.map(|value| \
+                    "let {mutable}{name}: Option<{core_ty}> = {name}.map(|value| value.map(|value| \
                      serde_wasm_bindgen::from_value(value).unwrap_or_else(|error| \
                      wasm_bindgen::throw_val(wasm_bindgen::JsValue::from_str(&error.to_string()))));\n    ",
                     name = param.name,
                 ));
             } else if param.optional {
                 bindings.push_str(&format!(
-                    "let {name}: Option<{core_ty}> = {name}.map(|value| \
+                    "let {mutable}{name}: Option<{core_ty}> = {name}.map(|value| \
                      serde_wasm_bindgen::from_value(value).unwrap_or_else(|error| \
                      wasm_bindgen::throw_val(wasm_bindgen::JsValue::from_str(&error.to_string()))));\n    ",
                     name = param.name,
                 ));
             } else if intrinsic_optional {
                 bindings.push_str(&format!(
-                    "let {name}: {core_ty} = {name}.map(|value| serde_wasm_bindgen::from_value(value)\
+                    "let {mutable}{name}: {core_ty} = {name}.map(|value| serde_wasm_bindgen::from_value(value)\
                      .unwrap_or_else(|error| wasm_bindgen::throw_val(\
                      wasm_bindgen::JsValue::from_str(&error.to_string())));\n    ",
                     name = param.name,
                 ));
             } else {
                 bindings.push_str(&format!(
-                    "let {name}: {core_ty} = serde_wasm_bindgen::from_value({name})\
+                    "let {mutable}{name}: {core_ty} = serde_wasm_bindgen::from_value({name})\
                      .unwrap_or_else(|error| wasm_bindgen::throw_val(\
                      wasm_bindgen::JsValue::from_str(&error.to_string())));\n    ",
                     name = param.name,
@@ -188,6 +215,29 @@ pub(in crate::backends::wasm::gen_bindings) fn wasm_newtype_param_bindings(
     bindings
 }
 
+fn is_decoded_map(param: &ParamDef) -> bool {
+    // WasmMapper maps every map to JsValue, so serde already constructed its core container. ~keep
+    matches!(param.ty, TypeRef::Map(_, _))
+        && param.newtype_wrapper.is_none()
+        && param.core_wrapper == crate::core::ir::CoreWrapper::None
+}
+
+fn decoded_map_call_arg(param: &ParamDef) -> Option<String> {
+    if !is_decoded_map(param) {
+        return None;
+    }
+    Some(if param.is_ref && param.optional {
+        let accessor = if param.is_mut { "as_mut" } else { "as_ref" };
+        format!("{}.{accessor}()", param.name)
+    } else if param.is_mut {
+        format!("&mut {}", param.name)
+    } else if param.is_ref {
+        format!("&{}", param.name)
+    } else {
+        param.name.clone()
+    })
+}
+
 pub(in crate::backends::wasm::gen_bindings) fn wasm_call_args(
     params: &[crate::core::ir::ParamDef],
     opaque_types: &AHashSet<String>,
@@ -206,7 +256,7 @@ pub(in crate::backends::wasm::gen_bindings) fn wasm_call_args(
                 .and_then(super::super::types::types_helpers::root_optional_transparent_constructor)
                 .is_some()
     });
-    if !has_borrowed_wrapper && !has_root_optional_owned_wrapper {
+    if !has_borrowed_wrapper && !has_root_optional_owned_wrapper && !params.iter().any(is_decoded_map) {
         return if use_named_let_bindings {
             generators::gen_call_args_with_let_bindings_no_promote(params, opaque_types)
         } else {
@@ -218,7 +268,9 @@ pub(in crate::backends::wasm::gen_bindings) fn wasm_call_args(
         .iter()
         .enumerate()
         .map(|(index, param)| {
-            if param.newtype_wrapper.is_some() && param.is_ref {
+            if let Some(argument) = decoded_map_call_arg(param) {
+                argument
+            } else if param.newtype_wrapper.is_some() && param.is_ref {
                 if param.optional {
                     let accessor = if param.is_mut { "as_mut" } else { "as_ref" };
                     format!("{}_newtype.{accessor}()", param.name)
@@ -265,6 +317,9 @@ pub(super) fn wasm_serde_recovery_call_args(
     params
         .iter()
         .map(|p| {
+            if let Some(argument) = decoded_map_call_arg(p) {
+                return argument;
+            }
             if p.newtype_wrapper.is_some() && p.is_ref {
                 return if p.optional {
                     let accessor = if p.is_mut { "as_mut" } else { "as_ref" };
