@@ -93,18 +93,15 @@ fn should_distinguish_a_new_optional_default_from_an_explicit_null() {
 }
 
 #[test]
-fn should_preserve_preexisting_owner_decoder_policies() {
+fn should_keep_rust_null_semantics_in_preexisting_owner_decoders() {
     let source = generated_swift();
     for name in ["LegacyOptions", "SkippedOptions"] {
         let owner = declaration(&source, name);
         assert!(
-            owner.contains("try container.decodeIfPresent(UInt32.self, forKey: .retries) ?? 3"),
+            owner.contains("try container.decode(UInt32.self, forKey: .retries)"),
             "{owner}"
         );
-        assert!(
-            owner.contains("try container.decodeIfPresent(UInt32.self, forKey: .limit) ?? 5"),
-            "{owner}"
-        );
+        assert!(owner.contains("if container.contains(.limit)"), "{owner}");
     }
 }
 
@@ -137,9 +134,9 @@ fn should_execute_new_and_legacy_default_policies_with_real_swift_json() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     let report: serde_json::Value = serde_json::from_str(&stdout)
         .unwrap_or_else(|error| panic!("Swift probe emitted no JSON results: {error}\n{stdout}\n{stderr}"));
-    assert_eq!(report["collected"], 10, "{report}");
-    assert_eq!(report["cases"].as_array().unwrap().len(), 10, "{report}");
+    assert_eq!(report["collected"], 12, "{report}");
+    assert_eq!(report["cases"].as_array().unwrap().len(), 12, "{report}");
     assert_eq!(report["failed"], 0, "{report}");
-    assert_eq!(report["passed"], 10, "{report}");
+    assert_eq!(report["passed"], 12, "{report}");
     assert!(output.status.success(), "{report}\n{stderr}");
 }

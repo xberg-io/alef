@@ -180,6 +180,7 @@ pub(super) fn make_typedef(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         serde_rename_all: None,
         has_serde: false,
         serde_container_default: false,
+        serde_deserialization: Default::default(),
         serde_container_conversion: Default::default(),
         super_traits: vec![],
         doc: String::new(),

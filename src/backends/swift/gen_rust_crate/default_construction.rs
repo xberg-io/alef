@@ -92,6 +92,14 @@ fn is_explicitly_excluded(ty: &TypeDef, field: &FieldDef, exclude_fields: &HashS
     exclude_fields.contains(&field_key)
 }
 
+fn is_native_string(field: &FieldDef) -> bool {
+    matches!(field.ty, TypeRef::String)
+        && !field.sanitized
+        && !field.is_boxed
+        && matches!(field.core_wrapper, CoreWrapper::None)
+        && field.newtype_wrapper.is_none()
+}
+
 /// Emit the body of a `new()` constructor that routes through `Default` + field assignment.
 ///
 /// Returns the lines that go inside the `fn new(…)` body, *not* including the opening/
@@ -360,6 +368,11 @@ pub(crate) fn emit_default_construction_body(
                     "default_field_string_like_non_serde_comment.jinja",
                     crate::alef_context! { name => &name },
                 ));
+            } else if is_native_string(f) {
+                out.push_str(&crate::backends::swift::template_env::render(
+                    "default_field_native_string_assign.jinja",
+                    crate::alef_context! { param => &param, name => &name, optional => f.optional },
+                ));
             } else if f.optional {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_string_like_optional_serde.jinja",
@@ -542,6 +555,13 @@ pub(crate) fn emit_direct_field_inits(
             } else if matches!(f.ty, TypeRef::String | TypeRef::Path | TypeRef::Json) {
                 if !ty.has_serde {
                     format!("            {name}: ::std::default::Default::default()")
+                } else if is_native_string(f) {
+                    crate::backends::swift::template_env::render(
+                        "direct_field_native_string.jinja",
+                        crate::alef_context! { name => &name },
+                    )
+                    .trim_end()
+                    .to_string()
                 } else if f.optional {
                     format!(
                         "            {name}: {name}.and_then(|s| serde_json::from_str(&s).ok().or_else(|| serde_json::from_value(::serde_json::Value::String(s)).ok()))"

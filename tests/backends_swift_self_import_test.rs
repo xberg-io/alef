@@ -86,6 +86,7 @@ fn make_type(name: &str, is_trait: bool, methods: Vec<MethodDef>, fields: Vec<Fi
         serde_rename_all: None,
         has_serde: !is_trait,
         serde_container_default: false,
+        serde_deserialization: Default::default(),
         serde_container_conversion: Default::default(),
         super_traits: vec![],
         binding_excluded: false,

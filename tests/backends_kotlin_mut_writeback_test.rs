@@ -78,6 +78,7 @@ fn record_type() -> TypeDef {
         serde_rename_all: None,
         has_serde: true,
         serde_container_default: false,
+        serde_deserialization: Default::default(),
         serde_container_conversion: Default::default(),
         super_traits: vec![],
         doc: "A record that gets mutated in place.".to_string(),

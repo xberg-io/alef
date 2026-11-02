@@ -1,5 +1,5 @@
-        if container.contains(.{{ field }}) {
-            self.{{ field }} = try container.decodeIfPresent({{ ty }}.self, forKey: .{{ field }})
+        if container.contains({{ key }}) {
+            self.{{ field }} = try container.decodeIfPresent({{ ty }}.self, forKey: {{ key }})
         } else {
             self.{{ field }} = {{ fallback }}
         }

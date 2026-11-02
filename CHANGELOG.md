@@ -53,6 +53,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preserve shared and mutable borrows when R wrappers cast primitive parameters to their core types. (#782)
 - Infer complete WASM map parameter containers from their core calls, including nested and optional maps
   alongside named inputs, while preserving BTreeMap and HashMap identities and map borrows. (#805)
+- Reject custom Rust input codecs when Swift aliases or strict unknown-field decoders cannot preserve their wire contract.
+- Keep Swift serde wire-key compiler tests compatible with the strict Clippy print policy.
+- Preserve literal native strings in Swift constructors, including JSON-looking text, quotes, Unicode, and NUL bytes.
+- Preserve public Swift properties for fully skipped serde caches while omitting their wire keys and aliases.
+  Decode only proven skipped-field defaults; retain strict unknown-key and directional-skip validation.
+- Reject qualified Swift field exclusions that would violate strict serde keys, and allocate private
+  decoding helper names against public Swift types, errors, aliases and services without renaming source types.
+- Preserve missing-versus-null serde defaults in every Swift DTO decoder and reject unknown keys for
+  strict source structs; diagnose unsupported strict flatten and skipped-input key contracts.
+  Keep strict decoder helper types in DTO scope and preserve collection-default producer controls.
+- Preserve serde aliases in Swift decoders while encoding only canonical keys; reject duplicate
+  canonical/alias inputs and ambiguous cross-field keys, including strict option structs.
 
 ## [0.115.15] - 2026-11-02
 
