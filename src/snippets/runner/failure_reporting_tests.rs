@@ -287,3 +287,27 @@ fn finalize_result_sets_unresolved_dependency_on_the_returned_result() {
          locally to reclassify status and message"
     );
 }
+
+#[traced_test]
+#[test]
+fn mixed_failure_and_unavailability_finish_with_failures_without_inventing_toolchain_work() {
+    use crate::snippets::types::Language;
+
+    let snippets = vec![failing_snippet(Language::Java); 2];
+    let reporter = FailureReporter::new(&snippets);
+    reporter.record_toolchain_start(Language::Java, 10);
+    reporter.record(&failure_result(&snippets[0], "compilation failed"));
+    assert!(!logs_contain("Finished snippet validation for this language"));
+
+    reporter.record(&unavailable_result(&snippets[1], "missing dependency"));
+
+    assert_eq!(reporter.invoked_by_language(), [(Language::Java, 1)].into());
+    assert!(logs_contain("First snippet validation failure for this language"));
+    assert!(logs_contain(
+        "First snippet validation unavailability for this language"
+    ));
+    assert!(logs_contain(
+        "Finished snippet validation for this language with failures"
+    ));
+    assert!(!logs_contain("with every result unvalidated"));
+}

@@ -19,63 +19,9 @@ pub fn print_summary(summary: &RunSummary, show_code: bool) {
     println!("{}", "-".repeat(100));
 
     for result in &summary.results {
-        let file_name = result
-            .snippet
-            .path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("?");
-
-        let status = match result.status {
-            SnippetStatus::Pass => "PASS",
-            SnippetStatus::Downgraded => "DOWNGRADE",
-            SnippetStatus::Fail => "FAIL",
-            SnippetStatus::Skip => "SKIP",
-            SnippetStatus::Error => "ERROR",
-            SnippetStatus::Unavailable => "N/A",
-        };
-
-        println!(
-            "{:<60} {:<12} {:<10} {:<8} {}ms",
-            truncate(file_name, 58),
-            display_language(&result.snippet),
-            status,
-            result.effective_level,
-            result.duration_ms
-        );
-
+        print_result_row(result);
         if matches!(result.status, SnippetStatus::Fail | SnippetStatus::Error) {
-            let title_info = result
-                .snippet
-                .title
-                .as_deref()
-                .map(|title| format!(" (title: {title})"))
-                .unwrap_or_default();
-            println!(
-                "  Source: {}:{}{}",
-                result.snippet.path.display(),
-                result.snippet.start_line,
-                title_info
-            );
-
-            if let Some(message) = &result.message {
-                let trimmed = message.trim();
-                if !trimmed.is_empty() {
-                    println!("  Error:");
-                    for line in trimmed.lines() {
-                        println!("    {line}");
-                    }
-                }
-            }
-
-            if show_code {
-                println!("  Code:");
-                for (index, line) in result.snippet.code.lines().enumerate() {
-                    println!("    {:>3} | {line}", index + 1);
-                }
-            }
-
-            println!();
+            print_failure_details(result, show_code);
         } else if let Some(line) = reason_line(result) {
             println!("{line}");
         }
@@ -104,6 +50,67 @@ pub fn print_summary(summary: &RunSummary, show_code: bool) {
     if let Some(line) = unresolved_dependency_rollup(summary) {
         println!("{line}");
     }
+    println!();
+}
+
+fn print_result_row(result: &ValidationResult) {
+    let file_name = result
+        .snippet
+        .path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("?");
+
+    let status = match result.status {
+        SnippetStatus::Pass => "PASS",
+        SnippetStatus::Downgraded => "DOWNGRADE",
+        SnippetStatus::Fail => "FAIL",
+        SnippetStatus::Skip => "SKIP",
+        SnippetStatus::Error => "ERROR",
+        SnippetStatus::Unavailable => "N/A",
+    };
+
+    println!(
+        "{:<60} {:<12} {:<10} {:<8} {}ms",
+        truncate(file_name, 58),
+        display_language(&result.snippet),
+        status,
+        result.effective_level,
+        result.duration_ms
+    );
+}
+
+fn print_failure_details(result: &ValidationResult, show_code: bool) {
+    let title_info = result
+        .snippet
+        .title
+        .as_deref()
+        .map(|title| format!(" (title: {title})"))
+        .unwrap_or_default();
+    println!(
+        "  Source: {}:{}{}",
+        result.snippet.path.display(),
+        result.snippet.start_line,
+        title_info
+    );
+
+    if let Some(message) = &result.message {
+        let trimmed = message.trim();
+        if !trimmed.is_empty() {
+            println!("  Error:");
+            for line in trimmed.lines() {
+                println!("    {line}");
+            }
+        }
+    }
+
+    if show_code {
+        println!("  Code:");
+        for (index, line) in result.snippet.code.lines().enumerate() {
+            println!("    {:>3} | {line}", index + 1);
+        }
+    }
+
     println!();
 }
 

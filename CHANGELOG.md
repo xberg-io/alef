@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Split documentation formatting and snippet validation helpers, remove 13 resolved quality
+  exemptions, and retain a 60-case enum documentation byte-comparison harness. (#338)
+
 ## [0.115.15] - 2026-11-02
 
 ### Fixed
