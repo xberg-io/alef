@@ -4,6 +4,9 @@ use crate::core::config::NewAlefConfig;
 use crate::core::ir::ApiSurface;
 use crate::test_support::{spawn_from_stable_dir, toolchain};
 
+#[path = "fixtures/serde_custom_input_types.rs"]
+mod custom_input_oracle;
+
 fn extracted_api(source: &str) -> ApiSurface {
     let directory = tempfile::tempdir().expect("create source directory");
     let path = directory.path().join("lib.rs");
@@ -123,4 +126,108 @@ fn should_execute_real_generated_swift_serde_contract_cases() {
     assert_eq!(report["failed"], 0, "{report}");
     assert_eq!(report["passed"], 16, "{report}");
     assert!(output.status.success(), "{report}\n{stderr}");
+}
+
+#[test]
+fn should_confirm_custom_input_codecs_accept_strings_in_real_rust_serde() {
+    use custom_input_oracle::{AliasRead, AliasWith, StrictRead, StrictWith};
+
+    let canonical = serde_json::json!({"value": "7"});
+    let alias = serde_json::json!({"legacy": "7"});
+    assert_eq!(
+        serde_json::from_value::<StrictRead>(canonical.clone()).unwrap().value,
+        7
+    );
+    assert_eq!(serde_json::from_value::<StrictWith>(canonical).unwrap().value, 7);
+    assert_eq!(serde_json::from_value::<AliasRead>(alias.clone()).unwrap().value, 7);
+    assert_eq!(serde_json::from_value::<AliasWith>(alias).unwrap().value, 7);
+    let number = serde_json::json!({"value": 7});
+    let alias_number = serde_json::json!({"legacy": 7});
+    assert!(serde_json::from_value::<StrictRead>(number.clone()).is_err());
+    assert!(serde_json::from_value::<StrictWith>(number).is_err());
+    assert!(serde_json::from_value::<AliasRead>(alias_number.clone()).is_err());
+    assert!(serde_json::from_value::<AliasWith>(alias_number).is_err());
+}
+
+#[test]
+fn should_reject_custom_input_codecs_only_at_the_guarded_swift_policy_boundary() {
+    let api = extracted_api(include_str!("fixtures/serde_custom_input_types.rs"));
+    assert_eq!(
+        api.types.len(),
+        4,
+        "both input codecs in both guarded modes must be examined"
+    );
+    let mut accepted = Vec::new();
+    for owner in &api.types {
+        let mut selected = api.clone();
+        selected.types = vec![owner.clone()];
+        match SwiftBackend.generate_bindings(&selected, &configuration()) {
+            Ok(_) => accepted.push(owner.name.clone()),
+            Err(error) => {
+                let attribute = if owner.name.ends_with("Read") {
+                    "deserialize_with"
+                } else {
+                    "with"
+                };
+                assert!(
+                    error
+                        .to_string()
+                        .contains(&format!("unsupported {attribute} attributes")),
+                    "{}: {error}",
+                    owner.name
+                );
+            }
+        }
+    }
+    assert_eq!(
+        accepted,
+        Vec::<String>::new(),
+        "custom Rust input codecs must fail closed"
+    );
+}
+
+fn assert_policy_control_generates(container: &str, fields: &str) {
+    let source =
+        format!("#[derive(Clone, serde::Serialize, serde::Deserialize)] {container} pub struct Control {{ {fields} }}");
+    let api = extracted_api(&source);
+    assert_eq!(api.types.len(), 1);
+    let files = SwiftBackend.generate_bindings(&api, &configuration()).unwrap();
+    assert_eq!(
+        files
+            .iter()
+            .filter(|file| file.content.contains("public struct Control:"))
+            .count(),
+        1,
+        "positive control must produce the actual public Swift facade"
+    );
+}
+
+#[test]
+fn should_preserve_unguarded_custom_input_and_serialization_only_swift_behavior() {
+    for attribute in ["deserialize_with = \"digits::deserialize\"", "with = \"digits\""] {
+        assert_policy_control_generates("", &format!("#[serde({attribute})] pub value: u32"));
+        assert_policy_control_generates(
+            "",
+            &format!("#[serde({attribute})] pub value: u32, #[serde(skip)] pub cache: Option<u32>"),
+        );
+    }
+    for (container, alias) in [
+        ("#[serde(deny_unknown_fields)]", ""),
+        ("", "#[serde(alias = \"legacy\")]"),
+    ] {
+        assert_policy_control_generates(
+            container,
+            &format!("{alias} #[serde(serialize_with = \"digits::serialize\")] pub value: u32"),
+        );
+    }
+}
+
+#[test]
+fn should_ignore_custom_input_codecs_on_fully_skipped_swift_caches() {
+    for attribute in ["deserialize_with = \"digits::deserialize\"", "with = \"digits\""] {
+        assert_policy_control_generates(
+            "#[serde(deny_unknown_fields)]",
+            &format!("pub value: u32, #[serde(skip, {attribute})] pub cache: Option<u32>"),
+        );
+    }
 }

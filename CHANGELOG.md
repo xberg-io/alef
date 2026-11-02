@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reject custom Rust input codecs when Swift aliases or strict unknown-field decoders cannot preserve their wire contract.
+
 - Keep Swift serde wire-key compiler tests compatible with the strict Clippy print policy.
 
 ## [0.115.15] - 2026-11-02

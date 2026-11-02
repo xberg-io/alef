@@ -28,20 +28,38 @@ fn unsupported_attribute(meta: &syn::Meta) -> Option<&'static str> {
     None
 }
 
+fn unsupported_field_attributes(field: &syn::Field, guard_custom_input: bool) -> Vec<&'static str> {
+    let skipped = extract_serde_skip(&field.attrs);
+    serde_entries(&field.attrs)
+        .iter()
+        .filter_map(|meta| {
+            let custom_input = ["deserialize_with", "with"]
+                .into_iter()
+                .find(|name| meta.path().is_ident(*name));
+            if guard_custom_input && !skipped {
+                unsupported_attribute(meta).or(custom_input)
+            } else {
+                unsupported_attribute(meta)
+            }
+        })
+        .collect()
+}
+
 pub(crate) fn extract_serde_deserialization_policy(item: &syn::ItemStruct) -> SerdeDeserializationPolicy {
     let container = serde_entries(&item.attrs);
     let deny_unknown_fields = container
         .iter()
         .any(|meta| matches!(meta, syn::Meta::Path(path) if path.is_ident("deny_unknown_fields")));
+    let field_aliases = extract_field_aliases(item);
+    let guard_custom_input = deny_unknown_fields || !field_aliases.is_empty();
     let mut unsupported: BTreeSet<_> = container
         .iter()
         .filter_map(unsupported_attribute)
-        .chain(item.fields.iter().flat_map(|field| {
-            serde_entries(&field.attrs)
+        .chain(
+            item.fields
                 .iter()
-                .filter_map(unsupported_attribute)
-                .collect::<Vec<_>>()
-        }))
+                .flat_map(|field| unsupported_field_attributes(field, guard_custom_input)),
+        )
         .map(str::to_string)
         .collect();
     if item.fields.iter().any(|field| extract_serde_skip(&field.attrs))
@@ -51,7 +69,6 @@ pub(crate) fn extract_serde_deserialization_policy(item: &syn::ItemStruct) -> Se
     {
         unsupported.insert("skipped container default function".to_owned());
     }
-    let field_aliases = extract_field_aliases(item);
     SerdeDeserializationPolicy {
         field_aliases,
         deny_unknown_fields,
