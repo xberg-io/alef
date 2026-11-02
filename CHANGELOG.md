@@ -13,10 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   through the `serde_json::Value` passthrough wrapper. Every variant writes its payload under the
   same content key, so the flat `#[napi(object)]` struct declared that field once per variant at
   different types (E0124). The `.d.ts` keeps the per-variant discriminated union. (#790)
-- napi: the passthrough enum conversion deserializes malformed JS payloads with an
-  error-reporting panic (surfaced by napi-rs as a catchable JS exception) instead of
-  `unwrap_or_default()`, which required a `Default` impl on the core enum and silently turned
-  bad input into a default value.
+- napi: the passthrough enum binding-to-core conversion is a `TryFrom` whose error is
+  `napi::Error` with `Status::InvalidArg` (surfaced by napi-rs as a catchable JS exception
+  carrying the serde message) instead of `unwrap_or_default()`, which required a `Default`
+  impl on the core enum and silently turned bad input into a default value. Functions taking
+  the enum as a direct param emit a fallible napi signature and convert with `try_into()?`, so
+  malformed JS payloads raise `InvalidArg` instead of hitting the panicking `From` fallback
+  kept for infallible parent-struct contexts. Nested-in-struct payloads still ride the
+  infallible `From` chain; chain-wide fallibility remains scoped to #796.
 - napi: declare the `.d.ts` members of an adjacent-collision passthrough enum in serde's own
   wire casing (snake_case payload keys, serde tag/content names) rather than host camelCase,
   matching the raw `serde_json` conversion the binding actually performs at runtime. Named

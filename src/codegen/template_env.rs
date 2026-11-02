@@ -138,6 +138,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/binding_helpers/named_let_binding_simple.jinja"),
     ),
     (
+        "binding_helpers/named_let_binding_fallible.jinja",
+        include_str!("templates/binding_helpers/named_let_binding_fallible.jinja"),
+    ),
+    (
+        "binding_helpers/named_let_binding_fallible_optional.jinja",
+        include_str!("templates/binding_helpers/named_let_binding_fallible_optional.jinja"),
+    ),
+    (
         "binding_helpers/named_let_binding_optional.jinja",
         include_str!("templates/binding_helpers/named_let_binding_optional.jinja"),
     ),

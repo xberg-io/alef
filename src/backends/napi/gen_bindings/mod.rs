@@ -215,6 +215,16 @@ impl Backend for NapiBackend {
             .filter(|t| t.is_opaque && generators::type_needs_mutex(t))
             .map(|t| t.name.clone())
             .collect();
+        // Names of data enums whose binding is a raw `serde_json::Value` passthrough (same
+        // predicate as the conversion emission below). A function taking one of these as a param
+        // needs a fallible napi signature (the binding converts through `TryFrom`, surfacing
+        // malformed JS payloads as `InvalidArg`).
+        let passthrough_enums: AHashSet<String> = api
+            .enums
+            .iter()
+            .filter(|e| enums::is_json_passthrough_data_enum(e, &api.types))
+            .map(|e| e.name.clone())
+            .collect();
         let has_traits = api.types.iter().any(|t| t.is_trait);
         if !opaque_types.is_empty() || has_traits {
             builder.add_import("std::sync::Arc");
@@ -488,6 +498,7 @@ impl Backend for NapiBackend {
                     &prefix,
                     &capsule_types,
                     &mutex_types,
+                    &passthrough_enums,
                 );
                 let item = support::prepend_cfg(func.cfg.as_deref(), item);
                 builder.add_item(&item);
@@ -655,13 +666,26 @@ impl Backend for NapiBackend {
                          }}\n"
                     ));
                 } else {
-                    // Malformed JS payloads surface as a catchable napi exception (napi-rs turns
-                    // panics into JS throws); a silent `unwrap_or_default` would instead demand a
-                    // `Default` impl on the core enum and mask bad input as a default value.
+                    // The fallible conversion is the napi boundary contract: a malformed JS
+                    // payload deserializes to `napi::Error` with `Status::InvalidArg`, which
+                    // napi-rs surfaces as a catchable JS exception carrying the serde message.
+                    // The infallible `From` remains for generated contexts that cannot
+                    // propagate an error (e.g. a parent struct field conversion); it delegates
+                    // to `TryFrom` so the failure message is identical. `std::result::Result`
+                    // is spelled out because the generated file imports napi's one-parameter
+                    // `Result` alias through `bindgen_prelude`.
+                    builder.add_item(&format!(
+                        "impl TryFrom<{binding_name}> for {core_path} {{\n    \
+                             type Error = napi::Error;\n        \
+                                 fn try_from(val: {binding_name}) -> std::result::Result<Self, Self::Error> {{\n        \
+                                     serde_json::from_value(val.0).map_err(|err| napi::Error::new(napi::Status::InvalidArg, format!(\"invalid JSON for {core_path}: {{{{err}}}}\")))\n    \
+                             }}\n\
+                         }}\n"
+                    ));
                     builder.add_item(&format!(
                         "impl From<{binding_name}> for {core_path} {{\n    \
                              fn from(val: {binding_name}) -> Self {{\n        \
-                                 serde_json::from_value(val.0).unwrap_or_else(|err| panic!(\"invalid JSON for {core_path}: {{err}}\"))\n    \
+                                 Self::try_from(val).expect(\"invalid JSON passthrough enum payload\")\n    \
                              }}\n\
                          }}\n"
                     ));

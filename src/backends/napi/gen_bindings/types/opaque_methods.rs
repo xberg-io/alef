@@ -290,9 +290,19 @@ pub(in crate::backends::napi::gen_bindings) fn gen_opaque_instance_method(
         let use_let_bindings = generators::has_named_params(&method.params, opaque_types);
         let (mut let_bindings, call_args_for_call) = if use_let_bindings {
             let bindings = if has_promoted_required {
-                generators::gen_named_let_bindings_no_promote(&method.params, opaque_types, cfg.core_import)
+                generators::gen_named_let_bindings_no_promote(
+                    &method.params,
+                    opaque_types,
+                    &ahash::AHashSet::new(),
+                    cfg.core_import,
+                )
             } else {
-                generators::gen_named_let_bindings_pub(&method.params, opaque_types, cfg.core_import)
+                generators::gen_named_let_bindings_pub(
+                    &method.params,
+                    opaque_types,
+                    &ahash::AHashSet::new(),
+                    cfg.core_import,
+                )
             };
             let args = napi_apply_primitive_casts_to_call_args(
                 &if has_promoted_required {

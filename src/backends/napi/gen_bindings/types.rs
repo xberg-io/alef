@@ -516,9 +516,19 @@ pub(super) fn gen_dto_method_fns(
                     &method.params,
                 ),
                 if has_promoted_required {
-                    generators::gen_named_let_bindings_no_promote(&method.params, opaque_types, cfg.core_import)
+                    generators::gen_named_let_bindings_no_promote(
+                        &method.params,
+                        opaque_types,
+                        &ahash::AHashSet::new(),
+                        cfg.core_import,
+                    )
                 } else {
-                    generators::gen_named_let_bindings_pub(&method.params, opaque_types, cfg.core_import)
+                    generators::gen_named_let_bindings_pub(
+                        &method.params,
+                        opaque_types,
+                        &ahash::AHashSet::new(),
+                        cfg.core_import,
+                    )
                 },
             )
         } else {

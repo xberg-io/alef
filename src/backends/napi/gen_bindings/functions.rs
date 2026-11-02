@@ -51,14 +51,35 @@ pub(super) fn wrap_promoted_required_body(
     is_async: bool,
     returns_unit: bool,
 ) -> String {
+    wrap_result_body(body, params, core_has_error, is_async, returns_unit, false)
+}
+
+/// Wrap a generated body whose signature was forced to `napi::Result` without a core error
+/// type: `force_ok` covers the JSON-passthrough-enum param case, where a `TryFrom` let-binding
+/// propagates `napi::Error` via `?` and the tail expression must be wrapped in `Ok`. The
+/// promoted-required prefix (default-param coercions) composes with either mode.
+pub(super) fn wrap_result_body(
+    body: String,
+    params: &[crate::core::ir::ParamDef],
+    core_has_error: bool,
+    is_async: bool,
+    returns_unit: bool,
+    force_ok: bool,
+) -> String {
     let prefix = promoted_required_prefix(params);
-    if prefix.is_empty() {
+    if prefix.is_empty() && !force_ok {
         return body;
     }
     if core_has_error || (is_async && returns_unit) {
         format!("{prefix}{body}")
     } else if returns_unit {
-        format!("{prefix}{body};\n    Ok(())")
+        if prefix.is_empty() {
+            format!("{body};\n    Ok(())")
+        } else {
+            format!("{prefix}{body};\n    Ok(())")
+        }
+    } else if prefix.is_empty() {
+        format!("Ok({{ {body} }})")
     } else {
         format!("{prefix}Ok({{ {body} }})")
     }
@@ -74,6 +95,7 @@ pub(super) fn gen_function(
     prefix: &str,
     capsule_types: &std::collections::HashMap<String, crate::core::config::NodeCapsuleTypeConfig>,
     mutex_types: &AHashSet<String>,
+    passthrough_enums: &AHashSet<String>,
 ) -> String {
     let augmented_params: Vec<crate::core::ir::ParamDef> = func
         .params
@@ -91,6 +113,14 @@ pub(super) fn gen_function(
         })
         .collect();
     let promoted_required = promoted_required(&augmented_params);
+    // A param typed as a JSON-passthrough data enum converts binding->core through
+    // `TryFrom` (malformed JS payloads become `napi::Error` with `Status::InvalidArg`), so any
+    // function taking one needs a fallible napi signature even without a core error type.
+    let has_fallible_param = !passthrough_enums.is_empty()
+        && func
+            .params
+            .iter()
+            .any(|p| matches!(&p.ty, TypeRef::Named(n) if passthrough_enums.contains(n.as_str())));
     let params = function_params(&augmented_params, &|ty| {
         if let TypeRef::Named(n) = ty {
             if capsule_types.contains_key(n.as_str())
@@ -141,8 +171,10 @@ pub(super) fn gen_function(
         Some(p) => mapper.map_type(&p.ty),
         None => mapper.map_type(&func.return_type),
     };
-    let return_annotation =
-        mapper.wrap_return(&return_type, func.error_type.is_some() || !promoted_required.is_empty());
+    let return_annotation = mapper.wrap_return(
+        &return_type,
+        func.error_type.is_some() || !promoted_required.is_empty() || has_fallible_param,
+    );
 
     let js_name = to_node_name(&func.name);
     let js_name_attr = if js_name != func.name {
@@ -234,10 +266,16 @@ pub(super) fn gen_function(
                     &augmented_params,
                     &func.params,
                     opaque_types,
+                    passthrough_enums,
                     core_import,
                 )
             } else {
-                generators::gen_named_let_bindings_no_promote(&func.params, opaque_types, core_import)
+                generators::gen_named_let_bindings_no_promote(
+                    &func.params,
+                    opaque_types,
+                    passthrough_enums,
+                    core_import,
+                )
             }
         } else {
             String::new()
@@ -286,10 +324,16 @@ pub(super) fn gen_function(
                     &augmented_params,
                     &func.params,
                     opaque_types,
+                    passthrough_enums,
                     core_import,
                 )
             } else {
-                generators::gen_named_let_bindings_no_promote(&func.params, opaque_types, core_import)
+                generators::gen_named_let_bindings_no_promote(
+                    &func.params,
+                    opaque_types,
+                    passthrough_enums,
+                    core_import,
+                )
             }
         } else {
             String::new()
@@ -346,7 +390,7 @@ pub(super) fn gen_function(
     if func.params.len() > 7 {
         attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
     }
-    if func.error_type.is_some() {
+    if func.error_type.is_some() || has_fallible_param {
         attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
     }
     let body = if default_coerce_prefix.is_empty() {
@@ -354,12 +398,13 @@ pub(super) fn gen_function(
     } else {
         format!("{}{}", default_coerce_prefix, body)
     };
-    let body = wrap_promoted_required_body(
+    let body = wrap_result_body(
         body,
         &augmented_params,
         func.error_type.is_some(),
         func.is_async,
         matches!(func.return_type, TypeRef::Unit),
+        has_fallible_param && func.error_type.is_none(),
     );
     crate::backends::napi::template_env::render(
         "function_wrapper.jinja",
@@ -428,6 +473,7 @@ mod tests {
         let opaque_types = ahash::AHashSet::new();
         let capsule_types = std::collections::HashMap::new();
         let mutex_types = ahash::AHashSet::new();
+        let passthrough_enums = ahash::AHashSet::new();
 
         super::gen_function(
             func,
@@ -438,6 +484,7 @@ mod tests {
             "Js",
             &capsule_types,
             &mutex_types,
+            &passthrough_enums,
         )
     }
 
