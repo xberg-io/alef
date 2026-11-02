@@ -7,11 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- Qualify generated Python E2E calls through their language-specific callable resolver.
-- Frame isolated tool-fixture completion receipts independently of unterminated child output, retaining strict whole-line verification.
-
 ## [0.117.0] - 2026-11-02
 
 ### Changed (BREAKING)
@@ -29,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   verification outcomes, actual construction counts and a stale-content negative control. (#753)
 
 ### Fixed
+
+- Qualify generated Python E2E calls through their language-specific callable resolver.
+- Frame isolated tool-fixture completion receipts independently of unterminated child output, retaining strict whole-line verification.
 
 - Resolve forward-declared Result aliases before lowering APIs, preserving private modules, foreign
   imports, qualified aliases and glob namespaces without borrowing unrelated errors. Retain explicit
