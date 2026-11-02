@@ -398,6 +398,19 @@ pub(super) fn gen_dts(
                             .into_iter()
                             .map(|member| format!("  | {member}")),
                     );
+                } else if enums::is_adjacent_content_collision_enum(e) {
+                    // Routed through JSON passthrough like the untagged case, so the members must
+                    // be declared in serde's own wire casing (snake_case payload keys, serde
+                    // tag/content names) -- the same `WireTypes::Serde` instance the untagged
+                    // branch uses. `wire_types_camel` would only match the fully-flattened
+                    // internally-tagged shape, whose runtime re-cases payload keys.
+                    lines.push(format!("export type {ts_name} ="));
+                    lines.extend(
+                        wire_types
+                            .enum_members(e)
+                            .into_iter()
+                            .map(|member| format!("  | {member}")),
+                    );
                 } else if enums::is_fully_flattened_internal_enum(e, &api.types) {
                     // Routed through JSON passthrough (`gen_untagged_data_enum_as_value_wrapper`):
                     // every data-carrying variant's payload flattens onto the tag object, so there

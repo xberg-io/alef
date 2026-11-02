@@ -599,3 +599,108 @@ fn delegatable_methods_are_still_declared_in_dts() {
         "non-sanitized static method must still be declared: {dts}"
     );
 }
+
+/// An adjacent-collision passthrough enum converts through raw serde_json at runtime, so its
+/// `.d.ts` members must declare serde's own wire casing (snake_case payload keys), not the host
+/// camelCase interface shape. A named struct payload appears as a synthesized `__AlefWire*`
+/// alias with serde field names -- never as the camelCase interface, whose `js_name` fields
+/// describe the napi object surface, not the JSON this passthrough actually produces.
+#[test]
+fn adjacent_collision_enum_declares_serde_wire_names() {
+    let api = ApiSurface {
+        types: vec![TypeDef {
+            name: "RetryConfig".to_string(),
+            rust_path: "fixture_core::RetryConfig".to_string(),
+            has_serde: true,
+            fields: vec![
+                FieldDef {
+                    name: "retry_count".to_string(),
+                    ty: TypeRef::Primitive(crate::core::ir::PrimitiveType::U32),
+                    ..Default::default()
+                },
+                FieldDef {
+                    name: "max_wait_ms".to_string(),
+                    ty: TypeRef::Primitive(crate::core::ir::PrimitiveType::U64),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }],
+        enums: vec![EnumDef {
+            name: "Policy".to_string(),
+            rust_path: "fixture_core::Policy".to_string(),
+            serde_tag: Some("operation".to_string()),
+            serde_content: Some("policy".to_string()),
+            serde_rename_all: Some("snake_case".to_string()),
+            variants: vec![
+                EnumVariant {
+                    name: "Analyze".to_string(),
+                    is_tuple: true,
+                    fields: vec![FieldDef {
+                        name: "_0".to_string(),
+                        ty: TypeRef::Named("RetryConfig".to_string()),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+                EnumVariant {
+                    name: "Merge3".to_string(),
+                    is_tuple: true,
+                    fields: vec![FieldDef {
+                        name: "_0".to_string(),
+                        ty: TypeRef::Named("RetryConfig".to_string()),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+                EnumVariant {
+                    name: "Apply".to_string(),
+                    fields: vec![FieldDef {
+                        name: "conflict_style".to_string(),
+                        ty: TypeRef::String,
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let dts = gen_dts(
+        &api,
+        "",
+        &Default::default(),
+        &[],
+        &Default::default(),
+        &Default::default(),
+        &Default::default(),
+        &Default::default(),
+        "",
+        None,
+    );
+
+    assert!(
+        dts.contains("| { operation: \"analyze\"; policy: __AlefWireRetryConfig }"),
+        "named tuple payload must reference the synthesized serde-named wire alias:\n{dts}"
+    );
+    assert!(
+        dts.contains("| { operation: \"apply\"; policy: { conflict_style: string } }"),
+        "struct-variant payload keys must be serde's own snake_case names:\n{dts}"
+    );
+    assert!(
+        dts.contains("export type __AlefWireRetryConfig = { retry_count: number; max_wait_ms: number };"),
+        "the wire alias must declare serde field names, not camelCase js_names:\n{dts}"
+    );
+    // The idiomatic camelCase `RetryConfig` interface is still declared for host-side use; the
+    // passthrough union must not reference it, only the serde-named wire alias.
+    assert!(
+        !dts.contains("policy: RetryConfig") && !dts.contains("policy?: RetryConfig"),
+        "must reference the wire alias, not the camelCase host interface:\n{dts}"
+    );
+    assert!(
+        !dts.contains("conflictStyle"),
+        "must not declare camelCase keys for a serde-cased passthrough:\n{dts}"
+    );
+}

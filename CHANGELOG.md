@@ -11,6 +11,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Match NAPI async unit signatures to their fallible bodies, preserve JSON values and borrowed
   JSON arguments, and omit unsupported null from nested optional native DTO fields. (#801, #802, #803, #807)
+- napi: avoid conflicting passthrough enum conversion traits, preserve deserialization error
+  details, and propagate malformed direct, borrowed, optional and vector enum arguments as
+  `InvalidArg`; retain the existing flattened-enum conversion path and verify native fixture
+  manifests resolve their actual core crate. (#790)
+- napi: route an adjacently tagged enum (`#[serde(tag, content)]`) with two or more data variants
+  through the `serde_json::Value` passthrough wrapper. Every variant writes its payload under the
+  same content key, so the flat `#[napi(object)]` struct declared that field once per variant at
+  different types (E0124). The `.d.ts` keeps the per-variant discriminated union. (#790)
+- napi: the passthrough enum binding-to-core conversion uses an inherent fallible method whose error is
+  `napi::Error` with `Status::InvalidArg` (surfaced by napi-rs as a catchable JS exception
+  carrying the serde message) instead of `unwrap_or_default()`, which required a `Default`
+  impl on the core enum and silently turned bad input into a default value. Functions taking
+  the enum as a direct param emit a fallible napi signature and convert with `try_into_core()?`, so
+  malformed JS payloads raise `InvalidArg` instead of hitting the panicking `From` fallback
+  kept for infallible parent-struct contexts. Nested-in-struct payloads still ride the
+  infallible `From` chain; chain-wide fallibility remains scoped to #796.
+- napi: declare the `.d.ts` members of an adjacent-collision passthrough enum in serde's own
+  wire casing (snake_case payload keys, serde tag/content names) rather than host camelCase,
+  matching the raw `serde_json` conversion the binding actually performs at runtime. Named
+  struct payloads now reference a synthesized `__AlefWire*` alias with serde field names instead
+  of the camelCase napi interface, whose `js_name` fields describe the host object surface. (#790)
+- napi: with `json_as_value`, convert a `Vec<Map<String, Json>>` field by changing only the map
+  container (the binding keeps `serde_json::Value`), instead of stringifying values and reparsing
+  them, which did not type-check. The same container-only conversion now also handles the
+  `Option<Vec<Map<String, Json>>>` form; without it the optional field bypassed the override and
+  re-parsed values that were already `serde_json::Value`. (#798)
+- wasm: convert a `Vec<Map<..>>` field through `serde_wasm_bindgen` like the other `JsValue`
+  containers instead of iterating the `JsValue`, and declare `Vec<bool>` as `JsValue` because
+  wasm-bindgen has no vector ABI for `bool`. (#791)
 
 ## [0.115.15] - 2026-11-02
 

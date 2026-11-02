@@ -640,3 +640,181 @@ fn nested_optional_boxed_enum_fallback_defaults_the_complete_container() {
         "Default::default()"
     );
 }
+
+/// Regression coverage for the adjacent-collision JSON-passthrough conversion, exercised through
+/// the real `NapiBackend::generate_bindings` path: the binding-to-core conversion goes through a
+/// fallible inherent method whose error is `napi::Error` with `Status::InvalidArg` (surfaced by napi-rs as
+/// a catchable JS exception) instead of `unwrap_or_default()` -- which would have required a
+/// `Default` impl on the core enum and silently turned malformed input into a default value.
+/// Functions taking the enum as a direct param emit `try_into_core()?` at the conversion site so the
+/// `InvalidArg` error propagates instead of panicking.
+#[test]
+fn generate_bindings_passthrough_enum_conversion_does_not_require_default() {
+    use crate::core::ir::{ApiSurface, TypeDef};
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "RetryConfig".to_string(),
+            rust_path: "test_core::RetryConfig".to_string(),
+            has_serde: true,
+            fields: vec![FieldDef {
+                name: "retry_count".to_string(),
+                ty: TypeRef::Primitive(crate::core::ir::PrimitiveType::U32),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        enums: vec![EnumDef {
+            name: "Policy".to_string(),
+            rust_path: "test_core::Policy".to_string(),
+            serde_tag: Some("operation".to_string()),
+            serde_content: Some("policy".to_string()),
+            variants: vec![
+                EnumVariant {
+                    name: "Analyze".to_string(),
+                    is_tuple: true,
+                    fields: vec![FieldDef {
+                        name: "_0".to_string(),
+                        ty: TypeRef::Named("RetryConfig".to_string()),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+                EnumVariant {
+                    name: "Merge3".to_string(),
+                    is_tuple: true,
+                    fields: vec![FieldDef {
+                        name: "_0".to_string(),
+                        ty: TypeRef::Named("RetryConfig".to_string()),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+                EnumVariant {
+                    name: "Apply".to_string(),
+                    is_tuple: true,
+                    fields: vec![FieldDef {
+                        name: "_0".to_string(),
+                        ty: TypeRef::Named("RetryConfig".to_string()),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let files = NapiBackend.generate_bindings(&api, &node_config()).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    assert!(
+        lib.content
+            .contains("fn try_into_core(self) -> napi::Result<test_core::Policy>"),
+        "expected a fallible binding-to-core conversion:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains("napi::Error::new(napi::Status::InvalidArg"),
+        "malformed JS payloads must map to InvalidArg (a catchable JS exception):\n{}",
+        lib.content
+    );
+    assert!(
+        !lib.content.contains("from_value(val.0).unwrap_or_default()"),
+        "must not silently default malformed JS payloads (which requires Default on the core enum):\n{}",
+        lib.content
+    );
+}
+
+/// Scope-1 fallibility: a function taking a JSON-passthrough data enum as a *direct* param must
+/// itself be fallible at the napi boundary -- the emitted signature is `napi::Result<_>` and the
+/// param converts with `try_into_core()?`, so a malformed JS payload surfaces as `InvalidArg` instead
+/// of hitting the panicking `From` fallback. (Nested-in-struct enums stay on the infallible
+/// parent `From` chain until the #796 chain-wide design lands.)
+#[test]
+fn generate_bindings_passthrough_enum_direct_param_forces_fallible_signature() {
+    use crate::core::ir::{ApiSurface, FunctionDef, ParamDef, TypeDef};
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "RetryConfig".to_string(),
+            rust_path: "test_core::RetryConfig".to_string(),
+            has_serde: true,
+            fields: vec![FieldDef {
+                name: "retry_count".to_string(),
+                ty: TypeRef::Primitive(crate::core::ir::PrimitiveType::U32),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        enums: vec![EnumDef {
+            name: "Policy".to_string(),
+            rust_path: "test_core::Policy".to_string(),
+            serde_tag: Some("operation".to_string()),
+            serde_content: Some("policy".to_string()),
+            variants: vec![
+                EnumVariant {
+                    name: "Analyze".to_string(),
+                    is_tuple: true,
+                    fields: vec![FieldDef {
+                        name: "_0".to_string(),
+                        ty: TypeRef::Named("RetryConfig".to_string()),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+                EnumVariant {
+                    name: "Merge3".to_string(),
+                    is_tuple: true,
+                    fields: vec![FieldDef {
+                        name: "_0".to_string(),
+                        ty: TypeRef::Named("RetryConfig".to_string()),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+                EnumVariant {
+                    name: "Apply".to_string(),
+                    is_tuple: true,
+                    fields: vec![FieldDef {
+                        name: "_0".to_string(),
+                        ty: TypeRef::Named("RetryConfig".to_string()),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }],
+        functions: vec![FunctionDef {
+            name: "run_policy".to_string(),
+            params: vec![ParamDef {
+                name: "policy".to_string(),
+                ty: TypeRef::Named("Policy".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let files = NapiBackend.generate_bindings(&api, &node_config()).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    assert!(
+        lib.content
+            .contains("pub fn run_policy(policy: JsPolicy) -> Result<()>"),
+        "a direct passthrough-enum param must force a fallible napi signature (napi `Result` alias):\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains("policy.try_into_core()?"),
+        "the param conversion must propagate the InvalidArg error via `?`:\n{}",
+        lib.content
+    );
+}

@@ -2,8 +2,8 @@
 
 use super::tests::*;
 use super::{
-    apply_napi_case, gen_enum, is_fully_flattened_internal_enum, is_json_passthrough_data_enum, is_tagged_data_enum,
-    is_variant_untagged_string_enum, string_enum_js_values,
+    apply_napi_case, gen_enum, is_adjacent_content_collision_enum, is_fully_flattened_internal_enum,
+    is_json_passthrough_data_enum, is_tagged_data_enum, is_variant_untagged_string_enum, string_enum_js_values,
 };
 use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeRef};
 
@@ -674,4 +674,60 @@ fn gen_enum_routes_fully_flattened_enum_through_json_passthrough() {
         !output.contains("#[napi(object"),
         "must not be emitted as a #[napi(object)] struct; got:\n{output}"
     );
+}
+
+fn adjacently_tagged_policy_enum(variant_count: usize) -> EnumDef {
+    let variants = ["Analyze", "Diff2", "Merge2"]
+        .iter()
+        .take(variant_count)
+        .map(|name| EnumVariant {
+            name: (*name).to_string(),
+            is_tuple: true,
+            fields: vec![FieldDef {
+                name: "_0".to_string(),
+                ty: TypeRef::Named(format!("{name}Policy")),
+                ..Default::default()
+            }],
+            ..Default::default()
+        })
+        .collect();
+    EnumDef {
+        name: "OperationPolicy".to_string(),
+        serde_tag: Some("operation".to_string()),
+        serde_content: Some("policy".to_string()),
+        variants,
+        ..Default::default()
+    }
+}
+
+/// Adjacent tagging writes every variant's payload under the same content key. Two or more data
+/// variants therefore collide on one field name at different types, and a flat `#[napi(object)]`
+/// struct would declare it repeatedly (E0124): such an enum must route through JSON passthrough.
+#[test]
+fn adjacently_tagged_enum_with_several_data_variants_routes_through_json_passthrough() {
+    let enum_def = adjacently_tagged_policy_enum(3);
+
+    assert!(is_adjacent_content_collision_enum(&enum_def));
+    assert!(!is_tagged_data_enum(&enum_def, &[]));
+    assert!(is_json_passthrough_data_enum(&enum_def, &[]));
+
+    let output = gen_enum(&enum_def, "Js", true, "test_core", None, &[]);
+    assert!(
+        output.contains("pub struct JsOperationPolicy(pub serde_json::Value)"),
+        "must use the JSON passthrough wrapper, not one struct field per variant; got:\n{output}"
+    );
+    assert!(
+        !output.contains("#[napi(object"),
+        "must not emit a #[napi(object)] struct; got:\n{output}"
+    );
+}
+
+/// A single data-carrying variant has no collision and keeps the nominal tagged-object struct.
+#[test]
+fn adjacently_tagged_enum_with_one_data_variant_stays_a_tagged_object() {
+    let enum_def = adjacently_tagged_policy_enum(1);
+
+    assert!(!is_adjacent_content_collision_enum(&enum_def));
+    assert!(is_tagged_data_enum(&enum_def, &[]));
+    assert!(!is_json_passthrough_data_enum(&enum_def, &[]));
 }

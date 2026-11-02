@@ -162,7 +162,12 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos_an
         )
     } else if can_delegate {
         let mut let_bindings = if crate::codegen::generators::has_named_params(&func.params, opaque_types) {
-            crate::codegen::generators::gen_named_let_bindings_no_promote(&func.params, opaque_types, core_import)
+            crate::codegen::generators::gen_named_let_bindings_no_promote(
+                &func.params,
+                opaque_types,
+                &ahash::AHashSet::new(),
+                core_import,
+            )
         } else {
             String::new()
         };

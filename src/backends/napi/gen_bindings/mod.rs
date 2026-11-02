@@ -215,6 +215,19 @@ impl Backend for NapiBackend {
             .filter(|t| t.is_opaque && generators::type_needs_mutex(t))
             .map(|t| t.name.clone())
             .collect();
+        // Names of data enums whose binding is a raw `serde_json::Value` passthrough (same
+        // predicate as the fallible conversion emission below). A function taking one as a param
+        // needs a fallible napi signature (the binding uses `try_into_core`, surfacing
+        // malformed JS payloads as `InvalidArg`).
+        let passthrough_enums: AHashSet<String> = api
+            .enums
+            .iter()
+            .filter(|e| {
+                enums::is_json_passthrough_data_enum(e, &api.types)
+                    && !enums::is_fully_flattened_internal_enum(e, &api.types)
+            })
+            .map(|e| e.name.clone())
+            .collect();
         let has_traits = api.types.iter().any(|t| t.is_trait);
         if !opaque_types.is_empty() || has_traits {
             builder.add_import("std::sync::Arc");
@@ -488,6 +501,7 @@ impl Backend for NapiBackend {
                     &prefix,
                     &capsule_types,
                     &mutex_types,
+                    &passthrough_enums,
                 );
                 let item = support::prepend_cfg(func.cfg.as_deref(), item);
                 builder.add_item(&item);
@@ -655,17 +669,26 @@ impl Backend for NapiBackend {
                          }}\n"
                     ));
                 } else {
+                    // ~keep Keep From for existing parent-struct conversions. An inherent fallible
+                    // method avoids the blanket TryFrom implementation implied by that From.
+                    builder.add_item(&format!(
+                        "impl {binding_name} {{\n    \
+                             fn try_into_core(self) -> napi::Result<{core_path}> {{\n        \
+                                 serde_json::from_value(self.0).map_err(|err| napi::Error::new(napi::Status::InvalidArg, format!(\"invalid JSON for {core_path}: {{err}}\")))\n    \
+                             }}\n\
+                         }}\n"
+                    ));
                     builder.add_item(&format!(
                         "impl From<{binding_name}> for {core_path} {{\n    \
                              fn from(val: {binding_name}) -> Self {{\n        \
-                                 serde_json::from_value(val.0).unwrap_or_default()\n    \
+                                 val.try_into_core().expect(\"invalid JSON passthrough enum payload\")\n    \
                              }}\n\
                          }}\n"
                     ));
                     builder.add_item(&format!(
                         "impl From<{core_path}> for {binding_name} {{\n    \
                              fn from(val: {core_path}) -> Self {{\n        \
-                                 Self(serde_json::to_value(val).unwrap_or_default())\n    \
+                                 Self(serde_json::to_value(val).expect(\"serializing {core_path} to JSON failed\"))\n    \
                              }}\n\
                          }}\n"
                     ));
