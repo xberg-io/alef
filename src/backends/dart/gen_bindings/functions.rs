@@ -295,7 +295,10 @@ fn render_default_value(
                     Some(format!("Uint64List.fromList([{}])", values.join(", ")))
                 }
                 Some(values) => {
-                    let prefix = if !items.iter().any(|item| default_needs_runtime(element_ty, item)) {
+                    let prefix = if !items
+                        .iter()
+                        .any(|item| default_needs_runtime(element_ty, item, type_defs, &mut Vec::new()))
+                    {
                         "const "
                     } else {
                         ""
@@ -323,7 +326,12 @@ fn render_default_value(
 }
 
 // A const list also constrains nested BigInt and typed-list constructor calls. ~keep
-fn default_needs_runtime(ty: &TypeRef, default: &DefaultValue) -> bool {
+fn default_needs_runtime(
+    ty: &TypeRef,
+    default: &DefaultValue,
+    type_defs: &[TypeDef],
+    active_types: &mut Vec<String>,
+) -> bool {
     match default {
         DefaultValue::IntLiteral(_) => matches!(ty, TypeRef::Primitive(PrimitiveType::U64)),
         DefaultValue::ListLiteral(items) => {
@@ -332,15 +340,37 @@ fn default_needs_runtime(ty: &TypeRef, default: &DefaultValue) -> bool {
                 other => other,
             };
             matches!(element, TypeRef::Primitive(PrimitiveType::U64))
-                || items.iter().any(|item| default_needs_runtime(element, item))
+                || items
+                    .iter()
+                    .any(|item| default_needs_runtime(element, item, type_defs, active_types))
         }
         DefaultValue::Empty => match ty {
             TypeRef::Primitive(PrimitiveType::U64) | TypeRef::Bytes => true,
             TypeRef::Vec(inner) => empty_vec_literal(inner) != "[]",
+            TypeRef::Named(name) => named_default_needs_runtime(name, type_defs, active_types),
             _ => false,
         },
         _ => false,
     }
+}
+
+fn named_default_needs_runtime(name: &str, type_defs: &[TypeDef], active_types: &mut Vec<String>) -> bool {
+    let Some(ty) = type_defs.iter().find(|ty| ty.name == name && ty.has_default) else {
+        return false;
+    };
+    if active_types.iter().any(|active| active == name) {
+        return true;
+    }
+    active_types.push(name.to_string());
+    let runtime = ty.fields.iter().filter(|field| !field.binding_excluded).any(|field| {
+        let default = field.typed_default.as_ref().unwrap_or(&DefaultValue::Empty);
+        if field.optional && matches!(default, DefaultValue::Empty) {
+            return false;
+        }
+        default_needs_runtime(&field.ty, default, type_defs, active_types)
+    });
+    active_types.pop();
+    runtime
 }
 
 fn zero_value_for_type(ty: &TypeRef, type_defs: &[TypeDef], enums: &[EnumDef]) -> Option<String> {

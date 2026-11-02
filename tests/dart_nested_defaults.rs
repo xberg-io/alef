@@ -136,3 +136,57 @@ fn nested_typed_list_defaults_preserve_values_without_invalid_const_context() {
         );
     }
 }
+
+fn extracted_named_surface(root: &std::path::Path) -> alef::core::ir::ApiSurface {
+    let path = root.join("lib.rs");
+    std::fs::write(
+        &path,
+        r#"
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct Row { pub count: u64 }
+impl Default for Row { fn default() -> Self { Self { count: 1 } } }
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct NamedConfig { pub rows: Vec<Row> }
+impl Default for NamedConfig { fn default() -> Self { Self { rows: vec![Row::default()] } } }
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct Envelope { pub configs: Vec<NamedConfig> }
+impl Default for Envelope { fn default() -> Self { Self { configs: vec![NamedConfig::default()] } } }
+pub fn inspect_named(config: NamedConfig) -> u32 { config.rows.len() as u32 }
+pub fn inspect_envelope(config: Envelope) -> u32 { config.configs.len() as u32 }
+"#,
+    )
+    .unwrap();
+    let api = alef::extract::extractor::extract(&[&path], "nested-defaults", "1.0.0", None).unwrap();
+    alef::core::validation::ValidatedApiSurface::new(&api, &[]).unwrap();
+    assert_eq!((api.types.len(), api.functions.len()), (3, 2));
+    api
+}
+
+#[test]
+fn named_collection_defaults_preserve_runtime_unsigned_field_values() {
+    let directory = tempfile::tempdir().unwrap();
+    let api = extracted_named_surface(directory.path());
+    for (name, field) in [("NamedConfig", "rows"), ("Envelope", "configs")] {
+        let owner = api.types.iter().find(|ty| ty.name == name).unwrap();
+        let field = owner.fields.iter().find(|item| item.name == field).unwrap();
+        assert_eq!(
+            field.typed_default,
+            Some(DefaultValue::ListLiteral(vec![DefaultValue::Empty]))
+        );
+    }
+    let row = api.types.iter().find(|ty| ty.name == "Row").unwrap();
+    assert_eq!(row.fields[0].typed_default, Some(DefaultValue::IntLiteral(1)));
+    let facade = render(&api);
+    if let Some(path) = std::env::var_os("ALEF_DART_NAMED_DEFAULT_ARTIFACT") {
+        std::fs::write(path, &facade).unwrap();
+    }
+    for expected in [
+        "NamedConfig(rows: [Row(count: BigInt.parse('1'))])",
+        "Envelope(configs: [NamedConfig(rows: [Row(count: BigInt.parse('1'))])])",
+    ] {
+        assert!(
+            facade.contains(expected),
+            "expected runtime named default {expected}\n{facade}"
+        );
+    }
+}
