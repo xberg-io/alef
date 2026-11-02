@@ -11,7 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - napi: avoid conflicting passthrough enum conversion traits, preserve deserialization error
   details, and propagate malformed direct, borrowed, optional and vector enum arguments as
-  `InvalidArg`; retain the existing flattened-enum conversion path. (#790)
+  `InvalidArg`; retain the existing flattened-enum conversion path and verify native fixture
+  manifests resolve their actual core crate. (#790)
 - napi: route an adjacently tagged enum (`#[serde(tag, content)]`) with two or more data variants
   through the `serde_json::Value` passthrough wrapper. Every variant writes its payload under the
   same content key, so the flat `#[napi(object)]` struct declared that field once per variant at

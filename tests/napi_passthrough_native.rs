@@ -30,6 +30,7 @@ fn prepare(root: &Path) {
     let validation = alef::core::validation::validate_api_surface(&api);
     assert!(!validation.has_errors(), "{}", validation.format_errors());
     generate(root, &api);
+    verify_core_dependency(root);
 }
 
 fn generate(root: &Path, api: &alef::core::ir::ApiSurface) {
@@ -38,6 +39,7 @@ fn generate(root: &Path, api: &alef::core::ir::ApiSurface) {
     )
     .expect("configuration");
     let mut config = raw.resolve().expect("resolved configuration").remove(0);
+    config.sources = vec![root.join("crates/sample-core/src/lib.rs")];
     config
         .output_paths
         .insert("node".into(), root.join("crates/sample-core-node/src"));
@@ -63,6 +65,29 @@ fn generate(root: &Path, api: &alef::core::ir::ApiSurface) {
         &["node"],
     );
     write(root, Path::new("crates/sample-core-node/mise.toml"), &tasks);
+}
+
+fn verify_core_dependency(root: &Path) {
+    let binding = root.join("crates/sample-core-node");
+    let manifest: toml::Value =
+        toml::from_str(&std::fs::read_to_string(binding.join("Cargo.toml")).expect("generated native manifest"))
+            .expect("valid generated manifest");
+    let dependency = manifest["dependencies"]["sample-core"]["path"]
+        .as_str()
+        .expect("generated core dependency");
+    assert_eq!(
+        binding
+            .join(dependency)
+            .canonicalize()
+            .expect("existing core dependency"),
+        root.join("crates/sample-core").canonicalize().expect("fixture core"),
+    );
+}
+
+#[test]
+fn scaffolded_passthrough_fixture_references_its_real_core() {
+    let directory = tempfile::tempdir().expect("scaffold fixture");
+    prepare(directory.path());
 }
 
 fn assert_success(output: &Output) {
