@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Resolve crate-local Result error aliases before lowering APIs, preserving source-order independence,
-  module-specific and foreign errors, reexports and crate isolation. (#813)
+  module-specific and foreign errors, reexports and crate isolation. Scan private alias metadata
+  without exposing private APIs, and preserve foreign identities through import chains. (#813)
 
 ## [0.116.0] - 2026-11-02
 

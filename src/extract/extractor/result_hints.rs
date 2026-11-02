@@ -3,13 +3,13 @@ use std::path::{Path, PathBuf};
 use ahash::{AHashMap, AHashSet};
 use anyhow::{Context, Result};
 
-use super::helpers::{collect_reexport_map, is_pub, is_test_gated, resolve_result_alias_scope};
+use super::helpers::{is_test_gated, resolve_result_alias_scope};
 use super::paths::{derive_module_path, module_children_dir};
-use crate::extract::type_resolver::{self, ResultAliasScope};
+use crate::extract::type_resolver::{self, ResultAliasHint, ResultAliasScope};
 
 #[derive(Default)]
 struct AliasIndex {
-    declarations: AHashMap<String, String>,
+    declarations: AHashMap<String, ResultAliasHint>,
     imports: AHashMap<String, ResultAliasScope>,
     visited: AHashSet<PathBuf>,
 }
@@ -56,20 +56,18 @@ impl AliasIndex {
         if let Some(scope) = resolve_result_alias_scope(items, module_path) {
             self.imports.insert(module_path.to_string(), scope);
         }
-        let reexports = collect_reexport_map(items);
         for item in items {
             match item {
                 syn::Item::Type(alias) if alias.ident == "Result" && !is_test_gated(&alias.attrs) => {
                     if let Some(error_type) =
                         type_resolver::extract_result_error_type_from_alias(&alias.ty, &alias.generics)
                     {
-                        self.declarations.insert(module_path.to_string(), error_type);
+                        self.declarations
+                            .insert(module_path.to_string(), ResultAliasHint::Error(error_type));
                     }
                 }
-                syn::Item::Mod(module)
-                    if !is_test_gated(&module.attrs)
-                        && (is_pub(&module.vis) || reexports.contains_key(&module.ident.to_string())) =>
-                {
+                // Private aliases can feed public signatures; item lowering still owns IR visibility.
+                syn::Item::Mod(module) if !is_test_gated(&module.attrs) => {
                     self.collect_module(module, source, is_crate_root, module_path)?;
                 }
                 _ => {}
@@ -110,19 +108,23 @@ impl AliasIndex {
         loop {
             let before = self.declarations.len();
             for (module, scope) in &self.imports {
-                if !self.declarations.contains_key(module)
-                    && let ResultAliasScope::Crate(target) = scope
-                    && let Some(error_type) = self.declarations.get(target).cloned()
-                {
-                    self.declarations.insert(module.clone(), error_type);
+                if self.declarations.contains_key(module) {
+                    continue;
+                }
+                let hint = match scope {
+                    ResultAliasScope::Foreign => Some(ResultAliasHint::Foreign),
+                    ResultAliasScope::Crate(target) => self.declarations.get(target).cloned(),
+                };
+                if let Some(hint) = hint {
+                    self.declarations.insert(module.clone(), hint);
                 }
             }
             if self.declarations.len() == before {
                 break;
             }
         }
-        for (module, error_type) in self.declarations {
-            type_resolver::record_result_error_hint(&module, error_type);
+        for (module, hint) in self.declarations {
+            type_resolver::record_result_alias_hint(&module, hint);
         }
     }
 }

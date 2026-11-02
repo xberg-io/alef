@@ -193,3 +193,52 @@ fn forward_aliases_follow_the_owning_directory_of_nested_module_files() {
     assert_eq!(surface.functions.len(), 1);
     assert_error(&surface, "run", "NestedError");
 }
+
+#[test]
+fn forward_foreign_result_reexport_chains_do_not_inherit_local_errors() {
+    for foreign in ["anyhow", "eyre", "std::io"] {
+        let source = format!(
+            r#"
+            pub mod api {{
+                pub use {foreign}::Result;
+                pub mod child {{
+                    use super::Result;
+                    pub fn foreign() -> Result<()> {{ unimplemented!() }}
+                }}
+            }}
+            pub mod error {{
+                pub struct LocalError;
+                pub type Result<T> = std::result::Result<T, LocalError>;
+            }}
+            pub use error::Result;
+            "#
+        );
+        let surface = extract_files(&[("lib.rs", &source)], &["lib.rs"]);
+        assert_eq!(surface.functions.len(), 1);
+        assert_error(&surface, "foreign", "anyhow::Error");
+    }
+}
+
+#[test]
+fn forward_private_alias_modules_supply_metadata_without_exposing_private_items() {
+    let source = r#"
+        pub struct PublicError;
+        pub struct OtherError;
+        pub mod api {
+            use crate::aliases::Result;
+            pub fn local() -> Result<()> { unimplemented!() }
+        }
+        mod aliases {
+            pub(crate) type Result<T> = std::result::Result<T, crate::OtherError>;
+            pub struct PrivateSentinel;
+        }
+        pub mod error { pub type Result<T> = std::result::Result<T, crate::PublicError>; }
+        pub use error::Result;
+    "#;
+    let surface = extract_files(&[("lib.rs", source)], &["lib.rs"]);
+    assert_eq!(surface.functions.len(), 1);
+    assert_error(&surface, "local", "crate::OtherError");
+    let mut names = surface.types.iter().map(|typ| typ.name.as_str()).collect::<Vec<_>>();
+    names.sort_unstable();
+    assert_eq!(names, ["OtherError", "PublicError"]);
+}
