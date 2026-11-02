@@ -9,15 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- napi: avoid conflicting passthrough enum conversion traits, preserve deserialization error
+  details, and propagate malformed direct, borrowed, optional and vector enum arguments as
+  `InvalidArg`; retain the existing flattened-enum conversion path. (#790)
 - napi: route an adjacently tagged enum (`#[serde(tag, content)]`) with two or more data variants
   through the `serde_json::Value` passthrough wrapper. Every variant writes its payload under the
   same content key, so the flat `#[napi(object)]` struct declared that field once per variant at
   different types (E0124). The `.d.ts` keeps the per-variant discriminated union. (#790)
-- napi: the passthrough enum binding-to-core conversion is a `TryFrom` whose error is
+- napi: the passthrough enum binding-to-core conversion uses an inherent fallible method whose error is
   `napi::Error` with `Status::InvalidArg` (surfaced by napi-rs as a catchable JS exception
   carrying the serde message) instead of `unwrap_or_default()`, which required a `Default`
   impl on the core enum and silently turned bad input into a default value. Functions taking
-  the enum as a direct param emit a fallible napi signature and convert with `try_into()?`, so
+  the enum as a direct param emit a fallible napi signature and convert with `try_into_core()?`, so
   malformed JS payloads raise `InvalidArg` instead of hitting the panicking `From` fallback
   kept for infallible parent-struct contexts. Nested-in-struct payloads still ride the
   infallible `From` chain; chain-wide fallibility remains scoped to #796.

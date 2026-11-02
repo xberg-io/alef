@@ -643,10 +643,10 @@ fn nested_optional_boxed_enum_fallback_defaults_the_complete_container() {
 
 /// Regression coverage for the adjacent-collision JSON-passthrough conversion, exercised through
 /// the real `NapiBackend::generate_bindings` path: the binding-to-core conversion goes through a
-/// `TryFrom` impl whose error is `napi::Error` with `Status::InvalidArg` (surfaced by napi-rs as
+/// fallible inherent method whose error is `napi::Error` with `Status::InvalidArg` (surfaced by napi-rs as
 /// a catchable JS exception) instead of `unwrap_or_default()` -- which would have required a
 /// `Default` impl on the core enum and silently turned malformed input into a default value.
-/// Functions taking the enum as a direct param emit `try_into()?` at the conversion site so the
+/// Functions taking the enum as a direct param emit `try_into_core()?` at the conversion site so the
 /// `InvalidArg` error propagates instead of panicking.
 #[test]
 fn generate_bindings_passthrough_enum_conversion_does_not_require_default() {
@@ -712,7 +712,8 @@ fn generate_bindings_passthrough_enum_conversion_does_not_require_default() {
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
     assert!(
-        lib.content.contains("impl TryFrom<JsPolicy> for test_core::Policy"),
+        lib.content
+            .contains("fn try_into_core(self) -> napi::Result<test_core::Policy>"),
         "expected a fallible binding-to-core conversion:\n{}",
         lib.content
     );
@@ -730,7 +731,7 @@ fn generate_bindings_passthrough_enum_conversion_does_not_require_default() {
 
 /// Scope-1 fallibility: a function taking a JSON-passthrough data enum as a *direct* param must
 /// itself be fallible at the napi boundary -- the emitted signature is `napi::Result<_>` and the
-/// param converts with `try_into()?`, so a malformed JS payload surfaces as `InvalidArg` instead
+/// param converts with `try_into_core()?`, so a malformed JS payload surfaces as `InvalidArg` instead
 /// of hitting the panicking `From` fallback. (Nested-in-struct enums stay on the infallible
 /// parent `From` chain until the #796 chain-wide design lands.)
 #[test]
@@ -812,7 +813,7 @@ fn generate_bindings_passthrough_enum_direct_param_forces_fallible_signature() {
         lib.content
     );
     assert!(
-        lib.content.contains("policy.try_into()?"),
+        lib.content.contains("policy.try_into_core()?"),
         "the param conversion must propagate the InvalidArg error via `?`:\n{}",
         lib.content
     );

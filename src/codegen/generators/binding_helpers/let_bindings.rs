@@ -1,3 +1,5 @@
+mod fallible;
+
 use crate::core::ir::{ParamDef, TypeRef};
 use ahash::AHashSet;
 
@@ -156,6 +158,10 @@ fn gen_named_let_bindings_inner(
 ) -> String {
     let mut bindings = String::new();
     for (idx, p) in params.iter().enumerate() {
+        if let Some(binding) = fallible::binding(p, fallible_named, core_import, false) {
+            bindings.push_str(&binding);
+            continue;
+        }
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 let promoted = promote && crate::codegen::shared::is_promoted_optional(params, idx);
@@ -164,14 +170,6 @@ fn gen_named_let_bindings_inner(
                     if p.is_ref {
                         crate::codegen::template_env::render(
                             "binding_helpers/named_let_binding_optional_ref.jinja",
-                            crate::alef_context! {
-                                name => &p.name,
-                                core_type_path => &core_type_path,
-                            },
-                        )
-                    } else if fallible_named.contains(name.as_str()) {
-                        crate::codegen::template_env::render(
-                            "binding_helpers/named_let_binding_fallible_optional.jinja",
                             crate::alef_context! {
                                 name => &p.name,
                                 core_type_path => &core_type_path,
@@ -186,15 +184,6 @@ fn gen_named_let_bindings_inner(
                             },
                         )
                     }
-                } else if fallible_named.contains(name.as_str()) {
-                    crate::codegen::template_env::render(
-                        "binding_helpers/named_let_binding_fallible.jinja",
-                        crate::alef_context! {
-                            name => &p.name,
-                            core_type_path => &core_type_path,
-                            is_mut => p.is_mut,
-                        },
-                    )
                 } else if promoted {
                     crate::codegen::template_env::render(
                         "binding_helpers/named_let_binding_promoted.jinja",
@@ -310,6 +299,10 @@ fn gen_named_let_bindings_inner_augmented(
     let mut bindings = String::new();
     for (idx, p) in augmented_params.iter().enumerate() {
         let is_augmented_optional = p.optional && original_params.get(idx).map(|orig| !orig.optional).unwrap_or(false);
+        if let Some(binding) = fallible::binding(p, fallible_named, core_import, is_augmented_optional) {
+            bindings.push_str(&binding);
+            continue;
+        }
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 let core_type_path = format!("{}::{}", core_import, name);
@@ -331,14 +324,6 @@ fn gen_named_let_bindings_inner_augmented(
                                 core_type_path => &core_type_path,
                             },
                         )
-                    } else if fallible_named.contains(name.as_str()) {
-                        crate::codegen::template_env::render(
-                            "binding_helpers/named_let_binding_fallible_optional.jinja",
-                            crate::alef_context! {
-                                name => &p.name,
-                                core_type_path => &core_type_path,
-                            },
-                        )
                     } else {
                         crate::codegen::template_env::render(
                             "binding_helpers/named_let_binding_optional.jinja",
@@ -353,15 +338,6 @@ fn gen_named_let_bindings_inner_augmented(
                     if promoted {
                         crate::codegen::template_env::render(
                             "binding_helpers/named_let_binding_promoted.jinja",
-                            crate::alef_context! {
-                                name => &p.name,
-                                core_type_path => &core_type_path,
-                                is_mut => p.is_mut,
-                            },
-                        )
-                    } else if fallible_named.contains(name.as_str()) {
-                        crate::codegen::template_env::render(
-                            "binding_helpers/named_let_binding_fallible.jinja",
                             crate::alef_context! {
                                 name => &p.name,
                                 core_type_path => &core_type_path,

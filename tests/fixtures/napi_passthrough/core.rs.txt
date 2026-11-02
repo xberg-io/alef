@@ -1,0 +1,21 @@
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "operation", content = "policy")]
+pub enum Policy { Analyze(String), Count(u32) }
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum OutputOnly { Text(String), Count(u32) }
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct Payload { pub retry_count: u32 }
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind")]
+pub enum Flat { Retry(Payload) }
+impl Default for Flat { fn default() -> Self { Self::Retry(Payload::default()) } }
+pub fn direct(value: Policy) -> String { serde_json::to_string(&value).unwrap() }
+pub fn borrowed(value: &Policy) -> String { serde_json::to_string(value).unwrap() }
+pub fn borrowed_vector(value: &[Policy]) -> String { serde_json::to_string(value).unwrap() }
+pub fn optional(value: Option<Policy>) -> String { serde_json::to_string(&value).unwrap() }
+pub fn optional_borrowed(value: Option<&Policy>) -> String { serde_json::to_string(&value).unwrap() }
+pub fn vector(value: Vec<Policy>) -> String { serde_json::to_string(&value).unwrap() }
+pub fn optional_vector(value: Option<Vec<Policy>>) -> String { serde_json::to_string(&value).unwrap() }
+pub fn output_only() -> OutputOnly { OutputOnly::Text("ok".into()) }
+pub fn flattened(value: Flat) -> Flat { value }

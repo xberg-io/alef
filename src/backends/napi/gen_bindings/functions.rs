@@ -55,7 +55,7 @@ pub(super) fn wrap_promoted_required_body(
 }
 
 /// Wrap a generated body whose signature was forced to `napi::Result` without a core error
-/// type: `force_ok` covers the JSON-passthrough-enum param case, where a `TryFrom` let-binding
+/// type: `force_ok` covers the JSON-passthrough-enum param case, where a fallible let-binding
 /// propagates `napi::Error` via `?` and the tail expression must be wrapped in `Ok`. The
 /// promoted-required prefix (default-param coercions) composes with either mode.
 pub(super) fn wrap_result_body(
@@ -114,13 +114,16 @@ pub(super) fn gen_function(
         .collect();
     let promoted_required = promoted_required(&augmented_params);
     // A param typed as a JSON-passthrough data enum converts binding->core through
-    // `TryFrom` (malformed JS payloads become `napi::Error` with `Status::InvalidArg`), so any
+    // `try_into_core` (malformed JS payloads become `napi::Error` with `Status::InvalidArg`), so any
     // function taking one needs a fallible napi signature even without a core error type.
     let has_fallible_param = !passthrough_enums.is_empty()
-        && func
-            .params
-            .iter()
-            .any(|p| matches!(&p.ty, TypeRef::Named(n) if passthrough_enums.contains(n.as_str())));
+        && func.params.iter().any(|p| match &p.ty {
+            TypeRef::Named(name) => passthrough_enums.contains(name.as_str()),
+            TypeRef::Vec(inner) => {
+                matches!(inner.as_ref(), TypeRef::Named(name) if passthrough_enums.contains(name.as_str()))
+            }
+            _ => false,
+        });
     let params = function_params(&augmented_params, &|ty| {
         if let TypeRef::Named(n) = ty {
             if capsule_types.contains_key(n.as_str())
