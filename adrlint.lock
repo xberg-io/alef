@@ -50,3 +50,8 @@ blake3 = "502ad8ab065c214bdefab3f41cbf6123781f92a38ce2d22ce9ba26bb3347f335"
 number = 12
 status = "accepted"
 blake3 = "615a7b5c894dffe3f3106ab4b3564a30cde3ffd42a8fd1c795a8d7220d87824d"
+
+[adrs."adrs/0013-inspect-swift-archives-with-the-selected-rust-toolchain-s-llvm.md"]
+number = 13
+status = "accepted"
+blake3 = "dd27a67be4b7081b19a67a501d15d5ec6aed2cbbd53ca036aaef0683a9a53ecd"
