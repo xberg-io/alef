@@ -203,7 +203,6 @@ fn gen_opaque_method(
             core_import,
             source_crate_remaps,
             type_paths,
-            false,
         );
         let call_args = wasm_call_args(&method.params, opaque_types, false);
         let core_call = if is_ref_mut {
@@ -368,7 +367,6 @@ fn gen_opaque_static_method(method: &MethodDef, context: OpaqueStaticMethodConte
             core_import,
             source_crate_remaps,
             type_paths,
-            false,
         );
         let call_args = wasm_call_args(&method.params, opaque_types, false);
         let core_call = format!("{qualified_type_path}::{}({call_args})", method.name);

@@ -222,7 +222,6 @@ pub(super) fn gen_method_with_type_paths(
             core_import,
             source_crate_remaps,
             type_paths,
-            has_named,
         ));
         let call_args = wasm_call_args(&method.params, opaque_types, has_named);
         let is_opaque_type = opaque_types.contains(type_name);
@@ -299,7 +298,6 @@ pub(super) fn gen_method_with_type_paths(
                 core_import,
                 source_crate_remaps,
                 type_paths,
-                has_named,
             );
 
             let is_borrowed_to_owned = method.name.contains("borrowed_attributes");
@@ -491,7 +489,6 @@ pub(super) fn gen_method_with_type_paths(
                 core_import,
                 source_crate_remaps,
                 type_paths,
-                has_named,
             ));
             let call_args = wasm_call_args(&method.params, opaque_types, has_named);
             let is_opaque_type = opaque_types.contains(type_name);

@@ -173,7 +173,6 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos_an
             core_import,
             source_crate_remaps,
             &type_paths,
-            has_named,
         ));
         let call_args = wasm_call_args(&func.params, opaque_types, has_named);
         let core_call = format!("{core_fn_path}({call_args})");
@@ -447,7 +446,6 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos_an
             core_import,
             source_crate_remaps,
             &type_paths,
-            true,
         ));
 
         let call_args = wasm_serde_recovery_call_args(&func.params, opaque_types);

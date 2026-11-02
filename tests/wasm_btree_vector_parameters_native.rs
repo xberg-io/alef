@@ -14,7 +14,7 @@ mod test_support {
 mod native;
 
 const CORE: &str = r#"
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Clone)]
 pub struct Payload { pub marker: String }
@@ -23,6 +23,21 @@ pub fn vectors(payload: Payload, records: Vec<BTreeMap<String, serde_json::Value
     (payload.marker.len() + records.len()) as u32
 }
 pub fn optionalvectors(payload: Payload, records: Option<Vec<BTreeMap<String, serde_json::Value>>>) -> u32 {
+    (payload.marker.len() + records.map(|rows| rows.len()).unwrap_or(0)) as u32
+}
+pub fn nestedroot(payload: Payload, records: BTreeMap<String, BTreeMap<String, serde_json::Value>>) -> u32 {
+    (payload.marker.len() + records.len()) as u32
+}
+pub fn optionalroot(payload: Payload, records: Option<BTreeMap<String, serde_json::Value>>) -> u32 {
+    (payload.marker.len() + records.map(|rows| rows.len()).unwrap_or(0)) as u32
+}
+pub fn root(payload: Payload, records: BTreeMap<String, serde_json::Value>) -> u32 {
+    (payload.marker.len() + records.len()) as u32
+}
+pub fn hashroot(payload: Payload, records: HashMap<String, serde_json::Value>) -> u32 {
+    (payload.marker.len() + records.len()) as u32
+}
+pub fn optionalhashroot(payload: Payload, records: Option<HashMap<String, serde_json::Value>>) -> u32 {
     (payload.marker.len() + records.map(|rows| rows.len()).unwrap_or(0)) as u32
 }
 "#;
@@ -84,7 +99,7 @@ fn emit(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
 }
 
 fn assert_shapes(api: &ApiSurface) {
-    assert_eq!((api.types.len(), api.enums.len(), api.functions.len()), (1, 0, 2));
+    assert_eq!((api.types.len(), api.enums.len(), api.functions.len()), (1, 0, 7));
     let payload = &api.types[0];
     assert_eq!(payload.name, "Payload");
     assert!(!payload.is_opaque);
@@ -95,29 +110,41 @@ fn assert_shapes(api: &ApiSurface) {
             .iter()
             .map(|function| function.params.len())
             .sum::<usize>(),
-        4
+        14
     );
-    let maps = TypeRef::Vec(Box::new(TypeRef::Map(
-        Box::new(TypeRef::String),
-        Box::new(TypeRef::Json),
-    )));
-    for (name, optional) in [("vectors", false), ("optionalvectors", true)] {
+    let map = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Json));
+    let maps = TypeRef::Vec(Box::new(map.clone()));
+    let nested = TypeRef::Map(Box::new(TypeRef::String), Box::new(map.clone()));
+    for (name, shape, optional, btree) in [
+        ("vectors", &maps, false, false),
+        ("optionalvectors", &maps, true, false),
+        ("nestedroot", &nested, false, true),
+        ("optionalroot", &map, true, true),
+        ("root", &map, false, true),
+        ("hashroot", &map, false, false),
+        ("optionalhashroot", &map, true, false),
+    ] {
         let function = api.functions.iter().find(|function| function.name == name).unwrap();
         assert_eq!(function.params.len(), 2);
         assert_eq!(function.params[0].ty, TypeRef::Named("Payload".into()));
-        assert_eq!(function.params[1].ty, maps);
-        assert_eq!(function.params[1].optional, optional);
-        assert!(
-            !function.params[1].map_is_btree,
-            "nested map metadata is not root-map metadata"
-        );
+        assert_eq!(&function.params[1].ty, shape, "{name}");
+        assert_eq!(function.params[1].optional, optional, "{name}");
+        assert_eq!(function.params[1].map_is_btree, btree, "{name}");
     }
 }
 
 fn assert_wrappers(root: &Path) {
     let source = std::fs::read_to_string(root.join("crates/map-core-wasm/src/lib.rs")).unwrap();
     let parsed = syn::parse_file(&source).expect("complete emitted WASM Rust must parse");
-    for name in ["vectors", "optionalvectors"] {
+    for name in [
+        "vectors",
+        "optionalvectors",
+        "nestedroot",
+        "optionalroot",
+        "root",
+        "hashroot",
+        "optionalhashroot",
+    ] {
         let count = parsed
             .items
             .iter()
