@@ -185,7 +185,7 @@ fn test_gen_struct_type_emits_json_tags() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        &std::collections::HashSet::new(),
+        (&std::collections::HashSet::new(), &[]),
         &[],
     );
     assert!(out.contains("type MyConfig struct"));
@@ -304,7 +304,7 @@ fn gen_struct_type_marshal_optional_bytes_field_does_not_dereference() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        &std::collections::HashSet::new(),
+        (&std::collections::HashSet::new(), &[]),
         &[],
     );
     assert!(!out.contains("*v.Data"), "expected no `*v.Data` dereference in:\n{out}");
@@ -406,7 +406,7 @@ fn test_gen_struct_type_emits_no_config_options_by_default() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        &std::collections::HashSet::new(),
+        (&std::collections::HashSet::new(), &[]),
         &[],
     );
     assert!(out.contains("type ContentConfig struct"), "expected struct definition");
@@ -809,7 +809,7 @@ fn gen_struct_type_required_duration_field_is_non_pointer_wire_safe_type() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        &std::collections::HashSet::new(),
+        (&std::collections::HashSet::new(), &[]),
         &[],
     );
     assert!(
@@ -835,7 +835,7 @@ fn gen_struct_type_optional_duration_field_with_real_default_is_pointer() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        &std::collections::HashSet::new(),
+        (&std::collections::HashSet::new(), &[]),
         &[],
     );
     assert!(
@@ -866,7 +866,7 @@ fn gen_struct_type_required_named_enum_field_in_default_struct_stays_required() 
         &enum_names,
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        &std::collections::HashSet::new(),
+        (&std::collections::HashSet::new(), &[]),
         &[],
     );
     assert!(
@@ -905,7 +905,7 @@ fn gen_struct_type_container_serde_default_emits_omitempty_pointers() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        &std::collections::HashSet::new(),
+        (&std::collections::HashSet::new(), &[]),
         &[],
     );
     assert!(
@@ -936,7 +936,7 @@ fn gen_struct_type_without_container_serde_default_keeps_required_fields_non_poi
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        &std::collections::HashSet::new(),
+        (&std::collections::HashSet::new(), &[]),
         &[],
     );
     assert!(
@@ -984,7 +984,7 @@ fn gen_struct_type_required_struct_field_becomes_pointer_without_disturbing_requ
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        &struct_names,
+        (&struct_names, &[]),
         &[],
     );
 
@@ -1036,7 +1036,7 @@ fn gen_struct_type_field_level_serde_default_marks_struct_type_fields_omitempty(
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        &struct_names,
+        (&struct_names, &[]),
         &[],
     );
 
@@ -1066,7 +1066,7 @@ fn gen_struct_type_container_serde_default_marks_unit_enum_fields_omitempty() {
             &enum_names,
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
-            &std::collections::HashSet::new(),
+            (&std::collections::HashSet::new(), &[]),
             &[],
         )
     };
@@ -1109,7 +1109,7 @@ fn gen_struct_type_unresolved_default_field_becomes_pointer_omitempty() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        &std::collections::HashSet::new(),
+        (&std::collections::HashSet::new(), &[]),
         &[],
     );
 
@@ -1136,7 +1136,7 @@ fn gen_struct_type_empty_default_field_stays_the_plain_go_zero() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        &std::collections::HashSet::new(),
+        (&std::collections::HashSet::new(), &[]),
         &[],
     );
 
@@ -1747,5 +1747,99 @@ fn gen_data_enum_type_externally_tagged_round_trip_matches_serde_wire_shape() {
     assert!(
         out.contains(&format!("case \"{bearer_key}\":")),
         "expected the second variant's oracle-derived wire case `{bearer_key}`:\n{out}"
+    );
+}
+
+/// A required `Vec`/`Map` field (no serde default) must always be sent, even when empty:
+/// the generated struct drops `omitempty` for it and `MarshalJSON` turns a nil slice/map into
+/// `[]`/`{}`. A collection with a serde default keeps `omitempty`.
+#[test]
+fn gen_struct_type_required_collections_are_never_omitted_and_never_null() {
+    let mut defaulted = simple_field("tags", TypeRef::Vec(Box::new(TypeRef::String)));
+    defaulted.default = Some("Default::default()".to_string());
+    let typ = test_struct_type(
+        "OperationRequest",
+        vec![
+            simple_field("extensions", TypeRef::Vec(Box::new(TypeRef::String))),
+            simple_field(
+                "metadata",
+                TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+            ),
+            defaulted,
+        ],
+        false,
+    );
+    let out = gen_struct_type(
+        &typ,
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+        (&std::collections::HashSet::new(), &[]),
+        &[],
+    );
+    assert!(
+        out.contains("`json:\"extensions\"`"),
+        "required slice must not be omitempty:\n{out}"
+    );
+    assert!(
+        out.contains("`json:\"metadata\"`"),
+        "required map must not be omitempty:\n{out}"
+    );
+    assert!(
+        out.contains("`json:\"tags,omitempty\"`"),
+        "defaulted slice keeps omitempty:\n{out}"
+    );
+    assert!(
+        out.contains("func (v OperationRequest) MarshalJSON()"),
+        "needs a normalizing MarshalJSON:\n{out}"
+    );
+    assert!(
+        out.contains("if aux.Extensions == nil {") && out.contains("aux.Extensions = []string{}"),
+        "nil slice must marshal as []:\n{out}"
+    );
+    assert!(
+        out.contains("if aux.Metadata == nil {") && out.contains("aux.Metadata = map[string]string{}"),
+        "nil map must marshal as {{}}:\n{out}"
+    );
+}
+
+/// A `#[serde(flatten)]` field's members sit beside the parent's own keys on the wire. The Go
+/// struct hides the field from encoding/json and (un)marshals it inline, so the parent emits
+/// `{"schema":..,"operation":..,"policy":..}` rather than a nested `"operation": {..}` object.
+#[test]
+fn gen_struct_type_flattened_field_is_inlined_on_the_wire() {
+    let mut flattened = simple_field("operation", TypeRef::Named("OperationPolicy".to_string()));
+    flattened.serde_flatten = true;
+    let typ = test_struct_type(
+        "OperationRequest",
+        vec![simple_field("schema", TypeRef::String), flattened],
+        false,
+    );
+    let out = gen_struct_type(
+        &typ,
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+        (&["OperationPolicy"].into_iter().collect(), &[]),
+        &[],
+    );
+    assert!(
+        out.contains("Operation *OperationPolicy `json:\"-\"`"),
+        "flattened field is hidden:\n{out}"
+    );
+    assert!(
+        out.contains("func (v OperationRequest) MarshalJSON()"),
+        "needs an inlining marshaler:\n{out}"
+    );
+    assert!(
+        out.contains("json.Marshal(v.Operation)") && out.contains("merged[key] = member"),
+        "flattened members merge into the parent object:\n{out}"
+    );
+    assert!(
+        out.contains("func (s *OperationRequest) UnmarshalJSON(data []byte) error")
+            && out.contains("delete(available, \"schema\")")
+            && out.contains("json.Unmarshal(childData, &s.Operation)")
+            && !out.contains("json.Unmarshal(data, &s.Operation)"),
+        "flattened field decodes after the parent's own keys are consumed:\n{out}"
     );
 }

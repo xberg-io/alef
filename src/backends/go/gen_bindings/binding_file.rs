@@ -355,7 +355,7 @@ pub(super) fn gen_go_file(
                 unit_enum_names,
                 passthrough_enum_names,
                 data_enum_names,
-                struct_names,
+                (struct_names, &api.types),
                 &active_trait_bridges,
             ));
             body.push_str("\n\n");

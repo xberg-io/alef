@@ -190,7 +190,7 @@ fn optional_data_enum_field_uses_non_pointer_interface() {
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::from([choice.name.as_str()]),
-        &HashSet::from([type_def.name.as_str()]),
+        (&HashSet::from([type_def.name.as_str()]), &[]),
         &[],
     );
 
@@ -224,7 +224,7 @@ fn required_unresolved_named_field_uses_raw_message_pointer() {
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
-        &HashSet::from([type_def.name.as_str()]),
+        (&HashSet::from([type_def.name.as_str()]), &[]),
         &[],
     );
 
@@ -272,7 +272,7 @@ fn optional_non_emitted_named_fields_use_raw_message_in_struct_and_marshal_aux()
             &HashSet::new(),
             &HashSet::new(),
             &HashSet::new(),
-            &HashSet::from([type_def.name.as_str()]),
+            (&HashSet::from([type_def.name.as_str()]), &[]),
             &[],
         );
         assert_eq!(
@@ -292,7 +292,7 @@ fn marshal_auxiliary_data_interface_uses_authoritative_type() {
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::from([choice.name.as_str()]),
-        &HashSet::from([type_def.name.as_str()]),
+        (&HashSet::from([type_def.name.as_str()]), &[]),
         &[],
     );
 

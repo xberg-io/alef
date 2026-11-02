@@ -1,0 +1,62 @@
+	{
+		available := map[string]json.RawMessage{}
+		if err := json.Unmarshal(data, &available); err != nil {
+			return err
+		}
+{% for name in owned_names %}		delete(available, {{ name }})
+{% endfor %}{% for field in flattened %}{% if not field.is_map %}		{
+			childData, err := json.Marshal(available)
+			if err != nil {
+				return err
+			}
+{% if field.optional and field.required_wire_names %}			complete := true
+			for _, key := range []string{ {% for name in field.required_wire_names %}{{ name }}, {% endfor %}} {
+				if _, present := available[key]; !present {
+					complete = false
+					break
+				}
+			}
+			if !complete {
+				s.{{ field.go_field }} = nil
+			} else {
+{% endif %}{% if field.unmarshal_fn %}				decoded, err := {{ field.unmarshal_fn }}(childData)
+				if err != nil {
+{% if field.optional %}					s.{{ field.go_field }} = nil
+{% else %}					return err
+{% endif %}				} else {
+					s.{{ field.go_field }} = decoded
+				}
+{% else %}				if err := json.Unmarshal(childData, &s.{{ field.go_field }}); err != nil {
+{% if field.optional %}					// Serde's flattened Option maps a failed inner decode to None.
+					s.{{ field.go_field }} = nil
+{% else %}					return err
+{% endif %}				}
+{% endif %}{% if field.optional and field.required_wire_names %}			}
+{% endif %}{% if not loop.last %}{% for name in field.wire_names %}			delete(available, {{ name }})
+{% endfor %}{% if field.optional %}			if s.{{ field.go_field }} != nil {
+{% endif %}				inline, err := json.Marshal(s.{{ field.go_field }})
+				if err != nil {
+					return fmt.Errorf("inspect flattened {{ field.go_field }} keys: %w", err)
+				}
+				var members map[string]json.RawMessage
+				if err := json.Unmarshal(inline, &members); err != nil {
+					return fmt.Errorf("decode flattened {{ field.go_field }} keys: %w", err)
+				}
+				for key := range members {
+					delete(available, key)
+				}
+{% if field.optional %}			}
+{% endif %}{% endif %}		}
+{% endif %}{% endfor %}{% for field in flattened %}{% if field.is_map %}		{
+			s.{{ field.go_field }} = nil
+			if len(available) > 0 {
+				encoded, err := json.Marshal(available)
+				if err != nil {
+					return err
+				}
+				if err := json.Unmarshal(encoded, &s.{{ field.go_field }}); err != nil {
+					return err
+				}
+			}
+		}
+{% endif %}{% endfor %}	}

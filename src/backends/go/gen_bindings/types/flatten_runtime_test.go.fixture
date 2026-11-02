@@ -1,0 +1,243 @@
+package codec
+
+import (
+	"encoding/json"
+	"os"
+	"reflect"
+	"testing"
+)
+
+type contractCase struct {
+	Input    json.RawMessage `json:"input"`
+	Expected json.RawMessage `json:"expected"`
+	Present  *bool           `json:"present"`
+}
+
+func loadCases(t *testing.T) map[string]contractCase {
+	t.Helper()
+	data, err := os.ReadFile("oracle.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases map[string]contractCase
+	if err := json.Unmarshal(data, &cases); err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) != 12 {
+		t.Fatalf("expected twelve independent Serde cases, got %d", len(cases))
+	}
+	return cases
+}
+
+func assertWire(t *testing.T, value any, expected json.RawMessage) {
+	t.Helper()
+	actual, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal generated DTO: %v", err)
+	}
+	var got, want any
+	if err := json.Unmarshal(actual, &got); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(expected, &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("wire mismatch: got %s, core Serde expects %s", actual, expected)
+	}
+}
+
+func TestSealedFlatten(t *testing.T) {
+	cases := loadCases(t)
+	for _, name := range []string{"sealed_only", "sealed_mixed"} {
+		t.Run(name, func(t *testing.T) {
+			var value any = &SealedOnly{}
+			if name == "sealed_mixed" {
+				value = &SealedMixed{}
+			}
+			if err := json.Unmarshal(cases[name].Input, value); err != nil {
+				t.Fatalf("valid core Serde flattened enum must decode: %v", err)
+			}
+			assertWire(t, value, cases[name].Expected)
+		})
+	}
+}
+
+func TestOptionalFlatten(t *testing.T) {
+	cases := loadCases(t)
+	names := []string{"optional_only_absent", "optional_only_present", "optional_mixed_absent", "optional_mixed_present"}
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			var value any = &OptionalOnly{}
+			if name == "optional_mixed_absent" || name == "optional_mixed_present" {
+				value = &OptionalMixed{}
+			}
+			if err := json.Unmarshal(cases[name].Input, value); err != nil {
+				t.Fatalf("valid core Serde optional flatten must decode: %v", err)
+			}
+			assertWire(t, value, cases[name].Expected)
+		})
+	}
+}
+
+func TestCollisionSerialization(t *testing.T) {
+	cases := loadCases(t)
+	for _, name := range []string{"collision_omitted", "collision_nonempty"} {
+		t.Run(name, func(t *testing.T) {
+			var input struct {
+				Tags   []string          `json:"tags"`
+				Extras map[string]string `json:"extras"`
+			}
+			if err := json.Unmarshal(cases[name].Input, &input); err != nil {
+				t.Fatal(err)
+			}
+			value := CollisionRecord{Tags: input.Tags, Extras: input.Extras}
+			assertWire(t, value, cases[name].Expected)
+		})
+	}
+}
+
+func TestRemainderFlatten(t *testing.T) {
+	cases := loadCases(t)
+	names := []string{"remainder_only_empty", "remainder_only_nonempty", "remainder_mixed_empty", "remainder_mixed_nonempty"}
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			var value any = &RemainderOnly{}
+			if name == "remainder_mixed_empty" || name == "remainder_mixed_nonempty" {
+				value = &RemainderMixed{}
+			}
+			if err := json.Unmarshal(cases[name].Input, value); err != nil {
+				t.Fatalf("flattened map must not receive the child's consumed keys: %v", err)
+			}
+			assertWire(t, value, cases[name].Expected)
+		})
+	}
+}
+
+func loadOptionalStructCases(t *testing.T) map[string]contractCase {
+	t.Helper()
+	data, err := os.ReadFile("optional_struct_oracle.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases map[string]contractCase
+	if err := json.Unmarshal(data, &cases); err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) != 32 {
+		t.Fatalf("expected 32 optional-struct Serde cases, got %d", len(cases))
+	}
+	return cases
+}
+
+func TestOptionalStructFlatten(t *testing.T) {
+	cases := loadOptionalStructCases(t)
+	factories := map[string]func() any{
+		"required_only":             func() any { return &OptionalRequiredChildOnly{} },
+		"required_mixed":            func() any { return &OptionalRequiredChildMixed{} },
+		"partly_defaulted_only":     func() any { return &OptionalPartlyDefaultedChildOnly{} },
+		"partly_defaulted_mixed":    func() any { return &OptionalPartlyDefaultedChildMixed{} },
+		"defaulted_only":            func() any { return &OptionalDefaultedChildOnly{} },
+		"defaulted_mixed":           func() any { return &OptionalDefaultedChildMixed{} },
+		"container_defaulted_only":  func() any { return &OptionalContainerDefaultedChildOnly{} },
+		"container_defaulted_mixed": func() any { return &OptionalContainerDefaultedChildMixed{} },
+	}
+	for _, model := range []string{"required", "partly_defaulted", "defaulted", "container_defaulted"} {
+		for _, mode := range []string{"only", "mixed"} {
+			for _, state := range []string{"absent", "name_only", "kind_only", "complete"} {
+				name := model + "_" + mode + "_" + state
+				t.Run(name, func(t *testing.T) {
+					value := factories[model+"_"+mode]()
+					if err := json.Unmarshal(cases[name].Input, value); err != nil {
+						t.Fatalf("valid Serde optional struct must decode: %v", err)
+					}
+					if cases[name].Present == nil {
+						t.Fatal("oracle must explicitly distinguish None from Some(defaulted child)")
+					}
+					present := !reflect.ValueOf(value).Elem().FieldByName("Payload").IsNil()
+					if present != *cases[name].Present {
+						t.Fatalf("optional child presence: got %v, core Serde expects %v", present, *cases[name].Present)
+					}
+					assertWire(t, value, cases[name].Expected)
+				})
+			}
+		}
+	}
+}
+
+type consumedKeyCase struct {
+	Input     json.RawMessage `json:"input"`
+	Expected  json.RawMessage `json:"expected"`
+	Mutated   json.RawMessage `json:"mutated"`
+	Present   *bool           `json:"present"`
+	ChildName *string         `json:"child_name"`
+}
+
+func loadConsumedKeyCases(t *testing.T) map[string]consumedKeyCase {
+	t.Helper()
+	data, err := os.ReadFile("consumed_keys_oracle.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases map[string]consumedKeyCase
+	if err := json.Unmarshal(data, &cases); err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) != 6 {
+		t.Fatalf("expected six consumed-key Serde oracles, got %d", len(cases))
+	}
+	return cases
+}
+
+func TestConsumedKeysFlatten(t *testing.T) {
+	cases := loadConsumedKeyCases(t)
+	factories := map[string]func() any{
+		"required_only":   func() any { return &ConsumedRequiredOnly{} },
+		"required_mixed":  func() any { return &ConsumedRequiredMixed{} },
+		"defaulted_only":  func() any { return &ConsumedDefaultedOnly{} },
+		"defaulted_mixed": func() any { return &ConsumedDefaultedMixed{} },
+		"sibling_only":    func() any { return &ConsumedSiblingOnly{} },
+		"sibling_mixed":   func() any { return &ConsumedSiblingMixed{} },
+	}
+	for _, model := range []string{"required", "defaulted", "sibling"} {
+		for _, mode := range []string{"only", "mixed"} {
+			states := []string{"decoded", "mutated"}
+			if model == "sibling" {
+				states = []string{"decoded"}
+			}
+			name := model + "_" + mode
+			for _, state := range states {
+				t.Run(name+"_"+state, func(t *testing.T) {
+					oracle := cases[name]
+					value := factories[name]()
+					if err := json.Unmarshal(oracle.Input, value); err != nil {
+						t.Fatalf("valid Serde consumed-key input must decode: %v", err)
+					}
+					if state == "mutated" {
+						reflect.ValueOf(value).Elem().FieldByName("Name").SetString("after")
+						assertWire(t, value, oracle.Mutated)
+						return
+					}
+					if oracle.Present == nil {
+						t.Fatal("oracle must explicitly distinguish child presence")
+					}
+					payload := reflect.ValueOf(value).Elem().FieldByName("Payload")
+					present := !payload.IsNil()
+					if present != *oracle.Present {
+						t.Fatalf("consumed-key child presence: got %v, core Serde expects %v", present, *oracle.Present)
+					}
+					if present {
+						if oracle.ChildName == nil {
+							t.Fatal("Some child requires an explicit expected field value")
+						}
+						got := payload.Elem().FieldByName("Name").String()
+						if got != *oracle.ChildName {
+							t.Fatalf("child must not receive a consumed key: got %q, core Serde expects %q", got, *oracle.ChildName)
+						}
+					}
+					assertWire(t, value, oracle.Expected)
+				})
+			}
+		}
+	}
+}
