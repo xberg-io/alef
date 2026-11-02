@@ -118,10 +118,6 @@ fn should_preserve_source_dto_names_when_emitting_private_wire_key_helpers() {
         .arg(&path)
         .output()
         .expect("invoke the real Swift compiler");
-    eprintln!(
-        "swift_wire_key_compiler_invocations=1 executable={swift:?} status={}",
-        output.status
-    );
     let stdout = String::from_utf8(output.stdout).unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(

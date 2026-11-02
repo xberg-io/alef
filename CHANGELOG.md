@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep Swift serde wire-key compiler tests compatible with the strict Clippy print policy.
+
 ## [0.115.15] - 2026-11-02
 
 ### Fixed
