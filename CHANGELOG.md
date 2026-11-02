@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Record a [full-corpus snippet metadata benchmark](docs/benchmarks/snippet-metadata-cache.md) with equivalent
+  verification outcomes, actual construction counts and a stale-content negative control. (#753)
+
 ## [0.116.0] - 2026-11-02
 
 ### Changed (BREAKING)
