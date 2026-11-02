@@ -63,7 +63,6 @@ fn captures_original_enum_bytes_without_overwriting_existing_evidence() {
     let bytes = serde_json::to_vec_pretty(&manifest).expect("serialize capture manifest");
     create_new_file(&directory.join(MANIFEST_NAME), &bytes);
     assert_directory_entries(&directory, &manifest);
-    println!("captured_cases={CASE_COUNT} manifest_sha256={}", digest(&bytes));
 }
 
 #[test]
@@ -82,7 +81,6 @@ fn enum_rendering_matches_independently_pinned_original_bytes() {
         compare_case(&directory, case, record);
     }
     assert_eq!(actual.len(), CASE_COUNT);
-    println!("compared_cases={CASE_COUNT}");
 }
 
 fn required_env(name: &str) -> String {

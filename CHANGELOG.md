@@ -24,7 +24,7 @@ Migration details and remaining platform qualification are recorded in
 - Split documentation formatting and snippet validation helpers, remove 13 resolved quality
   exemptions, and retain a 60-case enum documentation byte-comparison harness that resolves
   evidence paths from both main and worktree checkouts and verifies canonical SHA256 digest
-  encoding. (#338)
+  encoding without direct progress writes to stdout. (#338)
 - Pin Dart 3.13.7 for reproducible native codec verification with the consumer CI SDK.
 
 ### Fixed
