@@ -53,6 +53,7 @@ mod duplicate_items;
 mod exclusions;
 mod extraction_area;
 mod futures_returns;
+mod qualified_arc;
 mod reexports;
 mod result_alias;
 mod serde;
