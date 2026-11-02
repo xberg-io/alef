@@ -32,7 +32,22 @@ async function main() {
   await assert.rejects(addon.consumePromoted(undefined, undefined), /missing required parameter/);
   assert.equal(addon.consumeSync("ok"), undefined);
   checks++;
-  assert.equal(checks, 19);
+  const rows = [{ nil: null, object: { nested: true }, number: 23, array: [null, 2, { text: "kept" }] }];
+  const packets = [
+    { flags: [], rows: [] },
+    { flags: [true, false], rows },
+    { flags: [false], rows, maybeRows: [] },
+    { flags: [true, false, true], rows, maybeRows: rows },
+  ];
+  assert.equal(packets.length, 4);
+  for (const input of packets) {
+    const output = addon.echoMapPacket(input);
+    assert.deepEqual(output.flags, input.flags);
+    assert.deepEqual(output.rows, input.rows);
+    assert.deepEqual(output.maybeRows, input.maybeRows);
+    checks++;
+  }
+  assert.equal(checks, 23);
   process.stdout.write(`function contracts: ${checks} checks passed\n`);
 }
 

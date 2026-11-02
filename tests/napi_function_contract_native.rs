@@ -4,6 +4,7 @@ mod mise_task;
 use alef::backends::napi::NapiBackend;
 use alef::core::backend::Backend;
 use alef::core::config::{Language, NewAlefConfig};
+use alef::core::ir::{ApiSurface, PrimitiveType, TypeRef};
 use std::path::Path;
 use std::process::{Command, Output};
 
@@ -17,6 +18,13 @@ pub struct Packet {
 pub struct Child { pub value: String }
 #[derive(Clone)]
 pub struct Owner { pub child: std::sync::Arc<Child> }
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct MapPacket {
+    pub flags: Vec<bool>,
+    pub rows: Vec<std::collections::BTreeMap<String, serde_json::Value>>,
+    pub maybe_rows: Option<Vec<std::collections::BTreeMap<String, serde_json::Value>>>,
+}
+pub fn echo_map_packet(value: MapPacket) -> MapPacket { value }
 pub fn echo_owner(value: Owner) -> Owner { value }
 pub fn json_owned(value: serde_json::Value) -> serde_json::Value { value }
 pub fn json_borrowed(value: &serde_json::Value) -> &serde_json::Value { value }
@@ -50,8 +58,9 @@ fn prepare(root: &Path) {
     );
     let api = alef::extract::extractor::extract(&[source.as_path()], "sample_core", "0.1.0", None)
         .expect("public extraction");
-    assert_eq!(api.functions.len(), 9);
-    assert_eq!(api.types.len(), 3);
+    assert_eq!(api.functions.len(), 10);
+    assert_eq!(api.types.len(), 4);
+    assert_map_packet_shape(&api);
     let validation = alef::core::validation::validate_api_surface(&api);
     assert!(!validation.has_errors(), "{}", validation.format_errors());
     let raw: NewAlefConfig = toml::from_str(
@@ -104,6 +113,27 @@ fn verify_core_dependency(root: &Path) {
     );
 }
 
+fn assert_map_packet_shape(api: &ApiSurface) {
+    let packet = api
+        .types
+        .iter()
+        .find(|typ| typ.name == "MapPacket")
+        .expect("public DTO");
+    assert_eq!(packet.fields.len(), 3);
+    assert_eq!(
+        packet.fields[0].ty,
+        TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::Bool)))
+    );
+    let rows = TypeRef::Vec(Box::new(TypeRef::Map(
+        Box::new(TypeRef::String),
+        Box::new(TypeRef::Json),
+    )));
+    assert_eq!(packet.fields[1].ty, rows);
+    assert_eq!(packet.fields[2].ty, rows);
+    assert!(!packet.fields[1].optional);
+    assert!(packet.fields[2].optional);
+}
+
 #[test]
 fn scaffolded_function_fixture_references_its_real_core() {
     let directory = tempfile::tempdir().expect("scaffold fixture");
@@ -150,6 +180,6 @@ fn extracted_function_contracts_compile_and_execute_in_node() {
     assert_success(&node);
     assert_eq!(
         String::from_utf8_lossy(&node.stdout),
-        "function contracts: 19 checks passed\n"
+        "function contracts: 23 checks passed\n"
     );
 }

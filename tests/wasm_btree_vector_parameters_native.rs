@@ -1,7 +1,7 @@
 use alef::backends::wasm::WasmBackend;
 use alef::core::backend::{Backend, GeneratedFile};
 use alef::core::config::{Language, NewAlefConfig};
-use alef::core::ir::{ApiSurface, TypeRef};
+use alef::core::ir::{ApiSurface, PrimitiveType, TypeRef};
 use alef::core::validation::ValidatedApiSurface;
 use std::path::{Component, Path, PathBuf};
 
@@ -18,6 +18,13 @@ use std::collections::{BTreeMap, HashMap};
 
 #[derive(Clone)]
 pub struct Payload { pub marker: String }
+#[derive(Clone)]
+pub struct Packet {
+    pub flags: Vec<bool>,
+    pub rows: Vec<BTreeMap<String, serde_json::Value>>,
+    pub maybe_rows: Option<Vec<BTreeMap<String, serde_json::Value>>>,
+}
+pub fn echo_packet(packet: Packet) -> Packet { packet }
 
 pub fn vectors(payload: Payload, records: Vec<BTreeMap<String, serde_json::Value>>) -> u32 {
     (payload.marker.len() + records.len()) as u32
@@ -99,8 +106,8 @@ fn emit(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
 }
 
 fn assert_shapes(api: &ApiSurface) {
-    assert_eq!((api.types.len(), api.enums.len(), api.functions.len()), (1, 0, 7));
-    let payload = &api.types[0];
+    assert_eq!((api.types.len(), api.enums.len(), api.functions.len()), (2, 0, 8));
+    let payload = api.types.iter().find(|typ| typ.name == "Payload").unwrap();
     assert_eq!(payload.name, "Payload");
     assert!(!payload.is_opaque);
     assert_eq!(payload.fields.len(), 1);
@@ -110,10 +117,21 @@ fn assert_shapes(api: &ApiSurface) {
             .iter()
             .map(|function| function.params.len())
             .sum::<usize>(),
-        14
+        15
     );
     let map = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Json));
     let maps = TypeRef::Vec(Box::new(map.clone()));
+    let packet = api.types.iter().find(|typ| typ.name == "Packet").unwrap();
+    assert!(!packet.is_opaque);
+    assert_eq!(packet.fields.len(), 3);
+    assert_eq!(
+        packet.fields[0].ty,
+        TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::Bool)))
+    );
+    assert_eq!(packet.fields[1].ty, maps);
+    assert_eq!(packet.fields[2].ty, maps);
+    assert!(!packet.fields[1].optional);
+    assert!(packet.fields[2].optional);
     let nested = TypeRef::Map(Box::new(TypeRef::String), Box::new(map.clone()));
     for (name, shape, optional, btree) in [
         ("vectors", &maps, false, false),
@@ -144,6 +162,7 @@ fn assert_wrappers(root: &Path) {
         "root",
         "hashroot",
         "optionalhashroot",
+        "echo_packet",
     ] {
         let count = parsed
             .items
@@ -155,6 +174,42 @@ fn assert_wrappers(root: &Path) {
             .count();
         assert_eq!(count, 1, "actual emitted wrapper census: {name}");
     }
+    assert_bool_vector_constructor(&parsed);
+}
+
+fn assert_bool_vector_constructor(parsed: &syn::File) {
+    let constructors: Vec<_> = parsed
+        .items
+        .iter()
+        .filter_map(|item| {
+            let syn::Item::Impl(implementation) = item else {
+                return None;
+            };
+            let syn::Type::Path(typ) = implementation.self_ty.as_ref() else {
+                return None;
+            };
+            if !typ.path.is_ident("WasmPacket") || implementation.trait_.is_some() {
+                return None;
+            }
+            implementation.items.iter().find_map(|item| match item {
+                syn::ImplItem::Fn(function) if function.sig.ident == "new" => Some(&function.sig),
+                _ => None,
+            })
+        })
+        .collect();
+    assert_eq!(
+        constructors.len(),
+        1,
+        "the DTO must retain its real generated constructor"
+    );
+    assert_eq!(constructors[0].inputs.len(), 3);
+    let syn::FnArg::Typed(flags) = &constructors[0].inputs[0] else {
+        panic!("flags constructor input")
+    };
+    let syn::Type::Path(flags_type) = flags.ty.as_ref() else {
+        panic!("mapped flags constructor input")
+    };
+    assert_eq!(flags_type.path.segments.last().unwrap().ident, "JsValue");
 }
 
 fn write_inputs(root: &Path) {
