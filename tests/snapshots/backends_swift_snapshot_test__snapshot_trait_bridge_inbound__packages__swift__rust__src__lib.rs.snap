@@ -215,15 +215,7 @@ pub struct ImageConfig(pub demo::ImageConfig);
 impl ImageConfig {
     pub fn new(language: String) -> ImageConfig {
         let mut __target: demo::ImageConfig = ::std::default::Default::default();
-        {
-            // Try JSON parse first (handles enum/object values); on parse failure
-            // treat the raw input as a JSON string scalar so plain `String` /
-            // string-like enum fields don't end up empty for inputs that aren't
-            // valid JSON tokens (e.g. `tts-1`).
-            let __v = ::serde_json::from_str::<::serde_json::Value>(&language)
-                .unwrap_or(::serde_json::Value::String(language.clone()));
-            if let Ok(t) = ::serde_json::from_value(__v) { __target.language = t; }
-        }
+        __target.language = language;
         ImageConfig(__target)
     }
     pub fn language(&self) -> String {
@@ -235,15 +227,7 @@ pub struct ProcessingResult(pub demo::ProcessingResult);
 impl ProcessingResult {
     pub fn new(text: String) -> ProcessingResult {
         let mut __target: demo::ProcessingResult = ::std::default::Default::default();
-        {
-            // Try JSON parse first (handles enum/object values); on parse failure
-            // treat the raw input as a JSON string scalar so plain `String` /
-            // string-like enum fields don't end up empty for inputs that aren't
-            // valid JSON tokens (e.g. `tts-1`).
-            let __v = ::serde_json::from_str::<::serde_json::Value>(&text)
-                .unwrap_or(::serde_json::Value::String(text.clone()));
-            if let Ok(t) = ::serde_json::from_value(__v) { __target.text = t; }
-        }
+        __target.text = text;
         ProcessingResult(__target)
     }
     pub fn text(&self) -> String {

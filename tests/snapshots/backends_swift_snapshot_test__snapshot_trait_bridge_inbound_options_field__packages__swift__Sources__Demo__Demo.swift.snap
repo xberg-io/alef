@@ -21,7 +21,11 @@ public struct RenderOptions: Codable, Sendable, Hashable {
     }
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.timeoutMs = try container.decodeIfPresent(UInt32.self, forKey: .timeoutMs) ?? 0
+        if container.contains(.timeoutMs) {
+            self.timeoutMs = try container.decode(UInt32.self, forKey: .timeoutMs)
+        } else {
+            self.timeoutMs = 0
+        }
     }
 }
 

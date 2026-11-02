@@ -21,7 +21,11 @@ public struct Diagnostic: Codable, Sendable, Hashable {
     }
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.message = try container.decodeIfPresent(String.self, forKey: .message) ?? ""
+        if container.contains(.message) {
+            self.message = try container.decode(String.self, forKey: .message)
+        } else {
+            self.message = ""
+        }
         self.span = try container.decode(Span.self, forKey: .span)
     }
 }
@@ -55,9 +59,21 @@ public struct ProcessResult: Codable, Sendable, Hashable {
     }
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.language = try container.decodeIfPresent(String.self, forKey: .language) ?? ""
-        self.diagnostics = try container.decodeIfPresent([Diagnostic].self, forKey: .diagnostics) ?? []
-        self.tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+        if container.contains(.language) {
+            self.language = try container.decode(String.self, forKey: .language)
+        } else {
+            self.language = ""
+        }
+        if container.contains(.diagnostics) {
+            self.diagnostics = try container.decode([Diagnostic].self, forKey: .diagnostics)
+        } else {
+            self.diagnostics = []
+        }
+        if container.contains(.tags) {
+            self.tags = try container.decode([String].self, forKey: .tags)
+        } else {
+            self.tags = []
+        }
     }
 }
 
@@ -92,8 +108,16 @@ public struct Span: Codable, Sendable, Hashable {
     }
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.startByte = try container.decodeIfPresent(UInt.self, forKey: .startByte) ?? 0
-        self.endByte = try container.decodeIfPresent(UInt.self, forKey: .endByte) ?? 0
+        if container.contains(.startByte) {
+            self.startByte = try container.decode(UInt.self, forKey: .startByte)
+        } else {
+            self.startByte = 0
+        }
+        if container.contains(.endByte) {
+            self.endByte = try container.decode(UInt.self, forKey: .endByte)
+        } else {
+            self.endByte = 0
+        }
     }
 }
 

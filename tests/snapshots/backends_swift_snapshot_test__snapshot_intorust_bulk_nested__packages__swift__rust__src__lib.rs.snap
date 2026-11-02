@@ -213,15 +213,7 @@ pub struct Diagnostic(pub demo::Diagnostic);
 impl Diagnostic {
     pub fn new(message: String, span: Span) -> Diagnostic {
         let mut __target: demo::Diagnostic = ::std::default::Default::default();
-        {
-            // Try JSON parse first (handles enum/object values); on parse failure
-            // treat the raw input as a JSON string scalar so plain `String` /
-            // string-like enum fields don't end up empty for inputs that aren't
-            // valid JSON tokens (e.g. `tts-1`).
-            let __v = ::serde_json::from_str::<::serde_json::Value>(&message)
-                .unwrap_or(::serde_json::Value::String(message.clone()));
-            if let Ok(t) = ::serde_json::from_value(__v) { __target.message = t; }
-        }
+        __target.message = message;
         __target.span = span.0;
         Diagnostic(__target)
     }
@@ -237,15 +229,7 @@ pub struct ProcessResult(pub demo::ProcessResult);
 impl ProcessResult {
     pub fn new(language: String, diagnostics: Vec<Diagnostic>, tags: Vec<String>) -> ProcessResult {
         let mut __target: demo::ProcessResult = ::std::default::Default::default();
-        {
-            // Try JSON parse first (handles enum/object values); on parse failure
-            // treat the raw input as a JSON string scalar so plain `String` /
-            // string-like enum fields don't end up empty for inputs that aren't
-            // valid JSON tokens (e.g. `tts-1`).
-            let __v = ::serde_json::from_str::<::serde_json::Value>(&language)
-                .unwrap_or(::serde_json::Value::String(language.clone()));
-            if let Ok(t) = ::serde_json::from_value(__v) { __target.language = t; }
-        }
+        __target.language = language;
         __target.diagnostics = diagnostics.into_iter().map(|w| w.0).collect();
         if let Ok(__v) = ::serde_json::to_value(tags) {
             if let Ok(t) = ::serde_json::from_value(__v) { __target.tags = t; }
