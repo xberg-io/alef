@@ -875,6 +875,12 @@ pub fn field_conversion_from_core_cfg(
                 format!("{name}: {}", converted.replacen("items", &format!("val.{name}"), 1))
             }
         }
+        TypeRef::Optional(inner)
+            if config.json_as_value
+                && matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Map(k, v) if matches!(k.as_ref(), TypeRef::String) && matches!(v.as_ref(), TypeRef::Json))) =>
+        {
+            format!("{name}: val.{name}.map(|items| items.into_iter().map(|m| m.into_iter().collect()).collect())")
+        }
         TypeRef::Json if config.map_uses_jsvalue => {
             if optional {
                 format!("{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::to_value(v).ok())")

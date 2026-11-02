@@ -1641,3 +1641,31 @@ fn map_uses_jsvalue_vec_of_bool_converts_through_serde_wasm_bindgen() {
         "allowed: serde_wasm_bindgen::to_value(&val.allowed).unwrap_or(JsValue::NULL)"
     );
 }
+
+/// With `json_as_value` (NAPI), an `Option<Vec<Map<String, Json>>>` field takes the same
+/// container-only conversion as the bare `Vec`, mapped over the outer Option; otherwise the
+/// field bypasses the override and falls back to re-parsing values that are already
+/// `serde_json::Value`, which does not compile.
+#[test]
+fn json_as_value_optional_vec_of_json_maps_converts_containers_only() {
+    let ty = TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Map(
+        Box::new(TypeRef::String),
+        Box::new(TypeRef::Json),
+    )))));
+    let config = ConversionConfig {
+        json_as_value: true,
+        ..Default::default()
+    };
+
+    let to_core = field_conversion_to_core_cfg("fallbacks", &ty, false, &config);
+    assert_eq!(
+        to_core,
+        "fallbacks: val.fallbacks.map(|items| items.into_iter().map(|m| m.into_iter().collect()).collect())"
+    );
+
+    let from_core = field_conversion_from_core_cfg("fallbacks", &ty, false, false, &AHashSet::new(), &config);
+    assert_eq!(
+        from_core,
+        "fallbacks: val.fallbacks.map(|items| items.into_iter().map(|m| m.into_iter().collect()).collect())"
+    );
+}
