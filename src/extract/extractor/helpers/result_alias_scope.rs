@@ -7,7 +7,7 @@
 
 use std::cell::RefCell;
 
-use ahash::AHashSet;
+use ahash::{AHashMap, AHashSet};
 
 use crate::extract::type_resolver::ResultAliasScope;
 
@@ -22,7 +22,7 @@ thread_local! {
 #[derive(Debug, Clone, Default)]
 struct ModuleContext {
     module_path: String,
-    local_modules: AHashSet<String>,
+    local_namespaces: AHashSet<String>,
 }
 
 /// Installs the module context used to resolve qualified `Result` paths, restoring the enclosing
@@ -30,11 +30,25 @@ struct ModuleContext {
 pub(crate) struct ResultModuleContextGuard(Option<ModuleContext>);
 
 impl ResultModuleContextGuard {
+    pub(crate) fn module_path() -> Option<String> {
+        MODULE_CONTEXT.with(|context| context.borrow().as_ref().map(|context| context.module_path.clone()))
+    }
+
+    pub(crate) fn enter_child(items: &[syn::Item], name: &str) -> Self {
+        let parent = Self::module_path().unwrap_or_default();
+        let path = if parent.is_empty() {
+            name.to_string()
+        } else {
+            format!("{parent}::{name}")
+        };
+        Self::enter(items, &path)
+    }
+
     /// Enter the module at `module_path` whose items are `items`.
     pub(crate) fn enter(items: &[syn::Item], module_path: &str) -> Self {
         let context = ModuleContext {
             module_path: module_path.to_string(),
-            local_modules: collect_local_module_names(items),
+            local_namespaces: collect_local_namespace_names(items),
         };
         Self(MODULE_CONTEXT.with(|c| c.replace(Some(context))))
     }
@@ -68,66 +82,282 @@ pub(crate) fn scope_for_result_type_path(path: &syn::Path) -> Option<ResultAlias
         let borrowed = c.borrow();
         let fallback = ModuleContext::default();
         let context = borrowed.as_ref().unwrap_or(&fallback);
-        Some(scope_for_prefix(&prefix, &context.module_path, &context.local_modules))
+        Some(scope_for_prefix(
+            &prefix,
+            &context.module_path,
+            &context.local_namespaces,
+        ))
     })
 }
 
-/// Find which `Result` alias the module's `use` statements bring into scope.
+/// Resolve explicit imports before consulting this module's preindexed glob namespace.
 ///
-/// Returns `None` when the module imports no `Result` at all; the caller then falls back to the
-/// crate's canonical alias. A `use` of a foreign crate's `Result` (`anyhow::Result`, say) yields
-/// [`ResultAliasScope::Foreign`] so that no crate-local error type is substituted.
+/// A glob may export no `Result`, so it must not fall back to an unrelated crate-wide alias.
 pub(crate) fn resolve_result_alias_scope(items: &[syn::Item], module_path: &str) -> Option<ResultAliasScope> {
-    let local_modules = collect_local_module_names(items);
-    let mut prefix: Vec<String> = Vec::new();
-    items.iter().find_map(|item| match item {
-        syn::Item::Use(item_use) => scope_from_tree(&item_use.tree, module_path, &local_modules, &mut prefix),
-        _ => None,
+    resolve_named_result_alias_scope(items, module_path).or_else(|| {
+        (!collect_result_glob_scopes(items, module_path).is_empty())
+            .then(|| ResultAliasScope::Crate(module_path.to_string()))
     })
 }
 
-/// Names of the child modules declared in `items`.
-///
-/// Rust 2018 uniform paths let a `use` start at a module of the current module
-/// (`pub use error::Result;` in `lib.rs`), which is otherwise indistinguishable from a foreign
-/// crate name. Knowing the local module names is what tells the two apart. ~keep
-fn collect_local_module_names(items: &[syn::Item]) -> AHashSet<String> {
-    items
+#[derive(Clone)]
+pub(crate) struct ResultAliasImport {
+    pub scope: ResultAliasScope,
+    pub visible_from: String,
+}
+
+struct UseImport {
+    name: Option<String>,
+    path: Vec<String>,
+    visibility: syn::Visibility,
+    absolute: bool,
+}
+
+pub(crate) fn resolve_named_result_alias_scope(items: &[syn::Item], module_path: &str) -> Option<ResultAliasScope> {
+    resolve_named_result_alias_import(items, module_path).map(|import| import.scope)
+}
+
+pub(crate) fn resolve_named_result_alias_import(items: &[syn::Item], module_path: &str) -> Option<ResultAliasImport> {
+    let namespaces = collect_local_namespace_names(items);
+    collect_use_imports(items).into_iter().find_map(|import| {
+        (import.name.as_deref() == Some("Result")).then(|| ResultAliasImport {
+            scope: import_scope(&import, &import.path[..import.path.len() - 1], module_path, &namespaces),
+            visible_from: visibility_scope(&import.visibility, module_path),
+        })
+    })
+}
+
+pub(crate) fn result_alias_target_scope(
+    ty: &syn::Type,
+    items: &[syn::Item],
+    module_path: &str,
+) -> Option<ResultAliasScope> {
+    let syn::Type::Path(type_path) = ty else { return None };
+    let prefix = type_path
+        .path
+        .segments
         .iter()
-        .filter_map(|item| match item {
-            syn::Item::Mod(item_mod) => Some(item_mod.ident.to_string()),
-            _ => None,
+        .map(|segment| segment.ident.to_string())
+        .collect::<Vec<_>>();
+    if type_path.path.leading_colon.is_some() {
+        return Some(ResultAliasScope::Foreign);
+    }
+    Some(scope_for_prefix(
+        &prefix,
+        module_path,
+        &collect_local_namespace_names(items),
+    ))
+}
+
+pub(crate) fn collect_result_glob_scopes(items: &[syn::Item], module_path: &str) -> Vec<ResultAliasImport> {
+    let namespaces = collect_local_namespace_names(items);
+    collect_use_imports(items)
+        .into_iter()
+        .filter(|import| import.name.is_none())
+        .map(|import| ResultAliasImport {
+            scope: import_scope(&import, &import.path, module_path, &namespaces),
+            visible_from: visibility_scope(&import.visibility, module_path),
         })
         .collect()
 }
 
-/// Walk a use tree, accumulating the module path segments that precede each leaf.
-fn scope_from_tree(
-    tree: &syn::UseTree,
+pub(crate) fn collect_result_module_imports(
+    items: &[syn::Item],
     module_path: &str,
-    local_modules: &AHashSet<String>,
-    prefix: &mut Vec<String>,
-) -> Option<ResultAliasScope> {
+) -> AHashMap<String, ResultAliasScope> {
+    let namespaces = collect_local_namespace_names(items);
+    collect_use_imports(items)
+        .into_iter()
+        .filter_map(|import| {
+            let name = import.name.as_ref()?;
+            let path = if module_path.is_empty() {
+                name.clone()
+            } else {
+                format!("{module_path}::{name}")
+            };
+            Some((path, import_scope(&import, &import.path, module_path, &namespaces)))
+        })
+        .collect()
+}
+
+pub(crate) fn visibility_scope(visibility: &syn::Visibility, module_path: &str) -> String {
+    match visibility {
+        syn::Visibility::Public(_) => String::new(),
+        syn::Visibility::Inherited => module_path.to_string(),
+        syn::Visibility::Restricted(restricted) => {
+            let prefix = restricted
+                .path
+                .segments
+                .iter()
+                .map(|segment| segment.ident.to_string())
+                .collect::<Vec<_>>();
+            match scope_for_prefix(&prefix, module_path, &AHashSet::new()) {
+                ResultAliasScope::Crate(scope) => scope,
+                ResultAliasScope::Foreign => module_path.to_string(),
+            }
+        }
+    }
+}
+
+fn import_scope(
+    import: &UseImport,
+    prefix: &[String],
+    module_path: &str,
+    namespaces: &AHashSet<String>,
+) -> ResultAliasScope {
+    if import.absolute {
+        ResultAliasScope::Foreign
+    } else {
+        scope_for_prefix(prefix, module_path, namespaces)
+    }
+}
+
+fn collect_local_namespace_names(items: &[syn::Item]) -> AHashSet<String> {
+    let mut names = items
+        .iter()
+        .filter_map(|item| match item {
+            syn::Item::Mod(module) => Some(module.ident.to_string()),
+            _ => None,
+        })
+        .collect::<AHashSet<_>>();
+    names.extend(collect_use_imports(items).into_iter().filter_map(|import| import.name));
+    names
+}
+
+fn collect_use_imports(items: &[syn::Item]) -> Vec<UseImport> {
+    let mut imports = Vec::new();
+    for item in items {
+        if let syn::Item::Use(item_use) = item
+            && !super::is_test_gated(&item_use.attrs)
+        {
+            collect_use_tree(&item_use.tree, &mut Vec::new(), item_use, &mut imports);
+        }
+    }
+    imports
+}
+
+fn collect_use_tree(tree: &syn::UseTree, prefix: &mut Vec<String>, item: &syn::ItemUse, imports: &mut Vec<UseImport>) {
     match tree {
-        syn::UseTree::Path(use_path) => {
-            prefix.push(use_path.ident.to_string());
-            let found = scope_from_tree(&use_path.tree, module_path, local_modules, prefix);
+        syn::UseTree::Path(path) => {
+            prefix.push(path.ident.to_string());
+            collect_use_tree(&path.tree, prefix, item, imports);
             prefix.pop();
-            found
         }
-        syn::UseTree::Group(group) => group
-            .items
-            .iter()
-            .find_map(|item| scope_from_tree(item, module_path, local_modules, prefix)),
-        // The name the module actually writes is the imported ident, or the rename when there is
-        // one — `use anyhow::Result as AnyResult` does not put `Result` in scope. ~keep
-        syn::UseTree::Name(use_name) if use_name.ident == "Result" => {
-            Some(scope_for_prefix(prefix, module_path, local_modules))
+        syn::UseTree::Group(group) => {
+            for child in &group.items {
+                collect_use_tree(child, prefix, item, imports);
+            }
         }
-        syn::UseTree::Rename(use_rename) if use_rename.rename == "Result" => {
-            Some(scope_for_prefix(prefix, module_path, local_modules))
+        syn::UseTree::Glob(_) => imports.push(UseImport {
+            name: None,
+            path: prefix.clone(),
+            visibility: item.vis.clone(),
+            absolute: item.leading_colon.is_some(),
+        }),
+        syn::UseTree::Name(name) => push_named_import(prefix, &name.ident.to_string(), None, item, imports),
+        syn::UseTree::Rename(rename) => {
+            push_named_import(
+                prefix,
+                &rename.ident.to_string(),
+                Some(rename.rename.to_string()),
+                item,
+                imports,
+            );
         }
-        _ => None,
+    }
+}
+
+fn push_named_import(
+    prefix: &[String],
+    original: &str,
+    rename: Option<String>,
+    item: &syn::ItemUse,
+    imports: &mut Vec<UseImport>,
+) {
+    let mut path = prefix.to_vec();
+    let name = if original == "self" {
+        let Some(name) = prefix.last() else { return };
+        rename.unwrap_or_else(|| name.clone())
+    } else {
+        path.push(original.to_string());
+        rename.unwrap_or_else(|| original.to_string())
+    };
+    imports.push(UseImport {
+        name: Some(name),
+        path,
+        visibility: item.vis.clone(),
+        absolute: item.leading_colon.is_some(),
+    });
+}
+
+/// Canonicalize forwarding definitions before rewriting caller-supplied path suffixes.
+pub(crate) fn resolve_result_module_scope(
+    scope: &ResultAliasScope,
+    lookup: impl Fn(&str) -> Option<ResultAliasScope>,
+) -> ResultAliasScope {
+    resolve_namespace_query(scope.clone(), &lookup, &mut AHashSet::new(), &mut AHashMap::new())
+        .unwrap_or(ResultAliasScope::Foreign)
+}
+
+fn resolve_namespace_query(
+    mut scope: ResultAliasScope,
+    lookup: &impl Fn(&str) -> Option<ResultAliasScope>,
+    active: &mut AHashSet<String>,
+    targets: &mut AHashMap<String, Option<ResultAliasScope>>,
+) -> Option<ResultAliasScope> {
+    loop {
+        let ResultAliasScope::Crate(module) = &scope else {
+            return Some(scope);
+        };
+        let Some((length, target)) = namespace_alias_prefix(module, lookup) else {
+            return Some(scope);
+        };
+        let prefix = module[..length].to_string();
+        let suffix = module[length..].trim_start_matches("::").to_string();
+        let target = resolve_namespace_target(&prefix, target, lookup, active, targets)?;
+        scope = append_namespace_suffix(target, &suffix);
+    }
+}
+
+fn resolve_namespace_target(
+    prefix: &str,
+    target: ResultAliasScope,
+    lookup: &impl Fn(&str) -> Option<ResultAliasScope>,
+    active: &mut AHashSet<String>,
+    targets: &mut AHashMap<String, Option<ResultAliasScope>>,
+) -> Option<ResultAliasScope> {
+    if let Some(cached) = targets.get(prefix) {
+        return cached.clone();
+    }
+    if !active.insert(prefix.to_string()) {
+        return None;
+    }
+    // Only target definitions keep an edge active; caller suffixes may reuse the same forwarding.
+    let resolved = resolve_namespace_query(target, lookup, active, targets);
+    active.remove(prefix);
+    targets.insert(prefix.to_string(), resolved.clone());
+    resolved
+}
+
+fn append_namespace_suffix(target: ResultAliasScope, suffix: &str) -> ResultAliasScope {
+    match target {
+        ResultAliasScope::Foreign => ResultAliasScope::Foreign,
+        ResultAliasScope::Crate(target) if target.is_empty() => ResultAliasScope::Crate(suffix.to_string()),
+        ResultAliasScope::Crate(target) if suffix.is_empty() => ResultAliasScope::Crate(target),
+        ResultAliasScope::Crate(target) => ResultAliasScope::Crate(format!("{target}::{suffix}")),
+    }
+}
+
+fn namespace_alias_prefix(
+    module: &str,
+    lookup: &impl Fn(&str) -> Option<ResultAliasScope>,
+) -> Option<(usize, ResultAliasScope)> {
+    let mut prefix = module;
+    loop {
+        if let Some(target) = lookup(prefix) {
+            return Some((prefix.len(), target));
+        }
+        prefix = prefix.rsplit_once("::")?.0;
     }
 }
 
@@ -136,7 +366,7 @@ fn scope_from_tree(
 /// `crate`/`self`/`super` prefixes and uniform paths into a locally declared module resolve
 /// against `module_path`; anything else names another crate, whose `Result` carries its own error
 /// type and must not borrow this crate's.
-fn scope_for_prefix(prefix: &[String], module_path: &str, local_modules: &AHashSet<String>) -> ResultAliasScope {
+fn scope_for_prefix(prefix: &[String], module_path: &str, local_namespaces: &AHashSet<String>) -> ResultAliasScope {
     let segments: Vec<&str> = prefix.iter().map(String::as_str).collect();
     let mut index = 0;
     let mut base: Vec<&str> = Vec::new();
@@ -154,7 +384,7 @@ fn scope_for_prefix(prefix: &[String], module_path: &str, local_modules: &AHashS
                 base.pop();
             }
         }
-        Some(first) if local_modules.contains(first) => base = split_module_path(module_path),
+        Some(first) if local_namespaces.contains(first) => base = split_module_path(module_path),
         _ => return ResultAliasScope::Foreign,
     }
 

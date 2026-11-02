@@ -5,6 +5,7 @@ pub(crate) mod helpers;
 mod paths;
 mod postprocess;
 mod reexports;
+mod result_hints;
 pub(crate) mod service;
 mod types;
 
@@ -78,6 +79,7 @@ pub fn extract(
     type_resolver::reset_result_error_hints();
 
     let crate_src_dir = sources.first().and_then(|s| s.parent()).map(|p| p.to_path_buf());
+    result_hints::collect_sources(sources, crate_src_dir.as_deref())?;
 
     for source in sources {
         let canonical = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
@@ -97,6 +99,7 @@ pub fn extract(
         let offsets = SurfaceOffsets::from_surface(&surface);
 
         let mut result_wrapping_aliases = ahash::AHashSet::new();
+        let _result_source_context = ResultModuleContextGuard::enter(&file.items, &module_path);
         extract_items(
             &file.items,
             source,
@@ -226,26 +229,17 @@ fn extract_items(
     let constructors = defaults::collect_constructors(items);
     let free_functions = defaults::collect_free_functions(items);
 
+    let result_module_path = ResultModuleContextGuard::module_path().unwrap_or_else(|| module_path.to_string());
     let mut declares_result_alias = false;
     for item in items {
         if let syn::Item::Type(item_type) = item
-            && is_pub(&item_type.vis)
+            && !is_test_gated(&item_type.attrs)
         {
             let name = item_type.ident.to_string();
-            // A crate-local `Result` alias almost always carries its own generic
-            // parameter (`pub type Result<T> = std::result::Result<T, MyError>;`), so
-            // the hint lookup must not be gated on the alias itself being non-generic. ~keep
-            if name == "Result"
-                && let Some(error_type) =
-                    type_resolver::extract_result_error_type_from_alias(&item_type.ty, &item_type.generics)
-            {
-                // Keyed by the declaring module: a crate may declare several private `Result`
-                // aliases, and a name-keyed hint would let whichever module happens to be walked
-                // last decide the error type for the whole crate. ~keep
-                type_resolver::record_result_error_hint(module_path, error_type);
+            if name == "Result" {
                 declares_result_alias = true;
             }
-            if !item_type.generics.params.is_empty() {
+            if is_pub(&item_type.vis) && !item_type.generics.params.is_empty() {
                 let rhs = quote::quote!(#item_type).to_string();
                 if rhs.contains("Result <") || rhs.contains("Result<") {
                     result_wrapping_aliases.insert(name);
@@ -258,14 +252,14 @@ fn extract_items(
     // `use` statements import, and only then through the crate's canonical alias. The guard
     // restores the enclosing module's scope when this module's items are done. ~keep
     let alias_scope = if declares_result_alias {
-        Some(type_resolver::ResultAliasScope::Crate(module_path.to_string()))
+        Some(type_resolver::ResultAliasScope::Crate(result_module_path.clone()))
     } else {
-        resolve_result_alias_scope(items, module_path)
+        resolve_result_alias_scope(items, &result_module_path)
     };
     let _result_alias_scope = type_resolver::ResultAliasScopeGuard::enter(alias_scope);
     // A return type that qualifies its `Result` (`crate::Result<T>`) resolves against the module
     // it is written in, which the type alone does not carry. ~keep
-    let _result_module_context = ResultModuleContextGuard::enter(items, module_path);
+    let _result_module_context = ResultModuleContextGuard::enter(items, &result_module_path);
 
     for item in items {
         // `#[cfg(test)]` items do not exist in normal builds; skip them so the
