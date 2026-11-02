@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Propagate malformed NAPI input through nested structs, enum variants, containers, constructors,
+  methods and callbacks without panicking or substituting defaults; encode enum map keys with their
+  serde names and preserve structured JSON in optional containers. (#796, #797, #798)
+- Keep JSON and async unit method boundaries consistent with free functions, and retain native
+  wrapper compilation and serde wire declaration regressions. (#801, #802, #803, #807)
+
 - Match NAPI async unit signatures to their fallible bodies, preserve JSON values and borrowed
   JSON arguments, and omit unsupported null from nested optional native DTO fields. (#801, #802, #803, #807)
 - napi: avoid conflicting passthrough enum conversion traits, preserve deserialization error
@@ -24,9 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   carrying the serde message) instead of `unwrap_or_default()`, which required a `Default`
   impl on the core enum and silently turned bad input into a default value. Functions taking
   the enum as a direct param emit a fallible napi signature and convert with `try_into_core()?`, so
-  malformed JS payloads raise `InvalidArg` instead of hitting the panicking `From` fallback
-  kept for infallible parent-struct contexts. Nested-in-struct payloads still ride the
-  infallible `From` chain; chain-wide fallibility remains scoped to #796.
+  malformed JS payloads raise `InvalidArg` through direct and nested input conversions. The inherent method delegates to the same
+  fallible conversion trait used throughout parent structures and container values.
 - napi: declare the `.d.ts` members of an adjacent-collision passthrough enum in serde's own
   wire casing (snake_case payload keys, serde tag/content names) rather than host camelCase,
   matching the raw `serde_json` conversion the binding actually performs at runtime. Named

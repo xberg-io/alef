@@ -19,6 +19,7 @@ pub(in crate::backends::napi::gen_bindings) fn gen_adapter_wrapper(
     adapter: &crate::core::config::AdapterConfig,
     core_crate: &str,
     types: &[crate::core::ir::TypeDef],
+    inputs: Option<&crate::backends::napi::gen_bindings::containers::ContainerContext>,
 ) -> anyhow::Result<String> {
     use crate::core::config::AdapterPattern;
 
@@ -220,6 +221,29 @@ pub(in crate::backends::napi::gen_bindings) fn gen_adapter_wrapper(
         (param_parts, param_conversions, core_params_list)
     };
 
+    let param_conversions = param_conversions
+        .into_iter()
+        .map(|conversion| {
+            let affected = adapter.params.iter().any(|parameter| {
+                let name = parameter.ty.rsplit("::").next().unwrap_or(&parameter.ty);
+                inputs.is_some_and(|inputs| inputs.is_fallible(&crate::core::ir::TypeRef::Named(name.to_string())))
+                    && (conversion.contains(&format!("core_{}:", parameter.name))
+                        || conversion.contains(&format!("core_{}:", name.to_snake_case())))
+            });
+            if affected {
+                conversion.replace(
+                    ".into();",
+                    &format!(
+                        ".try_into(){}?;",
+                        crate::backends::napi::gen_bindings::inputs::INVALID_ARG
+                    ),
+                )
+            } else {
+                conversion
+            }
+        })
+        .collect::<Vec<_>>();
+
     Ok(match &adapter.pattern {
         AdapterPattern::Streaming => {
             let item_type_name = adapter.item_type.as_deref().unwrap_or("Item");
@@ -298,7 +322,7 @@ mod tests {
     fn streaming_wrapper_selects_on_consumer_close() {
         let adapter = streaming_adapter();
 
-        let body = gen_adapter_wrapper(&adapter, "my_crate", &[]).expect("valid adapter");
+        let body = gen_adapter_wrapper(&adapter, "my_crate", &[], None).expect("valid adapter");
 
         assert!(
             body.contains("_ = tx.closed() => break,"),

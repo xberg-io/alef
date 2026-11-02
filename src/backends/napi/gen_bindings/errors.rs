@@ -34,6 +34,7 @@ pub(super) fn gen_dts(
     core_import: &str,
     configured_features: Option<&std::collections::HashSet<&str>>,
 ) -> String {
+    let containers = super::containers::ContainerContext::new(api, core_import);
     let mut wire_types = super::wire_types::WireTypes::new(api);
     // ~keep A second instance, camel-cased, for the ONE shape whose runtime this backend re-cases
     // (`is_fully_flattened_internal_enum`). Untagged passthrough enums keep serde's own spelling
@@ -241,6 +242,8 @@ pub(super) fn gen_dts(
                 lines.push("}".to_string());
             }
             Decl::Interface(typ) => {
+                let binding_type = containers.binding_type(typ);
+                let typ = &binding_type;
                 lines.extend(format_jsdoc(&typ.doc, ""));
                 lines.push(format!("export interface {} {{", node_type_name(&typ.name)));
                 for field in binding_fields(&typ.fields) {

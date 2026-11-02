@@ -34,7 +34,8 @@ fn core_to_binding_uses_shorthand_for_self_assigned_optional_field() {
     };
 
     let struct_names = AHashSet::new();
-    let core_to_binding = gen_tagged_enum_core_to_binding(&enum_def, "fixture_core", "Js", &struct_names, None, &[]);
+    let core_to_binding =
+        gen_tagged_enum_core_to_binding(&enum_def, "fixture_core", "Js", &struct_names, None, (&[], None));
 
     assert!(
         !core_to_binding.contains("text: text"),
@@ -70,7 +71,8 @@ fn core_to_binding_keeps_expr_form_when_conversion_is_required() {
     };
 
     let struct_names = AHashSet::new();
-    let core_to_binding = gen_tagged_enum_core_to_binding(&enum_def, "fixture_core", "Js", &struct_names, None, &[]);
+    let core_to_binding =
+        gen_tagged_enum_core_to_binding(&enum_def, "fixture_core", "Js", &struct_names, None, (&[], None));
 
     assert!(
         core_to_binding.contains("items: items.map(|v| v.into_iter().map(Into::into).collect())"),
@@ -111,7 +113,8 @@ fn core_to_binding_optional_unboxed_named_field_is_not_dereferenced() {
     // exactly the condition the old code (wrongly) used to decide whether to dereference.
     let mut struct_names = AHashSet::new();
     struct_names.insert("Nested".to_string());
-    let core_to_binding = gen_tagged_enum_core_to_binding(&enum_def, "fixture_core", "Js", &struct_names, None, &[]);
+    let core_to_binding =
+        gen_tagged_enum_core_to_binding(&enum_def, "fixture_core", "Js", &struct_names, None, (&[], None));
 
     assert!(
         !core_to_binding.contains("nested.map(|v| (*v).into())"),
@@ -294,9 +297,10 @@ fn promoted_required_method_and_constructor_parameters_return_invalid_arg() {
         &ahash::AHashMap::new(),
         &empty,
         &HashMap::new(),
+        None,
     );
-    let static_output = gen_static_method(&static_method, &mapper, &typ, &cfg, &empty, "Js", &empty);
-    let constructor_output = napi_variant_wrapper_constructor(&typ, &mapper, "sample_core", "Js").unwrap();
+    let static_output = gen_static_method(&static_method, &mapper, &typ, (&cfg, None), &empty, "Js", &empty);
+    let constructor_output = napi_variant_wrapper_constructor(&typ, &mapper, "sample_core", "Js", None).unwrap();
 
     for output in [&instance_output, &static_output, &constructor_output] {
         assert!(output.contains("label: Option<String>, limit: Option<u32>"), "{output}");
@@ -646,7 +650,7 @@ fn nested_optional_boxed_enum_fallback_defaults_the_complete_container() {
 /// fallible inherent method whose error is `napi::Error` with `Status::InvalidArg` (surfaced by napi-rs as
 /// a catchable JS exception) instead of `unwrap_or_default()` -- which would have required a
 /// `Default` impl on the core enum and silently turned malformed input into a default value.
-/// Functions taking the enum as a direct param emit `try_into_core()?` at the conversion site so the
+/// Functions taking the enum as a direct param propagate fallible conversion errors so the
 /// `InvalidArg` error propagates instead of panicking.
 #[test]
 fn generate_bindings_passthrough_enum_conversion_does_not_require_default() {
@@ -731,7 +735,7 @@ fn generate_bindings_passthrough_enum_conversion_does_not_require_default() {
 
 /// Scope-1 fallibility: a function taking a JSON-passthrough data enum as a *direct* param must
 /// itself be fallible at the napi boundary -- the emitted signature is `napi::Result<_>` and the
-/// param converts with `try_into_core()?`, so a malformed JS payload surfaces as `InvalidArg` instead
+/// param converts fallibly, so a malformed JS payload surfaces as `InvalidArg` instead
 /// of hitting the panicking `From` fallback. (Nested-in-struct enums stay on the infallible
 /// parent `From` chain until the #796 chain-wide design lands.)
 #[test]
@@ -813,7 +817,7 @@ fn generate_bindings_passthrough_enum_direct_param_forces_fallible_signature() {
         lib.content
     );
     assert!(
-        lib.content.contains("policy.try_into_core()?"),
+        lib.content.contains("(policy) . try_into () ?"),
         "the param conversion must propagate the InvalidArg error via `?`:\n{}",
         lib.content
     );

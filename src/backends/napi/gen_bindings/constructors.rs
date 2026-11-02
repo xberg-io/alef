@@ -15,10 +15,12 @@ pub(super) fn napi_variant_wrapper_constructor(
     mapper: &crate::backends::napi::type_map::NapiMapper,
     core_import: &str,
     prefix: &str,
+    inputs: Option<&super::containers::ContainerContext>,
 ) -> Option<String> {
     use crate::codegen::type_mapper::TypeMapper as _;
     let ctor = typ.methods.iter().find(|m| m.name == "new" && m.receiver.is_none())?;
-    let map_fn = |t: &crate::core::ir::TypeRef| mapper.map_type(t);
+    let map_fn = |t: &crate::core::ir::TypeRef| mapper.map_type(&super::inputs::binding_type(inputs, t));
+    let fallible_inputs = super::inputs::has_inputs(inputs, &ctor.params);
     let sig_params = crate::codegen::shared::function_params(&ctor.params, &map_fn);
     let required_prefix = super::functions::promoted_required_prefix(&ctor.params);
 
@@ -45,6 +47,8 @@ pub(super) fn napi_variant_wrapper_constructor(
         .collect::<Vec<_>>()
         .join(", ");
 
+    let call_args = super::inputs::call_args(call_args, inputs, &ctor.params);
+
     let struct_name = format!("{prefix}{}", typ.name);
     let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
     let new_call = if call_args.is_empty() {
@@ -62,7 +66,14 @@ pub(super) fn napi_variant_wrapper_constructor(
     } else {
         format!("{required_prefix}Ok(Self {{ inner: {inner_expr} }})")
     };
-    let return_type = if required_prefix.is_empty() {
+    let body = if fallible_inputs {
+        let value = format!("Self {{ inner: {inner_expr} }}");
+        let value = super::inputs::prepare_bindings(value, inputs, &ctor.params, &ctor.params, true);
+        format!("{required_prefix}Ok({{ {value} }})")
+    } else {
+        body
+    };
+    let return_type = if required_prefix.is_empty() && !fallible_inputs {
         "Self"
     } else {
         "napi::Result<Self>"

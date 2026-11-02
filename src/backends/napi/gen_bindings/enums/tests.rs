@@ -572,6 +572,7 @@ fn data_enum_with_a_bytes_payload_emits_a_compilable_buffer_round_trip() {
         "Js",
         &struct_names,
         &[],
+        None,
     );
     assert!(
         binding_to_core.contains("val.binary.map(|b| b.to_vec()).unwrap_or_default()"),
@@ -584,7 +585,7 @@ fn data_enum_with_a_bytes_payload_emits_a_compilable_buffer_round_trip() {
         "Js",
         &struct_names,
         None,
-        &[],
+        (&[], None),
     );
     assert!(
         core_to_binding.contains("binary: Some(binary.into())"),

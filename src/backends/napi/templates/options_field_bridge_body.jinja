@@ -3,13 +3,13 @@ let {{ visitor_kwarg }}_handle: Option<{{ handle_path }}> = {{ options_name }}.a
             std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {{ handle_path }}
         })
     });
-    let {{ options_name }}_core: Option<{{ options_path }}> = {{ options_name }}.map(|o| {
-        let mut result: {{ options_path }} = o.into();
+    let {{ options_name }}_core: Option<{{ options_path }}> = {{ options_name }}.map(|o|{% if fallible_options %} -> std::result::Result<_, serde_json::Error>{% endif %} {
+        let mut result: {{ options_path }} = o.{% if fallible_options %}try_into()?{% else %}into(){% endif %};
         if {{ visitor_kwarg }}_handle.is_some() {
             result.{{ field_name }} = {{ visitor_kwarg }}_handle.clone();
         }
-        result
-    }).or_else(|| {
+        {% if fallible_options %}Ok(result){% else %}result{% endif %}
+    }){% if fallible_options %}.transpose(){{ input_err_conv }}?{% endif %}.or_else(|| {
         if {{ visitor_kwarg }}_handle.is_some() {
             Some({{ options_path }} {
                 {{ field_name }}: {{ visitor_kwarg }}_handle.clone(),
@@ -26,5 +26,10 @@ let {{ visitor_kwarg }}_handle: Option<{{ handle_path }}> = {{ options_name }}.a
     {{ core_call }}{{ err_conv }}
 {% endif %}
 {% else %}
+{% if fallible_inputs and maps_return %}
+    let val = {{ core_call }};
+    {{ return_wrap }}
+{% else %}
     {{ core_call }}
+{% endif %}
 {% endif %}

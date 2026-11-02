@@ -1,6 +1,13 @@
+{% if fallible -%}
+impl TryFrom<{{ binding_name }}> for {{ core_path }} {
+    type Error = serde_json::Error;
+    fn try_from(val: {{ binding_name }}) -> std::result::Result<Self, Self::Error> {
+        Ok(match val.{{ tag_field }}_tag.as_str() {
+{% else -%}
 impl From<{{ binding_name }}> for {{ core_path }} {
     fn from(val: {{ binding_name }}) -> Self {
         match val.{{ tag_field }}_tag.as_str() {
+{% endif -%}
 {%- for variant in variants %}
     {%- if variant.cfg %}
             #[cfg({{ variant.cfg }})]
@@ -13,7 +20,9 @@ impl From<{{ binding_name }}> for {{ core_path }} {
             "{{ variant.tag_value }}" => Self::{{ variant.name }} { {{ variant.field_inits | join(", ") }} },
     {%- endif %}
 {%- endfor %}
-{%- if default_variant %}
+{%- if fallible %}
+            _ => return Err(<serde_json::Error as serde::de::Error>::custom("invalid enum tag")),
+{%- elif default_variant %}
     {%- if default_variant.is_empty %}
             _ => Self::{{ default_variant.name }},
     {%- elif default_variant.is_tuple %}
@@ -22,6 +31,6 @@ impl From<{{ binding_name }}> for {{ core_path }} {
             _ => Self::{{ default_variant.name }} { {{ default_variant.default_fields | join(", ") }} },
     {%- endif %}
 {%- endif %}
-        }
+        }{% if fallible %}){% endif %}
     }
 }

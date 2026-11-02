@@ -14,6 +14,9 @@ pub fn gen_bridge_function(
     core_import: &str,
 ) -> String {
     use crate::core::ir::TypeRef;
+    let input_context = crate::backends::napi::gen_bindings::containers::ContainerContext::new(api, core_import);
+    let inputs = Some(&input_context);
+    let fallible_inputs = crate::backends::napi::gen_bindings::inputs::has_inputs(inputs, &func.params);
 
     let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Js", bridge_cfg);
     let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
@@ -35,9 +38,9 @@ pub fn gen_bridge_function(
     for (idx, p) in func.params.iter().enumerate() {
         if is_options_field_binding && Some(idx) == options_param_idx {
             let ty = if p.optional || (idx > 0 && func.params[..idx].iter().any(|pp| pp.optional)) {
-                format!("Option<{}>", mapper.map_type(&p.ty))
+                format!("Option<{}>", mapper.map_type(&input_context.binding_type_ref(&p.ty)))
             } else {
-                mapper.map_type(&p.ty)
+                mapper.map_type(&input_context.binding_type_ref(&p.ty))
             };
             sig_parts.push(format!("{}: {}", p.name, ty));
         } else if idx == bridge_param_idx {
@@ -49,9 +52,9 @@ pub fn gen_bridge_function(
         } else {
             let promoted = idx > bridge_param_idx || func.params[..idx].iter().any(|pp| pp.optional);
             let ty = if p.optional || promoted {
-                format!("Option<{}>", mapper.map_type(&p.ty))
+                format!("Option<{}>", mapper.map_type(&input_context.binding_type_ref(&p.ty)))
             } else {
-                mapper.map_type(&p.ty)
+                mapper.map_type(&input_context.binding_type_ref(&p.ty))
             };
             sig_parts.push(format!("{}: {}", p.name, ty));
         }
@@ -59,7 +62,7 @@ pub fn gen_bridge_function(
 
     let params_str = sig_parts.join(", ");
     let return_type = mapper.map_type(&func.return_type);
-    let ret = mapper.wrap_return(&return_type, func.error_type.is_some());
+    let ret = mapper.wrap_return(&return_type, func.error_type.is_some() || fallible_inputs);
 
     let err_conv = ".map_err(alef_napi_err)";
 
@@ -173,7 +176,8 @@ pub fn gen_bridge_function(
             }
         })
         .collect();
-    let call_args_str = call_args.join(", ");
+    let call_args_str =
+        crate::backends::napi::gen_bindings::inputs::call_args(call_args.join(", "), inputs, &func.params);
 
     let core_fn_path = {
         let path = func.rust_path.replace('-', "_");
@@ -194,6 +198,11 @@ pub fn gen_bridge_function(
         _ => "val".to_string(),
     };
 
+    let core_call = if fallible_inputs && func.error_type.is_none() && return_wrap != "val" {
+        format!("{{ let val = {core_call}; {return_wrap} }}")
+    } else {
+        core_call
+    };
     let body = render_bridge_function_body(
         func.error_type.is_some(),
         &return_wrap,
@@ -202,6 +211,10 @@ pub fn gen_bridge_function(
         &core_call,
         err_conv,
     );
+
+    let body =
+        crate::backends::napi::gen_bindings::inputs::prepare_bindings(body, inputs, &func.params, &func.params, true);
+    let body = crate::backends::napi::gen_bindings::inputs::wrap_body(body, fallible_inputs, func.error_type.is_some());
 
     let js_name = {
         let mut result = String::with_capacity(func.name.len());

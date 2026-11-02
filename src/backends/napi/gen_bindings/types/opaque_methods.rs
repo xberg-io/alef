@@ -23,6 +23,7 @@ pub(in crate::backends::napi::gen_bindings) fn gen_opaque_struct_methods(
     capsule_type_names: &AHashSet<String>,
     mutex_types: &AHashSet<String>,
     capsule_types: &std::collections::HashMap<String, crate::core::config::NodeCapsuleTypeConfig>,
+    inputs: Option<&super::super::containers::ContainerContext>,
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&format!("{prefix}{}", typ.name));
     impl_builder.add_attr("napi");
@@ -44,6 +45,7 @@ pub(in crate::backends::napi::gen_bindings) fn gen_opaque_struct_methods(
             streaming_item_types,
             mutex_types,
             capsule_types,
+            inputs,
         ));
     }
     for method in &statics {
@@ -54,7 +56,7 @@ pub(in crate::backends::napi::gen_bindings) fn gen_opaque_struct_methods(
             method,
             mapper,
             typ,
-            cfg,
+            (cfg, inputs),
             opaque_types,
             prefix,
             mutex_types,
@@ -135,7 +137,9 @@ pub(in crate::backends::napi::gen_bindings) fn gen_opaque_instance_method(
     streaming_item_types: &ahash::AHashMap<String, String>,
     mutex_types: &AHashSet<String>,
     capsule_types: &std::collections::HashMap<String, crate::core::config::NodeCapsuleTypeConfig>,
+    inputs: Option<&super::super::containers::ContainerContext>,
 ) -> String {
+    let fallible_inputs = super::super::inputs::has_inputs(inputs, &method.params);
     let has_promoted_required = !promoted_required(&method.params).is_empty();
     let params = function_params(&method.params, &|ty| {
         if let crate::core::ir::TypeRef::Named(name) = ty
@@ -147,7 +151,7 @@ pub(in crate::backends::napi::gen_bindings) fn gen_opaque_instance_method(
                 capsule_cfg.type_name
             );
         }
-        mapper.map_type(ty)
+        mapper.map_type(&super::super::inputs::binding_type(inputs, ty))
     });
     let adapter_key_for_stream = format!("{}.{}", typ.name, method.name);
     let stream_item = streaming_item_types.get(&adapter_key_for_stream);
@@ -156,7 +160,11 @@ pub(in crate::backends::napi::gen_bindings) fn gen_opaque_instance_method(
     } else {
         mapper.map_type(&method.return_type)
     };
-    let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some() || has_promoted_required);
+    let async_unit_result = async_unit_returns_result(method.is_async, &return_type, cfg);
+    let return_annotation = mapper.wrap_return(
+        &return_type,
+        method.error_type.is_some() || has_promoted_required || fallible_inputs || async_unit_result,
+    );
 
     let js_name = to_node_name(&method.name);
     let js_name_attr = if js_name != method.name {
@@ -179,7 +187,8 @@ pub(in crate::backends::napi::gen_bindings) fn gen_opaque_instance_method(
     let self_ref_return =
         method.returns_ref && matches!(&method.return_type, crate::core::ir::TypeRef::Named(n) if n == type_name);
 
-    let call_args = napi_gen_call_args(&method.params, opaque_types);
+    let call_args =
+        super::super::inputs::call_args(napi_gen_call_args(&method.params, opaque_types), inputs, &method.params);
 
     let has_named_ref_param = method
         .params
@@ -320,6 +329,7 @@ pub(in crate::backends::napi::gen_bindings) fn gen_opaque_instance_method(
         } else {
             (String::new(), napi_gen_call_args(&method.params, opaque_types))
         };
+        let call_args_for_call = super::super::inputs::call_args(call_args_for_call, inputs, &method.params);
         let_bindings.push_str(&napi_newtype_param_bindings(&method.params));
         let core_call = if is_owned_receiver {
             format!("(*self.inner).clone().{}({})", method.name, call_args_for_call)
@@ -368,6 +378,12 @@ pub(in crate::backends::napi::gen_bindings) fn gen_opaque_instance_method(
         }
     };
 
+    let body = super::super::inputs::prepare_bindings(body, inputs, &method.params, &method.params, true);
+    let body = super::super::inputs::wrap_body(
+        body,
+        fallible_inputs,
+        method.error_type.is_some() || has_promoted_required || async_unit_result,
+    );
     let body = wrap_promoted_required_body(
         body,
         &method.params,

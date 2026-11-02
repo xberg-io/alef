@@ -1,28 +1,33 @@
 //! NAPI-RS (Node.js) backend: orchestration and `Backend` trait implementation.
 
 pub mod capsule;
-mod components;
-mod config_opaque;
-mod constructors;
-pub mod enums;
-pub mod errors;
-pub mod functions;
-pub mod methods;
-pub mod service_api;
-mod support;
-mod transparent_newtypes;
-mod type_stubs;
-pub mod types;
-mod wire_types;
-
 #[cfg(test)]
 mod cfg_variant_e2e_tests;
 #[cfg(test)]
+mod compatible_regression_tests;
+mod components;
+mod config_opaque;
+mod constructors;
+pub(super) mod containers;
+#[cfg(test)]
 mod conversion_tests;
+pub mod enums;
+pub mod errors;
+pub mod functions;
+pub(super) mod inputs;
+pub mod methods;
+#[cfg(test)]
+mod native_wrapper_regression_tests;
+pub mod service_api;
+mod support;
 #[cfg(test)]
 mod tests;
+mod transparent_newtypes;
 #[cfg(test)]
 mod ts_surface_cfg_variant_tests;
+mod type_stubs;
+pub mod types;
+mod wire_types;
 
 use crate::backends::napi::type_map::NapiMapper;
 use crate::codegen::builder::RustFileBuilder;
@@ -215,19 +220,6 @@ impl Backend for NapiBackend {
             .filter(|t| t.is_opaque && generators::type_needs_mutex(t))
             .map(|t| t.name.clone())
             .collect();
-        // Names of data enums whose binding is a raw `serde_json::Value` passthrough (same
-        // predicate as the fallible conversion emission below). A function taking one as a param
-        // needs a fallible napi signature (the binding uses `try_into_core`, surfacing
-        // malformed JS payloads as `InvalidArg`).
-        let passthrough_enums: AHashSet<String> = api
-            .enums
-            .iter()
-            .filter(|e| {
-                enums::is_json_passthrough_data_enum(e, &api.types)
-                    && !enums::is_fully_flattened_internal_enum(e, &api.types)
-            })
-            .map(|e| e.name.clone())
-            .collect();
         let has_traits = api.types.iter().any(|t| t.is_trait);
         if !opaque_types.is_empty() || has_traits {
             builder.add_import("std::sync::Arc");
@@ -288,6 +280,7 @@ impl Backend for NapiBackend {
             }
         }
 
+        let containers = containers::ContainerContext::new(api, &core_import);
         for typ in api
             .types
             .iter()
@@ -329,6 +322,7 @@ impl Backend for NapiBackend {
                     &capsule_type_names,
                     &mutex_types,
                     &capsule_types,
+                    Some(&containers),
                 ));
                 // Client constructor — emit a #[napi(constructor)] impl
                 if let Some(ctor) = config.client_constructors.get(&typ.name) {
@@ -347,7 +341,9 @@ impl Backend for NapiBackend {
                 // a duplicate-`fn new` conflict with the static `#[napi]` method already emitted
                 else if !config.client_constructors.contains_key(&typ.name) {
                     if typ.is_variant_wrapper {
-                        if let Some(ctor) = napi_variant_wrapper_constructor(typ, &mapper, &core_import, &prefix) {
+                        if let Some(ctor) =
+                            napi_variant_wrapper_constructor(typ, &mapper, &core_import, &prefix, Some(&containers))
+                        {
                             builder.add_item(&ctor);
                         }
                     } else if typ.has_default
@@ -371,8 +367,9 @@ impl Backend for NapiBackend {
             } else {
                 // Non-opaque structs use #[napi(object)] — plain JS objects without methods.
                 // napi(object) structs cannot have #[napi] impl blocks.
+                let binding_type = containers.binding_type(typ);
                 builder.add_item(&types::gen_struct(
-                    typ,
+                    &binding_type,
                     &mapper,
                     &prefix,
                     has_serde,
@@ -403,14 +400,16 @@ impl Backend for NapiBackend {
             .map(|t| t.name.clone())
             .collect();
 
+        let binding_types: Vec<_> = api.types.iter().map(|typ| containers.binding_type(typ)).collect();
         for enum_def in &api.enums {
+            let binding_enum = containers.binding_enum(enum_def);
             builder.add_item(&enums::gen_enum(
-                enum_def,
+                &binding_enum,
                 &prefix,
                 has_serde,
                 &core_import,
                 Some(&configured_features_set),
-                &api.types,
+                &binding_types,
             ));
         }
 
@@ -501,7 +500,7 @@ impl Backend for NapiBackend {
                     &prefix,
                     &capsule_types,
                     &mutex_types,
-                    &passthrough_enums,
+                    Some(&containers),
                 );
                 let item = support::prepend_cfg(func.cfg.as_deref(), item);
                 builder.add_item(&item);
@@ -509,7 +508,12 @@ impl Backend for NapiBackend {
         }
 
         for adapter in &config.adapters {
-            builder.add_item(&functions::gen_adapter_wrapper(adapter, &core_import, &api.types)?);
+            builder.add_item(&functions::gen_adapter_wrapper(
+                adapter,
+                &core_import,
+                &api.types,
+                Some(&containers),
+            )?);
         }
 
         // `#[napi]` entrypoints (e.g. `app_run`) are compiled and exported.
@@ -593,14 +597,10 @@ impl Backend for NapiBackend {
             if input_types.contains(&typ.name)
                 && crate::codegen::conversions::can_generate_conversion(typ, &binding_to_core)
             {
-                builder.add_item(&transparent_newtypes::gen_from_binding_to_core(
-                    typ,
-                    &core_import,
-                    &napi_conv_config,
-                ));
+                builder.add_item(&containers.gen_from_binding_to_core(typ, &core_import, &napi_conv_config));
             }
             if crate::codegen::conversions::can_generate_conversion(typ, &core_to_binding) {
-                builder.add_item(&transparent_newtypes::gen_from_core_to_binding(
+                builder.add_item(&containers.gen_from_core_to_binding(
                     typ,
                     &core_import,
                     &opaque_types,
@@ -631,6 +631,7 @@ impl Backend for NapiBackend {
                     &prefix,
                     &struct_names,
                     &api.types,
+                    Some(&containers),
                 ));
                 builder.add_item(&methods::gen_tagged_enum_core_to_binding(
                     e,
@@ -638,7 +639,7 @@ impl Backend for NapiBackend {
                     &prefix,
                     &struct_names,
                     Some(enabled_features.as_slice()),
-                    &api.types,
+                    (&api.types, Some(&containers)),
                 ));
             } else if is_json_passthrough_data_enum {
                 let binding_name = format!("{prefix}{}", e.name);
@@ -652,15 +653,9 @@ impl Backend for NapiBackend {
                 // bare value rather than a named field set, so it keeps serde's own output.
                 if enums::is_fully_flattened_internal_enum(e, &api.types) {
                     wire_types.register_enum(e);
-                    let to_core = wire_types.js_value_to_core_expr(e, "val.0", &core_path);
+                    let to_core = wire_types.js_value_to_core_result_expr(e, "val.0", &core_path);
                     let to_js = wire_types.core_to_js_value_expr(e, "val");
-                    builder.add_item(&format!(
-                        "impl From<{binding_name}> for {core_path} {{\n    \
-                             fn from(val: {binding_name}) -> Self {{\n        \
-                                 {to_core}\n    \
-                             }}\n\
-                         }}\n"
-                    ));
+                    builder.add_item(&inputs::serde_try_from_impl(&binding_name, &core_path, &to_core));
                     builder.add_item(&format!(
                         "impl From<{core_path}> for {binding_name} {{\n    \
                              fn from(val: {core_path}) -> Self {{\n        \
@@ -669,21 +664,10 @@ impl Backend for NapiBackend {
                          }}\n"
                     ));
                 } else {
-                    // ~keep Keep From for existing parent-struct conversions. An inherent fallible
-                    // method avoids the blanket TryFrom implementation implied by that From.
-                    builder.add_item(&format!(
-                        "impl {binding_name} {{\n    \
-                             fn try_into_core(self) -> napi::Result<{core_path}> {{\n        \
-                                 serde_json::from_value(self.0).map_err(|err| napi::Error::new(napi::Status::InvalidArg, format!(\"invalid JSON for {core_path}: {{err}}\")))\n    \
-                             }}\n\
-                         }}\n"
-                    ));
-                    builder.add_item(&format!(
-                        "impl From<{binding_name}> for {core_path} {{\n    \
-                             fn from(val: {binding_name}) -> Self {{\n        \
-                                 val.try_into_core().expect(\"invalid JSON passthrough enum payload\")\n    \
-                             }}\n\
-                         }}\n"
+                    builder.add_item(&inputs::serde_try_from_impl(
+                        &binding_name,
+                        &core_path,
+                        "serde_json::from_value(val.0)",
                     ));
                     builder.add_item(&format!(
                         "impl From<{core_path}> for {binding_name} {{\n    \

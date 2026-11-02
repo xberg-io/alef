@@ -13,6 +13,9 @@ pub fn gen_options_field_bridge_function(
     core_import: &str,
 ) -> String {
     use crate::core::ir::TypeRef;
+    let input_context = crate::backends::napi::gen_bindings::containers::ContainerContext::new(api, core_import);
+    let inputs = Some(&input_context);
+    let fallible_inputs = crate::backends::napi::gen_bindings::inputs::has_inputs(inputs, &func.params);
 
     let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Js", bridge_cfg);
     let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
@@ -39,7 +42,7 @@ pub fn gen_options_field_bridge_function(
     let params_str = {
         let mut sig_parts = vec![];
         for (i, p) in func.params.iter().enumerate() {
-            let ty = mapper.map_type(&p.ty);
+            let ty = mapper.map_type(&input_context.binding_type_ref(&p.ty));
             if i == options_param_idx && !ir_param_optional {
                 sig_parts.push(format!("{}: Option<{ty}>", p.name));
             } else {
@@ -50,7 +53,7 @@ pub fn gen_options_field_bridge_function(
     };
 
     let return_type = mapper.map_type(&func.return_type);
-    let ret = mapper.wrap_return(&return_type, func.error_type.is_some());
+    let ret = mapper.wrap_return(&return_type, func.error_type.is_some() || fallible_inputs);
 
     let err_conv = ".map_err(alef_napi_err)";
 
@@ -96,6 +99,7 @@ pub fn gen_options_field_bridge_function(
         .collect::<Vec<_>>()
         .join(", ");
 
+    let call_args = crate::backends::napi::gen_bindings::inputs::call_args(call_args, inputs, &func.params);
     let core_fn_path = {
         let path = func.rust_path.replace('-', "_");
         if path.starts_with(core_import) {
@@ -119,6 +123,9 @@ pub fn gen_options_field_bridge_function(
         "options_field_bridge_body.jinja",
         crate::alef_context! {
             has_error => func.error_type.is_some(),
+            fallible_options => input_context.is_fallible(&TypeRef::Named(options_type.to_string())),
+            fallible_inputs => fallible_inputs,
+            input_err_conv => crate::backends::napi::gen_bindings::inputs::INVALID_ARG,
             maps_return => return_wrap != "val",
             visitor_kwarg => visitor_kwarg,
             handle_path => handle_path,
@@ -131,6 +138,17 @@ pub fn gen_options_field_bridge_function(
             return_wrap => return_wrap,
         },
     );
+
+    let other_params: Vec<_> = func
+        .params
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| *index != options_param_idx)
+        .map(|(_, parameter)| parameter.clone())
+        .collect();
+    let body =
+        crate::backends::napi::gen_bindings::inputs::prepare_bindings(body, inputs, &other_params, &other_params, true);
+    let body = crate::backends::napi::gen_bindings::inputs::wrap_body(body, fallible_inputs, func.error_type.is_some());
 
     let mut out = String::with_capacity(1024);
     if func.error_type.is_some() {

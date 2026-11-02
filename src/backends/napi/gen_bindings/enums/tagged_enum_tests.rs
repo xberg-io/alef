@@ -90,6 +90,7 @@ fn default_tagged_data_enum_preserves_custom_string_variant_payload_round_trip()
         "Js",
         &struct_names,
         &[],
+        None,
     );
     assert!(
         binding_to_core.contains(r#""Custom" => Self::Custom(val.custom.unwrap_or_default())"#),
@@ -103,7 +104,7 @@ fn default_tagged_data_enum_preserves_custom_string_variant_payload_round_trip()
         "Js",
         &struct_names,
         None,
-        &[],
+        (&[], None),
     );
     assert!(
         core_to_binding.contains(

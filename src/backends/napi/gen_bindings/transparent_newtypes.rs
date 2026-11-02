@@ -76,7 +76,7 @@ pub(super) fn gen_from_core_to_binding(
 }
 
 #[derive(Clone, Copy)]
-enum Direction {
+pub(super) enum Direction {
     ToCore,
     FromCore,
 }
@@ -159,7 +159,7 @@ fn repair_flattened_fields(
     generated
 }
 
-fn replace_to_core_conversion(
+pub(super) fn replace_to_core_conversion(
     generated: &str,
     field_name: &str,
     binding_name: &str,
@@ -190,7 +190,7 @@ fn replace_constructor_argument(generated: &str, binding_name: &str, expression:
     Some(output)
 }
 
-fn replace_field_conversion(generated: String, name: &str, expression: &str) -> Option<String> {
+pub(super) fn replace_field_conversion(generated: String, name: &str, expression: &str) -> Option<String> {
     let initializer_marker = format!("{name}: ");
     if let Some(replaced) = replace_delimited(
         &generated,
@@ -240,10 +240,40 @@ fn top_level_delimiter(value: &str, delimiter: char) -> Option<usize> {
 }
 
 fn convert(expression: &str, ty: &TypeRef, paths: &[NewtypeWrapperMetadata], direction: Direction) -> String {
+    convert_with_enum_keys(expression, ty, paths, direction, None)
+}
+
+pub(super) struct ContainerPolicy<'a> {
+    pub(super) enum_keys: &'a ahash::AHashMap<String, String>,
+    pub(super) fallible_types: &'a ahash::AHashSet<String>,
+}
+
+impl ContainerPolicy<'_> {
+    pub(super) fn is_fallible(&self, ty: &TypeRef) -> bool {
+        match ty {
+            TypeRef::Named(name) => self.fallible_types.contains(name),
+            TypeRef::Map(key, value) => {
+                matches!(key.as_ref(), TypeRef::Named(name) if self.enum_keys.contains_key(name))
+                    || self.is_fallible(value)
+            }
+            TypeRef::Optional(inner) | TypeRef::Vec(inner) => self.is_fallible(inner),
+            _ => false,
+        }
+    }
+}
+
+pub(super) fn convert_with_enum_keys(
+    expression: &str,
+    ty: &TypeRef,
+    paths: &[NewtypeWrapperMetadata],
+    direction: Direction,
+    policy: Option<&ContainerPolicy<'_>>,
+) -> String {
     if let Some(path) = paths.iter().find(|path| path.containers.is_empty()) {
         return convert_wrapper_leaf(expression, path, direction);
     }
 
+    let fallible = matches!(direction, Direction::ToCore) && policy.is_some_and(|policy| policy.is_fallible(ty));
     match ty {
         TypeRef::Optional(inner) => {
             if matches!(direction, Direction::ToCore)
@@ -252,20 +282,52 @@ fn convert(expression: &str, ty: &TypeRef, paths: &[NewtypeWrapperMetadata], dir
                 return format!("({expression}).map({constructor})");
             }
             let nested = advance(paths, NewtypeContainer::Optional);
-            let converted = convert("value", inner, &nested, direction);
-            format!("({expression}).map(|value| {converted})")
+            let converted = convert_with_enum_keys("value", inner, &nested, direction, policy);
+            optional_expression(expression, &converted, fallible)
         }
         TypeRef::Vec(inner) => {
             let nested = advance(paths, NewtypeContainer::Vec);
-            let converted = convert("value", inner, &nested, direction);
-            format!("({expression}).into_iter().map(|value| {converted}).collect()")
+            let converted = convert_with_enum_keys("value", inner, &nested, direction, policy);
+            collect_expression(expression, "value", &converted, fallible)
         }
         TypeRef::Map(key, value) => {
             let key_paths = advance(paths, NewtypeContainer::MapKey);
             let value_paths = advance(paths, NewtypeContainer::MapValue);
-            let key = convert("key", key, &key_paths, direction);
-            let value = convert("value", value, &value_paths, direction);
-            format!("({expression}).into_iter().map(|(key, value)| ({key}, {value})).collect()")
+            let key = convert_map_key(key, &key_paths, direction, policy);
+            let value = convert_with_enum_keys("value", value, &value_paths, direction, policy);
+            collect_expression(expression, "(key, value)", &format!("({key}, {value})"), fallible)
+        }
+        _ => convert_leaf(expression, ty, direction, policy),
+    }
+}
+
+fn optional_expression(expression: &str, converted: &str, fallible: bool) -> String {
+    if fallible {
+        format!(
+            "({expression}).map(|value| -> std::result::Result<_, serde_json::Error> {{ Ok({converted}) }}).transpose()?"
+        )
+    } else {
+        format!("({expression}).map(|value| {converted})")
+    }
+}
+
+fn collect_expression(expression: &str, binding: &str, converted: &str, fallible: bool) -> String {
+    if fallible {
+        format!(
+            "({expression}).into_iter().map(|{binding}| -> std::result::Result<_, serde_json::Error> {{ Ok({converted}) }}).collect::<std::result::Result<_, _>>()?"
+        )
+    } else {
+        format!("({expression}).into_iter().map(|{binding}| {converted}).collect()")
+    }
+}
+
+fn convert_leaf(expression: &str, ty: &TypeRef, direction: Direction, policy: Option<&ContainerPolicy<'_>>) -> String {
+    match ty {
+        TypeRef::Named(name)
+            if matches!(direction, Direction::ToCore)
+                && policy.is_some_and(|policy| policy.fallible_types.contains(name)) =>
+        {
+            format!("({expression}).try_into()?")
         }
         TypeRef::Named(_) | TypeRef::Bytes => format!("({expression}).into()"),
         TypeRef::Path => match direction {
@@ -289,7 +351,27 @@ fn convert(expression: &str, ty: &TypeRef, paths: &[NewtypeWrapperMetadata], dir
             Direction::FromCore => format!("({expression}).to_string()"),
         },
         TypeRef::Primitive(_) | TypeRef::String | TypeRef::Unit | TypeRef::Json => expression.to_string(),
+        TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+            unreachable!("container conversion handled before leaves")
+        }
     }
+}
+
+fn convert_map_key(
+    key: &TypeRef,
+    paths: &[NewtypeWrapperMetadata],
+    direction: Direction,
+    policy: Option<&ContainerPolicy<'_>>,
+) -> String {
+    if let TypeRef::Named(name) = key
+        && let Some(path) = policy.and_then(|policy| policy.enum_keys.get(name))
+    {
+        return match direction {
+            Direction::ToCore => format!("serde_json::from_value::<{path}>(serde_json::Value::String(key))?"),
+            Direction::FromCore => "serde_json::to_value(key).expect(\"failed to serialize enum map key\").as_str().expect(\"enum map key must serialize as a string\").to_owned()".into(),
+        };
+    }
+    convert_with_enum_keys("key", key, paths, direction, policy)
 }
 
 fn optional_leaf_constructor(paths: &[NewtypeWrapperMetadata]) -> Option<String> {
