@@ -24,8 +24,7 @@ Migration details and remaining platform qualification are recorded in
 
 ### Fixed
 
-- Avoid constant Dart collection wrappers around nested unsigned and named DTO defaults that require runtime
-  constructors, preserving constant enum and absent optional defaults. (#780)
+- Avoid constant Dart collection wrappers around nested unsigned defaults that require runtime constructors. (#780)
 
 - Generate exact `BigInt.parse` literals for declared `u64` scalar and nested DTO callers in the next-major
   Dart API, preserving narrower integers and numeric JSON passed through Rust constructors.
