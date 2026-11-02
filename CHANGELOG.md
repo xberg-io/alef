@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Record the strict Swift consumer gate's compiler-matched LLVM reader decision in
+  [ADR 0013](adrs/0013-inspect-swift-archives-with-the-selected-rust-toolchain-s-llvm.md).
+
 ## [0.117.0] - 2026-11-02
 
 ### Changed (BREAKING)

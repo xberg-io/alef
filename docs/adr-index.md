@@ -21,3 +21,4 @@ log; add a row in the same change as a new record.
 | [0010](../adrs/0010-represent-rust-u64-losslessly-in-the-next-major-dart-api.md) | Represent Rust u64 losslessly in the next major Dart API | proposed | 2026-10-31 |
 | [0011](../adrs/0011-share-error-variants-without-breaking-existing-client-contracts.md) | Share error variants without breaking existing client contracts | proposed | 2026-11-01 |
 | [0012](../adrs/0012-raise-the-generated-python-minimum.md) | Raise the generated Python minimum | accepted | 2026-11-02 |
+| [0013](../adrs/0013-inspect-swift-archives-with-the-selected-rust-toolchain-s-llvm.md) | Inspect Swift archives with the selected Rust toolchain's LLVM | accepted | 2026-11-03 |
