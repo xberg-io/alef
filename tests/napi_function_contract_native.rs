@@ -59,7 +59,7 @@ fn prepare(root: &Path) {
     )
     .expect("configuration");
     let mut config = raw.resolve().expect("resolved configuration").remove(0);
-    config.sources = vec![source.to_string_lossy().into_owned()];
+    config.sources = vec![source];
     config
         .output_paths
         .insert("node".into(), root.join("crates/sample-core-node/src"));
