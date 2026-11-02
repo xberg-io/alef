@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Python 3.11 is now the minimum supported version; Python 3.10 reached end of life.
+- Record a [full-corpus snippet metadata benchmark](docs/benchmarks/snippet-metadata-cache.md) with equivalent
+  verification outcomes, actual construction counts and a stale-content negative control. (#753)
 
 ### Fixed
 
@@ -127,6 +129,10 @@ Migration details and remaining platform qualification are recorded in
 - Extract the unsigned Dart native fixture from its actual crate root so generated paths match the compiled core.
 
 ## [0.115.15] - 2026-11-02
+
+### Changed
+
+- Refresh locked Windows system and temporary-file randomness dependency selections.
 
 ### Fixed
 
