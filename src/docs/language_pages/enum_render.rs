@@ -125,3 +125,6 @@ pub(super) fn render_enum(
 
     out
 }
+
+#[cfg(test)]
+mod tests;

@@ -431,91 +431,70 @@ impl PythonValidator {
             let trimmed = lines[index].trim();
             let is_def_start =
                 trimmed.starts_with("def ") || trimmed.starts_with("async def ") || trimmed.starts_with("class ");
-
-            if is_def_start {
-                let mut signature_end = index;
-                let mut has_inline_body = false;
-
-                while signature_end < lines.len() {
-                    let trimmed_signature = lines[signature_end].trim();
-                    if signature_end > index {
-                        output.push(lines[signature_end].to_string());
-                    }
-
-                    if trimmed_signature.ends_with(':') {
-                        break;
-                    }
-
-                    if let Some(arrow_pos) = trimmed_signature.find("->") {
-                        let after_arrow = &trimmed_signature[arrow_pos + 2..];
-                        if let Some(colon_pos) = after_arrow.find(':') {
-                            let after_colon = after_arrow[colon_pos + 1..].trim();
-                            if !after_colon.is_empty() {
-                                has_inline_body = true;
-                            }
-                            break;
-                        }
-
-                        if signature_end == index {
-                            let last = output.len() - 1;
-                            output[last] = format!("{}:", lines[signature_end]);
-                        }
-                        break;
-                    }
-
-                    if trimmed_signature.contains("): ") || trimmed_signature.contains("):\t") {
-                        has_inline_body = true;
-                        break;
-                    }
-
-                    if trimmed_signature.ends_with(')') && signature_end > index {
-                        let last = output.len() - 1;
-                        output[last] = format!("{}:", output[last]);
-                        break;
-                    }
-
-                    signature_end += 1;
-                }
-
-                if signature_end >= lines.len() {
-                    let last = output.len() - 1;
-                    if !output[last].trim().ends_with(':') {
-                        output[last] = format!("{}:", output[last]);
-                    }
-                    let indent = lines[index].chars().take_while(|c| c.is_whitespace()).count();
-                    output.push(format!("{}...", " ".repeat(indent + 4)));
-                    index = signature_end;
-                    continue;
-                }
-
-                if has_inline_body {
-                    index = signature_end + 1;
-                    continue;
-                }
-
-                let next_content = (signature_end + 1..lines.len())
-                    .find(|candidate| !lines[*candidate].trim().is_empty())
-                    .map(|candidate| lines[candidate]);
-
-                let has_body = next_content.is_some_and(|line| line.starts_with(' ') || line.starts_with('\t'));
-                if !has_body {
-                    let last = output.len() - 1;
-                    if !output[last].trim().ends_with(':') {
-                        output[last] = format!("{}:", output[last]);
-                    }
-
-                    let indent = lines[index].chars().take_while(|c| c.is_whitespace()).count();
-                    output.push(format!("{}...", " ".repeat(indent + 4)));
-                }
-
-                index = signature_end + 1;
+            if !is_def_start {
+                index += 1;
                 continue;
             }
 
-            index += 1;
+            let (signature_end, has_inline_body) = Self::copy_signature(&lines, index, &mut output);
+            if signature_end >= lines.len() {
+                Self::append_signature_body(lines[index], &mut output);
+                index = signature_end;
+                continue;
+            }
+            let next_content = (signature_end + 1..lines.len())
+                .find(|candidate| !lines[*candidate].trim().is_empty())
+                .map(|candidate| lines[candidate]);
+            let has_body = next_content.is_some_and(|line| line.starts_with(' ') || line.starts_with('\t'));
+            if !has_inline_body && !has_body {
+                Self::append_signature_body(lines[index], &mut output);
+            }
+            index = signature_end + 1;
         }
-
         output.join("\n")
+    }
+
+    fn copy_signature(lines: &[&str], start: usize, output: &mut Vec<String>) -> (usize, bool) {
+        let mut end = start;
+        while end < lines.len() {
+            let trimmed = lines[end].trim();
+            if end > start {
+                output.push(lines[end].to_string());
+            }
+            if trimmed.ends_with(':') {
+                return (end, false);
+            }
+            if let Some(arrow_pos) = trimmed.find("->") {
+                let after_arrow = &trimmed[arrow_pos + 2..];
+                if let Some(colon_pos) = after_arrow.find(':') {
+                    return (end, !after_arrow[colon_pos + 1..].trim().is_empty());
+                }
+                if end == start {
+                    let last = output.len() - 1;
+                    output[last] = format!("{}:", lines[end]);
+                }
+                return (end, false);
+            }
+            if trimmed.contains("): ") || trimmed.contains("):\t") {
+                return (end, true);
+            }
+            if trimmed.ends_with(')') && end > start {
+                let last = output.len() - 1;
+                output[last] = format!("{}:", output[last]);
+                return (end, false);
+            }
+            end += 1;
+        }
+        (end, false)
+    }
+
+    fn append_signature_body(first_line: &str, output: &mut Vec<String>) {
+        let last = output.len() - 1;
+        if !output[last].trim().ends_with(':') {
+            output[last] = format!("{}:", output[last]);
+        }
+        let indent = first_line.chars().take_while(|c| c.is_whitespace()).count();
+        output.push(format!("{}...", " ".repeat(indent + 4)));
     }
 }
 

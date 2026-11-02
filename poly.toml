@@ -83,7 +83,7 @@ pylint_max_returns = 10
 "src/e2e/codegen/python/lint_clean_python_tests.rs" = ["lazy-ignore"]
 "src/scaffold/languages/poly.rs" = ["cyclomatic-complexity", "function-too-long", "lazy-ignore"]
 # --- quality-debt baseline (generated) ---
-# 1173 size/complexity rule/file exemptions across 606 files that predate these
+# 1160 size/complexity rule/file exemptions across 600 files that predate these
 # metrics. Listed per file rather than switching the rules off, so the metrics still
 # fire on every file NOT listed here -- new code stays covered, and each path below is
 # one discrete unit of work.
@@ -698,8 +698,6 @@ pylint_max_returns = 10
   "too-many-parameters",
 ]
 "src/core/validation/since_version.rs" = ["cyclomatic-complexity", "function-too-long"]
-"src/docs/examples.rs" = ["cyclomatic-complexity", "function-too-long"]
-"src/docs/formatting.rs" = ["cyclomatic-complexity", "file-too-long", "function-too-long"]
 "src/docs/language_pages/enum_render.rs" = ["function-too-long"]
 "src/docs/language_pages/excludes.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/docs/language_pages/mod.rs" = ["function-too-long"]
@@ -707,7 +705,6 @@ pylint_max_returns = 10
 "src/docs/language_pages/type_render.rs" = ["function-too-long"]
 "src/docs/mod.rs" = ["function-too-long", "too-many-parameters"]
 "src/docs/naming.rs" = ["function-too-long"]
-"src/docs/shared_pages.rs" = ["function-too-long", "nesting-too-deep"]
 "src/docs/signatures.rs" = ["cyclomatic-complexity", "function-too-long", "too-many-parameters"]
 "src/docs/snippet_summary.rs" = ["function-too-long"]
 "src/docs/type_mapping.rs" = ["function-too-long"]
@@ -1065,11 +1062,8 @@ pylint_max_returns = 10
 "src/scaffold/tests/ffi_go_java_ruby.rs" = ["file-too-long"]
 "src/scaffold/tests/poly.rs" = ["file-too-long"]
 "src/snippets/gaps/tests.rs" = ["function-too-long"]
-"src/snippets/output.rs" = ["function-too-long", "nesting-too-deep"]
 "src/snippets/runner.rs" = ["function-too-long", "too-many-parameters"]
 "src/snippets/runner/batch.rs" = ["too-many-parameters"]
-"src/snippets/runner/failure_reporter.rs" = ["function-too-long"]
-"src/snippets/validators/python.rs" = ["cyclomatic-complexity", "function-too-long", "nesting-too-deep"]
 "tests/adapters_adapter_test.rs" = ["file-too-long"]
 "tests/backends_csharp_gen_bindings_test.rs" = ["file-too-long"]
 "tests/backends_dart_gen_bindings_test.rs" = ["file-too-long"]

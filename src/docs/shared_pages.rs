@@ -44,92 +44,22 @@ pub(super) fn generate_configuration_doc(
     out.push_str("## Configuration Reference\n\n");
     out.push_str("This page documents all configuration types and their defaults across all languages.\n\n");
 
-    let config_types: Vec<&TypeDef> = api
-        .types
-        .iter()
-        .filter(|t| {
-            (t.name.ends_with("Config") || t.name.ends_with("Options") || t.name.ends_with("Settings") || t.has_default)
-                && !t.is_opaque
-                && !is_update_type(&t.name)
-        })
-        .collect();
+    let config_types: Vec<&TypeDef> = api.types.iter().filter(|ty| is_configuration_type(ty)).collect();
 
-    for ty in config_types {
-        out.push_str(&template_env::render(
-            "heading.jinja",
-            crate::alef_context! { marker => "###", title => &ty.name },
-        ));
-        let doc = clean_doc(&ty.doc, Language::Python);
-        // Pin to the level below the `###` heading emitted just above, rather than shifting by a
-        // fixed amount: a fixed shift assumes the doc opens at `#`, and any doc that does not
-        // lands its headings above their own parent. ~keep
-        let doc = demote_headings_to_start_at(&doc, 4);
-        if !doc.is_empty() {
-            out.push_str(&doc);
-            out.push('\n');
-            out.push('\n');
-        }
-
-        let fields: Vec<_> = binding_fields(&ty.fields).collect();
-        if !fields.is_empty() {
-            out.push('\n');
-            out.push_str("| Field | Type | Default | Description |\n");
-            out.push_str("|-------|------|---------|-------------|\n");
-            for field in fields {
-                let fty = doc_type_with_optional(&field.ty, Language::Python, field.optional, "");
-                let fdefault = format_field_default(field, Language::Python, api, "");
-                let fdoc = {
-                    let raw = clean_doc_inline(&field.doc, Language::Python);
-                    if raw.is_empty() {
-                        generate_field_description(&field.name, &field.ty)
-                    } else {
-                        raw
-                    }
-                };
-                out.push_str(&template_env::render(
-                    "field_row.jinja",
-                    crate::alef_context! {
-                        name => escape_table_cell(&field.name),
-                        ty => escape_table_cell(&fty),
-                        default => escape_table_cell(&fdefault),
-                        doc => escape_table_cell(&fdoc),
-                    },
-                ));
-            }
-            out.push('\n');
-        }
-
-        out.push_str("---\n\n");
+    for ty in &config_types {
+        append_configuration_type(&mut out, ty, api);
     }
 
-    let config_types_for_enum_filter: Vec<&TypeDef> = api
-        .types
-        .iter()
-        .filter(|t| {
-            (t.name.ends_with("Config") || t.name.ends_with("Options") || t.name.ends_with("Settings") || t.has_default)
-                && !t.is_opaque
-                && !is_update_type(&t.name)
-        })
-        .collect();
-
-    let mut referenced_enums: Vec<&EnumDef> = api
+    let referenced_enums: Vec<&EnumDef> = api
         .enums
         .iter()
         .filter(|en| {
-            config_types_for_enum_filter
+            config_types
                 .iter()
                 .any(|ty| binding_fields(&ty.fields).any(|field| type_ref_contains_named(&field.ty, &en.name)))
         })
         .collect();
-    referenced_enums.sort_by(|a, b| a.name.cmp(&b.name));
-
-    if !referenced_enums.is_empty() {
-        out.push_str("### Enums\n\n");
-        for en in &referenced_enums {
-            out.push_str(&render_enum_for_shared_doc(en, Language::Python, api));
-            out.push_str("\n---\n\n");
-        }
-    }
+    append_enums(&mut out, referenced_enums, Language::Python, api);
 
     Ok(GeneratedFile {
         path: PathBuf::from(format!("{output_dir}/configuration.md")),
@@ -180,97 +110,9 @@ pub(super) fn generate_types_doc(
         out.push_str("No struct types defined.\n\n");
     }
 
-    let category_order = [
-        "Result Types",
-        "Configuration Types",
-        "Metadata Types",
-        "Structured Data Types",
-        "Other Types",
-    ];
+    append_type_groups(&mut out, &types_to_doc, config, api);
 
-    let mut groups: std::collections::HashMap<&str, Vec<&TypeDef>> = std::collections::HashMap::new();
-    for ty in &types_to_doc {
-        let cat = categorize_type(ty);
-        groups.entry(cat).or_default().push(ty);
-    }
-
-    for &cat in &category_order {
-        let Some(types) = groups.get(cat) else {
-            continue;
-        };
-        out.push_str(&template_env::render(
-            "heading.jinja",
-            crate::alef_context! { marker => "###", title => cat },
-        ));
-
-        if cat == "Configuration Types" {
-            let target = reference_page_link(config, "configuration");
-            out.push_str(&template_env::render(
-                "reference_page_link.jinja",
-                crate::alef_context! { title => "Configuration Reference", target => target },
-            ));
-            out.push('\n');
-        }
-
-        for ty in types {
-            out.push_str(&template_env::render(
-                "heading.jinja",
-                crate::alef_context! { marker => "####", title => &ty.name },
-            ));
-
-            let doc = clean_doc(&ty.doc, Language::Python);
-            let doc = demote_headings_to_start_at(&doc, 5);
-            if !doc.is_empty() {
-                out.push_str(&doc);
-                out.push('\n');
-                out.push('\n');
-            }
-
-            let fields: Vec<_> = binding_fields(&ty.fields).collect();
-            if ty.is_opaque {
-                out.push_str("*Opaque type — fields are not directly accessible.*\n\n");
-            } else if !fields.is_empty() {
-                out.push('\n');
-                out.push_str("| Field | Type | Default | Description |\n");
-                out.push_str("|-------|------|---------|-------------|\n");
-                for field in fields {
-                    let fty = format_type_ref_rust(&field.ty, field.optional);
-                    let fdefault = format_field_default(field, Language::Rust, api, "");
-                    let fdoc = {
-                        let raw = clean_doc_inline(&field.doc, Language::Rust);
-                        if raw.is_empty() {
-                            generate_field_description(&field.name, &field.ty)
-                        } else {
-                            raw
-                        }
-                    };
-                    out.push_str(&template_env::render(
-                        "field_row.jinja",
-                        crate::alef_context! {
-                            name => escape_table_cell(&field.name),
-                            ty => escape_table_cell(&fty),
-                            default => escape_table_cell(&fdefault),
-                            doc => escape_table_cell(&fdoc),
-                        },
-                    ));
-                }
-                out.push('\n');
-            }
-
-            out.push_str("---\n\n");
-        }
-    }
-
-    if !api.enums.is_empty() {
-        let mut sorted_enums: Vec<&EnumDef> = api.enums.iter().collect();
-        sorted_enums.sort_by(|a, b| a.name.cmp(&b.name));
-
-        out.push_str("### Enums\n\n");
-        for en in &sorted_enums {
-            out.push_str(&render_enum_for_shared_doc(en, Language::Rust, api));
-            out.push_str("\n---\n\n");
-        }
-    }
+    append_enums(&mut out, api.enums.iter().collect(), Language::Rust, api);
 
     Ok(GeneratedFile {
         path: PathBuf::from(format!("{output_dir}/types.md")),
@@ -291,31 +133,7 @@ pub(super) fn render_enum_for_shared_doc(en: &EnumDef, lang: Language, api: &Api
         crate::alef_context! { marker => "####", title => &en.name },
     ));
 
-    if let Some(ref since) = en.version.since {
-        let since = version_labels::major_minor(since);
-        out.push_str(&template_env::render(
-            "since_badge.jinja",
-            crate::alef_context! { since => since },
-        ));
-        out.push('\n');
-        out.push('\n');
-    }
-    if let Some(ref dep) = en.version.deprecated {
-        let since = dep
-            .since
-            .as_deref()
-            .map(version_labels::major_minor)
-            .unwrap_or_default();
-        out.push_str(&template_env::render(
-            "deprecated_notice.jinja",
-            crate::alef_context! {
-                since => since,
-                note => dep.note.as_deref().unwrap_or(""),
-            },
-        ));
-        out.push('\n');
-        out.push('\n');
-    }
+    append_enum_version(&mut out, en);
 
     let doc = clean_doc(&en.doc, lang);
     let doc = demote_headings_to_start_at(&doc, 5);
@@ -337,46 +155,7 @@ pub(super) fn render_enum_for_shared_doc(en: &EnumDef, lang: Language, api: &Api
     }
 
     for variant in &en.variants {
-        let mut vdoc = if !variant.doc.is_empty() {
-            clean_doc_inline(&variant.doc, lang)
-        } else {
-            generate_enum_variant_description(&variant.name)
-        };
-        let variant_fields: Vec<_> = binding_fields(&variant.fields).collect();
-        if !variant_fields.is_empty() {
-            let (fields_desc, fields_label) = variant_field_descriptions(
-                en,
-                variant,
-                &variant_fields,
-                api,
-                |name| name.to_string(),
-                |f| format_type_ref_rust(&f.ty, false),
-            );
-            vdoc = format!("{vdoc} — {fields_label}: {}", fields_desc.join(", "));
-        }
-        if has_wire_rename {
-            let wire = crate::codegen::naming::wire_variant_value(
-                &variant.name,
-                variant.serde_rename.as_deref(),
-                en.serde_rename_all.as_deref(),
-            );
-            out.push_str(&template_env::render(
-                "wire_variant_row.jinja",
-                crate::alef_context! {
-                    name => escape_table_cell(&variant.name),
-                    wire => escape_table_cell(&wire),
-                    doc => escape_table_cell(&vdoc),
-                },
-            ));
-        } else {
-            out.push_str(&template_env::render(
-                "variant_row.jinja",
-                crate::alef_context! {
-                    name => escape_table_cell(&variant.name),
-                    doc => escape_table_cell(&vdoc),
-                },
-            ));
-        }
+        append_shared_variant(&mut out, en, variant, lang, api, has_wire_rename);
     }
 
     out
@@ -401,21 +180,7 @@ fn format_type_ref_rust(ty: &TypeRef, optional: bool) -> String {
         TypeRef::Unit => "()".to_string(),
         TypeRef::Json => "serde_json::Value".to_string(),
         TypeRef::Duration => "Duration".to_string(),
-        TypeRef::Primitive(p) => match p {
-            PrimitiveType::Bool => "bool".to_string(),
-            PrimitiveType::U8 => "u8".to_string(),
-            PrimitiveType::U16 => "u16".to_string(),
-            PrimitiveType::U32 => "u32".to_string(),
-            PrimitiveType::U64 => "u64".to_string(),
-            PrimitiveType::I8 => "i8".to_string(),
-            PrimitiveType::I16 => "i16".to_string(),
-            PrimitiveType::I32 => "i32".to_string(),
-            PrimitiveType::I64 => "i64".to_string(),
-            PrimitiveType::Usize => "usize".to_string(),
-            PrimitiveType::Isize => "isize".to_string(),
-            PrimitiveType::F32 => "f32".to_string(),
-            PrimitiveType::F64 => "f64".to_string(),
-        },
+        TypeRef::Primitive(p) => canonical_primitive(p),
         TypeRef::Optional(inner) => {
             return format!("Option<{}>", format_type_ref_rust(inner, false));
         }
@@ -446,40 +211,7 @@ pub(super) fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow:
     out.push_str("All error types thrown by the library across all languages.\n\n");
 
     for err in &api.errors {
-        out.push_str(&template_env::render(
-            "heading.jinja",
-            crate::alef_context! { marker => "###", title => &err.name },
-        ));
-
-        let doc = clean_doc(&err.doc, Language::Python);
-        let doc = demote_headings_to_start_at(&doc, 4);
-        if !doc.is_empty() {
-            out.push_str(&doc);
-            out.push('\n');
-            out.push('\n');
-        }
-
-        out.push('\n');
-        out.push_str("| Variant | Message | Description |\n");
-        out.push_str("|---------|---------|-------------|\n");
-        for variant in &err.variants {
-            let tmpl = variant.message_template.as_deref().unwrap_or("");
-            let vdoc = if !variant.doc.is_empty() {
-                clean_doc_inline(&variant.doc, Language::Python)
-            } else {
-                generate_error_variant_description(&variant.name)
-            };
-            out.push_str(&template_env::render(
-                "error_message_row.jinja",
-                crate::alef_context! {
-                    name => escape_table_cell(&variant.name),
-                    message => escape_table_cell(tmpl),
-                    doc => escape_table_cell(&vdoc),
-                },
-            ));
-        }
-        out.push('\n');
-        out.push_str("---\n\n");
+        append_error_type(&mut out, err);
     }
 
     Ok(GeneratedFile {
@@ -487,4 +219,288 @@ pub(super) fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow:
         content: out,
         generated_header: false,
     })
+}
+
+fn append_configuration_type(out: &mut String, ty: &TypeDef, api: &ApiSurface) {
+    out.push_str(&template_env::render(
+        "heading.jinja",
+        crate::alef_context! { marker => "###", title => &ty.name },
+    ));
+    let doc = clean_doc(&ty.doc, Language::Python);
+    // Pin to the level below the `###` heading emitted just above, rather than shifting by a
+    // fixed amount: a fixed shift assumes the doc opens at `#`, and any doc that does not
+    // lands its headings above their own parent. ~keep
+    let doc = demote_headings_to_start_at(&doc, 4);
+    if !doc.is_empty() {
+        out.push_str(&doc);
+        out.push('\n');
+        out.push('\n');
+    }
+
+    append_type_fields(out, ty, api, Language::Python);
+
+    out.push_str("---\n\n");
+}
+
+fn is_configuration_type(t: &TypeDef) -> bool {
+    (t.name.ends_with("Config") || t.name.ends_with("Options") || t.name.ends_with("Settings") || t.has_default)
+        && !t.is_opaque
+        && !is_update_type(&t.name)
+}
+
+fn append_type_groups(out: &mut String, types_to_doc: &[&TypeDef], config: &ResolvedCrateConfig, api: &ApiSurface) {
+    let category_order = [
+        "Result Types",
+        "Configuration Types",
+        "Metadata Types",
+        "Structured Data Types",
+        "Other Types",
+    ];
+
+    let mut groups: std::collections::HashMap<&str, Vec<&TypeDef>> = std::collections::HashMap::new();
+    for ty in types_to_doc {
+        let cat = categorize_type(ty);
+        groups.entry(cat).or_default().push(ty);
+    }
+
+    for &cat in &category_order {
+        let Some(types) = groups.get(cat) else {
+            continue;
+        };
+        append_type_group(out, cat, types, config, api);
+    }
+}
+
+fn append_type_group(out: &mut String, cat: &str, types: &[&TypeDef], config: &ResolvedCrateConfig, api: &ApiSurface) {
+    out.push_str(&template_env::render(
+        "heading.jinja",
+        crate::alef_context! { marker => "###", title => cat },
+    ));
+
+    if cat == "Configuration Types" {
+        let target = reference_page_link(config, "configuration");
+        out.push_str(&template_env::render(
+            "reference_page_link.jinja",
+            crate::alef_context! { title => "Configuration Reference", target => target },
+        ));
+        out.push('\n');
+    }
+
+    for ty in types {
+        append_canonical_type(out, ty, api);
+    }
+}
+
+fn append_canonical_type(out: &mut String, ty: &TypeDef, api: &ApiSurface) {
+    out.push_str(&template_env::render(
+        "heading.jinja",
+        crate::alef_context! { marker => "####", title => &ty.name },
+    ));
+
+    let doc = clean_doc(&ty.doc, Language::Python);
+    let doc = demote_headings_to_start_at(&doc, 5);
+    if !doc.is_empty() {
+        out.push_str(&doc);
+        out.push('\n');
+        out.push('\n');
+    }
+
+    append_type_fields(out, ty, api, Language::Rust);
+
+    out.push_str("---\n\n");
+}
+
+fn append_type_fields(out: &mut String, ty: &TypeDef, api: &ApiSurface, lang: Language) {
+    let fields: Vec<_> = binding_fields(&ty.fields).collect();
+    if ty.is_opaque {
+        out.push_str("*Opaque type — fields are not directly accessible.*\n\n");
+    } else if !fields.is_empty() {
+        out.push('\n');
+        out.push_str("| Field | Type | Default | Description |\n");
+        out.push_str("|-------|------|---------|-------------|\n");
+        for field in fields {
+            out.push_str(&render_shared_field(field, lang, api));
+        }
+        out.push('\n');
+    }
+}
+
+fn render_shared_field(field: &crate::core::ir::FieldDef, lang: Language, api: &ApiSurface) -> String {
+    let fty = if lang == Language::Rust {
+        format_type_ref_rust(&field.ty, field.optional)
+    } else {
+        doc_type_with_optional(&field.ty, lang, field.optional, "")
+    };
+    let fdefault = format_field_default(field, lang, api, "");
+    let fdoc = {
+        let raw = clean_doc_inline(&field.doc, lang);
+        if raw.is_empty() {
+            generate_field_description(&field.name, &field.ty)
+        } else {
+            raw
+        }
+    };
+    template_env::render(
+        "field_row.jinja",
+        crate::alef_context! {
+            name => escape_table_cell(&field.name),
+            ty => escape_table_cell(&fty),
+            default => escape_table_cell(&fdefault),
+            doc => escape_table_cell(&fdoc),
+        },
+    )
+}
+
+fn append_enum_version(out: &mut String, en: &EnumDef) {
+    if let Some(ref since) = en.version.since {
+        let since = version_labels::major_minor(since);
+        out.push_str(&template_env::render(
+            "since_badge.jinja",
+            crate::alef_context! { since => since },
+        ));
+        out.push('\n');
+        out.push('\n');
+    }
+    if let Some(ref dep) = en.version.deprecated {
+        let since = dep
+            .since
+            .as_deref()
+            .map(version_labels::major_minor)
+            .unwrap_or_default();
+        out.push_str(&template_env::render(
+            "deprecated_notice.jinja",
+            crate::alef_context! {
+                since => since,
+                note => dep.note.as_deref().unwrap_or(""),
+            },
+        ));
+        out.push('\n');
+        out.push('\n');
+    }
+}
+
+fn shared_variant_description(
+    en: &EnumDef,
+    variant: &crate::core::ir::EnumVariant,
+    lang: Language,
+    api: &ApiSurface,
+) -> String {
+    let mut vdoc = if !variant.doc.is_empty() {
+        clean_doc_inline(&variant.doc, lang)
+    } else {
+        generate_enum_variant_description(&variant.name)
+    };
+    let variant_fields: Vec<_> = binding_fields(&variant.fields).collect();
+    if !variant_fields.is_empty() {
+        let (fields_desc, fields_label) = variant_field_descriptions(
+            en,
+            variant,
+            &variant_fields,
+            api,
+            |name| name.to_string(),
+            |f| format_type_ref_rust(&f.ty, false),
+        );
+        vdoc = format!("{vdoc} — {fields_label}: {}", fields_desc.join(", "));
+    }
+    vdoc
+}
+
+fn append_shared_variant(
+    out: &mut String,
+    en: &EnumDef,
+    variant: &crate::core::ir::EnumVariant,
+    lang: Language,
+    api: &ApiSurface,
+    has_wire_rename: bool,
+) {
+    let vdoc = shared_variant_description(en, variant, lang, api);
+    if has_wire_rename {
+        let wire = crate::codegen::naming::wire_variant_value(
+            &variant.name,
+            variant.serde_rename.as_deref(),
+            en.serde_rename_all.as_deref(),
+        );
+        out.push_str(&template_env::render(
+            "wire_variant_row.jinja",
+            crate::alef_context! {
+                name => escape_table_cell(&variant.name),
+                wire => escape_table_cell(&wire),
+                doc => escape_table_cell(&vdoc),
+            },
+        ));
+    } else {
+        out.push_str(&template_env::render(
+            "variant_row.jinja",
+            crate::alef_context! {
+                name => escape_table_cell(&variant.name),
+                doc => escape_table_cell(&vdoc),
+            },
+        ));
+    }
+}
+
+fn append_enums(out: &mut String, mut enums: Vec<&EnumDef>, lang: Language, api: &ApiSurface) {
+    enums.sort_by(|a, b| a.name.cmp(&b.name));
+    if !enums.is_empty() {
+        out.push_str("### Enums\n\n");
+        for en in enums {
+            out.push_str(&render_enum_for_shared_doc(en, lang, api));
+            out.push_str("\n---\n\n");
+        }
+    }
+}
+
+fn canonical_primitive(p: &PrimitiveType) -> String {
+    match p {
+        PrimitiveType::Bool => "bool".to_string(),
+        PrimitiveType::U8 => "u8".to_string(),
+        PrimitiveType::U16 => "u16".to_string(),
+        PrimitiveType::U32 => "u32".to_string(),
+        PrimitiveType::U64 => "u64".to_string(),
+        PrimitiveType::I8 => "i8".to_string(),
+        PrimitiveType::I16 => "i16".to_string(),
+        PrimitiveType::I32 => "i32".to_string(),
+        PrimitiveType::I64 => "i64".to_string(),
+        PrimitiveType::Usize => "usize".to_string(),
+        PrimitiveType::Isize => "isize".to_string(),
+        PrimitiveType::F32 => "f32".to_string(),
+        PrimitiveType::F64 => "f64".to_string(),
+    }
+}
+
+fn append_error_type(out: &mut String, err: &crate::core::ir::ErrorDef) {
+    out.push_str(&template_env::render(
+        "heading.jinja",
+        crate::alef_context! { marker => "###", title => &err.name },
+    ));
+
+    let doc = clean_doc(&err.doc, Language::Python);
+    let doc = demote_headings_to_start_at(&doc, 4);
+    if !doc.is_empty() {
+        out.push_str(&doc);
+        out.push('\n');
+        out.push('\n');
+    }
+
+    out.push('\n');
+    out.push_str("| Variant | Message | Description |\n");
+    out.push_str("|---------|---------|-------------|\n");
+    for variant in &err.variants {
+        let tmpl = variant.message_template.as_deref().unwrap_or("");
+        let vdoc = if !variant.doc.is_empty() {
+            clean_doc_inline(&variant.doc, Language::Python)
+        } else {
+            generate_error_variant_description(&variant.name)
+        };
+        out.push_str(&template_env::render(
+            "error_message_row.jinja",
+            crate::alef_context! {
+                name => escape_table_cell(&variant.name),
+                message => escape_table_cell(tmpl),
+                doc => escape_table_cell(&vdoc),
+            },
+        ));
+    }
+    out.push('\n');
+    out.push_str("---\n\n");
 }

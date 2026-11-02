@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Refresh locked Windows system and temporary-file randomness dependency selections.
+- Split documentation formatting and snippet validation helpers, remove 13 resolved quality
+  exemptions, and retain a 60-case enum documentation byte-comparison harness that resolves
+  evidence paths from both main and worktree checkouts. (#338)
 
 ### Fixed
 

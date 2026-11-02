@@ -522,3 +522,29 @@ fn session_scratch_resolves_under_the_cache_root_and_is_removed_on_pass_and_fail
         "scratch left behind under the cache root after a passing and a failing snippet validation"
     );
 }
+
+#[test]
+fn signature_patching_preserves_exact_text_across_signature_and_body_forms() {
+    let cases = [
+        ("", ""),
+        ("value = 1\n", "value = 1"),
+        ("def read()", "def read():\n    ..."),
+        ("def read() -> str", "def read() -> str:\n    ..."),
+        ("def read() -> str: return 'x'", "def read() -> str: return 'x'"),
+        ("def read(): return 1", "def read(): return 1"),
+        ("def read():\treturn 1", "def read():\treturn 1"),
+        (
+            "async def read():\n\n    return 1\n",
+            "async def read():\n\n    return 1",
+        ),
+        ("class Empty:\nvalue = 1", "class Empty:\n    ...\nvalue = 1"),
+        ("def read(\n    value\n)", "def read(\n    value\n):\n    ..."),
+        ("def read(\n    value", "def read(\n    value:\n    ..."),
+        ("    def read():", "    def read():\n        ..."),
+        ("def read():\n\treturn 1", "def read():\n\treturn 1"),
+        ("def read():\n\nvalue = 1", "def read():\n    ...\n\nvalue = 1"),
+    ];
+    for (input, expected) in cases {
+        assert_eq!(PythonValidator::patch_signatures(input), expected, "{input:?}");
+    }
+}
