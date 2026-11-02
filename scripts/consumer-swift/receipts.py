@@ -111,6 +111,6 @@ def missing_callbacks(text, expected):
     names = set(re.findall(r'^\s+"(_[^"\n]+)", referenced from:', block, re.MULTILINE))
     if not names or names != expected:
         raise RuntimeError("actual missing callback linker set differs from archive-derived expectation")
-    if "warning:" in text:
+    if strict_output_warnings(text):
         raise RuntimeError("unexpected warning in missing-callback control")
     return sorted(names)
