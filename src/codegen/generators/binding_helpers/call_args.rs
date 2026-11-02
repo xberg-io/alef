@@ -250,6 +250,7 @@ fn gen_call_args_vec_inner(params: &[ParamDef], opaque_types: &AHashSet<String>,
 /// For `TypeRef::Primitive` params whose binding type differs from the core type, emits
 /// `name as core_ty` (or `.map(|v| v as core_ty)` for optional params). All other params
 /// fall back to the same logic as `gen_call_args`.
+/// Non-promoted required borrowed primitives borrow the converted value, preserving mutability.
 pub fn gen_call_args_cfg(
     params: &[ParamDef],
     opaque_types: &AHashSet<String>,
@@ -273,7 +274,14 @@ pub fn gen_call_args_cfg(
                     } else if promoted {
                         format!("({base}) as {core_ty}")
                     } else {
-                        format!("{} as {core_ty}", p.name)
+                        let converted = format!("{} as {core_ty}", p.name);
+                        if p.is_mut {
+                            format!("&mut ({converted})")
+                        } else if p.is_ref {
+                            format!("&({converted})")
+                        } else {
+                            converted
+                        }
                     };
                 }
             }
