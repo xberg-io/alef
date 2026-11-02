@@ -159,7 +159,11 @@ pub(in crate::backends::wasm::gen_bindings) fn wasm_newtype_param_bindings(
                 type_paths,
                 param.newtype_wrapper.is_none(),
             );
-            let mutable = if param.is_mut && is_decoded_map(param) { "mut " } else { "" };
+            let mutable = if param.is_mut && is_decoded_map(param) {
+                "mut "
+            } else {
+                ""
+            };
             let intrinsic_optional = mapped_type_is_optional_jsvalue(&mapped_ty);
             if param.optional && intrinsic_optional {
                 bindings.push_str(&format!(
