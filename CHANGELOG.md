@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Refresh locked Windows system and temporary-file randomness dependency selections.
+
 ### Fixed
 
 - Preserve owned locals while borrowing optional NAPI enum inputs, and retain core-type context
@@ -16,7 +20,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   serde names and preserve structured JSON in optional containers. (#796, #797, #798)
 - Keep JSON and async unit method boundaries consistent with free functions, and retain native
   wrapper compilation and serde wire declaration regressions. (#801, #802, #803, #807)
-
 - Match NAPI async unit signatures to their fallible bodies, preserve JSON values and borrowed
   JSON arguments, and omit unsupported null from nested optional native DTO fields. (#801, #802, #803, #807)
 - napi: avoid conflicting passthrough enum conversion traits, preserve deserialization error
@@ -47,9 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - wasm: convert a `Vec<Map<..>>` field through `serde_wasm_bindgen` like the other `JsValue`
   containers instead of iterating the `JsValue`, and declare `Vec<bool>` as `JsValue` because
   wasm-bindgen has no vector ABI for `bool`. (#791)
-### Changed
-
-- Refresh locked Windows system and temporary-file randomness dependency selections.
+- Preserve shared and mutable borrows when R wrappers cast primitive parameters to their core types. (#782)
 
 ## [0.115.15] - 2026-11-02
 
