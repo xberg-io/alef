@@ -8,6 +8,7 @@ fn extract_from_source(source: &str) -> ApiSurface {
     // otherwise carry one test's aliases into the next. ~keep
     type_resolver::reset_result_error_hints();
     let file = syn::parse_str::<syn::File>(source).expect("failed to parse test source");
+    result_hints::collect_inline_items(&file.items).expect("collect Result aliases");
     let mut surface = ApiSurface {
         crate_name: "test_crate".into(),
         version: "0.1.0".into(),
@@ -52,6 +53,7 @@ mod defaults;
 mod duplicate_items;
 mod exclusions;
 mod extraction_area;
+mod forward_result_alias;
 mod futures_returns;
 mod qualified_arc;
 mod reexports;

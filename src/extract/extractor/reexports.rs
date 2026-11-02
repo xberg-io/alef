@@ -82,6 +82,8 @@ fn resolve_external_use(
     // against the host crate's hints (or leaving it behind in them) would let one crate's error
     // type surface in the other's signatures. ~keep
     let _isolated_result_hints = crate::extract::type_resolver::IsolatedResultHintsGuard::enter();
+    super::result_hints::collect_sources(&[canonical.as_path()], canonical.parent())?;
+    let _result_source_context = super::helpers::ResultModuleContextGuard::enter(&file.items, "");
     let mut rwa = ahash::AHashSet::new();
     // Scoped to this one extraction of the sibling crate into `ext_surface`: nothing outside
     // this function needs to compare against the external crate's serde defaults. ~keep
@@ -378,6 +380,7 @@ pub(crate) fn extract_module(
 
     let mut rwa = ahash::AHashSet::new();
     if let Some((_, items)) = &item_mod.content {
+        let _result_context = super::helpers::ResultModuleContextGuard::enter_child(items, &mod_name);
         super::extract_items(
             items,
             source_path,
@@ -422,6 +425,7 @@ pub(crate) fn extract_module(
                 let file = syn::parse_file(&content)
                     .with_context(|| format!("Failed to parse module file: {}", candidate.display()))?;
                 let mut rwa2 = ahash::AHashSet::new();
+                let _result_context = super::helpers::ResultModuleContextGuard::enter_child(&file.items, &mod_name);
                 super::extract_items(
                     &file.items,
                     candidate,

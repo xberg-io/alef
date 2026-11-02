@@ -30,6 +30,20 @@ struct ModuleContext {
 pub(crate) struct ResultModuleContextGuard(Option<ModuleContext>);
 
 impl ResultModuleContextGuard {
+    pub(crate) fn module_path() -> Option<String> {
+        MODULE_CONTEXT.with(|context| context.borrow().as_ref().map(|context| context.module_path.clone()))
+    }
+
+    pub(crate) fn enter_child(items: &[syn::Item], name: &str) -> Self {
+        let parent = Self::module_path().unwrap_or_default();
+        let path = if parent.is_empty() {
+            name.to_string()
+        } else {
+            format!("{parent}::{name}")
+        };
+        Self::enter(items, &path)
+    }
+
     /// Enter the module at `module_path` whose items are `items`.
     pub(crate) fn enter(items: &[syn::Item], module_path: &str) -> Self {
         let context = ModuleContext {
