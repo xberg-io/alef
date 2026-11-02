@@ -53,6 +53,7 @@ pub fn reset_result_error_hints() {
 /// Extraction walks one file at a time, but a crate's `Result` alias is declared in one module
 /// (`error.rs`) and used from others (`convert_api.rs`). Replacing the map per file would drop the
 /// alias before the functions that return it are resolved, so hints must accumulate. ~keep
+#[cfg(test)]
 pub fn record_result_error_hint(module_path: &str, error_type: String) {
     record_result_alias_hint(module_path, ResultAliasHint::Error(error_type));
 }
