@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Python 3.11 is now the minimum supported version; Python 3.10 reached end of life.
+- Qualify current Python 3.11 package metadata, ABI flags, E2E modes and registered template outputs.
 - Record a [full-corpus snippet metadata benchmark](docs/benchmarks/snippet-metadata-cache.md) with equivalent
   verification outcomes, actual construction counts and a stale-content negative control. (#753)
 
