@@ -160,6 +160,7 @@ pub(super) fn gen_async_free_function(
         core_import,
         source_crate_remaps,
         type_paths,
+        has_named,
     ));
     let call_args = wasm_call_args(&func.params, opaque_types, has_named);
     let core_call = format!("{core_fn_path}({call_args})");

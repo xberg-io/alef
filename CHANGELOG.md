@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Infer WASM map parameter containers from their core calls, preserving BTreeMap and HashMap inputs. (#805)
+
 ## [0.115.15] - 2026-11-02
 
 ### Fixed

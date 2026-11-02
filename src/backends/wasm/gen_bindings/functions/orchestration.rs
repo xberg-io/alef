@@ -161,7 +161,8 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos_an
             &type_paths,
         )
     } else if can_delegate {
-        let mut let_bindings = if crate::codegen::generators::has_named_params(&func.params, opaque_types) {
+        let has_named = crate::codegen::generators::has_named_params(&func.params, opaque_types);
+        let mut let_bindings = if has_named {
             crate::codegen::generators::gen_named_let_bindings_no_promote(&func.params, opaque_types, core_import)
         } else {
             String::new()
@@ -172,8 +173,8 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos_an
             core_import,
             source_crate_remaps,
             &type_paths,
+            has_named,
         ));
-        let has_named = crate::codegen::generators::has_named_params(&func.params, opaque_types);
         let call_args = wasm_call_args(&func.params, opaque_types, has_named);
         let core_call = format!("{core_fn_path}({call_args})");
         let body = if func.error_type.is_some() {
@@ -446,6 +447,7 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos_an
             core_import,
             source_crate_remaps,
             &type_paths,
+            true,
         ));
 
         let call_args = wasm_serde_recovery_call_args(&func.params, opaque_types);

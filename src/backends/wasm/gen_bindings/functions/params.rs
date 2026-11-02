@@ -7,6 +7,10 @@ use ahash::{AHashMap, AHashSet};
 
 use crate::backends::wasm::type_map::WasmMapper;
 
+#[cfg(test)]
+#[path = "params_native_tests.rs"]
+mod native_tests;
+
 pub(super) fn mapped_type_contains_jsvalue(mapped_ty: &str) -> bool {
     if crate::codegen::shared::maps_to_js_value(mapped_ty) {
         return true;
@@ -34,6 +38,16 @@ pub(in crate::backends::wasm::gen_bindings) fn typeref_to_core_type_str(
     source_crate_remaps: &[(&str, &str)],
     type_paths: &AHashMap<String, String>,
 ) -> String {
+    decoded_core_type_str(ty, core_import, source_crate_remaps, type_paths, false)
+}
+
+fn decoded_core_type_str(
+    ty: &TypeRef,
+    core_import: &str,
+    source_crate_remaps: &[(&str, &str)],
+    type_paths: &AHashMap<String, String>,
+    infer_maps: bool,
+) -> String {
     use crate::core::ir::PrimitiveType;
     match ty {
         TypeRef::String | TypeRef::Char => "String".to_string(),
@@ -54,16 +68,18 @@ pub(in crate::backends::wasm::gen_bindings) fn typeref_to_core_type_str(
         },
         TypeRef::Vec(inner) => format!(
             "Vec<{}>",
-            typeref_to_core_type_str(inner, core_import, source_crate_remaps, type_paths)
+            decoded_core_type_str(inner, core_import, source_crate_remaps, type_paths, infer_maps)
         ),
         TypeRef::Optional(inner) => format!(
             "Option<{}>",
-            typeref_to_core_type_str(inner, core_import, source_crate_remaps, type_paths)
+            decoded_core_type_str(inner, core_import, source_crate_remaps, type_paths, infer_maps)
         ),
-        TypeRef::Map(k, v) => format!(
+        // Map omits the concrete container identity; the core parameter constrains serde's target. ~keep
+        TypeRef::Map(_, _) if infer_maps => "_".to_string(),
+        TypeRef::Map(key, value) => format!(
             "std::collections::HashMap<{}, {}>",
-            typeref_to_core_type_str(k, core_import, source_crate_remaps, type_paths),
-            typeref_to_core_type_str(v, core_import, source_crate_remaps, type_paths)
+            decoded_core_type_str(key, core_import, source_crate_remaps, type_paths, infer_maps),
+            decoded_core_type_str(value, core_import, source_crate_remaps, type_paths, infer_maps)
         ),
         TypeRef::Json => "serde_json::Value".to_string(),
         TypeRef::Bytes => "Vec<u8>".to_string(),
@@ -128,6 +144,7 @@ pub(in crate::backends::wasm::gen_bindings) fn wasm_newtype_param_bindings(
     core_import: &str,
     source_crate_remaps: &[(&str, &str)],
     type_paths: &AHashMap<String, String>,
+    use_named_let_bindings: bool,
 ) -> String {
     let mut bindings = String::new();
     for param in params {
@@ -136,7 +153,18 @@ pub(in crate::backends::wasm::gen_bindings) fn wasm_newtype_param_bindings(
         let is_jsvalue_container =
             matches!(param.ty, TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Optional(_)) && contains_jsvalue;
         if contains_jsvalue && (param.newtype_wrapper.is_some() || is_jsvalue_container) {
-            let core_ty = typeref_to_core_type_str(&param.ty, core_import, source_crate_remaps, type_paths);
+            // Named arguments iterate root BTreeMaps, but pass vector maps directly. ~keep
+            let collects_root_map = use_named_let_bindings
+                && matches!(param.ty, TypeRef::Map(_, _))
+                && param.map_is_btree
+                && !(param.is_ref && param.optional);
+            let core_ty = decoded_core_type_str(
+                &param.ty,
+                core_import,
+                source_crate_remaps,
+                type_paths,
+                !collects_root_map && param.newtype_wrapper.is_none(),
+            );
             let intrinsic_optional = mapped_type_is_optional_jsvalue(&mapped_ty);
             if param.optional && intrinsic_optional {
                 bindings.push_str(&format!(

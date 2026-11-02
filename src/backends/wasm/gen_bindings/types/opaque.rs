@@ -197,8 +197,14 @@ fn gen_opaque_method(
     let body = if let Some(body) = adapter_bodies.get(&adapter_key) {
         body.clone()
     } else if can_delegate {
-        let let_bindings =
-            wasm_newtype_param_bindings(&method.params, mapper, core_import, source_crate_remaps, type_paths);
+        let let_bindings = wasm_newtype_param_bindings(
+            &method.params,
+            mapper,
+            core_import,
+            source_crate_remaps,
+            type_paths,
+            false,
+        );
         let call_args = wasm_call_args(&method.params, opaque_types, false);
         let core_call = if is_ref_mut {
             format!("self.inner.lock().unwrap().{}({})", method.name, call_args)
@@ -356,8 +362,14 @@ fn gen_opaque_static_method(method: &MethodDef, context: OpaqueStaticMethodConte
     };
 
     let body = if can_delegate {
-        let let_bindings =
-            wasm_newtype_param_bindings(&method.params, mapper, core_import, source_crate_remaps, type_paths);
+        let let_bindings = wasm_newtype_param_bindings(
+            &method.params,
+            mapper,
+            core_import,
+            source_crate_remaps,
+            type_paths,
+            false,
+        );
         let call_args = wasm_call_args(&method.params, opaque_types, false);
         let core_call = format!("{qualified_type_path}::{}({call_args})", method.name);
         if method.error_type.is_some() {
