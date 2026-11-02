@@ -241,3 +241,55 @@ func TestConsumedKeysFlatten(t *testing.T) {
 		}
 	}
 }
+
+type externalDataCase struct {
+	Input    json.RawMessage   `json:"input"`
+	Expected json.RawMessage   `json:"expected"`
+	Extras   map[string]string `json:"extras"`
+}
+
+func loadExternalDataCases(t *testing.T) map[string]externalDataCase {
+	t.Helper()
+	data, err := os.ReadFile("external_data_oracle.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases map[string]externalDataCase
+	if err := json.Unmarshal(data, &cases); err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) != 10 {
+		t.Fatalf("expected ten certified external DATA enum cases, got %d", len(cases))
+	}
+	return cases
+}
+
+func TestExternalDataFlatten(t *testing.T) {
+	cases := loadExternalDataCases(t)
+	for _, mode := range []string{"only", "mixed"} {
+		for _, state := range []string{"alpha_only", "zeta_only", "alpha_extra", "zeta_extra", "alpha_inactive"} {
+			name := mode + "_" + state
+			t.Run(name, func(t *testing.T) {
+				var value any = &ExternalRemainderOnly{}
+				if mode == "mixed" {
+					value = &ExternalRemainderMixed{}
+				}
+				oracle := cases[name]
+				if err := json.Unmarshal(oracle.Input, value); err != nil {
+					t.Fatalf("valid Serde external DATA enum plus remainder must decode: %v", err)
+				}
+				extras := reflect.ValueOf(value).Elem().FieldByName("Extras").Interface().(map[string]string)
+				if len(extras) != len(oracle.Extras) {
+					t.Fatalf("selected variant payload must be consumed, only remainder keys retained: got %v, want %v", extras, oracle.Extras)
+				}
+				for key, want := range oracle.Extras {
+					got, present := extras[key]
+					if !present || got != want {
+						t.Fatalf("remainder key %q must survive: got %q/%v, want %q", key, got, present, want)
+					}
+				}
+				assertWire(t, value, oracle.Expected)
+			})
+		}
+	}
+}

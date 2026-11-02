@@ -185,7 +185,7 @@ fn test_gen_struct_type_emits_json_tags() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        (&std::collections::HashSet::new(), &[]),
+        (&std::collections::HashSet::new(), &[], &[]),
         &[],
     );
     assert!(out.contains("type MyConfig struct"));
@@ -304,7 +304,7 @@ fn gen_struct_type_marshal_optional_bytes_field_does_not_dereference() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        (&std::collections::HashSet::new(), &[]),
+        (&std::collections::HashSet::new(), &[], &[]),
         &[],
     );
     assert!(!out.contains("*v.Data"), "expected no `*v.Data` dereference in:\n{out}");
@@ -406,7 +406,7 @@ fn test_gen_struct_type_emits_no_config_options_by_default() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        (&std::collections::HashSet::new(), &[]),
+        (&std::collections::HashSet::new(), &[], &[]),
         &[],
     );
     assert!(out.contains("type ContentConfig struct"), "expected struct definition");
@@ -809,7 +809,7 @@ fn gen_struct_type_required_duration_field_is_non_pointer_wire_safe_type() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        (&std::collections::HashSet::new(), &[]),
+        (&std::collections::HashSet::new(), &[], &[]),
         &[],
     );
     assert!(
@@ -835,7 +835,7 @@ fn gen_struct_type_optional_duration_field_with_real_default_is_pointer() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        (&std::collections::HashSet::new(), &[]),
+        (&std::collections::HashSet::new(), &[], &[]),
         &[],
     );
     assert!(
@@ -866,7 +866,7 @@ fn gen_struct_type_required_named_enum_field_in_default_struct_stays_required() 
         &enum_names,
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        (&std::collections::HashSet::new(), &[]),
+        (&std::collections::HashSet::new(), &[], &[]),
         &[],
     );
     assert!(
@@ -905,7 +905,7 @@ fn gen_struct_type_container_serde_default_emits_omitempty_pointers() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        (&std::collections::HashSet::new(), &[]),
+        (&std::collections::HashSet::new(), &[], &[]),
         &[],
     );
     assert!(
@@ -936,7 +936,7 @@ fn gen_struct_type_without_container_serde_default_keeps_required_fields_non_poi
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        (&std::collections::HashSet::new(), &[]),
+        (&std::collections::HashSet::new(), &[], &[]),
         &[],
     );
     assert!(
@@ -984,7 +984,7 @@ fn gen_struct_type_required_struct_field_becomes_pointer_without_disturbing_requ
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        (&struct_names, &[]),
+        (&struct_names, &[], &[]),
         &[],
     );
 
@@ -1036,7 +1036,7 @@ fn gen_struct_type_field_level_serde_default_marks_struct_type_fields_omitempty(
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        (&struct_names, &[]),
+        (&struct_names, &[], &[]),
         &[],
     );
 
@@ -1066,7 +1066,7 @@ fn gen_struct_type_container_serde_default_marks_unit_enum_fields_omitempty() {
             &enum_names,
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
-            (&std::collections::HashSet::new(), &[]),
+            (&std::collections::HashSet::new(), &[], &[]),
             &[],
         )
     };
@@ -1109,7 +1109,7 @@ fn gen_struct_type_unresolved_default_field_becomes_pointer_omitempty() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        (&std::collections::HashSet::new(), &[]),
+        (&std::collections::HashSet::new(), &[], &[]),
         &[],
     );
 
@@ -1136,7 +1136,7 @@ fn gen_struct_type_empty_default_field_stays_the_plain_go_zero() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        (&std::collections::HashSet::new(), &[]),
+        (&std::collections::HashSet::new(), &[], &[]),
         &[],
     );
 
@@ -1774,7 +1774,7 @@ fn gen_struct_type_required_collections_are_never_omitted_and_never_null() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        (&std::collections::HashSet::new(), &[]),
+        (&std::collections::HashSet::new(), &[], &[]),
         &[],
     );
     assert!(
@@ -1820,7 +1820,7 @@ fn gen_struct_type_flattened_field_is_inlined_on_the_wire() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
-        (&["OperationPolicy"].into_iter().collect(), &[]),
+        (&["OperationPolicy"].into_iter().collect(), &[], &[]),
         &[],
     );
     assert!(

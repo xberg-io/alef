@@ -12,6 +12,8 @@ use crate::test_support::toolchain;
 
 #[path = "flatten_runtime_consumed.rs"]
 mod consumed;
+#[path = "flatten_runtime_external.rs"]
+mod external;
 #[path = "flatten_runtime_optional_structs.rs"]
 mod optional_structs;
 #[path = "flatten_runtime_schema.rs"]
@@ -183,6 +185,7 @@ fn fixture_types() -> Vec<TypeDef> {
     types.extend(extracted_schema());
     types.extend(optional_structs::parent_types());
     types.extend(consumed::parent_types());
+    types.extend(external::parent_types());
     for mixed in [false, true] {
         types.extend(parent_types(mixed));
     }
@@ -242,6 +245,7 @@ fn fixture_enums() -> Vec<EnumDef> {
     ["SealedChoice", "RegularChoice", "AdjacentChoice"]
         .into_iter()
         .map(fixture_enum)
+        .chain(std::iter::once(external::enumeration()))
         .collect()
 }
 
@@ -273,10 +277,11 @@ fn generated_codec() -> String {
     let types = fixture_types();
     let mut structs: HashSet<&str> = types.iter().map(|typ| typ.name.as_str()).collect();
     structs.insert("AdjacentChoice");
-    let data_enums = HashSet::from(["SealedChoice", "RegularChoice"]);
-    let mut source = String::from("package codec\n\nimport (\"encoding/json\"; \"fmt\")\n\n");
-    for enumeration in fixture_enums() {
-        source.push_str(&gen_enum_type(&enumeration, &[]));
+    let data_enums = HashSet::from(["SealedChoice", "RegularChoice", "ExternalChoice"]);
+    let mut source = String::from("package codec\n\nimport (\"bytes\"; \"encoding/json\"; \"fmt\")\n\n");
+    let enums = fixture_enums();
+    for enumeration in &enums {
+        source.push_str(&gen_enum_type(enumeration, &[]));
     }
     for typ in &types {
         source.push_str(&gen_struct_type(
@@ -284,7 +289,7 @@ fn generated_codec() -> String {
             &HashSet::new(),
             &HashSet::new(),
             &data_enums,
-            (&structs, &types),
+            (&structs, &types, &enums),
             &[],
         ));
     }
@@ -326,6 +331,11 @@ fn write_fixture(directory: &Path) {
         serde_json::to_vec(&consumed::oracle_cases()).unwrap(),
     )
     .expect("write consumed-key core Serde oracle");
+    std::fs::write(
+        directory.join("external_data_oracle.json"),
+        serde_json::to_vec(&external::oracle_cases()).unwrap(),
+    )
+    .expect("write externally tagged data-enum Serde oracle");
 }
 
 fn assert_compiles(go: &Path, directory: &Path) {

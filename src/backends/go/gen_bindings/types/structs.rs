@@ -2,11 +2,12 @@ use std::borrow::Cow;
 
 use crate::backends::go::type_map::{go_field_type, go_optional_field_type};
 use crate::codegen::c_consumer;
-use crate::codegen::naming::{go_type_name, to_go_name, wire_field_name};
+use crate::codegen::naming::{go_type_name, to_go_name, wire_field_name, wire_variant_value};
 use crate::codegen::shared::binding_fields;
 use crate::core::config::{BridgeBinding, TraitBridgeConfig};
-use crate::core::ir::{FieldDef, TypeDef, TypeRef};
+use crate::core::ir::{EnumDef, FieldDef, TypeDef, TypeRef};
 
+use super::enums::{GoEnumRepresentation, go_enum_representation};
 use super::helpers::{emit_type_doc, is_tuple_field, needs_omitempty_pointer};
 
 pub(in crate::backends::go::gen_bindings) fn gen_opaque_type(typ: &TypeDef, ffi_prefix: &str) -> String {
@@ -107,9 +108,15 @@ struct FlattenedGoField {
     unmarshal_fn: Option<String>,
     wire_names: Vec<String>,
     required_wire_names: Vec<String>,
+    external_variant_names: Vec<String>,
 }
 
-fn flattened_go_fields(typ: &TypeDef, sets: &GoStructTypeSets<'_>, all_types: &[TypeDef]) -> Vec<FlattenedGoField> {
+fn flattened_go_fields(
+    typ: &TypeDef,
+    sets: &GoStructTypeSets<'_>,
+    all_types: &[TypeDef],
+    all_enums: &[EnumDef],
+) -> Vec<FlattenedGoField> {
     let mut fields = binding_fields(&typ.fields)
         .filter(|field| is_flattened_field(field))
         .map(|field| {
@@ -125,6 +132,7 @@ fn flattened_go_fields(typ: &TypeDef, sets: &GoStructTypeSets<'_>, all_types: &[
                     .filter(|name| sets.data_enums.contains(name))
                     .map(|name| format!("Unmarshal{}", go_type_name(name))),
                 wire_names: wire_names.iter().map(|name| quoted_wire_name(name)).collect(),
+                external_variant_names: external_variant_names(named, all_enums),
                 required_wire_names: named.map_or_else(Vec::new, |name| {
                     required_struct_wire_names(name, all_types, &mut std::collections::HashSet::new())
                         .iter()
@@ -136,6 +144,33 @@ fn flattened_go_fields(typ: &TypeDef, sets: &GoStructTypeSets<'_>, all_types: &[
         .collect::<Vec<_>>();
     fields.sort_by_key(|field| field.is_map);
     fields
+}
+
+fn external_variant_names(name: Option<&str>, all_enums: &[EnumDef]) -> Vec<String> {
+    let Some(enumeration) = all_enums
+        .iter()
+        .find(|enumeration| Some(enumeration.name.as_str()) == name)
+    else {
+        return Vec::new();
+    };
+    if enumeration.serde_tag.is_some()
+        || enumeration.serde_content.is_some()
+        || enumeration.serde_untagged
+        || go_enum_representation(enumeration) != GoEnumRepresentation::DataInterface
+    {
+        return Vec::new();
+    }
+    enumeration
+        .variants
+        .iter()
+        .map(|variant| {
+            quoted_wire_name(&wire_variant_value(
+                &variant.name,
+                variant.serde_rename.as_deref(),
+                enumeration.serde_rename_all.as_deref(),
+            ))
+        })
+        .collect()
 }
 
 fn flattened_struct_wire_names(
@@ -616,10 +651,10 @@ pub(in crate::backends::go::gen_bindings) fn gen_struct_type(
     enum_names: &std::collections::HashSet<&str>,
     passthrough_enum_names: &std::collections::HashSet<&str>,
     data_enum_names: &std::collections::HashSet<&str>,
-    struct_definitions: (&std::collections::HashSet<&str>, &[TypeDef]),
+    struct_definitions: (&std::collections::HashSet<&str>, &[TypeDef], &[EnumDef]),
     trait_bridges: &[TraitBridgeConfig],
 ) -> String {
-    let (struct_names, all_types) = struct_definitions;
+    let (struct_names, all_types, all_enums) = struct_definitions;
     let mut out = String::with_capacity(1024);
 
     let go_name = go_type_name(&typ.name);
@@ -644,7 +679,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_struct_type(
         minijinja::Value::default(),
     ));
 
-    let flattened = flattened_go_fields(typ, &sets, all_types);
+    let flattened = flattened_go_fields(typ, &sets, all_types, all_enums);
     out.push_str(&render_struct_marshal_json(
         typ,
         &go_name,

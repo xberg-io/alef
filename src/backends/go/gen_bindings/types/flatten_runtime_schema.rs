@@ -48,3 +48,10 @@ pub struct OwnedDefaultedChild {
     #[serde(default)]
     pub name: String,
 }
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExternalChoice {
+    Zeta { note: String },
+    Alpha { text: String },
+}

@@ -5,7 +5,37 @@
 		}
 {% for name in owned_names %}		delete(available, {{ name }})
 {% endfor %}{% for field in flattened %}{% if not field.is_map %}		{
-			childData, err := json.Marshal(available)
+{% if field.external_variant_names %}			childView := map[string]json.RawMessage{}
+			decoder := json.NewDecoder(bytes.NewReader(data))
+			if _, err := decoder.Token(); err != nil {
+				return err
+			}
+			for decoder.More() {
+				token, err := decoder.Token()
+				if err != nil {
+					return err
+				}
+				key, ok := token.(string)
+				if !ok {
+					return fmt.Errorf("expected flattened object key")
+				}
+				var ignored json.RawMessage
+				if err := decoder.Decode(&ignored); err != nil {
+					return err
+				}
+				if _, present := available[key]; !present {
+					continue
+				}
+				switch key {
+				case {% for name in field.external_variant_names %}{{ name }}{% if not loop.last %}, {% endif %}{% endfor %}:
+					childView[key] = available[key]
+					delete(available, key)
+				}
+				if len(childView) > 0 {
+					break
+				}
+			}
+{% endif %}			childData, err := json.Marshal({% if field.external_variant_names %}childView{% else %}available{% endif %})
 			if err != nil {
 				return err
 			}
