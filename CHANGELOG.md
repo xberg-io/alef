@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Update locked ureq to 3.5.1 and ureq-proto to 0.7.1 for HTTP connection reuse, transfer encoding,
+  cookie and timeout fixes. (#817)
 - Python 3.11 is now the minimum supported version; Python 3.10 reached end of life.
 - Qualify current Python 3.11 package metadata, ABI flags, E2E modes and registered template outputs.
 - Record a [full-corpus snippet metadata benchmark](docs/benchmarks/snippet-metadata-cache.md) with equivalent
