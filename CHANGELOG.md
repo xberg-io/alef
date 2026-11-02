@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.115.15] - 2026-11-02
+
 ### Changed
 
 - Python 3.11 is now the minimum supported version; Python 3.10 reached end of life.
@@ -123,8 +125,6 @@ Migration details and remaining platform qualification are recorded in
   infer nested argument collections from the core type, and reject unsupported interior references.
   Convert argument map keys into the inferred core key type, including nested owned `Cow<str>` keys.
 - Extract the unsigned Dart native fixture from its actual crate root so generated paths match the compiled core.
-
-## [0.115.15] - 2026-11-02
 
 ### Fixed
 
