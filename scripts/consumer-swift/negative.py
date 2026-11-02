@@ -15,7 +15,12 @@ def undefined_symbols(text):
             continue
         if re.fullmatch(r"[^:\n]+\.(?:o|obj):|[^:\n]+\.a\([^()\n]+\.(?:o|obj)\):", value):
             continue
-        if re.fullmatch(r"_[A-Za-z0-9_$]+", value) is None:
+        valid = (
+            re.fullmatch(r"_[A-Za-z0-9_$]+", value)
+            or re.fullmatch(r"section\$(?:start|end)\$[A-Za-z0-9_]+\$[A-Za-z0-9_]+", value)
+            or re.fullmatch(r"_objc_msgSend\$(?:[A-Za-z_][A-Za-z0-9_]*|(?:[A-Za-z_][A-Za-z0-9_]*:)+)", value)
+        )
+        if not valid:
             raise ValueError("unrecognized Darwin nm -u row; expected bare symbol or archive member header")
         names.add(value)
     if not names:
@@ -43,7 +48,9 @@ def strip_exports(root):
 
 def qualify(gate, archive, package):
     before = sha(archive)
-    undefined = gate.command("archive-undefined", ["nm", "-u", str(archive)], gate.xberg, 0, 90)
+    undefined = gate.command(
+        "archive-undefined", [gate.real_nm, "--undefined-only", "--just-symbol-name", str(archive)], gate.xberg, 0, 90
+    )
     referenced = undefined_symbols((undefined / "stdout.log").read_text())
     negative = gate.xberg / "packages/swift-missing-callbacks"
     if negative.exists():

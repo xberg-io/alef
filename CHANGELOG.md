@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Read Swift qualification archives with the selected Rust toolchain’s LLVM and preserve real Mach-O
+  section and Objective-C undefined symbols while rejecting malformed or incomplete symbol evidence.
+
 - Resolve forward-declared Result aliases before lowering APIs, preserving private modules, foreign
   imports, qualified aliases and glob namespaces without borrowing unrelated errors. Retain explicit
   declaration/import precedence, restricted binding visibility, renamed Result imports and crate isolation.

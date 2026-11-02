@@ -18,6 +18,7 @@ import native_receipts
 import negative
 import receipts
 import runtime
+import rust_symbols
 from contracts import immutable_ref, safe_test_census
 from strict_flags import strict_flags
 
@@ -357,7 +358,7 @@ def harness_controls():
     root = Path(os.environ["GITHUB_WORKSPACE"])
     evidence = Path(os.environ.get("SWIFT_GATE_CONTROL_EVIDENCE", str(root / "consumer-controls-evidence")))
     suite = unittest.defaultTestLoader.discover(str(Path(__file__).parent), pattern="test_*.py")
-    expected = 67
+    expected = 75
     actual = suite.countTestCases()
     if actual != expected:
         (evidence / "census-refusal.json").write_text(json.dumps({"expected": expected, "discovered": actual}))
@@ -390,6 +391,7 @@ def main():
     ]:
         gate.checkout(name, repository, revision)
     bootstrap.bootstrap(gate)
+    rust_symbols.select(gate)
     gate.install_adapters()
     gate.configure_strict_flags()
     cli = gate.build_cli()
