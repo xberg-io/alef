@@ -47,6 +47,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - wasm: convert a `Vec<Map<..>>` field through `serde_wasm_bindgen` like the other `JsValue`
   containers instead of iterating the `JsValue`, and declare `Vec<bool>` as `JsValue` because
   wasm-bindgen has no vector ABI for `bool`. (#791)
+### Changed
+
+- Refresh locked Windows system and temporary-file randomness dependency selections.
 
 ## [0.115.15] - 2026-11-02
 
