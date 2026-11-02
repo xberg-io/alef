@@ -186,6 +186,7 @@ fn plugin_trait_bridge_requires_name_in_typescript_interface() {
         serde_rename_all: None,
         has_serde: false,
         serde_container_default: false,
+        serde_deserialization: Default::default(),
         serde_container_conversion: Default::default(),
         super_traits: Vec::new(),
         binding_excluded: false,

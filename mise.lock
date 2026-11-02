@@ -51,6 +51,27 @@ checksum_source = "mise-versions"
 url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-pc-windows-msvc.tar.gz"
 url_api = "https://api.github.com/repos/EmbarkStudios/cargo-deny/releases/assets/471599057"
 
+[[tools.dart]]
+version = "3.13.7"
+backend = "http:dart"
+specifiers = ["3.13.7"]
+
+[tools.dart."platforms.linux-arm64"]
+checksum = "sha256:887cbb763bc4a1d6f3d7c34a6ea08f0f05211807abf98c06d6e4263907ccac1a"
+url = "https://storage.googleapis.com/dart-archive/channels/stable/release/3.13.7/sdk/dartsdk-linux-arm64-release.zip"
+
+[tools.dart."platforms.linux-x64"]
+checksum = "sha256:eb99aed266efbcb615c6ae21c12f52cfe935b9f208bccc5fea7f64c21e867229"
+url = "https://storage.googleapis.com/dart-archive/channels/stable/release/3.13.7/sdk/dartsdk-linux-x64-release.zip"
+
+[tools.dart."platforms.macos-arm64"]
+checksum = "sha256:9f972ee1e1139cb4f845f35c7c77bef269dd2ec727b239fb17a2ebcb66d0fb2f"
+url = "https://storage.googleapis.com/dart-archive/channels/stable/release/3.13.7/sdk/dartsdk-macos-arm64-release.zip"
+
+[tools.dart."platforms.windows-x64"]
+checksum = "sha256:3b31d9f90b27861f29842d378f39f98ce9e60910042334f950ef5702f174fb81"
+url = "https://storage.googleapis.com/dart-archive/channels/stable/release/3.13.7/sdk/dartsdk-windows-x64-release.zip"
+
 [[tools."github:DevinR528/cargo-sort"]]
 version = "2.1.4"
 backend = "github:DevinR528/cargo-sort"

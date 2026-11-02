@@ -97,7 +97,7 @@ fn type_ref_contains_json(ty: &TypeRef) -> bool {
     }
 }
 
-/// Check if the API surface has any Json fields
+/// Check whether the emitted Node boundary requires JSON value conversions.
 fn api_has_json_fields(api: &ApiSurface) -> bool {
     for type_def in &api.types {
         for field in &type_def.fields {
@@ -132,6 +132,9 @@ fn api_has_json_fields(api: &ApiSurface) -> bool {
     }
 
     for enum_def in &api.enums {
+        if crate::backends::napi::is_json_passthrough_data_enum(enum_def, &api.types) {
+            return true;
+        }
         for variant in &enum_def.variants {
             for field in &variant.fields {
                 if type_ref_contains_json(&field.ty) {

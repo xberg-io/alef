@@ -6,6 +6,8 @@ use crate::core::config::Language;
 use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeRef};
 use ahash::AHashSet;
 
+mod native_dto_nullability;
+
 pub(super) fn transparent_string_wrapper(paths: Vec<Vec<crate::core::ir::NewtypeContainer>>) -> String {
     transparent_string_wrapper_with_methods(paths, "from", "into_inner")
 }
@@ -258,6 +260,7 @@ fn napi_self_ref_builder_shares_arc_instead_of_cloning_returned_ref() {
         &streaming,
         &mutex,
         &capsule,
+        None,
     );
 
     assert!(
@@ -301,8 +304,8 @@ pub(super) fn sanitized_field_test_enum(ty: TypeRef, optional: bool) -> EnumDef 
 pub(super) fn sanitized_field_conversions(enum_def: &EnumDef) -> (String, String) {
     let struct_names = AHashSet::new();
     (
-        gen_tagged_enum_binding_to_core(enum_def, "fixture_core", "Js", &struct_names, &[]),
-        gen_tagged_enum_core_to_binding(enum_def, "fixture_core", "Js", &struct_names, None, &[]),
+        gen_tagged_enum_binding_to_core(enum_def, "fixture_core", "Js", &struct_names, &[], None),
+        gen_tagged_enum_core_to_binding(enum_def, "fixture_core", "Js", &struct_names, None, (&[], None)),
     )
 }
 

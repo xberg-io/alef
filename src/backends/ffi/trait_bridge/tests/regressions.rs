@@ -621,6 +621,7 @@ fn lifetime_param_named_type_emits_angle_lifetime_placeholder() {
             serde_rename_all: None,
             has_serde: false,
             serde_container_default: false,
+            serde_deserialization: Default::default(),
             serde_container_conversion: Default::default(),
             super_traits: vec![],
             doc: String::new(),

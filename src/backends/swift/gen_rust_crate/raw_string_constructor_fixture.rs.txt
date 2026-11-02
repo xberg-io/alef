@@ -1,0 +1,32 @@
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(alef, alef(skip))]
+pub struct ProjectedValue {
+    pub marker: String,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DefaultText {
+    pub text: String,
+    pub optional_text: Option<String>,
+    pub json: serde_json::Value,
+    pub optional_json: Option<serde_json::Value>,
+    pub path: PathBuf,
+    pub optional_path: Option<PathBuf>,
+    pub projected: ProjectedValue,
+    pub optional_projected: Option<ProjectedValue>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DirectText {
+    pub text: String,
+    pub optional_text: Option<String>,
+    pub json: serde_json::Value,
+    pub optional_json: Option<serde_json::Value>,
+    pub path: PathBuf,
+    pub optional_path: Option<PathBuf>,
+    pub projected: ProjectedValue,
+    pub optional_projected: Option<ProjectedValue>,
+}

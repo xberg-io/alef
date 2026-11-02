@@ -104,6 +104,7 @@ fn test_generate_docs_typescript_optional_field_emits_consistent_table_cells() {
             serde_rename_all: None,
             has_serde: false,
             serde_container_default: false,
+            serde_deserialization: Default::default(),
             serde_container_conversion: Default::default(),
             super_traits: vec![],
             binding_excluded: false,

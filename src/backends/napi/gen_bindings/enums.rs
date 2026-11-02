@@ -356,6 +356,20 @@ pub(crate) fn is_tagged_data_enum(enum_def: &EnumDef, types: &[TypeDef]) -> bool
     (enum_def.serde_tag.is_some()
         || (has_data_variants && !enum_def.serde_untagged && !is_variant_untagged_string_enum(enum_def)))
         && !is_fully_flattened_internal_enum(enum_def, types)
+        && !is_adjacent_content_collision_enum(enum_def)
+}
+
+/// True for an adjacently tagged enum (`#[serde(tag = "t", content = "c")]`) with two or more
+/// data-carrying variants. Every such variant writes its payload under the SAME content key, so a
+/// flat `#[napi(object)]` struct would declare that field once per variant at different payload
+/// types (E0124, and no common napi representation exists). Like the fully flattened internal
+/// case, the wire shape is only expressible as `serde_json::Value` passthrough, generic over what
+/// the core type's own serde impl produces; the `.d.ts` keeps the per-variant discriminated union.
+/// ~keep
+pub(crate) fn is_adjacent_content_collision_enum(enum_def: &EnumDef) -> bool {
+    enum_def.serde_tag.is_some()
+        && enum_def.serde_content.is_some()
+        && enum_def.variants.iter().filter(|v| !v.fields.is_empty()).count() > 1
 }
 
 /// True when EVERY data-carrying variant of this internally-tagged enum has its single
@@ -440,6 +454,7 @@ pub(crate) fn is_json_passthrough_data_enum(enum_def: &EnumDef, types: &[TypeDef
     is_untagged_data_enum(enum_def)
         || is_variant_untagged_string_enum(enum_def)
         || is_fully_flattened_internal_enum(enum_def, types)
+        || is_adjacent_content_collision_enum(enum_def)
 }
 
 /// The literal `.d.ts` union members (already quoted, e.g. `"plain"`) for the unit variants of an

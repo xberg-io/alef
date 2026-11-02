@@ -15,8 +15,8 @@ use heck::{ToPascalCase, ToSnakeCase};
 
 use super::enums::string_enum_js_values;
 use super::functions::{
-    napi_apply_primitive_casts_to_call_args, napi_gen_call_args, napi_newtype_param_bindings, napi_wrap_return,
-    promoted_required, wrap_promoted_required_body,
+    async_unit_returns_result, napi_apply_primitive_casts_to_call_args, napi_gen_call_args,
+    napi_newtype_param_bindings, napi_wrap_return, promoted_required, wrap_promoted_required_body,
 };
 
 mod opaque_methods;
@@ -307,15 +307,23 @@ pub(super) fn gen_static_method(
     method: &MethodDef,
     mapper: &NapiMapper,
     typ: &TypeDef,
-    cfg: &RustBindingConfig,
+    binding: (&RustBindingConfig, Option<&super::containers::ContainerContext>),
     opaque_types: &AHashSet<String>,
     prefix: &str,
     mutex_types: &AHashSet<String>,
 ) -> String {
+    let (cfg, inputs) = binding;
+    let fallible_inputs = super::inputs::has_inputs(inputs, &method.params);
     let has_promoted_required = !promoted_required(&method.params).is_empty();
-    let params = function_params(&method.params, &|ty| mapper.map_type(ty));
+    let params = function_params(&method.params, &|ty| {
+        mapper.map_type(&super::inputs::binding_type(inputs, ty))
+    });
     let return_type = mapper.map_type(&method.return_type);
-    let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some() || has_promoted_required);
+    let async_unit_result = async_unit_returns_result(method.is_async, &return_type, cfg);
+    let return_annotation = mapper.wrap_return(
+        &return_type,
+        method.error_type.is_some() || has_promoted_required || fallible_inputs || async_unit_result,
+    );
 
     let js_name = to_node_name(&method.name);
     let js_name_attr = if js_name != method.name {
@@ -326,7 +334,7 @@ pub(super) fn gen_static_method(
 
     let type_name = &typ.name;
     let core_type_path = typ.rust_path.replace('-', "_");
-    let call_args = napi_gen_call_args(&method.params, opaque_types);
+    let call_args = super::inputs::call_args(napi_gen_call_args(&method.params, opaque_types), inputs, &method.params);
     let can_delegate_static = can_auto_delegate(method, opaque_types);
 
     let async_kw = if method.is_async { "async " } else { "" };
@@ -404,6 +412,12 @@ pub(super) fn gen_static_method(
         body
     };
 
+    let body = super::inputs::prepare_bindings(body, inputs, &method.params, &method.params, true);
+    let body = super::inputs::wrap_body(
+        body,
+        fallible_inputs,
+        method.error_type.is_some() || has_promoted_required || async_unit_result,
+    );
     let body = wrap_promoted_required_body(
         body,
         &method.params,
@@ -466,6 +480,8 @@ pub(super) fn gen_dto_method_fns(
 
     let core_type_path = typ.rust_path.replace('-', "_");
     let type_js_name = to_node_name(&typ.name);
+    let input_context = super::containers::ContainerContext::new(api, cfg.core_import);
+    let inputs = Some(&input_context);
     let mut out = String::new();
 
     for method in methods {
@@ -475,6 +491,7 @@ pub(super) fn gen_dto_method_fns(
         }
 
         let is_static = method.receiver.is_none();
+        let fallible_inputs = super::inputs::has_inputs(inputs, &method.params);
         let method_js = to_node_name(&method.name);
         let js_name_upper = {
             let mut s = method_js.clone();
@@ -494,7 +511,9 @@ pub(super) fn gen_dto_method_fns(
         if !is_static {
             param_parts.push(format!("cfg: {binding_type}"));
         }
-        let method_params = function_params(&method.params, &|ty| mapper.map_type(ty));
+        let method_params = function_params(&method.params, &|ty| {
+            mapper.map_type(&super::inputs::binding_type(inputs, ty))
+        });
         if !method_params.is_empty() {
             param_parts.push(method_params);
         }
@@ -516,20 +535,35 @@ pub(super) fn gen_dto_method_fns(
                     &method.params,
                 ),
                 if has_promoted_required {
-                    generators::gen_named_let_bindings_no_promote(&method.params, opaque_types, cfg.core_import)
+                    generators::gen_named_let_bindings_no_promote(
+                        &method.params,
+                        opaque_types,
+                        &ahash::AHashSet::new(),
+                        cfg.core_import,
+                    )
                 } else {
-                    generators::gen_named_let_bindings_pub(&method.params, opaque_types, cfg.core_import)
+                    generators::gen_named_let_bindings_pub(
+                        &method.params,
+                        opaque_types,
+                        &ahash::AHashSet::new(),
+                        cfg.core_import,
+                    )
                 },
             )
         } else {
             (napi_gen_call_args(&method.params, opaque_types), String::new())
         };
+        let call_args_str = super::inputs::call_args(call_args_str, inputs, &method.params);
         dto_let_bindings.push_str(&napi_newtype_param_bindings(&method.params));
 
         let body = if is_static {
             let core_call = if method.name == "from" && method.params.len() == 1 {
                 let param = &method.params[0];
-                let param_expr = napi_gen_call_args(std::slice::from_ref(param), opaque_types);
+                let param_expr = super::inputs::call_args(
+                    napi_gen_call_args(std::slice::from_ref(param), opaque_types),
+                    inputs,
+                    std::slice::from_ref(param),
+                );
 
                 let core_param_type = match &param.ty {
                     crate::core::ir::TypeRef::Named(param_type_name) => api
@@ -602,6 +636,12 @@ pub(super) fn gen_dto_method_fns(
         } else {
             body
         };
+        let body = super::inputs::prepare_bindings(body, inputs, &method.params, &method.params, true);
+        let body = super::inputs::wrap_body(
+            body,
+            fallible_inputs,
+            method.error_type.is_some() || !is_static || has_promoted_required,
+        );
         let body = wrap_promoted_required_body(
             body,
             &method.params,
@@ -622,7 +662,7 @@ pub(super) fn gen_dto_method_fns(
         // DTO methods become standalone `#[napi]` free functions, so the gate lands on the same
         // kind of item `support::prepend_cfg` already gates for top-level functions. ~keep
         attrs.push_str(&method.rust_cfg_attribute());
-        let returns_result = method.error_type.is_some() || !is_static || has_promoted_required;
+        let returns_result = method.error_type.is_some() || !is_static || has_promoted_required || fallible_inputs;
         let final_return_ann = if returns_result && !return_annotation.starts_with("napi::Result") {
             format!("napi::Result<{return_annotation}>")
         } else {

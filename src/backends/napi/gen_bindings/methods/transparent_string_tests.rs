@@ -73,7 +73,7 @@ fn tagged_enum_transparent_string_fields_convert_without_wrapper_default() {
     };
     let struct_names = ahash::AHashSet::new();
 
-    let binding_to_core = gen_tagged_enum_binding_to_core(&en, "test_core", "Js", &struct_names, &[]);
+    let binding_to_core = gen_tagged_enum_binding_to_core(&en, "test_core", "Js", &struct_names, &[], None);
     assert!(
         binding_to_core.contains("test_core::SecretString::from"),
         "binding payloads must construct the wrapper:\n{binding_to_core}"
@@ -103,7 +103,7 @@ fn tagged_enum_transparent_string_fields_convert_without_wrapper_default() {
         "the Option itself must not be boxed:\n{binding_to_core}"
     );
 
-    let core_to_binding = gen_tagged_enum_core_to_binding(&en, "test_core", "Js", &struct_names, None, &[]);
+    let core_to_binding = gen_tagged_enum_core_to_binding(&en, "test_core", "Js", &struct_names, None, (&[], None));
     assert_eq!(
         core_to_binding.matches("into_inner()").count(),
         5,

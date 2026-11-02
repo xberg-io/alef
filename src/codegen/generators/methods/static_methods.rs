@@ -34,7 +34,7 @@ pub fn gen_static_method(
     let (call_args, ref_let_bindings) = if use_let_bindings {
         (
             gen_call_args_with_let_bindings_json_str(&method.params, opaque_types),
-            gen_named_let_bindings_pub(&method.params, opaque_types, core_import),
+            gen_named_let_bindings_pub(&method.params, opaque_types, &ahash::AHashSet::new(), core_import),
         )
     } else if cfg.cast_uints_to_i32 || cfg.cast_large_ints_to_f64 {
         (

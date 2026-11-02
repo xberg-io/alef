@@ -95,6 +95,7 @@ fn simple_type() -> TypeDef {
         serde_rename_all: None,
         has_serde: false,
         serde_container_default: false,
+        serde_deserialization: Default::default(),
         serde_container_conversion: Default::default(),
         super_traits: vec![],
         doc: String::new(),
@@ -915,6 +916,7 @@ fn arc_field_type(field: FieldDef) -> TypeDef {
         serde_rename_all: None,
         has_serde: false,
         serde_container_default: false,
+        serde_deserialization: Default::default(),
         serde_container_conversion: Default::default(),
         super_traits: vec![],
         doc: String::new(),
@@ -1558,4 +1560,114 @@ fn transparent_string_enum_payloads_use_the_same_explicit_conversions() {
     let from_core = gen_enum_from_core_to_binding_cfg(&enum_def, "my_crate", &flattened_config);
     assert!(from_core.contains("serde_json::to_string"), "{from_core}");
     assert!(from_core.contains("(value).into_inner()"), "{from_core}");
+}
+
+/// With `json_as_value` (NAPI) the binding keeps `serde_json::Value`, so a
+/// `Vec<Map<String, Json>>` field only changes its map container; the stringify/reparse
+/// round trip used by string-typed backends would not type-check.
+#[test]
+fn json_as_value_vec_of_json_maps_converts_containers_only() {
+    let ty = TypeRef::Vec(Box::new(TypeRef::Map(
+        Box::new(TypeRef::String),
+        Box::new(TypeRef::Json),
+    )));
+    let config = ConversionConfig {
+        json_as_value: true,
+        ..Default::default()
+    };
+
+    let to_core = field_conversion_to_core_cfg("fallbacks", &ty, false, &config);
+    assert_eq!(
+        to_core,
+        "fallbacks: val.fallbacks.into_iter().map(|m| m.into_iter().collect()).collect()"
+    );
+
+    let from_core = field_conversion_from_core_cfg("fallbacks", &ty, false, false, &AHashSet::new(), &config);
+    assert_eq!(
+        from_core,
+        "fallbacks: val.fallbacks.into_iter().map(|m| m.into_iter().collect()).collect()"
+    );
+
+    let stringly = ConversionConfig::default();
+    assert!(
+        field_conversion_to_core_cfg("fallbacks", &ty, false, &stringly).contains("serde_json::from_str"),
+        "string-typed backends keep the reparse"
+    );
+}
+
+/// WASM declares a `Vec<Map<..>>` field as `JsValue` (like a nested `Vec`), so both directions go
+/// through `serde_wasm_bindgen` instead of iterating the `JsValue`.
+#[test]
+fn map_uses_jsvalue_vec_of_maps_converts_through_serde_wasm_bindgen() {
+    let ty = TypeRef::Vec(Box::new(TypeRef::Map(
+        Box::new(TypeRef::String),
+        Box::new(TypeRef::Json),
+    )));
+    let config = ConversionConfig {
+        map_uses_jsvalue: true,
+        ..Default::default()
+    };
+
+    let to_core = field_conversion_to_core_cfg("fallbacks", &ty, false, &config);
+    assert_eq!(
+        to_core,
+        "fallbacks: serde_wasm_bindgen::from_value(val.fallbacks.clone()).unwrap_or_default()"
+    );
+
+    let from_core = field_conversion_from_core_cfg("fallbacks", &ty, false, false, &AHashSet::new(), &config);
+    assert_eq!(
+        from_core,
+        "fallbacks: serde_wasm_bindgen::to_value(&val.fallbacks).unwrap_or(JsValue::NULL)"
+    );
+}
+
+/// `Vec<bool>` is declared as `JsValue` for WASM (wasm-bindgen has no `bool` vector ABI), so it
+/// converts through `serde_wasm_bindgen` like a nested `Vec`.
+#[test]
+fn map_uses_jsvalue_vec_of_bool_converts_through_serde_wasm_bindgen() {
+    let ty = TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::Bool)));
+    let config = ConversionConfig {
+        map_uses_jsvalue: true,
+        ..Default::default()
+    };
+
+    let to_core = field_conversion_to_core_cfg("allowed", &ty, false, &config);
+    assert_eq!(
+        to_core,
+        "allowed: serde_wasm_bindgen::from_value(val.allowed.clone()).unwrap_or_default()"
+    );
+
+    let from_core = field_conversion_from_core_cfg("allowed", &ty, false, false, &AHashSet::new(), &config);
+    assert_eq!(
+        from_core,
+        "allowed: serde_wasm_bindgen::to_value(&val.allowed).unwrap_or(JsValue::NULL)"
+    );
+}
+
+/// With `json_as_value` (NAPI), an `Option<Vec<Map<String, Json>>>` field takes the same
+/// container-only conversion as the bare `Vec`, mapped over the outer Option; otherwise the
+/// field bypasses the override and falls back to re-parsing values that are already
+/// `serde_json::Value`, which does not compile.
+#[test]
+fn json_as_value_optional_vec_of_json_maps_converts_containers_only() {
+    let ty = TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Map(
+        Box::new(TypeRef::String),
+        Box::new(TypeRef::Json),
+    )))));
+    let config = ConversionConfig {
+        json_as_value: true,
+        ..Default::default()
+    };
+
+    let to_core = field_conversion_to_core_cfg("fallbacks", &ty, false, &config);
+    assert_eq!(
+        to_core,
+        "fallbacks: val.fallbacks.map(|items| items.into_iter().map(|m| m.into_iter().collect()).collect())"
+    );
+
+    let from_core = field_conversion_from_core_cfg("fallbacks", &ty, false, false, &AHashSet::new(), &config);
+    assert_eq!(
+        from_core,
+        "fallbacks: val.fallbacks.map(|items| items.into_iter().map(|m| m.into_iter().collect()).collect())"
+    );
 }

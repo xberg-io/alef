@@ -21,8 +21,16 @@ public struct KeywordConfig: Codable, Sendable, Hashable {
     }
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.maxKeywords = try container.decodeIfPresent(UInt.self, forKey: .maxKeywords) ?? 0
-        self.ngramRange = try container.decodeIfPresent([UInt].self, forKey: .ngramRange) ?? []
+        if container.contains(.maxKeywords) {
+            self.maxKeywords = try container.decode(UInt.self, forKey: .maxKeywords)
+        } else {
+            self.maxKeywords = 0
+        }
+        if container.contains(.ngramRange) {
+            self.ngramRange = try container.decode([UInt].self, forKey: .ngramRange)
+        } else {
+            self.ngramRange = []
+        }
     }
 }
 

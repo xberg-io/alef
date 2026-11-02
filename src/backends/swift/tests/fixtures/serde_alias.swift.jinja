@@ -1,0 +1,41 @@
+import Foundation
+
+{{ declarations }}
+
+func check<T: Codable>(_ type: T.Type, _ row: [String: Any]) -> [String: Any] {
+    let name = row["name"] as! String
+    let expectedSuccess = row["accept"] as! Bool
+    let bytes = try! JSONSerialization.data(withJSONObject: row["payload"]!, options: [.sortedKeys])
+    do {
+        let value = try JSONDecoder().decode(type, from: bytes)
+        guard expectedSuccess else {
+            return ["case": name, "passed": false, "decoded": true, "error": "unexpected successful decode"]
+        }
+        let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(value))
+        let actual = try JSONSerialization.data(withJSONObject: encoded, options: [.sortedKeys])
+        let expected = try JSONSerialization.data(withJSONObject: row["canonical"]!, options: [.sortedKeys])
+        return ["case": name, "passed": expectedSuccess && actual == expected, "decoded": true, "canonical": encoded]
+    } catch {
+        return ["case": name, "passed": !expectedSuccess, "decoded": false, "error": String(describing: error)]
+    }
+}
+
+let input = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))
+let cases = try JSONSerialization.jsonObject(with: input) as! [[String: Any]]
+precondition(cases.count == 46)
+var rows = [[String: Any]]()
+for row in cases {
+    switch row["dto"] as! String {
+    case "ReaderOptions": rows.append(check(ReaderOptions.self, row))
+    case "VisionOptions": rows.append(check(VisionOptions.self, row))
+    case "LayoutOptions": rows.append(check(LayoutOptions.self, row))
+    case "DecoderOptions": rows.append(check(DecoderOptions.self, row))
+    case "RequiredOptions": rows.append(check(RequiredOptions.self, row))
+    case "PermissiveOptions": rows.append(check(PermissiveOptions.self, row))
+    default: fatalError("unrecognized fixture DTO")
+    }
+}
+let failures = rows.filter { !($0["passed"] as! Bool) }.count
+let results: [String: Any] = ["collected": rows.count, "passed": rows.count - failures, "failed": failures, "cases": rows]
+print(String(data: try JSONSerialization.data(withJSONObject: results, options: [.sortedKeys]), encoding: .utf8)!)
+exit(failures == 0 ? 0 : 1)

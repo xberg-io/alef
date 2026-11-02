@@ -2,10 +2,8 @@
 //! when the source type has `has_default = true` (i.e. `#[derive(Default)]` or
 //! `impl Default` on the Rust side).
 //!
-//! The custom decoder uses `decodeIfPresent + ?? <fallback>` so JSON inputs that
-//! omit fields marked `#[serde(default)]` or `#[serde(skip_serializing_if = "...")]`
-//! on the Rust side decode successfully (the auto-synthesised Codable init would
-//! otherwise throw `keyNotFound`).
+//! The custom decoder selects proven defaults for absent keys. Present nonoptional
+//! values use required decoding, so explicit null cannot silently select a default.
 
 use alef::backends::swift::SwiftBackend;
 use alef::core::backend::Backend;
@@ -61,6 +59,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         serde_rename_all: None,
         has_serde: false,
         serde_container_default: false,
+        serde_deserialization: Default::default(),
         serde_container_conversion: Default::default(),
         super_traits: vec![],
         binding_excluded: false,
@@ -133,8 +132,10 @@ fn struct_with_serde_default_bool_field_emits_custom_decoder_with_false_fallback
         "expected custom Codable decoder when has_default is true:\n{content}"
     );
     assert!(
-        content.contains("try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false"),
-        "expected `?? false` fallback for BoolLiteral(false) typed default:\n{content}"
+        content.contains("if container.contains(.enabled)")
+            && content.contains("try container.decode(Bool.self, forKey: .enabled)")
+            && content.contains("self.enabled = false"),
+        "expected missing-key false fallback for BoolLiteral(false) typed default:\n{content}"
     );
     assert!(
         content.contains("private enum CodingKeys: String, CodingKey"),
@@ -160,8 +161,10 @@ fn struct_with_serde_default_bool_field_emits_custom_decoder_with_true_fallback(
         "expected custom Codable decoder when has_default is true:\n{content}"
     );
     assert!(
-        content.contains("try container.decodeIfPresent(Bool.self, forKey: .structure) ?? true"),
-        "expected `?? true` fallback for BoolLiteral(true) typed default:\n{content}"
+        content.contains("if container.contains(.structure)")
+            && content.contains("try container.decode(Bool.self, forKey: .structure)")
+            && content.contains("self.structure = true"),
+        "expected missing-key true fallback for BoolLiteral(true) typed default:\n{content}"
     );
 }
 
@@ -183,8 +186,10 @@ fn struct_with_vec_field_and_default_impl_defaults_to_empty_array() {
         "expected custom Codable decoder when has_default is true:\n{content}"
     );
     assert!(
-        content.contains("try container.decodeIfPresent([String].self, forKey: .items) ?? []"),
-        "expected `?? []` fallback for Vec<String> with Empty typed default:\n{content}"
+        content.contains("if container.contains(.items)")
+            && content.contains("try container.decode([String].self, forKey: .items)")
+            && content.contains("self.items = []"),
+        "expected missing-key empty-array fallback for Vec<String> with Empty typed default:\n{content}"
     );
 }
 
@@ -249,7 +254,9 @@ fn struct_with_string_literal_default_uses_quoted_swift_literal() {
     let content = &files[0].content;
 
     assert!(
-        content.contains("try container.decodeIfPresent(String.self, forKey: .language) ?? \"python\""),
+        content.contains("if container.contains(.language)")
+            && content.contains("try container.decode(String.self, forKey: .language)")
+            && content.contains("self.language = \"python\""),
         "expected quoted Swift string literal fallback:\n{content}"
     );
 }

@@ -1,0 +1,5 @@
+{% if optional %}
+        if let Some(value) = {{ param }} { __target.{{ name }} = Some(value); }
+{% else %}
+        __target.{{ name }} = {{ param }};
+{% endif %}

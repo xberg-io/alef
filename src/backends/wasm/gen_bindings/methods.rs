@@ -278,7 +278,12 @@ pub(super) fn gen_method_with_type_paths(
         let body = if can_delegate {
             let has_named = crate::codegen::generators::has_named_params(&method.params, opaque_types);
             let let_bindings = if has_named {
-                crate::codegen::generators::gen_named_let_bindings_no_promote(&method.params, opaque_types, core_import)
+                crate::codegen::generators::gen_named_let_bindings_no_promote(
+                    &method.params,
+                    opaque_types,
+                    &ahash::AHashSet::new(),
+                    core_import,
+                )
             } else {
                 String::new()
             };
@@ -479,7 +484,12 @@ pub(super) fn gen_method_with_type_paths(
         let body = if can_delegate {
             let has_named = crate::codegen::generators::has_named_params(&method.params, opaque_types);
             let mut let_bindings = if has_named {
-                crate::codegen::generators::gen_named_let_bindings_no_promote(&method.params, opaque_types, core_import)
+                crate::codegen::generators::gen_named_let_bindings_no_promote(
+                    &method.params,
+                    opaque_types,
+                    &ahash::AHashSet::new(),
+                    core_import,
+                )
             } else {
                 String::new()
             };

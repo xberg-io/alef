@@ -142,60 +142,71 @@ impl FailureReporter {
 
         let snippet_count = self.totals.get(&language).copied().unwrap_or(tally.completed);
         self.span.in_scope(|| {
-            if failed && tally.failed == 1 {
-                tracing::warn!(
-                    language = %language,
-                    path = %result.snippet.source_origin.path.display(),
-                    line = result.snippet.source_origin.line,
-                    snippet_count = snippet_count,
-                    error = %failure_preview(result.message.as_deref()),
-                    "First snippet validation failure for this language"
-                );
-            } else if unavailable && tally.unavailable == 1 {
-                tracing::warn!(
-                    language = %language,
-                    path = %result.snippet.source_origin.path.display(),
-                    line = result.snippet.source_origin.line,
-                    snippet_count = snippet_count,
-                    unresolved_dependency = result.unresolved_dependency,
-                    error = %failure_preview(result.message.as_deref()),
-                    "First snippet validation unavailability for this language"
-                );
-            } else if failed && tally.failed % FAILURE_PROGRESS_STRIDE == 0 {
-                tracing::warn!(
-                    language = %language,
-                    failed = tally.failed,
-                    completed = tally.completed,
-                    snippet_count = snippet_count,
-                    "Snippet validation failures accumulating"
-                );
-            }
-            if tally.completed < snippet_count {
-                return;
-            }
-            if tally.failed > 0 {
-                tracing::warn!(
-                    language = %language,
-                    failed = tally.failed,
-                    unavailable = tally.unavailable,
-                    snippet_count = snippet_count,
-                    "Finished snippet validation for this language with failures"
-                );
-            } else if tally.unavailable > 0 {
-                tracing::warn!(
-                    language = %language,
-                    unavailable = tally.unavailable,
-                    snippet_count = snippet_count,
-                    "Finished snippet validation for this language with every result unvalidated"
-                );
-            } else {
-                tracing::debug!(
-                    language = %language,
-                    snippet_count = snippet_count,
-                    "Finished snippet validation for this language"
-                );
-            }
+            Self::report_progress(result, tally, snippet_count);
+            Self::report_completion(language, tally, snippet_count);
         });
+    }
+
+    fn report_progress(result: &ValidationResult, tally: LanguageTally, snippet_count: usize) {
+        let language = result.snippet.language;
+        let failed = matches!(result.status, SnippetStatus::Fail | SnippetStatus::Error);
+        let unavailable = matches!(result.status, SnippetStatus::Unavailable);
+        if failed && tally.failed == 1 {
+            tracing::warn!(
+                language = %language,
+                path = %result.snippet.source_origin.path.display(),
+                line = result.snippet.source_origin.line,
+                snippet_count = snippet_count,
+                error = %failure_preview(result.message.as_deref()),
+                "First snippet validation failure for this language"
+            );
+        } else if unavailable && tally.unavailable == 1 {
+            tracing::warn!(
+                language = %language,
+                path = %result.snippet.source_origin.path.display(),
+                line = result.snippet.source_origin.line,
+                snippet_count = snippet_count,
+                unresolved_dependency = result.unresolved_dependency,
+                error = %failure_preview(result.message.as_deref()),
+                "First snippet validation unavailability for this language"
+            );
+        } else if failed && tally.failed.is_multiple_of(FAILURE_PROGRESS_STRIDE) {
+            tracing::warn!(
+                language = %language,
+                failed = tally.failed,
+                completed = tally.completed,
+                snippet_count = snippet_count,
+                "Snippet validation failures accumulating"
+            );
+        }
+    }
+
+    fn report_completion(language: crate::snippets::types::Language, tally: LanguageTally, snippet_count: usize) {
+        if tally.completed < snippet_count {
+            return;
+        }
+        if tally.failed > 0 {
+            tracing::warn!(
+                language = %language,
+                failed = tally.failed,
+                unavailable = tally.unavailable,
+                snippet_count = snippet_count,
+                "Finished snippet validation for this language with failures"
+            );
+        } else if tally.unavailable > 0 {
+            tracing::warn!(
+                language = %language,
+                unavailable = tally.unavailable,
+                snippet_count = snippet_count,
+                "Finished snippet validation for this language with every result unvalidated"
+            );
+        } else {
+            tracing::debug!(
+                language = %language,
+                snippet_count = snippet_count,
+                "Finished snippet validation for this language"
+            );
+        }
     }
 }
 

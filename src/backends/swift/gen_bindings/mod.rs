@@ -313,6 +313,7 @@ impl Backend for SwiftBackend {
             .collect();
 
         let known_dto_names = dto::compute_first_class_dto_names(api, &exclude_types);
+        let wire_key_type = dto::decoder_key_name(api, &exclude_types, &module_name);
         let zero_arg_constructible_names =
             zero_arg_default::compute_zero_arg_constructible_names(api, &known_dto_names);
         // Emitted once, before any DTO that might reference it, and only for crates that
@@ -350,6 +351,7 @@ impl Backend for SwiftBackend {
                     &dto_error_name,
                     &configured_features,
                     &text_variants,
+                    &wire_key_type,
                     &mut body,
                 )?;
             } else {

@@ -33,6 +33,7 @@ pub fn gen_trait_bridge(
     error_constructor: &str,
     api: &ApiSurface,
 ) -> anyhow::Result<BridgeOutput> {
+    validate_input_returns(trait_type, api, core_import)?;
     let type_paths: HashMap<String, String> = api
         .types
         .iter()
@@ -200,4 +201,36 @@ pub fn gen_trait_bridge(
 
         Ok(BridgeOutput { imports, code })
     }
+}
+
+fn validate_input_returns(trait_type: &TypeDef, api: &ApiSurface, core_import: &str) -> anyhow::Result<()> {
+    let inputs = crate::backends::napi::gen_bindings::containers::ContainerContext::new(api, core_import);
+    let forwarded = crate::codegen::generators::trait_bridge::forwardable_defaulted_method_names(trait_type, api);
+    for method in &trait_type.methods {
+        if method.error_type.is_some()
+            || method.trait_source.is_some()
+            || (method.has_default_impl && !forwarded.contains(&method.name))
+        {
+            continue;
+        }
+        let crate::core::ir::TypeRef::Named(name) = &method.return_type else {
+            continue;
+        };
+        if !inputs.is_fallible(&method.return_type) {
+            continue;
+        }
+        let has_default = api.types.iter().any(|typ| typ.name == *name && typ.has_default)
+            || api
+                .enums
+                .iter()
+                .any(|definition| definition.name == *name && definition.has_default);
+        anyhow::ensure!(
+            has_default,
+            "NAPI callback {}.{} returns {} whose input conversion can fail, but the infallible callback has no error channel or Default fallback; return Result or provide a Default return type",
+            trait_type.name,
+            method.name,
+            name
+        );
+    }
+    Ok(())
 }

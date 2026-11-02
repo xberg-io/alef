@@ -1,6 +1,7 @@
 use super::visitor_bridge::{
     UnsupportedArg, build_napi_args, f32_bridge_cast_expr, f32_bridge_target, is_napi_decodable,
 };
+use crate::backends::napi::gen_bindings::inputs::fallible_callback_return as fallible_return;
 use crate::codegen::generators::trait_bridge::{
     TraitBridgeGenerator, TraitBridgeSpec, format_type_ref, host_function_path, is_native_marshalled_struct,
     to_camel_case,
@@ -283,10 +284,13 @@ impl NapiBridgeGenerator {
                 cast_expr: f32_bridge_cast_expr(ty, "__decoded"),
             };
         }
+        let inputs =
+            crate::backends::napi::gen_bindings::containers::ContainerContext::new(&self.api, &self.core_import);
         match ty {
             TypeRef::Named(n) if self.is_native_return_type(n) => ReturnDecode::Named {
                 reply_ty: self.js_dto_type(n),
                 core_path: self.type_paths.get(n).cloned().unwrap_or_else(|| n.clone()),
+                fallible: inputs.is_fallible(&TypeRef::Named(n.clone())),
             },
             TypeRef::Optional(inner) => {
                 if let TypeRef::Named(n) = inner.as_ref()
@@ -295,6 +299,7 @@ impl NapiBridgeGenerator {
                     return ReturnDecode::Optional {
                         reply_ty: format!("Option<{}>", self.js_dto_type(n)),
                         core_path: self.type_paths.get(n).cloned().unwrap_or_else(|| n.clone()),
+                        fallible: inputs.is_fallible(&TypeRef::Named(n.clone())),
                     };
                 }
                 ReturnDecode::Json {
@@ -308,6 +313,7 @@ impl NapiBridgeGenerator {
                     return ReturnDecode::VecNamed {
                         reply_ty: format!("Vec<{}>", self.js_dto_type(n)),
                         core_path: self.type_paths.get(n).cloned().unwrap_or_else(|| n.clone()),
+                        fallible: inputs.is_fallible(&TypeRef::Named(n.clone())),
                     };
                 }
                 ReturnDecode::Json {
@@ -350,31 +356,27 @@ impl NapiBridgeGenerator {
 
 enum ReturnDecode {
     /// Already napi-native (String/bool/numeric/Vec of those) — no conversion beyond the decode.
-    Native {
-        reply_ty: String,
-    },
+    Native { reply_ty: String },
     /// `f32`-only leaf: decode via the `f64` analog, then element-wise `as f32`.
-    F32 {
-        reply_ty: String,
-        cast_expr: String,
-    },
+    F32 { reply_ty: String, cast_expr: String },
     /// A single native-marshalled-struct return: decode the `Js{T}` DTO, then `core::T::from`.
     Named {
         reply_ty: String,
         core_path: String,
+        fallible: bool,
     },
     Optional {
         reply_ty: String,
         core_path: String,
+        fallible: bool,
     },
     VecNamed {
         reply_ty: String,
         core_path: String,
+        fallible: bool,
     },
     /// Fallback: decode as `serde_json::Value`, then `serde_json::from_value::<T>`.
-    Json {
-        target_ty: String,
-    },
+    Json { target_ty: String },
 }
 
 impl ReturnDecode {
@@ -393,6 +395,24 @@ impl ReturnDecode {
         match self {
             Self::Native { .. } => "let __result = __decoded;".to_string(),
             Self::F32 { cast_expr, .. } => format!("let __result = {cast_expr};"),
+            Self::Named {
+                core_path,
+                fallible: true,
+                ..
+            } => fallible_return(&format!("{core_path}::try_from(__decoded)"), fail_stmt),
+            Self::Optional {
+                core_path,
+                fallible: true,
+                ..
+            } => fallible_return(&format!("__decoded.map({core_path}::try_from).transpose()"), fail_stmt),
+            Self::VecNamed {
+                core_path,
+                fallible: true,
+                ..
+            } => fallible_return(
+                &format!("__decoded.into_iter().map({core_path}::try_from).collect::<std::result::Result<_, _>>()"),
+                fail_stmt,
+            ),
             Self::Named { core_path, .. } => format!("let __result = {core_path}::from(__decoded);"),
             Self::Optional { core_path, .. } => {
                 format!("let __result = __decoded.map({core_path}::from);")
@@ -559,13 +579,27 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             );
             let settled = unwrap("__reply.settle().await", &error_settle, "host callback rejected");
             let tail = if has_error { "Ok(())" } else { "()" };
+            let inputs =
+                crate::backends::napi::gen_bindings::containers::ContainerContext::new(&self.api, &self.core_import);
+            let assignment = if inputs.is_fallible(&mut_param.ty) {
+                let failure = if has_error {
+                    format!("return Err({error_parse});")
+                } else {
+                    "tracing::warn!(error = %e, \"host returned an unparseable value; leaving the original value unchanged\"); return ();".to_string()
+                };
+                format!(
+                    "*{} = match {core_path}::try_from(__js_result) {{ Ok(value) => value, Err(e) => {{ {failure} }} }};",
+                    mut_param.name
+                )
+            } else {
+                format!("*{} = {core_path}::from(__js_result);", mut_param.name)
+            };
             return format!(
                 "{call_prelude}\n\
                  let __reply: AlefJsReply<Option<{js_dto}>> = {reply};\n\
                  let __maybe: Option<{js_dto}> = {settled};\n\
-                 if let Some(__js_result) = __maybe {{\n    *{mut_name} = {core_path}::from(__js_result);\n}}\n\
+                 if let Some(__js_result) = __maybe {{\n    {assignment}\n}}\n\
                  {tail}",
-                mut_name = mut_param.name,
             );
         }
 

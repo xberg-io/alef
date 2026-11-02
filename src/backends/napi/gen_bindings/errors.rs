@@ -34,6 +34,7 @@ pub(super) fn gen_dts(
     core_import: &str,
     configured_features: Option<&std::collections::HashSet<&str>>,
 ) -> String {
+    let containers = super::containers::ContainerContext::new(api, core_import);
     let mut wire_types = super::wire_types::WireTypes::new(api);
     // ~keep A second instance, camel-cased, for the ONE shape whose runtime this backend re-cases
     // (`is_fully_flattened_internal_enum`). Untagged passthrough enums keep serde's own spelling
@@ -241,11 +242,17 @@ pub(super) fn gen_dts(
                 lines.push("}".to_string());
             }
             Decl::Interface(typ) => {
+                let binding_type = containers.binding_type(typ);
+                let typ = &binding_type;
                 lines.extend(format_jsdoc(&typ.doc, ""));
                 lines.push(format!("export interface {} {{", node_type_name(&typ.name)));
                 for field in binding_fields(&typ.fields) {
                     let js_name = to_node_name(&field.name);
-                    let ts_ty = dts_type(&field.ty);
+                    // ~keep Native property absence unwraps one option; options inside containers stay nullable.
+                    let ts_ty = dts_type(match &field.ty {
+                        TypeRef::Optional(inner) => inner,
+                        other => other,
+                    });
                     lines.extend(format_jsdoc(&field.doc, "  "));
                     let is_optional = super::types::napi_field_is_optional(field, typ);
                     if is_optional {
@@ -387,6 +394,19 @@ pub(super) fn gen_dts(
                     // passing the value through as opaque `serde_json::Value`
                     // (`gen_untagged_data_enum_as_value_wrapper`), so the `.d.ts` union is the only
                     // place the real per-variant shapes can be expressed. (~keep)
+                    lines.push(format!("export type {ts_name} ="));
+                    lines.extend(
+                        wire_types
+                            .enum_members(e)
+                            .into_iter()
+                            .map(|member| format!("  | {member}")),
+                    );
+                } else if enums::is_adjacent_content_collision_enum(e) {
+                    // Routed through JSON passthrough like the untagged case, so the members must
+                    // be declared in serde's own wire casing (snake_case payload keys, serde
+                    // tag/content names) -- the same `WireTypes::Serde` instance the untagged
+                    // branch uses. `wire_types_camel` would only match the fully-flattened
+                    // internally-tagged shape, whose runtime re-cases payload keys.
                     lines.push(format!("export type {ts_name} ="));
                     lines.extend(
                         wire_types

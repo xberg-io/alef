@@ -1,11 +1,8 @@
 use crate::core::ir::{ParamDef, PrimitiveType, TypeRef};
 
 /// Maps an IR `TypeRef` to the FRB-friendly Rust type string.
-/// FRB's primitive ABI: all integers → `i64`, floats → `f64`, strings → `String`.
-///
-/// NOTE: u64 values above i64::MAX silently wrap to negative on the Dart side
-/// because Dart's native `int` is 64-bit signed. Producers of u64-bearing APIs
-/// who need the full range should pre-truncate or document the contract.
+/// FRB keeps `u64` lossless as Dart BigInt; other integers widen to `i64`.
+/// Floats widen to `f64` and strings use `String`.
 pub(crate) fn frb_rust_type(ty: &TypeRef, optional: bool) -> String {
     let effective_ty = unwrap_nested_optional(ty, optional);
     let inner = frb_rust_type_inner(effective_ty);
@@ -53,6 +50,7 @@ pub(crate) fn frb_rust_type_inner_excluded_aware(
     match ty {
         TypeRef::Primitive(p) => match p {
             PrimitiveType::Bool => "bool".to_string(),
+            PrimitiveType::U64 => "u64".to_string(),
             PrimitiveType::F32 | PrimitiveType::F64 => "f64".to_string(),
             _ => "i64".to_string(),
         },

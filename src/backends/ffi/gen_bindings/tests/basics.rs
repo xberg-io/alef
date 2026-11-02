@@ -336,6 +336,7 @@ fn test_cbindgen_toml_honors_ffi_exclude_types() {
         serde_rename_all: None,
         has_serde: true,
         serde_container_default: false,
+        serde_deserialization: Default::default(),
         serde_container_conversion: Default::default(),
         super_traits: vec![],
         doc: "Rust-only helper options.".to_string(),

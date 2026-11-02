@@ -15,7 +15,7 @@ use conversion_bindings::{gen_napi_buffer_conversion_bindings, gen_vec_f32_conve
 pub(super) use return_wrapping::{napi_wrap_return, napi_wrap_return_fn};
 
 use crate::codegen::generators::binding_helpers::apply_return_newtype_unwrap;
-use crate::codegen::generators::{self, RustBindingConfig};
+use crate::codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use crate::codegen::naming::to_node_name;
 use crate::codegen::shared::{self, function_params};
 use crate::codegen::type_mapper::TypeMapper;
@@ -23,6 +23,10 @@ use crate::core::ir::{FunctionDef, TypeRef};
 use ahash::AHashSet;
 
 use crate::backends::napi::type_map::NapiMapper;
+
+pub(super) fn async_unit_returns_result(is_async: bool, return_type: &str, cfg: &RustBindingConfig) -> bool {
+    is_async && return_type == "()" && cfg.async_pattern == AsyncPattern::NapiNativeAsync
+}
 
 pub(super) fn promoted_required(params: &[crate::core::ir::ParamDef]) -> Vec<&crate::core::ir::ParamDef> {
     params
@@ -74,6 +78,7 @@ pub(super) fn gen_function(
     prefix: &str,
     capsule_types: &std::collections::HashMap<String, crate::core::config::NodeCapsuleTypeConfig>,
     mutex_types: &AHashSet<String>,
+    inputs: Option<&super::containers::ContainerContext>,
 ) -> String {
     let augmented_params: Vec<crate::core::ir::ParamDef> = func
         .params
@@ -91,6 +96,7 @@ pub(super) fn gen_function(
         })
         .collect();
     let promoted_required = promoted_required(&augmented_params);
+    let fallible_inputs = super::inputs::has_inputs(inputs, &func.params);
     let params = function_params(&augmented_params, &|ty| {
         if let TypeRef::Named(n) = ty {
             if capsule_types.contains_key(n.as_str())
@@ -102,7 +108,7 @@ pub(super) fn gen_function(
                 return format!("&{prefix}{n}");
             }
         }
-        mapper.map_type(ty)
+        mapper.map_type(&super::inputs::binding_type(inputs, ty))
     });
     let default_coerce_prefix: String = augmented_params
         .iter()
@@ -141,8 +147,11 @@ pub(super) fn gen_function(
         Some(p) => mapper.map_type(&p.ty),
         None => mapper.map_type(&func.return_type),
     };
-    let return_annotation =
-        mapper.wrap_return(&return_type, func.error_type.is_some() || !promoted_required.is_empty());
+    let async_unit_result = async_unit_returns_result(func.is_async, &return_type, cfg);
+    let return_annotation = mapper.wrap_return(
+        &return_type,
+        func.error_type.is_some() || !promoted_required.is_empty() || fallible_inputs || async_unit_result,
+    );
 
     let js_name = to_node_name(&func.name);
     let js_name_attr = if js_name != func.name {
@@ -174,6 +183,8 @@ pub(super) fn gen_function(
     } else {
         napi_gen_call_args(&func.params, opaque_types)
     };
+
+    let call_args = super::inputs::call_args(call_args, inputs, &func.params);
 
     let can_delegate_fn = generators::can_auto_delegate_function_with_named_let_bindings(func, opaque_types);
 
@@ -234,10 +245,11 @@ pub(super) fn gen_function(
                     &augmented_params,
                     &func.params,
                     opaque_types,
+                    &AHashSet::new(),
                     core_import,
                 )
             } else {
-                generators::gen_named_let_bindings_no_promote(&func.params, opaque_types, core_import)
+                generators::gen_named_let_bindings_no_promote(&func.params, opaque_types, &AHashSet::new(), core_import)
             }
         } else {
             String::new()
@@ -286,10 +298,11 @@ pub(super) fn gen_function(
                     &augmented_params,
                     &func.params,
                     opaque_types,
+                    &AHashSet::new(),
                     core_import,
                 )
             } else {
-                generators::gen_named_let_bindings_no_promote(&func.params, opaque_types, core_import)
+                generators::gen_named_let_bindings_no_promote(&func.params, opaque_types, &AHashSet::new(), core_import)
             }
         } else {
             String::new()
@@ -349,11 +362,23 @@ pub(super) fn gen_function(
     if func.error_type.is_some() {
         attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
     }
+    let body = super::inputs::prepare_bindings(
+        body,
+        inputs,
+        &func.params,
+        &augmented_params,
+        !promoted_required.is_empty(),
+    );
     let body = if default_coerce_prefix.is_empty() {
         body
     } else {
         format!("{}{}", default_coerce_prefix, body)
     };
+    let body = super::inputs::wrap_body(
+        body,
+        fallible_inputs,
+        func.error_type.is_some() || !promoted_required.is_empty() || async_unit_result,
+    );
     let body = wrap_promoted_required_body(
         body,
         &augmented_params,
@@ -438,6 +463,7 @@ mod tests {
             "Js",
             &capsule_types,
             &mutex_types,
+            None,
         )
     }
 

@@ -199,6 +199,14 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/default_field_string_like.jinja"),
     ),
     (
+        "default_field_native_string_assign.jinja",
+        include_str!("../templates/default_field_native_string_assign.jinja"),
+    ),
+    (
+        "direct_field_native_string.jinja",
+        include_str!("../templates/direct_field_native_string.jinja"),
+    ),
+    (
         "default_field_string_like_non_serde_comment.jinja",
         include_str!("../templates/default_field_string_like_non_serde_comment.jinja"),
     ),

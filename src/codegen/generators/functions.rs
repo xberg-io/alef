@@ -229,9 +229,9 @@ pub fn gen_function_with_mutex(
     let core_import = cfg.core_import;
     let let_bindings = if use_let_bindings {
         if cfg.named_non_opaque_params_by_ref {
-            gen_named_let_bindings_by_ref(&func.params, opaque_types, core_import)
+            gen_named_let_bindings_by_ref(&func.params, opaque_types, &ahash::AHashSet::new(), core_import)
         } else {
-            gen_named_let_bindings(&func.params, opaque_types, core_import)
+            gen_named_let_bindings(&func.params, opaque_types, &ahash::AHashSet::new(), core_import)
         }
     } else {
         String::new()

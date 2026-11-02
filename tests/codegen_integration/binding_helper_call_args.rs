@@ -399,7 +399,8 @@ fn test_gen_named_let_bindings_no_promote_non_opaque() {
         core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
-    let result = binding_helpers::gen_named_let_bindings_no_promote(&params, &opaque_types, "my_crate");
+    let result =
+        binding_helpers::gen_named_let_bindings_no_promote(&params, &opaque_types, &ahash::AHashSet::new(), "my_crate");
     assert!(
         result.contains("let config_core: my_crate::Config = config.into();"),
         "should generate let binding for non-opaque named param"
@@ -427,7 +428,8 @@ fn test_gen_named_let_bindings_optional_without_ref() {
         core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
-    let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
+    let result =
+        binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, &ahash::AHashSet::new(), "my_crate");
     assert!(
         result.contains("let config_core: Option<my_crate::Config> = config.map(Into::into);"),
         "should generate Option let binding for optional Named param"
@@ -455,7 +457,8 @@ fn test_gen_named_let_bindings_vec_named_non_opaque() {
         core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
-    let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
+    let result =
+        binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, &ahash::AHashSet::new(), "my_crate");
     assert!(
         result.contains("let items_core: Vec<_> = items.into_iter().map(Into::into).collect();"),
         "should generate Vec let binding converting elements"
@@ -487,7 +490,8 @@ fn test_gen_named_let_bindings_vec_string_is_ref() {
         core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
-    let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
+    let result =
+        binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, &ahash::AHashSet::new(), "my_crate");
     assert!(
         result.contains("let labels_refs: Vec<&str>"),
         "should generate Vec<&str> intermediate for Vec<String> is_ref=true, vec_inner_is_ref=true"
@@ -522,7 +526,8 @@ fn test_gen_named_let_bindings_vec_string_is_ref_without_inner_ref_emits_no_inte
         core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
-    let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
+    let result =
+        binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, &ahash::AHashSet::new(), "my_crate");
     assert!(
         !result.contains("labels_refs"),
         "is_ref without vec_inner_is_ref must not emit an unused Vec<&str> intermediate, got:\n{result}"
@@ -552,7 +557,8 @@ fn test_gen_named_let_bindings_vec_string_is_ref_optional() {
         core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
-    let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
+    let result =
+        binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, &ahash::AHashSet::new(), "my_crate");
     assert!(
         result.contains("let tags_refs: Vec<&str>"),
         "should generate Vec<&str> intermediate for optional Vec<String> is_ref=true, vec_inner_is_ref=true"

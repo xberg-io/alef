@@ -18,7 +18,11 @@ public struct Chunk: Codable, Sendable, Hashable {
     }
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.text = try container.decodeIfPresent(String.self, forKey: .text) ?? ""
+        if container.contains(.text) {
+            self.text = try container.decode(String.self, forKey: .text)
+        } else {
+            self.text = ""
+        }
     }
 }
 

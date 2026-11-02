@@ -42,6 +42,9 @@ pub(super) fn emit_dart_traits(api: &ApiSurface, trait_names: &[&str]) -> (Strin
         }
     }
 
+    if imports.contains("import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';") {
+        imports.remove("import 'dart:typed_data';");
+    }
     (body, imports)
 }
 

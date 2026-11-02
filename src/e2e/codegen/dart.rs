@@ -210,6 +210,8 @@ mod snippet;
 mod stubs;
 mod test_case;
 mod test_file;
+#[cfg(test)]
+mod u64_callers_tests;
 mod values;
 mod variant_accessors;
 

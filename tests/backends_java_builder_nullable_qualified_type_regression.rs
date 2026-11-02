@@ -99,6 +99,7 @@ fn builder_nullable_qualified_type_emits_correct_annotation_position() {
             serde_rename_all: None,
             has_serde: true,
             serde_container_default: false,
+            serde_deserialization: Default::default(),
             serde_container_conversion: Default::default(),
             super_traits: vec![],
             doc: "Cache configuration with optional paths.".to_string(),

@@ -563,6 +563,7 @@ fn napi_instance_transparent_string_method_converts_both_boundaries() {
         &Default::default(),
         &Default::default(),
         &Default::default(),
+        None,
     );
 
     assert!(
@@ -595,7 +596,7 @@ fn napi_static_async_and_fallible_transparent_string_methods_convert_both_bounda
             &method,
             &mapper,
             &owner,
-            &napi_binding_config(),
+            (&napi_binding_config(), None),
             &opaque_types,
             "Js",
             &mutex_types,

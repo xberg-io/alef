@@ -1,6 +1,17 @@
 use crate::core::ir::{CoreWrapper, ParamDef, TypeRef};
 use ahash::AHashSet;
 
+fn borrowed_json_call_arg(param: &ParamDef) -> Option<String> {
+    if !matches!(&param.ty, TypeRef::Json) || !param.is_ref || param.is_mut {
+        return None;
+    }
+    Some(if param.optional {
+        format!("{}.as_ref()", param.name)
+    } else {
+        format!("&{}", param.name)
+    })
+}
+
 fn newtype_call_arg(param: &ParamDef) -> Option<String> {
     let wrapper = param.newtype_wrapper.as_deref()?;
     if param.is_ref {
@@ -78,6 +89,9 @@ pub(in crate::backends::napi::gen_bindings) fn napi_apply_primitive_casts_to_cal
             if let Some(converted) = newtype_call_arg(p) {
                 return converted;
             }
+            if let Some(borrowed) = borrowed_json_call_arg(p) {
+                return borrowed;
+            }
             if needs_vec_f32_conversion(&p.ty) && p.is_ref {
                 return format!("&{}_f32", p.name);
             }
@@ -121,6 +135,9 @@ pub(in crate::backends::napi::gen_bindings) fn napi_gen_call_args(
         .map(|p| {
             if let Some(converted) = newtype_call_arg(p) {
                 return converted;
+            }
+            if let Some(borrowed) = borrowed_json_call_arg(p) {
+                return borrowed;
             }
             if needs_vec_f32_conversion(&p.ty) && p.is_ref {
                 return format!("&{}_f32", p.name);

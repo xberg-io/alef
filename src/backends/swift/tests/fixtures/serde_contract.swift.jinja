@@ -1,0 +1,92 @@
+import Foundation
+
+{{ budget_declaration }}
+{{ options_declaration }}
+{{ permissive_declaration }}
+
+func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
+    try JSONDecoder().decode(type, from: Data(json.utf8))
+}
+
+struct Checks {
+    var rows = [[String: Any]]()
+    mutating func accepts(_ name: String, _ check: () throws -> Bool) {
+        do {
+            rows.append(["case": name, "passed": try check()])
+        } catch {
+            rows.append(["case": name, "passed": false, "error": String(describing: error)])
+        }
+    }
+    mutating func rejects(_ name: String, _ operation: () throws -> Void) {
+        do {
+            try operation()
+            rows.append(["case": name, "passed": false, "error": "unexpected successful decode"])
+        } catch {
+            rows.append(["case": name, "passed": true])
+        }
+    }
+}
+
+var checks = Checks()
+checks.accepts("explicit values preserve caller budgets") {
+    let value = try decode(Options.self, #"{"model_name":"caller","budget":{"max_tokens":7,"optional_limit":3},"retries":2}"#)
+    return value.budget.maxTokens == 7 && value.budget.optionalLimit == 3
+}
+checks.accepts("empty nested budget uses defaults") {
+    let value = try decode(Options.self, #"{"model_name":"caller","budget":{},"retries":2}"#)
+    return value.budget.maxTokens == 512 && value.budget.optionalLimit == 5
+}
+checks.accepts("omitted nested budget uses defaults") {
+    let value = try decode(Options.self, #"{"model_name":"caller","retries":2}"#)
+    return value.budget.maxTokens == 512 && value.budget.optionalLimit == 5
+}
+checks.rejects("null nonoptional nested budget rejected") {
+    _ = try decode(Options.self, #"{"model_name":"caller","budget":null,"retries":2}"#)
+}
+checks.rejects("wrong nested budget type rejected") {
+    _ = try decode(Options.self, #"{"model_name":"caller","budget":"bad","retries":2}"#)
+}
+checks.rejects("required sibling remains required") {
+    _ = try decode(Options.self, #"{"retries":2}"#)
+}
+checks.rejects("null nonoptional scalar does not select its default") {
+    _ = try decode(Budget.self, #"{"max_tokens":null}"#)
+}
+checks.accepts("null optional scalar remains None instead of Some default") {
+    try decode(Budget.self, #"{"optional_limit":null}"#).optionalLimit == nil
+}
+checks.accepts("partial budget preserves explicit scalar") {
+    let value = try decode(Budget.self, #"{"max_tokens":17}"#)
+    return value.maxTokens == 17 && value.optionalLimit == 5
+}
+checks.accepts("omitted optional scalar selects Some default") {
+    try decode(Budget.self, #"{}"#).optionalLimit == 5
+}
+checks.rejects("strict owner rejects unknown keys") {
+    _ = try decode(Options.self, #"{"model_name":"caller","retries":2,"unexpected":true}"#)
+}
+checks.rejects("strict nested budget rejects unknown keys") {
+    _ = try decode(Budget.self, #"{"unexpected":true}"#)
+}
+checks.accepts("ordinary struct still accepts unknown keys") {
+    try decode(Permissive.self, #"{"model":"caller","unexpected":true}"#).model == "caller"
+}
+checks.accepts("omitted optional cache is None") {
+    try decode(Options.self, #"{"model_name":"caller","retries":2}"#).cacheDirectory == nil
+}
+checks.accepts("explicit null optional cache is None") {
+    try decode(Options.self, #"{"model_name":"caller","retries":2,"cache_directory":null}"#).cacheDirectory == nil
+}
+checks.accepts("renamed wire keys roundtrip") {
+    let value = try decode(Options.self, #"{"model_name":"caller","retries":2}"#)
+    return try JSONDecoder().decode(Options.self, from: JSONEncoder().encode(value)) == value
+}
+let failures = checks.rows.filter { !($0["passed"] as! Bool) }.count
+let results: [String: Any] = [
+    "collected": checks.rows.count,
+    "passed": checks.rows.count - failures,
+    "failed": failures,
+    "cases": checks.rows,
+]
+print(String(data: try JSONSerialization.data(withJSONObject: results, options: [.sortedKeys]), encoding: .utf8)!)
+exit(failures == 0 ? 0 : 1)

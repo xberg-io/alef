@@ -31,6 +31,8 @@ pub(crate) mod owned_vec;
 #[cfg(test)]
 mod owned_vec_tests;
 pub(crate) mod plugin_inbound;
+#[cfg(test)]
+mod raw_string_constructor_tests;
 pub(crate) mod service_app_wrappers;
 pub(crate) mod shims;
 #[cfg(test)]

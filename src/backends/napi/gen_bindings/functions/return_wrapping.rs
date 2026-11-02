@@ -11,6 +11,15 @@ fn arc_wrap(val: &str, type_name: &str, mutex_types: &AHashSet<String>) -> Strin
     }
 }
 
+// NAPI maps JSON to Value; the shared return wrapper serializes it as String. ~keep
+fn json_value_return(expr: &str, returns_ref: bool) -> String {
+    if returns_ref {
+        format!("{expr}.clone()")
+    } else {
+        expr.to_string()
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 /// NAPI-specific return wrapping for opaque instance methods.
 /// Extends the shared `wrap_return` with i64 casts for u64/usize/isize primitives.
@@ -29,6 +38,8 @@ pub(in crate::backends::napi::gen_bindings) fn napi_wrap_return(
             format!("{expr} as i64")
         }
         TypeRef::Duration => format!("{expr}.as_millis() as i64"),
+        TypeRef::Json => json_value_return(expr, returns_ref),
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Json) => json_value_return(expr, returns_ref),
         TypeRef::Named(n) if n == type_name && self_is_opaque => {
             let already_arc = expr == "self.inner"
                 || expr == "self.inner.clone()"
@@ -167,6 +178,8 @@ pub(in crate::backends::napi::gen_bindings) fn napi_wrap_return_fn(
             format!("{expr} as i64")
         }
         TypeRef::Duration => format!("{expr}.as_millis() as i64"),
+        TypeRef::Json => json_value_return(expr, returns_ref),
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Json) => json_value_return(expr, returns_ref),
         TypeRef::Named(n) if capsule_types.is_some_and(|ct| ct.contains_key(n.as_str())) => expr.to_string(),
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
             if returns_ref {
@@ -194,7 +207,6 @@ pub(in crate::backends::napi::gen_bindings) fn napi_wrap_return_fn(
         }
         TypeRef::Bytes => format!("{expr}.into()"),
         TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
-        TypeRef::Json => format!("{expr}.to_string()"),
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::Named(name) if capsule_types.is_some_and(|ct| ct.contains_key(name.as_str())) => expr.to_string(),
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {

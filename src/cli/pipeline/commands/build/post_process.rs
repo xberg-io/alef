@@ -38,7 +38,9 @@ fn apply(
 ) -> anyhow::Result<String> {
     Ok(match processor {
         PostProcessor::FrbDartSealedVariants => {
-            crate::backends::dart::rewrite_frb_sealed_variants(content, &config.dart_pubspec_name())
+            let rewritten = crate::backends::dart::rewrite_frb_sealed_variants(content, &config.dart_pubspec_name());
+            crate::backends::dart::validate_callback_serialization(&rewritten)?;
+            rewritten
         }
         PostProcessor::FrbDartSingleVariantCopyWith => {
             let rewritten = crate::backends::dart::repair_single_variant_copy_with(content);

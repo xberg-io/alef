@@ -25,6 +25,7 @@ fn doxygen_sample_api() -> ApiSurface {
             serde_rename_all: None,
             has_serde: false,
             serde_container_default: false,
+            serde_deserialization: Default::default(),
             serde_container_conversion: Default::default(),
             super_traits: vec![],
             doc: "An opaque handle that wraps the underlying resource.".to_string(),

@@ -21,8 +21,16 @@ public struct Span: Codable, Sendable, Hashable {
     }
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.startByte = try container.decodeIfPresent(UInt.self, forKey: .startByte) ?? 0
-        self.endByte = try container.decodeIfPresent(UInt.self, forKey: .endByte) ?? 0
+        if container.contains(.startByte) {
+            self.startByte = try container.decode(UInt.self, forKey: .startByte)
+        } else {
+            self.startByte = 0
+        }
+        if container.contains(.endByte) {
+            self.endByte = try container.decode(UInt.self, forKey: .endByte)
+        } else {
+            self.endByte = 0
+        }
     }
 }
 

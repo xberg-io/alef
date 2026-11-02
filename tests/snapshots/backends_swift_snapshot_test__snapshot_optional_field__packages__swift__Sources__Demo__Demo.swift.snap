@@ -21,7 +21,11 @@ public struct SystemMessage: Codable, Sendable, Hashable {
     }
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.content = try container.decodeIfPresent(String.self, forKey: .content) ?? ""
+        if container.contains(.content) {
+            self.content = try container.decode(String.self, forKey: .content)
+        } else {
+            self.content = ""
+        }
         self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? nil
     }
 }

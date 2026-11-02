@@ -305,7 +305,8 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
     }
 
     if config.map_uses_jsvalue {
-        let is_nested_vec = matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Vec(_)));
+        // A `Vec<Map<..>>` is declared as `JsValue` like a nested `Vec`, so it cannot be iterated.
+        let is_nested_vec = matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Primitive(PrimitiveType::Bool)));
         let is_vec_json = matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Json));
         let is_map = matches!(ty, TypeRef::Map(_, _));
         if is_nested_vec || is_map || is_vec_json {
@@ -317,7 +318,7 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
             return format!("{name}: serde_wasm_bindgen::from_value(val.{name}.clone()).unwrap_or_default()");
         }
         if let TypeRef::Optional(inner) = ty {
-            let is_inner_nested = matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Vec(_)));
+            let is_inner_nested = matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Primitive(PrimitiveType::Bool)));
             let is_inner_vec_json = matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Json));
             let is_inner_map = matches!(inner.as_ref(), TypeRef::Map(_, _));
             if is_inner_nested || is_inner_map || is_inner_vec_json {
@@ -506,6 +507,32 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
                 return format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k.into(), v)).collect())");
             }
             return format!("{name}: val.{name}.into_iter().map(|(k, v)| (k.into(), v)).collect()");
+        }
+        // `Vec<Map<String, Json>>`: the binding keeps each value as `serde_json::Value`, so only
+        // the map container changes; stringifying and re-parsing would mismatch the types. ~keep
+        if let TypeRef::Vec(inner) = ty
+            && let TypeRef::Map(k, v) = inner.as_ref()
+            && matches!(k.as_ref(), TypeRef::String)
+            && matches!(v.as_ref(), TypeRef::Json)
+        {
+            let converted = "items.into_iter().map(|m| m.into_iter().collect()).collect()";
+            if optional {
+                return format!("{name}: val.{name}.map(|items| {converted})");
+            }
+            return format!("{name}: {}", converted.replacen("items", &format!("val.{name}"), 1));
+        }
+        // `Option<Vec<Map<String, Json>>>`: the same container-only conversion, mapped over the
+        // outer Option; without this the field falls through to the generic path and re-parses
+        // values that are already `serde_json::Value`.
+        if let TypeRef::Optional(outer) = ty
+            && let TypeRef::Vec(inner) = outer.as_ref()
+            && let TypeRef::Map(k, v) = inner.as_ref()
+            && matches!(k.as_ref(), TypeRef::String)
+            && matches!(v.as_ref(), TypeRef::Json)
+        {
+            return format!(
+                "{name}: val.{name}.map(|items| items.into_iter().map(|m| m.into_iter().collect()).collect())"
+            );
         }
     }
     if config.map_uses_jsvalue && matches!(ty, TypeRef::Json) {

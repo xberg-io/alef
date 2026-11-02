@@ -51,6 +51,7 @@ fn test_vec_of_mutable_refs_in_closure_preserves_mutability() {
         serde_rename_all: None,
         has_serde: false,
         serde_container_default: false,
+        serde_deserialization: Default::default(),
         serde_container_conversion: Default::default(),
         super_traits: vec![],
         doc: String::new(),

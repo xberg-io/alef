@@ -29,7 +29,7 @@ fn decode_body(name: &str, ty: TypeRef, typed_default: DefaultValue) -> String {
         ..Default::default()
     };
     let mut out = String::new();
-    emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), true, &mut out);
+    emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), true, false, &mut out);
     out
 }
 
@@ -42,8 +42,8 @@ fn a_named_serde_default_on_a_vec_defers_to_rust_instead_of_decoding_an_empty_ar
     );
 
     assert!(
-        !out.contains("?? []"),
-        "alef never evaluates default_scheme_allowlist(); `?? []` decodes an absent key into an \
+        !out.contains("self.schemeAllowlist = []"),
+        "alef never evaluates default_scheme_allowlist(); an empty default decodes an absent key into an \
          empty allow-list that permits nothing:\n{out}"
     );
     assert!(
@@ -62,14 +62,14 @@ fn a_named_serde_default_on_a_map_defers_to_rust_instead_of_decoding_an_empty_di
     );
 
     assert!(
-        !out.contains("?? [:]"),
+        !out.contains("self.headerOverrides = [:]"),
         "a resolved function-call default is still a value alef has not read:\n{out}"
     );
 }
 
 /// Discrimination control for both tests above. `Empty` genuinely IS `Default::default()`, so the
 /// empty array and empty dictionary are exact for it and must still be emitted. Without this, a
-/// change that stopped emitting `??` fallbacks for collections at all would satisfy the assertions
+/// change that stopped emitting missing-key fallbacks for collections at all would satisfy the assertions
 /// above while stripping the fallback off every ordinary `#[derive(Default)]` field. ~keep
 #[test]
 fn an_empty_default_still_decodes_to_the_swift_collection_zero() {
@@ -79,7 +79,9 @@ fn an_empty_default_still_decodes_to_the_swift_collection_zero() {
         DefaultValue::Empty,
     );
     assert!(
-        vec_out.contains("?? []"),
+        vec_out.contains("if container.contains(.schemeAllowlist)")
+            && vec_out.contains("try container.decode([String].self, forKey: .schemeAllowlist)")
+            && vec_out.contains("self.schemeAllowlist = []"),
         "`Empty` is the type's own default and keeps the empty-array fallback:\n{vec_out}"
     );
 
@@ -89,7 +91,9 @@ fn an_empty_default_still_decodes_to_the_swift_collection_zero() {
         DefaultValue::Empty,
     );
     assert!(
-        map_out.contains("?? [:]"),
+        map_out.contains("if container.contains(.headerOverrides)")
+            && map_out.contains("try container.decode([String: String].self, forKey: .headerOverrides)")
+            && map_out.contains("self.headerOverrides = [:]"),
         "`Empty` keeps the empty-dictionary fallback:\n{map_out}"
     );
 
@@ -99,7 +103,9 @@ fn an_empty_default_still_decodes_to_the_swift_collection_zero() {
         DefaultValue::Empty,
     );
     assert!(
-        scalar_out.contains("?? 0"),
+        scalar_out.contains("if container.contains(.redirectLimit)")
+            && scalar_out.contains("try container.decode(UInt32.self, forKey: .redirectLimit)")
+            && scalar_out.contains("self.redirectLimit = 0"),
         "`Empty` keeps the scalar zero fallback:\n{scalar_out}"
     );
 }
@@ -155,13 +161,20 @@ fn a_named_field_defaulting_to_type_default_uses_the_zero_arg_initializer() {
     let zero_arg_constructible_names: HashSet<String> = ["NgramRange".to_string()].into_iter().collect();
 
     let mut out = String::new();
-    emit_decoder_init(&SwiftMapper, &[&field], &zero_arg_constructible_names, true, &mut out);
+    emit_decoder_init(
+        &SwiftMapper,
+        &[&field],
+        &zero_arg_constructible_names,
+        true,
+        false,
+        &mut out,
+    );
 
     assert_eq!(
         out,
         "    public init(from decoder: any Decoder) throws {\n        \
          let container = try decoder.container(keyedBy: CodingKeys.self)\n        \
-         self.ngramRange = try container.decodeIfPresent(NgramRange.self, forKey: .ngramRange) ?? NgramRange()\n    }\n",
+         if container.contains(.ngramRange) {\n            self.ngramRange = try container.decode(NgramRange.self, forKey: .ngramRange)\n        } else {\n            self.ngramRange = NgramRange()\n        }\n    }\n",
         "an absent key must fall back to the type's own zero-arg initializer:\n{out}"
     );
 }
@@ -184,7 +197,7 @@ fn an_enum_field_defaulting_to_type_default_stays_required() {
     };
 
     let mut out = String::new();
-    emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), true, &mut out);
+    emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), true, false, &mut out);
 
     assert!(
         out.contains("self.algorithm = try container.decode(KeywordAlgorithm.self, forKey: .algorithm)"),

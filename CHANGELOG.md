@@ -7,13 +7,105 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (BREAKING)
+
+- Dart FRB bindings preserve Rust `u64` as `BigInt` and `Vec<u64>` as FRB `Uint64List`, including
+  DTOs, transparent newtypes, containers and callback carriers. This is a breaking API change
+  intended for the next major release; narrower integers and signed `i64` keep their existing types.
+  Reject out-of-range scalar and recursive DTO arguments before native entry. A value already
+  truncated by construction of a typed `Uint64List` cannot be recovered or rejected afterward.
+
+Migration details and remaining platform qualification are recorded in
+[ADR 0010](adrs/0010-represent-rust-u64-losslessly-in-the-next-major-dart-api.md).
+
 ### Changed
 
 - Refresh locked Windows system and temporary-file randomness dependency selections.
+- Split documentation formatting and snippet validation helpers, remove 13 resolved quality
+  exemptions, and retain a 60-case enum documentation byte-comparison harness that resolves
+  evidence paths from both main and worktree checkouts and verifies canonical SHA256 digest
+  encoding without direct progress writes to stdout. (#338)
+- Pin Dart 3.13.7 for reproducible native codec verification with the consumer CI SDK.
 
 ### Fixed
 
+- Detect nested native NAPI map fields and function, method and nominal-enum signatures when
+  adding the required map import. (#799)
+- Forward machine Dart and Cargo caches explicitly in native Dart verification harnesses.
+- Refresh Swift output snapshots for absent-key defaults, explicit null handling, and literal string constructors.
+
+- Verify complete native Node and WASM bindings for boolean-vector DTO constructors and nested
+  JSON map fields, including absent optional maps and structured JSON round trips. (#799)
+- Enable NAPI JSON value conversions when generated enum wrappers require them, including APIs
+  without explicit JSON fields or parameters. (#795)
+- Resolve native NAPI fixture dependencies from project-relative core sources and verify both
+  scaffolded fixture manifests reference their actual core directories.
+- Preserve owned locals while borrowing optional NAPI enum inputs, and retain core-type context
+  and serde details in catchable input errors. (#796)
+- Propagate malformed NAPI input through nested structs, enum variants, containers, constructors,
+  methods and callbacks without panicking or substituting defaults; encode enum map keys with their
+  serde names and preserve structured JSON in optional containers. (#796, #797, #798)
+- Keep JSON and async unit method boundaries consistent with free functions, and retain native
+  wrapper compilation and serde wire declaration regressions. (#801, #802, #803, #807)
+- Match NAPI async unit signatures to their fallible bodies, preserve JSON values and borrowed
+  JSON arguments, and omit unsupported null from nested optional native DTO fields. (#801, #802, #803, #807)
+- napi: avoid conflicting passthrough enum conversion traits, preserve deserialization error
+  details, and propagate malformed direct, borrowed, optional and vector enum arguments as
+  `InvalidArg`; retain the existing flattened-enum conversion path and verify native fixture
+  manifests resolve their actual core crate. (#790)
+- napi: route an adjacently tagged enum (`#[serde(tag, content)]`) with two or more data variants
+  through the `serde_json::Value` passthrough wrapper. Every variant writes its payload under the
+  same content key, so the flat `#[napi(object)]` struct declared that field once per variant at
+  different types (E0124). The `.d.ts` keeps the per-variant discriminated union. (#790)
+- napi: the passthrough enum binding-to-core conversion uses an inherent fallible method whose error is
+  `napi::Error` with `Status::InvalidArg` (surfaced by napi-rs as a catchable JS exception
+  carrying the serde message) instead of `unwrap_or_default()`, which required a `Default`
+  impl on the core enum and silently turned bad input into a default value. Functions taking
+  the enum as a direct param emit a fallible napi signature and convert with `try_into_core()?`, so
+  malformed JS payloads raise `InvalidArg` through direct and nested input conversions. The inherent method delegates to the same
+  fallible conversion trait used throughout parent structures and container values.
+- napi: declare the `.d.ts` members of an adjacent-collision passthrough enum in serde's own
+  wire casing (snake_case payload keys, serde tag/content names) rather than host camelCase,
+  matching the raw `serde_json` conversion the binding actually performs at runtime. Named
+  struct payloads now reference a synthesized `__AlefWire*` alias with serde field names instead
+  of the camelCase napi interface, whose `js_name` fields describe the host object surface. (#790)
+- napi: with `json_as_value`, convert a `Vec<Map<String, Json>>` field by changing only the map
+  container (the binding keeps `serde_json::Value`), instead of stringifying values and reparsing
+  them, which did not type-check. The same container-only conversion now also handles the
+  `Option<Vec<Map<String, Json>>>` form; without it the optional field bypassed the override and
+  re-parsed values that were already `serde_json::Value`. (#798)
+- wasm: convert a `Vec<Map<..>>` field through `serde_wasm_bindgen` like the other `JsValue`
+  containers instead of iterating the `JsValue`, and declare `Vec<bool>` as `JsValue` because
+  wasm-bindgen has no vector ABI for `bool`. (#791)
 - Preserve shared and mutable borrows when R wrappers cast primitive parameters to their core types. (#782)
+- Infer complete WASM map parameter containers from their core calls, including nested and optional maps
+  alongside named inputs, while preserving BTreeMap and HashMap identities and map borrows. (#805)
+- Reject custom Rust input codecs when Swift aliases or strict unknown-field decoders cannot preserve their wire contract.
+- Keep Swift serde wire-key compiler tests compatible with the strict Clippy print policy.
+- Preserve literal native strings in Swift constructors, including JSON-looking text, quotes, Unicode, and NUL bytes.
+- Preserve public Swift properties for fully skipped serde caches while omitting their wire keys and aliases.
+  Decode only proven skipped-field defaults; retain strict unknown-key and directional-skip validation.
+- Reject qualified Swift field exclusions that would violate strict serde keys, and allocate private
+  decoding helper names against public Swift types, errors, aliases and services without renaming source types.
+- Preserve missing-versus-null serde defaults in every Swift DTO decoder and reject unknown keys for
+  strict source structs; diagnose unsupported strict flatten and skipped-input key contracts.
+  Keep strict decoder helper types in DTO scope and preserve collection-default producer controls.
+- Preserve serde aliases in Swift decoders while encoding only canonical keys; reject duplicate
+  canonical/alias inputs and ambiguous cross-field keys, including strict option structs.
+- Avoid constant Dart collection wrappers around nested unsigned defaults that require runtime constructors. (#780)
+- Generate exact `BigInt.parse` literals for declared `u64` scalar and nested DTO callers in the next-major
+  Dart API, preserving narrower integers and numeric JSON passed through Rust constructors.
+  Add a native qualification gate for emitted scalar calls, recursive DTOs and JSON constructor payloads.
+- Dart FRB callback serialization failures use the existing callback error transport instead of escaping
+  asynchronously and leaving native callers waiting. Reject out-of-range callback `u64` returns through
+  the existing warned default-value policy, and reject unsupported callback serializer shapes during generation.
+- Dart Rust facades reconstruct newtype arguments and unwrap returned newtypes from extracted conversion metadata.
+  Preserve function container paths and borrowed inner values; reject mutable newtype references requiring writeback.
+  Keep nested optional layers and the source map collection and hasher when rebuilding arguments.
+  Borrow opaque handles according to the core function signature, preserve optional-reference order,
+  infer nested argument collections from the core type, and reject unsupported interior references.
+  Convert argument map keys into the inferred core key type, including nested owned `Cow<str>` keys.
+- Extract the unsigned Dart native fixture from its actual crate root so generated paths match the compiled core.
 
 ## [0.115.15] - 2026-11-02
 

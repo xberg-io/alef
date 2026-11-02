@@ -149,6 +149,16 @@ impl<'a> JsonWireTypes<'a> {
         format!("serde_json::from_value::<{core_path}>({inner}).unwrap_or_default()")
     }
 
+    pub(crate) fn js_value_to_core_result_expr(&self, enum_def: &EnumDef, js_expr: &str, core_path: &str) -> String {
+        let in_name = self.wire_name(&enum_def.name, Family::In);
+        let from = escape_rust_string_literal(&js_tag_key(enum_def));
+        let to = escape_rust_string_literal(core_tag_key(enum_def));
+        format!(
+            "serde_json::from_value::<{in_name}>({js_expr}).and_then(serde_json::to_value).map(|value| {}(value, \"{from}\", \"{to}\")).and_then(serde_json::from_value::<{core_path}>)",
+            self.retag_fn_name
+        )
+    }
+
     /// The name of the shared top-level-tag retag helper this instance declares (see
     /// [`JsonWireTypes::new`]). Exposed so a backend whose own JS boundary is not
     /// `serde_json::Value` (e.g. wasm's `JsValue`, via `serde_wasm_bindgen`) can rebuild

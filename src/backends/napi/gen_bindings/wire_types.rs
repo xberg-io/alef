@@ -119,7 +119,7 @@ impl<'a> WireTypes<'a> {
     ///   `js_name` independent of an unrelated wire rename). That independence is exactly backwards
     ///   for THIS path: the runtime value here is not a napi struct populated through `js_name`
     ///   marshalling, it is raw JSON serde produced through `wire_field_name`/`rename_all`. A
-    ///   container-level `rename_all` or any field's explicit `#[serde(rename = "...")]` makes
+    ///   snake_case field, container-level `rename_all` or explicit `#[serde(rename = "...")]` makes
     ///   the two surfaces name a key differently, so the idiomatic interface would advertise a
     ///   property the actual JSON does not carry under that name. Falling back to a dedicated
     ///   wire alias for exactly this struct sidesteps the disagreement rather than mis-declaring
@@ -130,12 +130,22 @@ impl<'a> WireTypes<'a> {
         }
         let definition = self.api.types.iter().find(|definition| definition.name == name);
         let enumeration = self.api.enums.iter().find(|definition| definition.name == name);
-        if let Some(struct_def) = definition
+        if self.casing == WireCasing::Camel
+            && let Some(struct_def) = definition
             && !struct_def.is_opaque
             && !(struct_def.serde_container_conversion.transparent && struct_def.fields.len() == 1)
             && struct_def.serde_rename_all.is_none()
-            && struct_def.fields.iter().all(|f| f.serde_rename.is_none())
+            && struct_def.fields.iter().all(|field| {
+                field.serde_rename.is_none()
+                    && (self.casing == WireCasing::Camel
+                        || self.field_wire_name(field, None) == crate::codegen::naming::to_node_name(&field.name))
+            })
         {
+            // Camel mode only: the fully-flattened runtime re-cases payload keys to host
+            // camelCase, matching the declared interface exactly. In Serde mode the runtime
+            // value is raw serde JSON whose keys (snake_case Rust names unless explicitly
+            // renamed) never match the interface's camelCase `js_name` fields, so the
+            // interface can never be trusted there -- always synthesize the wire alias.
             return node_type_name(name).to_string();
         }
         if definition.is_none() && enumeration.is_none() {

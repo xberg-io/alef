@@ -116,7 +116,11 @@ fn binding_to_core_field_expr(
     has_binding: bool,
     is_mixed: bool,
     core_import: &str,
+    inputs: Option<&super::containers::ContainerContext>,
 ) -> String {
+    if let Some(inputs) = inputs.filter(|inputs| inputs.is_fallible(&field.ty)) {
+        return inputs.variant_input(binding_field_name, field, is_mixed);
+    }
     if let Some(wrapper) = field.newtype_wrapper.as_deref() {
         let source = if field.optional {
             format!("val.{binding_field_name}")
@@ -202,6 +206,7 @@ pub(super) fn gen_tagged_enum_binding_to_core(
     prefix: &str,
     struct_names: &ahash::AHashSet<String>,
     types: &[TypeDef],
+    inputs: Option<&super::containers::ContainerContext>,
 ) -> String {
     let core_path = crate::codegen::conversions::core_enum_path(enum_def, core_import);
     let binding_name = format!("{prefix}{}", enum_def.name);
@@ -245,7 +250,7 @@ pub(super) fn gen_tagged_enum_binding_to_core(
                     .map(|f| {
                         let has_binding = fields_with_binding_struct.contains(f.name.as_str());
                         let is_mixed = mixed_named_fields.contains(f.name.as_str());
-                        let expr = binding_to_core_field_expr(&f.name, f, has_binding, is_mixed, core_import);
+                        let expr = binding_to_core_field_expr(&f.name, f, has_binding, is_mixed, core_import, inputs);
                         format!("{}: {expr}", f.name)
                     })
                     .collect();
@@ -278,7 +283,7 @@ pub(super) fn gen_tagged_enum_binding_to_core(
                             && tagged_enum_field_is_tuple(f)
                             && matches!(&f.ty, TypeRef::Named(_));
                         let is_mixed = !is_single_tuple_named && mixed_named_fields.contains(&f.name);
-                        binding_to_core_field_expr(&binding_field_name, f, has_binding, is_mixed, core_import)
+                        binding_to_core_field_expr(&binding_field_name, f, has_binding, is_mixed, core_import, inputs)
                     })
                     .collect();
 
@@ -357,6 +362,7 @@ pub(super) fn gen_tagged_enum_binding_to_core(
             tag_field => tag_field,
             variants => variants,
             default_variant => default_variant,
+            fallible => inputs.is_some_and(|inputs| inputs.is_fallible(&TypeRef::Named(enum_def.name.clone()))),
         },
     )
 }
@@ -368,7 +374,16 @@ pub(super) fn gen_tagged_enum_binding_to_core(
 /// `gen_tagged_enum_core_to_binding`). Both shapes bind a local variable named exactly `f`, so
 /// this function is agnostic to which one produced it. Reused by both call sites so they can
 /// never diverge on how a given field type converts.
-fn core_to_binding_field_init(f: &str, field: &FieldDef, _has_binding: bool, is_mixed: bool) -> String {
+fn core_to_binding_field_init(
+    f: &str,
+    field: &FieldDef,
+    _has_binding: bool,
+    is_mixed: bool,
+    inputs: Option<&super::containers::ContainerContext>,
+) -> String {
+    if !is_mixed && let Some(inputs) = inputs.filter(|inputs| inputs.is_fallible(&field.ty)) {
+        return inputs.variant_output(f, field);
+    }
     use crate::core::ir::TypeRef;
     if let Some(wrapper) = field.newtype_wrapper.as_deref() {
         let source = if field.is_boxed {
@@ -443,8 +458,9 @@ pub(super) fn gen_tagged_enum_core_to_binding(
     prefix: &str,
     struct_names: &ahash::AHashSet<String>,
     configured_features: Option<&[String]>,
-    types: &[TypeDef],
+    type_context: (&[TypeDef], Option<&super::containers::ContainerContext>),
 ) -> String {
+    let (types, inputs) = type_context;
     let core_path = crate::codegen::conversions::core_enum_path(enum_def, core_import);
     let binding_name = format!("{prefix}{}", enum_def.name);
     let tag_field = crate::codegen::serde_enum_repr::tagged_object_tag_key(enum_def);
@@ -573,7 +589,7 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                         if let Some(field) = variant_field_map.get(f) {
                             let has_binding = fields_with_binding_struct.contains(f.as_str());
                             let is_mixed = mixed_named_fields.contains(field.name.as_str());
-                            core_to_binding_field_init(f, field, has_binding, is_mixed)
+                            core_to_binding_field_init(f, field, has_binding, is_mixed, inputs)
                         } else {
                             format!("{f}: None")
                         }
@@ -690,7 +706,7 @@ mod tests {
         );
         let struct_names = ahash::AHashSet::new();
 
-        let binding_to_core = gen_tagged_enum_binding_to_core(&en, "mylib", "Js", &struct_names, &[]);
+        let binding_to_core = gen_tagged_enum_binding_to_core(&en, "mylib", "Js", &struct_names, &[], None);
         assert!(
             binding_to_core.contains("Self::Thumbnail"),
             "the host-owned variant's arm must still be emitted, got:\n{binding_to_core}"
@@ -701,7 +717,7 @@ mod tests {
             "the host-owned variant's arm must carry its #[cfg] guard exactly once, got:\n{binding_to_core}"
         );
 
-        let core_to_binding = gen_tagged_enum_core_to_binding(&en, "mylib", "Js", &struct_names, None, &[]);
+        let core_to_binding = gen_tagged_enum_core_to_binding(&en, "mylib", "Js", &struct_names, None, (&[], None));
         assert!(
             core_to_binding.contains("mylib::VisitorResult::Thumbnail"),
             "the host-owned variant's arm must still be emitted, got:\n{core_to_binding}"
@@ -733,7 +749,7 @@ mod tests {
         );
         let struct_names = ahash::AHashSet::new();
 
-        let binding_to_core = gen_tagged_enum_binding_to_core(&en, "mylib", "Js", &struct_names, &[]);
+        let binding_to_core = gen_tagged_enum_binding_to_core(&en, "mylib", "Js", &struct_names, &[], None);
         assert!(
             !binding_to_core.contains("#[cfg(feature = \"testkit\")]"),
             "no invalid #[cfg] naming an undeclared feature may be emitted, got:\n{binding_to_core}"
@@ -743,7 +759,7 @@ mod tests {
             "a foreign-crate cfg-gated variant must not be referenced, got:\n{binding_to_core}"
         );
 
-        let core_to_binding = gen_tagged_enum_core_to_binding(&en, "mylib", "Js", &struct_names, None, &[]);
+        let core_to_binding = gen_tagged_enum_core_to_binding(&en, "mylib", "Js", &struct_names, None, (&[], None));
         assert!(
             !core_to_binding.contains("#[cfg(feature = \"testkit\")]"),
             "no invalid #[cfg] naming an undeclared feature may be emitted, got:\n{core_to_binding}"
@@ -767,13 +783,13 @@ mod tests {
         );
         let struct_names = ahash::AHashSet::new();
 
-        let binding_to_core = gen_tagged_enum_binding_to_core(&en, "mylib", "Js", &struct_names, &[]);
+        let binding_to_core = gen_tagged_enum_binding_to_core(&en, "mylib", "Js", &struct_names, &[], None);
         assert!(
             !binding_to_core.contains("#[cfg("),
             "ungated enum must not emit #[cfg(...)], got:\n{binding_to_core}"
         );
 
-        let core_to_binding = gen_tagged_enum_core_to_binding(&en, "mylib", "Js", &struct_names, None, &[]);
+        let core_to_binding = gen_tagged_enum_core_to_binding(&en, "mylib", "Js", &struct_names, None, (&[], None));
         assert!(
             !core_to_binding.contains("#[cfg("),
             "ungated enum must not emit #[cfg(...)], got:\n{core_to_binding}"
@@ -793,7 +809,7 @@ mod tests {
         );
         let struct_names = ahash::AHashSet::new();
 
-        let binding_to_core = gen_tagged_enum_binding_to_core(&en, "mylib", "Js", &struct_names, &[]);
+        let binding_to_core = gen_tagged_enum_binding_to_core(&en, "mylib", "Js", &struct_names, &[], None);
         assert!(
             binding_to_core.contains("_ => Self::Continue,"),
             "the unconditional default must fall back to the ungated variant, got:\n{binding_to_core}"
@@ -852,7 +868,7 @@ mod tests {
         let types = [excel_metadata_type_def()];
         let struct_names = ahash::AHashSet::new();
 
-        let binding_to_core = gen_tagged_enum_binding_to_core(&en, "test_core", "Js", &struct_names, &types);
+        let binding_to_core = gen_tagged_enum_binding_to_core(&en, "test_core", "Js", &struct_names, &types, None);
         assert!(
             binding_to_core.contains("Self::Excel(test_core::ExcelMetadata { sheet_count:")
                 && binding_to_core.contains("sheet_names:"),
@@ -873,7 +889,8 @@ mod tests {
         let types = [excel_metadata_type_def()];
         let struct_names = ahash::AHashSet::new();
 
-        let core_to_binding = gen_tagged_enum_core_to_binding(&en, "test_core", "Js", &struct_names, None, &types);
+        let core_to_binding =
+            gen_tagged_enum_core_to_binding(&en, "test_core", "Js", &struct_names, None, (&types, None));
         assert!(
             core_to_binding.contains("let test_core::ExcelMetadata { sheet_count, sheet_names, .. } = excel;"),
             "must destructure the wrapped struct's own fields by its QUALIFIED path, got:\n{core_to_binding}"
@@ -905,13 +922,13 @@ mod tests {
         let en = format_metadata_like_enum();
         let struct_names = ahash::AHashSet::new();
 
-        let binding_to_core = gen_tagged_enum_binding_to_core(&en, "test_core", "Js", &struct_names, &[]);
+        let binding_to_core = gen_tagged_enum_binding_to_core(&en, "test_core", "Js", &struct_names, &[], None);
         assert!(
             binding_to_core.contains("Self::Excel(val.excel"),
             "an unresolvable wrapped type must fall back to reading the nested field, got:\n{binding_to_core}"
         );
 
-        let core_to_binding = gen_tagged_enum_core_to_binding(&en, "test_core", "Js", &struct_names, None, &[]);
+        let core_to_binding = gen_tagged_enum_core_to_binding(&en, "test_core", "Js", &struct_names, None, (&[], None));
         assert!(
             core_to_binding.contains("excel: Some(excel.into())"),
             "an unresolvable wrapped type must fall back to filling the nested field, got:\n{core_to_binding}"
