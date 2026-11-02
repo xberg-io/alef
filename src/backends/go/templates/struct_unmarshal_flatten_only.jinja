@@ -1,0 +1,9 @@
+func (s *{{ go_name }}) UnmarshalJSON(data []byte) error {
+	type plain {{ go_name }}
+	var raw plain
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*s = {{ go_name }}(raw)
+{% include "struct_unmarshal_flatten_fields.jinja" %}	return nil
+}

@@ -23,6 +23,10 @@ use function_render::render_function;
 use trait_bridge_render::render_trait_bridges;
 use type_render::render_type;
 
+pub(super) fn reference_path(lang: Language, output_dir: &str) -> PathBuf {
+    PathBuf::from(format!("{output_dir}/api-{}.md", lang_slug(lang)))
+}
+
 pub(super) fn generate_lang_doc(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
@@ -53,7 +57,6 @@ pub(super) fn generate_lang_doc(
 
     let lang_display = lang_display_name(lang);
     let version = &api.version;
-    let lang_slug = lang_slug(lang);
 
     let mut out = String::with_capacity(8192);
     let (exclude_functions, exclude_types) = language_excludes(config, lang);
@@ -129,7 +132,7 @@ pub(super) fn generate_lang_doc(
 
     out.push_str(&render_trait_bridges(api, config, lang));
 
-    let path = PathBuf::from(format!("{output_dir}/api-{lang_slug}.md"));
+    let path = reference_path(lang, output_dir);
 
     Ok(GeneratedFile {
         path,

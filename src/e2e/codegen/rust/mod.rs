@@ -372,18 +372,20 @@ fn render_docs_snippet(
     // reports the failure and consumes the value — a second unconditional `println!`
     // of `result_var` would then reference a moved binding. ~keep
     let display_result = !expects_error && presentation.is_empty() && !call.returns_void;
-    let body = body
-        .into_iter()
-        .map(|line| {
-            // Never for a streaming body: its call line binds `stream`, so there is no `let _ =`
-            // to rebind, and `result_var` here is the collect snippet's own local. ~keep
-            if display_result && !is_streaming {
-                line.replacen("let _ =", &format!("let {result_var} ="), 1)
-            } else {
-                line.to_string()
-            }
-        })
-        .collect::<Vec<_>>();
+    let body = if display_result && is_streaming {
+        let rebound = bind_streaming_snippet_collection(&body.join("\n"), result_var);
+        rebound.split('\n').map(str::to_string).collect::<Vec<_>>()
+    } else {
+        body.into_iter()
+            .map(|line| {
+                if display_result {
+                    line.replacen("let _ =", &format!("let {result_var} ="), 1)
+                } else {
+                    line
+                }
+            })
+            .collect::<Vec<_>>()
+    };
     Ok(crate::e2e::template_env::render(
         "rust/snippet_body.rs.jinja",
         crate::alef_context! {
@@ -392,6 +394,23 @@ fn render_docs_snippet(
             expects_error => expects_error, returns_void => call.returns_void,
         },
     ))
+}
+
+fn bind_streaming_snippet_collection(body: &str, result_var: &str) -> String {
+    let mut offset = 0;
+    for line in body.split_inclusive('\n') {
+        // ~keep A complete token prefix excludes matching text inside multiline literals/comments.
+        if line.trim_start().starts_with("let _: Vec<_> =")
+            && body[..offset].parse::<proc_macro2::TokenStream>().is_ok()
+        {
+            let binding = offset + line.len() - line.trim_start().len() + "let ".len();
+            let mut rebound = body.to_string();
+            rebound.replace_range(binding..binding + "_".len(), result_var);
+            return rebound;
+        }
+        offset += line.len();
+    }
+    body.to_string()
 }
 
 /// The line every generated async test emits right after its signature to block the shared

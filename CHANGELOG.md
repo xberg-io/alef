@@ -27,6 +27,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   struct payloads now reference a synthesized `__AlefWire*` alias with serde field names instead
   of the camelCase napi interface, whose `js_name` fields describe the host object surface. (#790)
 
+## [0.115.15] - 2026-11-02
+
+### Fixed
+
+- Keep documentation catalogs within the requested reference languages and generation scope,
+  so their links point only to emitted pages. (#785)
+- Render empty WASM wire enums as `never`, preserving non-empty aliases. (#786)
+- Avoid unused Rust streaming result bindings while preserving stream drainage, documentation
+  presentation and literal argument bytes. (#788)
+- Validate prebuilt Swift bundle receipts and ZIP integrity before syncing versions, rejecting
+  stale or mismatched artifacts before source changes. (#787)
+- Invalidate Zig package content hashes on version changes while preserving per-platform
+  asset selection. (#789)
+
 ## [0.115.14] - 2026-11-01
 
 ### Fixed
