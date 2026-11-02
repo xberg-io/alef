@@ -133,15 +133,12 @@ pub(crate) fn result_alias_target_scope(
     module_path: &str,
 ) -> Option<ResultAliasScope> {
     let syn::Type::Path(type_path) = ty else { return None };
-    let mut prefix = type_path
+    let prefix = type_path
         .path
         .segments
         .iter()
         .map(|segment| segment.ident.to_string())
         .collect::<Vec<_>>();
-    if prefix.pop().as_deref() != Some("Result") || prefix.is_empty() {
-        return None;
-    }
     if type_path.path.leading_colon.is_some() {
         return Some(ResultAliasScope::Foreign);
     }
@@ -293,32 +290,62 @@ fn push_named_import(
     });
 }
 
-/// Follow imported module prefixes while preserving unknown and cyclic namespaces.
+/// Canonicalize forwarding definitions before rewriting caller-supplied path suffixes.
 pub(crate) fn resolve_result_module_scope(
     scope: &ResultAliasScope,
     lookup: impl Fn(&str) -> Option<ResultAliasScope>,
 ) -> ResultAliasScope {
-    let ResultAliasScope::Crate(mut module) = scope.clone() else {
-        return ResultAliasScope::Foreign;
-    };
-    let mut visited = ahash::AHashSet::new();
-    while visited.insert(module.clone()) {
-        let Some((length, target)) = namespace_alias_prefix(&module, &lookup) else {
-            break;
+    resolve_namespace_query(scope.clone(), &lookup, &mut AHashSet::new(), &mut AHashMap::new())
+        .unwrap_or(ResultAliasScope::Foreign)
+}
+
+fn resolve_namespace_query(
+    mut scope: ResultAliasScope,
+    lookup: &impl Fn(&str) -> Option<ResultAliasScope>,
+    active: &mut AHashSet<String>,
+    targets: &mut AHashMap<String, Option<ResultAliasScope>>,
+) -> Option<ResultAliasScope> {
+    loop {
+        let ResultAliasScope::Crate(module) = &scope else {
+            return Some(scope);
         };
-        let suffix = module[length..].trim_start_matches("::");
-        let next = match target {
-            ResultAliasScope::Foreign => return ResultAliasScope::Foreign,
-            ResultAliasScope::Crate(target) if target.is_empty() => suffix.to_string(),
-            ResultAliasScope::Crate(target) if suffix.is_empty() => target,
-            ResultAliasScope::Crate(target) => format!("{target}::{suffix}"),
+        let Some((length, target)) = namespace_alias_prefix(module, lookup) else {
+            return Some(scope);
         };
-        if next == module {
-            break;
-        }
-        module = next;
+        let prefix = module[..length].to_string();
+        let suffix = module[length..].trim_start_matches("::").to_string();
+        let target = resolve_namespace_target(&prefix, target, lookup, active, targets)?;
+        scope = append_namespace_suffix(target, &suffix);
     }
-    ResultAliasScope::Crate(module)
+}
+
+fn resolve_namespace_target(
+    prefix: &str,
+    target: ResultAliasScope,
+    lookup: &impl Fn(&str) -> Option<ResultAliasScope>,
+    active: &mut AHashSet<String>,
+    targets: &mut AHashMap<String, Option<ResultAliasScope>>,
+) -> Option<ResultAliasScope> {
+    if let Some(cached) = targets.get(prefix) {
+        return cached.clone();
+    }
+    if !active.insert(prefix.to_string()) {
+        return None;
+    }
+    // Only target definitions keep an edge active; caller suffixes may reuse the same forwarding.
+    let resolved = resolve_namespace_query(target, lookup, active, targets);
+    active.remove(prefix);
+    targets.insert(prefix.to_string(), resolved.clone());
+    resolved
+}
+
+fn append_namespace_suffix(target: ResultAliasScope, suffix: &str) -> ResultAliasScope {
+    match target {
+        ResultAliasScope::Foreign => ResultAliasScope::Foreign,
+        ResultAliasScope::Crate(target) if target.is_empty() => ResultAliasScope::Crate(suffix.to_string()),
+        ResultAliasScope::Crate(target) if suffix.is_empty() => ResultAliasScope::Crate(target),
+        ResultAliasScope::Crate(target) => ResultAliasScope::Crate(format!("{target}::{suffix}")),
+    }
 }
 
 fn namespace_alias_prefix(

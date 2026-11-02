@@ -140,8 +140,9 @@ impl AliasIndex {
         let modules = &self.module_imports;
         let normalize =
             |scope: &ResultAliasScope| resolve_result_module_scope(scope, |prefix| modules.get(prefix).cloned());
+        // A renamed import can name Result even when its written RHS identifier does not.
         for scope in self.alias_targets.values_mut() {
-            *scope = normalize(scope);
+            *scope = result_alias_owner(normalize(scope));
         }
         for import in self.imports.values_mut() {
             import.scope = normalize(&import.scope);
@@ -309,4 +310,15 @@ fn update_binding(bindings: &mut AHashMap<String, AliasBinding>, module: &str, b
     }
     bindings.insert(module.to_string(), binding);
     true
+}
+
+fn result_alias_owner(scope: ResultAliasScope) -> ResultAliasScope {
+    match scope {
+        ResultAliasScope::Crate(path) => match path.rsplit_once("::") {
+            Some((module, "Result")) => ResultAliasScope::Crate(module.to_string()),
+            None if path == "Result" => ResultAliasScope::Crate(String::new()),
+            _ => ResultAliasScope::Foreign,
+        },
+        ResultAliasScope::Foreign => ResultAliasScope::Foreign,
+    }
 }

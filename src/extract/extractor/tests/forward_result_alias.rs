@@ -580,3 +580,132 @@ fn foreign_module_alias_globs_do_not_preempt_a_known_local_result() {
     assert_eq!(surface.functions.len(), 1);
     assert_error(&surface, "run", "Selected");
 }
+
+#[test]
+fn repeated_crate_module_forwarding_can_consume_multiple_path_segments() {
+    let source = r#"
+        pub use crate as here;
+        pub mod error { pub struct Selected; pub type Result<T> = std::result::Result<T, Selected>; }
+        pub fn run() -> here::here::error::Result<()> { unimplemented!() }
+    "#;
+    let surface = extract_files(&[("lib.rs", source)], &["lib.rs"]);
+    assert_eq!(surface.functions.len(), 1);
+    assert_error(&surface, "run", "Selected");
+}
+
+#[test]
+fn module_forwarding_can_revisit_an_edge_after_a_diamond_rewrite() {
+    let source = r#"
+        pub mod foo {
+            pub mod b { pub struct Selected; pub type Result<T> = std::result::Result<T, Selected>; }
+            pub use crate::here::b as a;
+        }
+        pub use crate::foo as here;
+        pub fn run() -> here::a::Result<()> { unimplemented!() }
+    "#;
+    let surface = extract_files(&[("lib.rs", source)], &["lib.rs"]);
+    assert_eq!(surface.functions.len(), 1);
+    assert_error(&surface, "run", "Selected");
+}
+
+#[test]
+fn expanding_module_forwarding_terminates_in_a_bounded_subprocess() {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    const TIMEOUT: Duration = Duration::from_secs(2);
+    const POLL_INTERVAL: Duration = Duration::from_millis(10);
+    let mut child = Command::new(std::env::current_exe().expect("current test executable"))
+        .args([
+            "extract::extractor::tests::forward_result_alias::expanding_module_forwarding_probe",
+            "--exact",
+            "--ignored",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn isolated cycle probe");
+    let deadline = Instant::now() + TIMEOUT;
+    while child.try_wait().expect("poll isolated cycle probe").is_none() {
+        if Instant::now() >= deadline {
+            child.kill().expect("kill timed-out cycle probe");
+            child.wait().expect("reap timed-out cycle probe");
+            panic!("Result module forwarding did not terminate");
+        }
+        std::thread::sleep(POLL_INTERVAL);
+    }
+    let output = child.wait_with_output().expect("collect isolated cycle probe");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("running 1 test") && stdout.contains("test result: ok. 1 passed; 0 failed;"),
+        "probe did not execute exactly one passing test: {stdout}"
+    );
+}
+
+#[test]
+#[ignore = "always executed by the bounded subprocess regression"]
+fn expanding_module_forwarding_probe() {
+    let source = r#"
+        pub mod api {
+            use self::alias::child as alias;
+            pub fn run() -> alias::Result<()> { unimplemented!() }
+        }
+    "#;
+    let surface = extract_files(&[("lib.rs", source)], &["lib.rs"]);
+    assert_eq!(surface.functions.len(), 1);
+    assert_error(&surface, "run", "anyhow::Error");
+}
+
+#[test]
+fn renamed_result_imports_supply_a_local_result_alias_rhs() {
+    for imports in [
+        "use crate::error::Result as R;",
+        "use crate::error::{Result as R};",
+        "use First as R; use crate::error::Result as First;",
+    ] {
+        let source = format!(
+            r#"
+            pub mod error {{ pub struct Selected; pub type Result<T> = std::result::Result<T, Selected>; }}
+            {imports}
+            pub type Result<T> = R<T>;
+            pub fn run() -> Result<()> {{ unimplemented!() }}
+            "#
+        );
+        let surface = extract_files(&[("lib.rs", &source)], &["lib.rs"]);
+        assert_eq!(surface.functions.len(), 1);
+        assert_error(&surface, "run", "Selected");
+    }
+}
+
+#[test]
+fn qualified_renamed_result_imports_supply_a_nested_alias_rhs() {
+    let source = r#"
+        pub mod error { pub struct Selected; pub type Result<T> = std::result::Result<T, Selected>; }
+        pub mod renamed { pub use crate::error::Result as R; }
+        pub mod api {
+            pub type Result<T> = crate::renamed::R<T>;
+            pub fn run() -> Result<()> { unimplemented!() }
+        }
+    "#;
+    let surface = extract_files(&[("lib.rs", source)], &["lib.rs"]);
+    assert_eq!(surface.functions.len(), 1);
+    assert_error(&surface, "run", "Selected");
+}
+
+#[test]
+fn unknown_result_rhs_does_not_borrow_an_unrelated_error() {
+    let source = r#"
+        use std::option::Option as R;
+        pub type Result<T> = R<T>;
+        mod hidden { pub struct HiddenError; pub type Result<T> = std::result::Result<T, HiddenError>; }
+        pub fn run() -> Result<()> { unimplemented!() }
+    "#;
+    let surface = extract_files(&[("lib.rs", source)], &["lib.rs"]);
+    assert_eq!(surface.functions.len(), 1);
+    assert_error(&surface, "run", "anyhow::Error");
+}
