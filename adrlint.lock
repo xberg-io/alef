@@ -45,3 +45,8 @@ blake3 = "2e8ae828aa896c44f8baee988c235bb0d0956e70afbb5d2d0061f8f86586375c"
 number = 8
 status = "accepted"
 blake3 = "502ad8ab065c214bdefab3f41cbf6123781f92a38ce2d22ce9ba26bb3347f335"
+
+[adrs."adrs/0012-raise-the-generated-python-minimum.md"]
+number = 12
+status = "accepted"
+blake3 = "615a7b5c894dffe3f3106ab4b3564a30cde3ffd42a8fd1c795a8d7220d87824d"
