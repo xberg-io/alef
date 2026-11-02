@@ -86,7 +86,10 @@ fn same_version_preserves_hashes_and_configuration_bytes() {
 
 #[test]
 fn hash_only_version_change_removes_hash_without_inserting_version() {
-    let content = configuration("liter_llm", &format!("hash = \"liter_llm-2.4.4-{CONTENT_ID}\"\n"));
+    let content = configuration(
+        "sample_client",
+        &format!("hash = \"sample_client-2.4.4-{CONTENT_ID}\"\n"),
+    );
     let (changed, output) = synchronize(&content, "2.4.5");
     assert!(changed);
     for package in zig_packages(&output) {
@@ -97,7 +100,7 @@ fn hash_only_version_change_removes_hash_without_inserting_version() {
 
 #[test]
 fn hash_only_current_versions_preserve_hyphenated_names_and_content_ids() {
-    for name in ["liter_llm", "my-client", "client-1.2.3"] {
+    for name in ["sample_client", "my-client", "client-1.2.3"] {
         for version in ["2.4.4", "2.4.4-rc.1", "2.4.4-rc-build.2"] {
             let content = configuration(name, &format!("hash = \"{name}-{version}-{CONTENT_ID}\"\n"));
             let (changed, output) = synchronize(&content, version);
@@ -109,7 +112,7 @@ fn hash_only_current_versions_preserve_hyphenated_names_and_content_ids() {
 
 #[test]
 fn hash_only_prerelease_bumps_invalidate_both_tables() {
-    for name in ["liter_llm", "my-client"] {
+    for name in ["sample_client", "my-client"] {
         let content = configuration(name, &format!("hash = \"{name}-2.4.4-rc-build.2-{CONTENT_ID}\"\n"));
         let (changed, output) = synchronize(&content, "2.4.4");
         assert!(changed);
