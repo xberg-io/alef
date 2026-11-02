@@ -182,6 +182,13 @@ pub(in crate::backends::napi::gen_bindings) fn napi_gen_call_args(
                         p.name.clone()
                     }
                 }
+                TypeRef::Json if p.is_ref && !p.is_mut => {
+                    if p.optional {
+                        format!("{}.as_ref()", p.name)
+                    } else {
+                        format!("&{}", p.name)
+                    }
+                }
                 TypeRef::Path => {
                     if p.optional {
                         if p.is_ref {

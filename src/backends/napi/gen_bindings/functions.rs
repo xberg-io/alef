@@ -141,8 +141,12 @@ pub(super) fn gen_function(
         Some(p) => mapper.map_type(&p.ty),
         None => mapper.map_type(&func.return_type),
     };
-    let return_annotation =
-        mapper.wrap_return(&return_type, func.error_type.is_some() || !promoted_required.is_empty());
+    let return_annotation = mapper.wrap_return(
+        &return_type,
+        func.error_type.is_some()
+            || !promoted_required.is_empty()
+            || (func.is_async && matches!(func.return_type, TypeRef::Unit) && writeback_param.is_none()),
+    );
 
     let js_name = to_node_name(&func.name);
     let js_name_attr = if js_name != func.name {

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Match NAPI async unit signatures to their fallible bodies, preserve JSON values and borrowed
+  JSON arguments, and omit unsupported null from nested optional native DTO fields. (#801, #802, #803, #807)
+
 ## [0.115.15] - 2026-11-02
 
 ### Fixed

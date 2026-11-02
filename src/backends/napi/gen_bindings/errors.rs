@@ -245,7 +245,11 @@ pub(super) fn gen_dts(
                 lines.push(format!("export interface {} {{", node_type_name(&typ.name)));
                 for field in binding_fields(&typ.fields) {
                     let js_name = to_node_name(&field.name);
-                    let ts_ty = dts_type(&field.ty);
+                    // ~keep Native property absence unwraps one option; options inside containers stay nullable.
+                    let ts_ty = dts_type(match &field.ty {
+                        TypeRef::Optional(inner) => inner,
+                        other => other,
+                    });
                     lines.extend(format_jsdoc(&field.doc, "  "));
                     let is_optional = super::types::napi_field_is_optional(field, typ);
                     if is_optional {

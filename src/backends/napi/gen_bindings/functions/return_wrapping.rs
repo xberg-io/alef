@@ -194,7 +194,8 @@ pub(in crate::backends::napi::gen_bindings) fn napi_wrap_return_fn(
         }
         TypeRef::Bytes => format!("{expr}.into()"),
         TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
-        TypeRef::Json => format!("{expr}.to_string()"),
+        TypeRef::Json if returns_ref => format!("{expr}.clone()"),
+        TypeRef::Json => expr.to_string(),
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::Named(name) if capsule_types.is_some_and(|ct| ct.contains_key(name.as_str())) => expr.to_string(),
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
