@@ -43,7 +43,7 @@ and produced three reports of 96 curated and 5,620 generated snippets: 16,860 ge
 Fresh-render comparisons covered 6,225 paths: 132 through a real formatter and 6,093 directly.
 Another 29 paths used external formatter overrides whose byte output the verifier does not predict.
 
-The one absent path was `packages/go/.lib/.gitkeep`, an uncommitted placeholder in the public tag.
+The one absent path was `packages/go/.lib/.gitkeep`, an untracked scaffold placeholder absent from the public tag.
 The verifier reports it as coverage and does not fail on this headerless scaffold output.
 The original issue's populated working checkout counted that path among its 82 present-only paths.
 All 8,222 tracked corpus files retained the same digest before and after both runs:
