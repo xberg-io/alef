@@ -73,6 +73,8 @@ pub(crate) fn extract_field_type_rust_path(ty: &syn::Type, crate_name: Option<&s
     };
 
     let check_ty = inner_ty.unwrap_or(ty);
+    let arc_payload = arc_field_path_payload(check_ty);
+    let check_ty = arc_payload.as_deref().unwrap_or(check_ty);
 
     let check_ty = if let syn::Type::Path(type_path) = check_ty {
         if let Some(segment) = type_path.path.segments.last() {
@@ -120,6 +122,45 @@ pub(crate) fn extract_field_type_rust_path(ty: &syn::Type, crate_name: Option<&s
         return Some(segments.join("::"));
     }
     None
+}
+
+fn arc_field_path_payload(ty: &syn::Type) -> Option<Box<syn::Type>> {
+    let syn::Type::Path(path) = ty else {
+        return None;
+    };
+    if path.qself.is_some() {
+        return None;
+    }
+    let segment = path.path.segments.last().filter(|segment| segment.ident == "Arc")?;
+    let inner = type_resolver::extract_single_generic_arg_syn(segment)?;
+    let payload = if detect_core_wrapper(ty) == crate::core::ir::CoreWrapper::ArcMutex {
+        let syn::Type::Path(lock) = inner.as_ref() else {
+            return None;
+        };
+        if lock.qself.is_some() {
+            return None;
+        }
+        lock.path
+            .segments
+            .last()
+            .and_then(type_resolver::extract_single_generic_arg_syn)?
+    } else {
+        inner
+    };
+    let syn::Type::Path(leaf) = payload.as_ref() else {
+        return None;
+    };
+    // A plain leaf cannot hide another ownership layer that CoreWrapper fails to record.
+    if leaf.qself.is_some()
+        || leaf
+            .path
+            .segments
+            .iter()
+            .any(|segment| !matches!(&segment.arguments, syn::PathArguments::None))
+    {
+        return None;
+    }
+    Some(payload)
 }
 
 /// Get the last segment ident of a type, unwrapping Option if present.

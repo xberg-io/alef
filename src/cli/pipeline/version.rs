@@ -15,7 +15,8 @@ use super::version_lockfiles::{relock_cargo_lockfiles, retry_blocked_lockfiles};
 use super::version_python::sync_python_versions;
 use super::version_regen::{regenerate_readmes, regenerate_scaffold_after_sync, regenerate_test_apps_after_sync};
 use super::version_registry::sync_registry_package_versions;
-use super::version_swift::{precompute_swift_checksum, sync_swift_package_versions};
+use super::version_swift::{apply_prepared_swift_checksum, precompute_swift_checksum, sync_swift_package_versions};
+use super::version_swift_prebuilt::{PreparedSwiftBundle, has_prebuilt, require_no_prebuilt};
 use super::version_text::{
     read_workspace_license, remove_stale_kotlin_android_plugin, render_citation_cff, replace_citation_version,
     replace_gradle_project_version, replace_version_pattern, restore_gleam_dep_ranges, sync_cargo_lock_path_versions,
@@ -190,7 +191,55 @@ pub fn sync_versions(
     skip_swift_checksum: bool,
     release_date_override: Option<&str>,
 ) -> anyhow::Result<()> {
-    apply_version_bump(config, bump)?;
+    let prepared = prepare_version_sync(config, bump, None, no_regen, skip_swift_checksum)?;
+    sync_versions_prepared(config, config_path, release_date_override, prepared)
+}
+
+pub(crate) struct PreparedVersionSync {
+    set: Option<String>,
+    bump: Option<String>,
+    no_regen: bool,
+    skip_swift_checksum: bool,
+    swift: Option<PreparedSwiftBundle>,
+}
+
+pub(crate) fn prepare_version_sync(
+    config: &ResolvedCrateConfig,
+    bump: Option<&str>,
+    set: Option<&str>,
+    no_regen: bool,
+    skip_swift_checksum: bool,
+) -> anyhow::Result<PreparedVersionSync> {
+    let swift = if no_regen || skip_swift_checksum || !has_prebuilt(config)? {
+        None
+    } else {
+        let current = read_version(&config.version_from)?;
+        let requested = set.unwrap_or(&current);
+        let target = bump.map_or_else(
+            || Ok(requested.to_string()),
+            |component| bump_version(requested, component),
+        )?;
+        PreparedSwiftBundle::discover(config, &current, &target)?
+    };
+    Ok(PreparedVersionSync {
+        set: set.map(str::to_string),
+        bump: bump.map(str::to_string),
+        no_regen,
+        skip_swift_checksum,
+        swift,
+    })
+}
+
+pub(crate) fn sync_versions_prepared(
+    config: &ResolvedCrateConfig,
+    config_path: &std::path::Path,
+    release_date_override: Option<&str>,
+    prepared: PreparedVersionSync,
+) -> anyhow::Result<()> {
+    if let Some(version) = prepared.set.as_deref() {
+        super::version_core::set_version(config, version)?;
+    }
+    apply_version_bump(config, prepared.bump.as_deref())?;
 
     let version = read_version(&config.version_from)?;
     info!("Syncing version {version}");
@@ -215,7 +264,7 @@ pub fn sync_versions(
     sync_e2e_harness_files(config, &version, &ruby_version, &writable, &mut state)?;
     sync_citation_and_extra_paths(config, &version, release_date_override, &writable, &mut state)?;
 
-    finalize_version_sync(config, config_path, &version, no_regen, skip_swift_checksum, &mut state)
+    finalize_version_sync(config, config_path, &version, &mut state, &prepared)
 }
 
 fn apply_version_bump(config: &ResolvedCrateConfig, bump: Option<&str>) -> anyhow::Result<()> {
@@ -1261,6 +1310,7 @@ fn run_regen_after_sync(
     version: &str,
     skip_swift_checksum: bool,
     updated: &mut Vec<String>,
+    prepared: Option<&PreparedSwiftBundle>,
 ) -> anyhow::Result<()> {
     if let Some(e2e_config) = config.e2e.as_ref() {
         match regenerate_test_apps_after_sync(config, e2e_config, config_path) {
@@ -1287,6 +1337,14 @@ fn run_regen_after_sync(
     resync_package_swift_placeholder_after_regen(version, updated)?;
 
     if !skip_swift_checksum {
+        if let Some(bundle) = prepared {
+            apply_prepared_swift_checksum(config, bundle)?;
+            if !updated.iter().any(|path| path == "Package.swift") {
+                updated.push("Package.swift".to_string());
+            }
+            return Ok(());
+        }
+        require_no_prebuilt(config)?;
         match precompute_swift_checksum(config) {
             Ok(Some(checksum)) => {
                 info!("Swift artifactbundle checksum precomputed: {checksum}");
@@ -1336,9 +1394,8 @@ fn finalize_version_sync(
     config: &ResolvedCrateConfig,
     config_path: &std::path::Path,
     version: &str,
-    no_regen: bool,
-    skip_swift_checksum: bool,
     state: &mut SyncState,
+    prepared: &PreparedVersionSync,
 ) -> anyhow::Result<()> {
     run_post_write_side_effects(state, version);
 
@@ -1366,8 +1423,15 @@ fn finalize_version_sync(
     let _ = crate::core::cache_dir::ensure_cache_dir(std::path::Path::new(".alef"));
     let _ = std::fs::write(&last_path, version);
 
-    if !no_regen {
-        run_regen_after_sync(config, config_path, version, skip_swift_checksum, &mut state.updated)?;
+    if !prepared.no_regen {
+        run_regen_after_sync(
+            config,
+            config_path,
+            version,
+            prepared.skip_swift_checksum,
+            &mut state.updated,
+            prepared.swift.as_ref(),
+        )?;
     }
 
     if state.updated.is_empty() {
@@ -1377,7 +1441,7 @@ fn finalize_version_sync(
 
     clear_readme_related_hashes();
 
-    if !no_regen {
+    if !prepared.no_regen {
         regenerate_readmes_after_sync(config, config_path);
     }
 

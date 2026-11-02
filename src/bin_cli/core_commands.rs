@@ -269,28 +269,27 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             let (_workspace, resolved) = load_config(config_path)?;
             let crates_to_process = dispatch::select_crates(&resolved, &context.crate_filter)?;
             let multi = dispatch::is_multi_crate(&crates_to_process);
-            for resolved_cfg in &crates_to_process {
+            // ~keep Every supplied bundle must pass before any selected crate's setter can write source A.
+            let prepared = crates_to_process
+                .iter()
+                .map(|config| {
+                    pipeline::prepare_version_sync(config, bump.as_deref(), set.as_deref(), !regen, skip_swift_checksum)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            for (resolved_cfg, prepared) in crates_to_process.iter().zip(prepared) {
                 if let Some(version) = &set {
                     if multi {
                         tracing::info!("[{}] Setting version to {version}", resolved_cfg.name);
                     } else {
                         tracing::info!("Setting version to {version}");
                     }
-                    pipeline::set_version(resolved_cfg, version)?;
                 }
                 if multi {
                     tracing::info!("[{}] Syncing versions from Cargo.toml", resolved_cfg.name);
                 } else {
                     tracing::info!("Syncing versions from Cargo.toml");
                 }
-                pipeline::sync_versions(
-                    resolved_cfg,
-                    config_path,
-                    bump.as_deref(),
-                    !regen,
-                    skip_swift_checksum,
-                    release_date.as_deref(),
-                )?;
+                pipeline::sync_versions_prepared(resolved_cfg, config_path, release_date.as_deref(), prepared)?;
             }
             tracing::info!("Version sync complete");
             Ok(None)
