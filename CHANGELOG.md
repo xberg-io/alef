@@ -29,6 +29,8 @@ Migration details and remaining platform qualification are recorded in
 
 ### Fixed
 
+- Enable NAPI JSON value conversions when generated enum wrappers require them, including APIs
+  without explicit JSON fields or parameters. (#795)
 - Resolve native NAPI fixture dependencies from project-relative core sources and verify both
   scaffolded fixture manifests reference their actual core directories.
 - Preserve owned locals while borrowing optional NAPI enum inputs, and retain core-type context
