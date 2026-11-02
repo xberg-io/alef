@@ -423,3 +423,44 @@ fn assert_error_set_covers_body_accepts_out_of_memory_via_a_declared_custom_erro
         &["MyError".to_string()],
     );
 }
+
+/// The C ABI carries `bool` as `int32_t`, and Zig rejects an implicit `bool -> i32`
+/// coercion, so a bool parameter must cross as `@intFromBool(..)`. Optional bools use the
+/// FFI's `-1 = None` sentinel. ~keep
+#[test]
+fn emit_function_bool_param_crosses_the_c_abi_as_int() {
+    let mut f = char_return_fn();
+    f.name = "convert_with_flag".to_string();
+    f.return_type = TypeRef::Primitive(PrimitiveType::I32);
+    f.params = vec![
+        ParamDef {
+            name: "flag".to_string(),
+            ty: TypeRef::Primitive(PrimitiveType::Bool),
+            ..ParamDef::default()
+        },
+        ParamDef {
+            name: "maybe".to_string(),
+            ty: TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::Bool))),
+            optional: true,
+            ..ParamDef::default()
+        },
+    ];
+    let mut out = String::new();
+    emit_function(
+        &f,
+        "sample",
+        &[],
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+        &std::collections::HashMap::new(),
+        &std::collections::HashMap::new(),
+        &mut out,
+    );
+
+    assert!(
+        out.contains(
+            "c.sample_convert_with_flag(@intFromBool(flag), if (maybe) |v| @as(i32, @intFromBool(v)) else -1)"
+        ),
+        "bool params must be converted to the C ABI's i32. Got:\n{out}"
+    );
+}

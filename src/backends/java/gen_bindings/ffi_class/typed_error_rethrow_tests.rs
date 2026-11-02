@@ -110,12 +110,17 @@ fn error_enum_base_exception_extends_the_method_exception() {
         .errors
         .first()
         .expect("fixture must declare a divergent-base error enum for #454 coverage");
-    let files = crate::codegen::error_gen::gen_java_error_types(error, "dev.sample", "Sample");
+    let files = crate::codegen::error_gen::gen_java_error_types_with_errors(
+        error,
+        std::slice::from_ref(error),
+        "dev.sample",
+        "Sample",
+    );
     let (base_name, base_content) = &files[0];
 
     assert_eq!(base_name, "SampleErrorException");
     assert!(
-        base_content.contains("extends SampleException {"),
+        base_content.contains("extends SampleException implements ISampleError {"),
         "SampleErrorException (the base of every SampleError variant exception, including \
          ParsingException) must extend the method exception SampleException, otherwise the \
          catch chain's typed guard can never match it and the caller always sees \"FFI call \

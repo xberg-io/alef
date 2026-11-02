@@ -513,4 +513,37 @@ mod tests {
             );
         }
     }
+
+    /// Regression: AGP 9's `compress*UnitTestJavaRes` packages the same
+    /// `src/test/resources` tree as `process*UnitTestJavaRes`, which holds the
+    /// `copyHostJni` output. Gradle 9 fails the build when either consumes that
+    /// output without depending on `copyHostJni`.
+    #[test]
+    fn build_gradle_kotlin_android_orders_every_unit_test_java_res_task_after_copy_host_jni() {
+        for dep_mode in [
+            crate::e2e::config::DependencyMode::Registry,
+            crate::e2e::config::DependencyMode::Local,
+        ] {
+            let output = render_build_gradle_kotlin_android(&KotlinAndroidBuildGradleInputs {
+                kotlin_pkg_id: "dev.sample_crate",
+                maven_coordinate: "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
+                dep_mode,
+                jni_lib_name: "sample_crate_jni",
+                jni_crate_path: "../../crates/sample_crate-jni",
+                e2e_env: &std::collections::BTreeMap::new(),
+                capsule_types: &std::collections::HashMap::new(),
+                test_documents_path: "../../test_documents",
+                timeout_seconds: 1800,
+            });
+            let matcher = output
+                .lines()
+                .find(|line| line.starts_with("tasks.matching") && line.contains("UnitTestJavaRes"))
+                .unwrap_or_else(|| panic!("UnitTestJavaRes task matcher missing ({dep_mode:?}):\n{output}"));
+            assert_eq!(
+                matcher,
+                r#"tasks.matching { it.name.endsWith("UnitTestJavaRes") && (it.name.startsWith("process") || it.name.startsWith("compress")) }.configureEach {"#,
+                "({dep_mode:?})"
+            );
+        }
+    }
 }

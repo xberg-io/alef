@@ -126,6 +126,18 @@ pub(super) fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow:
     Ok(Some(checksum))
 }
 
+pub(super) fn apply_prepared_swift_checksum(
+    config: &ResolvedCrateConfig,
+    bundle: &super::version_swift_prebuilt::PreparedSwiftBundle,
+) -> anyhow::Result<()> {
+    let checksum = bundle.recheck(config)?;
+    let path = std::path::Path::new("Package.swift");
+    let content = std::fs::read_to_string(path).context("reading root Package.swift for prepared checksum")?;
+    substitute_swift_checksum(path, &content, checksum)?;
+    std::fs::create_dir_all("target").context("creating Swift checksum sidecar directory")?;
+    std::fs::write("target/alef-swift-checksum.txt", checksum).context("writing Swift checksum sidecar")
+}
+
 fn configured_swift_crate(config: &ResolvedCrateConfig) -> Option<String> {
     let swift_crate = format!("{}-swift", config.name);
     let candidate_manifests = [

@@ -1,4 +1,11 @@
-{% for class in classes %}{% if loop.first and class.root %}
+{% for interface in interfaces %}
+/// Implemented by every exception class of the `{{ interface.family }}` family, including a variant
+/// class it shares with another family: catching this interface covers all of the family's errors.
+#[php_interface]
+#[php(name = {{ interface.php_name_literal }})]
+{% if not interface.parent %}#[php(extends(ce = ext_php_rs::zend::ce::throwable, stub = "\\Throwable"))]
+{% endif %}pub trait {{ interface.name }}{% if interface.parent %}: {{ interface.parent }}{% endif %} {}
+{% endfor %}{% for class in classes %}{% if loop.first and class.root %}
 /// The class entry of PHP's `RuntimeException`, the parent of the project-level exception.
 fn php_runtime_exception_ce() -> &'static ext_php_rs::zend::ClassEntry {
     ext_php_rs::zend::ClassEntry::try_find("RuntimeException").unwrap_or_else(ext_php_rs::zend::ce::exception)
@@ -9,7 +16,8 @@ fn php_runtime_exception_ce() -> &'static ext_php_rs::zend::ClassEntry {
 {% if class.root %}#[php(extends(ce = php_runtime_exception_ce, stub = "\\RuntimeException"))]
 {% elif class.parent %}#[php(extends(Php{{ class.parent }}))]
 {% else %}#[php(extends(ce = ext_php_rs::zend::ce::exception, stub = "\\Exception"))]
-{% endif %}#[derive(Default)]
+{% endif %}{% for interface in class.interfaces %}#[php(implements(PhpInterface{{ interface }}))]
+{% endfor %}#[derive(Default)]
 pub struct {{ class.rust_name }} {
 {% for field in class.fields %}    #[php(prop, name = "{{ field.php_name }}")]
     pub {{ field.name }}: {{ field.rust_type }},

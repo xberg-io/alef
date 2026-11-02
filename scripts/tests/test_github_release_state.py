@@ -21,6 +21,11 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 
+if __package__:
+    from .managed_python_fixture import assert_archive_digests, workflow_bash, workflow_environment
+else:
+    from managed_python_fixture import assert_archive_digests, workflow_bash, workflow_environment
+
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / "scripts/publish/github-release-state.py"
 TARGETS = json.loads((ROOT / ".github/cli-targets.json").read_text())
@@ -88,8 +93,8 @@ def workflow_guard():
 
 
 class WorkflowBoundaryTest(unittest.TestCase):
-    def guard(self, missing=None):
-        with tempfile.TemporaryDirectory() as temporary:
+    def guard(self, missing=None, poisoned_python=False):
+        with tempfile.TemporaryDirectory(prefix="alef release archives ") as temporary:
             cwd = Path(temporary)
             archives(cwd / "dist/cli")
             if missing:
@@ -99,22 +104,32 @@ class WorkflowBoundaryTest(unittest.TestCase):
                 target = cwd / "scripts/publish/github-release-state.py"
                 target.parent.mkdir(parents=True)
                 target.write_bytes(HELPER.read_bytes())
-            return subprocess.run(
-                ["bash", "-euo", "pipefail", "-c", workflow_guard()],
+            environment, calls = workflow_environment(cwd, poisoned_python)
+            result = subprocess.run(
+                [workflow_bash(environment), "-euo", "pipefail", "-c", workflow_guard()],
                 cwd=cwd,
                 capture_output=True,
                 text=True,
                 check=False,
                 timeout=10,
+                env=environment,
             )
+            assert calls.exists(), result.stdout + result.stderr
+            assert calls.read_text() == "native-python\n", result.stdout + result.stderr
+            return result
 
     def test_actual_workflow_accepts_five_nonempty_real_archives(self):
         assert len(NAMES) == 5
-        assert self.guard().returncode == 0
+        for poisoned in (False, True):
+            with self.subTest(poisoned_python=poisoned):
+                result = self.guard(poisoned_python=poisoned)
+                assert result.returncode == 0, result.stdout + result.stderr
+                assert_archive_digests(result.stdout, SPEC["assets"])
 
     def test_actual_workflow_rejects_four_archives(self):
         result = self.guard(NAMES[-1])
         assert result.returncode != 0, result.stdout
+        assert "Local CLI archives do not match the complete expected set" in result.stderr
 
     def test_upload_cannot_publish_before_completeness(self):
         workflow = (ROOT / ".github/workflows/publish.yaml").read_text()
@@ -326,12 +341,16 @@ class WorkflowDagTest(unittest.TestCase):
 
 
 @contextmanager
-def rejected(error_type):
+def rejected(error_type, match=None):
+    caught = None
     try:
         yield
-    except error_type:
-        return
-    raise AssertionError(f"Expected {error_type.__name__}")
+    except error_type as error:
+        caught = error
+    if caught is None:
+        raise AssertionError(f"Expected {error_type.__name__}")
+    if match is not None:
+        assert re.search(match, str(caught)), str(caught)
 
 
 class RecordingApi:
@@ -347,6 +366,7 @@ class RecordingApi:
         self.registry_calls = []
         self.source_version = SPEC["version"]
         self.source_targets = json.loads(json.dumps(TARGETS))
+        self.release_pages = None
 
     def request(self, method, endpoint, payload=None, content=None):
         self.calls.append((method, endpoint, payload))
@@ -376,8 +396,10 @@ class RecordingApi:
             )
             return {"encoding": "base64", "content": base64.b64encode(data).decode()}
         if endpoint.startswith("/releases/tags/"):
-            if self.current is None:
+            if self.current is None or self.current["draft"]:
                 raise self.module.ReleaseError("not found", 404)
+            return json.loads(json.dumps(self.current))
+        if method == "GET" and endpoint == "/releases/23":
             return json.loads(json.dumps(self.current))
         if method == "POST" and endpoint == "/releases":
             self.current = dict(payload, id=23, assets=[])
@@ -398,6 +420,14 @@ class RecordingApi:
             self.current.update(payload)
             return self.current
         raise AssertionError((method, endpoint))
+
+    def release_page(self, page):
+        self.calls.append(("GET", f"/releases?per_page={self.module.RELEASE_PAGE_SIZE}&page={page}", None))
+        if self.error:
+            raise self.module.ReleaseError("HTTP failure", self.error)
+        if self.release_pages is not None:
+            return self.release_pages.get(page, [])
+        return [json.loads(json.dumps(self.current))] if self.current is not None and page == 1 else []
 
     def registry_version(self, name, version):
         self.registry_calls.append((name, version))
@@ -470,6 +500,39 @@ class ApiBoundaryTest(unittest.TestCase):
         self.failure = "redirect"
         with rejected(self.module.ReleaseError):
             api.request("GET", "/releases/tags/v0.115.11")
+
+    def test_release_page_accepts_only_a_json_array_at_the_fixed_paginated_endpoint(self):
+        api = self.module.GithubApi()
+        self.body = b'[{"id": 23, "tag_name": "v0.115.11"}]'
+        assert api.release_page(2) == [{"id": 23, "tag_name": "v0.115.11"}]
+        assert self.requests[-1].full_url == (
+            f"https://api.github.com/repos/xberg-io/alef/releases?per_page={self.module.RELEASE_PAGE_SIZE}&page=2"
+        )
+        assert self.requests[-1].get_header("Authorization") == "Bearer offline-dummy-only"
+        for body in (b"{}", b"null", b"{", b"x" * (self.module.MAX_JSON_BYTES + 1)):
+            with self.subTest(body_length=len(body)), rejected(self.module.ReleaseError):
+                self.body = body
+                api.release_page(1)
+
+    def test_release_page_does_not_swallow_authentication_or_redirect_errors(self):
+        api = self.module.GithubApi()
+        for failure in (401, 403, 404, 500, "redirect"):
+            self.failure = failure
+            with self.subTest(failure=failure), rejected(self.module.ReleaseError):
+                api.release_page(1)
+
+    def test_fixed_release_page_fits_realistic_payload_density_without_raising_response_or_scan_limits(self):
+        api = self.module.GithubApi()
+        assert self.module.MAX_JSON_BYTES == 2 * 1024 * 1024
+        assert self.module.RELEASE_PAGE_SIZE * self.module.MAX_RELEASE_PAGES == 10_000
+        release = {"id": 23, "tag_name": "v0.115.11", "body": "x" * 24_000}
+        expected = [release] * self.module.RELEASE_PAGE_SIZE
+        self.body = json.dumps(expected).encode()
+        assert api.release_page(1) == expected
+        self.body = json.dumps([release] * 100).encode()
+        assert len(self.body) > self.module.MAX_JSON_BYTES
+        with rejected(self.module.ReleaseError, "response exceeds limit"):
+            api.release_page(1)
 
     def test_http_errors_keep_status_but_never_provider_body_or_auth(self):
         api = self.module.GithubApi()
@@ -692,7 +755,10 @@ class ReleaseStateTest(unittest.TestCase):
         self.state.upload(self.directory, "success")
 
     def test_prepare_creates_only_a_source_bound_draft(self):
-        assert self.state.prepare()["build_needed"]
+        prepared = self.state.prepare()
+        assert prepared["build_needed"]
+        assert prepared["release"] is not None, "prepare must return the source-bound draft, not false absence"
+        assert prepared["release"]["id"] == 23
         assert self.api.current["draft"]
         assert self.api.current["target_commitish"] == SPEC["source_sha"]
         assert len(self.api.writes) == 1
@@ -704,6 +770,9 @@ class ReleaseStateTest(unittest.TestCase):
         assert len(self.api.current["assets"]) == 5
         assert self.api.current["draft"]
         self.state.promote("success", "success", True)
+        assert [method for method, _, _ in self.api.writes] == ["POST"] * 6 + ["PATCH"]
+        assert sum(endpoint == "/releases" for _, endpoint, _ in self.api.writes) == 1
+        assert sum("/assets?" in endpoint for _, endpoint, _ in self.api.writes) == 5
         assert not self.api.current["draft"]
         prior = len(self.api.writes)
         assert not self.state.prepare()["build_needed"]

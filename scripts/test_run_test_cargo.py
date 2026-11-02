@@ -27,6 +27,7 @@ def recording_cargo(root):
         "    'target': os.environ.get('CARGO_TARGET_DIR'),\n"
         "    'msys_env_excl': os.environ.get('MSYS2_ENV_CONV_EXCL'),\n"
         "    'sentinel': os.environ.get('CARGO_TEST_SENTINEL'),\n"
+        "    'mise_locked': os.environ.get('MISE_LOCKED'),\n"
         "}))\n"
         "sys.exit(int(os.environ['CARGO_TEST_EXIT']))\n"
     )
@@ -93,6 +94,9 @@ def invoke_task(arguments=(), target="outer target", exit_code=0, wrapper_source
             "CARGO_TEST_EXIT": str(exit_code),
         }
         environment.pop("MISE_ENV", None)
+        # Lockless generated fixtures must not inherit workspace lock enforcement (#769). ~keep
+        assert not (root / "mise.lock").exists(), "recording fixture must be intentionally lockless"
+        environment.pop("MISE_LOCKED", None)
         environment.pop("CARGO_TARGET_DIR", None)
         environment.pop("MSYS2_ENV_CONV_EXCL", None)
         if msys_exclusions is not None:
@@ -149,8 +153,11 @@ class CargoTestRunner(unittest.TestCase):
             waited.assert_called_once_with(expected, env=environment, check=False)
 
     def test_outer_target_is_passed_as_cargo_argument_without_reaching_fixtures(self):
-        result, captured = invoke_task()
+        with mock.patch.dict(os.environ, {"MISE_LOCKED": "1"}):
+            result, captured = invoke_task()
+            assert os.environ["MISE_LOCKED"] == "1"
         assert result.returncode == 0, result.stderr
+        assert captured["mise_locked"] is None
         assert captured["target"] is None
         assert captured["argv"] == canonical_arguments("--target-dir", "outer target")
         assert captured["sentinel"] == "preserve unrelated environment"
@@ -213,12 +220,12 @@ class CargoTestRunner(unittest.TestCase):
 
     def test_command_construction_does_not_mutate_its_inputs(self):
         arguments = ["cargo", "test", "--workspace", "--", "--exact"]
-        environment = {"CARGO_TARGET_DIR": "outer target", "OTHER": "unchanged"}
+        environment = {"CARGO_TARGET_DIR": "outer target", "MISE_LOCKED": "1", "OTHER": "unchanged"}
         command, child = isolated_command(arguments, environment)
         assert arguments == ["cargo", "test", "--workspace", "--", "--exact"]
-        assert environment == {"CARGO_TARGET_DIR": "outer target", "OTHER": "unchanged"}
+        assert environment == {"CARGO_TARGET_DIR": "outer target", "MISE_LOCKED": "1", "OTHER": "unchanged"}
         assert command == ["cargo", "test", "--workspace", "--target-dir", "outer target", "--", "--exact"]
-        assert child == {"OTHER": "unchanged"}
+        assert child == {"MISE_LOCKED": "1", "OTHER": "unchanged"}
 
     def test_recording_boundary_detects_a_hidden_workspace_narrowing_mutant(self):
         source = (REPO / "scripts/run_test_cargo.py").read_text()

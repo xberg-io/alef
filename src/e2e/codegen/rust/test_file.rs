@@ -7,6 +7,8 @@ mod test_function;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod trait_import_tests;
 
 pub use collection::collect_test_filenames;
 pub use file_rendering::render_test_file;

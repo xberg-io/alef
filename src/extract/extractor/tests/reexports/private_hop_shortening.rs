@@ -231,7 +231,11 @@ pub enum SampleError {
     let error = &surface.errors[0];
     assert_eq!(error.rust_path, "sample_core::SampleError");
 
-    let converter = crate::codegen::error_gen::gen_php_error_converter(error, "sample_core");
+    let converter = crate::codegen::error_gen::gen_php_error_converter_with_errors(
+        error,
+        std::slice::from_ref(error),
+        "sample_core",
+    );
     assert!(
         converter.contains("fn sample_error_to_php_err(e: sample_core::SampleError)"),
         "converter must accept the public re-export path: {converter}"

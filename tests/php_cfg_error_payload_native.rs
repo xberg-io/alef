@@ -1,4 +1,4 @@
-use alef::codegen::error_gen::{gen_php_error_converter, gen_php_error_types};
+use alef::codegen::error_gen::{gen_php_error_converter_with_errors, gen_php_error_types};
 use alef::core::ir::{ApiSurface, ErrorDef, ErrorVariant, FieldDef, PrimitiveType, TypeRef};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -38,8 +38,8 @@ fn should_compile_and_throw_shared_errors_with_cfg_features_disabled_and_enabled
         "{}\n{}\n{}\n{}",
         fixture_source(),
         gen_php_error_types(&api, "Sample", None).unwrap(),
-        gen_php_error_converter(&first, "sample"),
-        gen_php_error_converter(&second, "sample")
+        gen_php_error_converter_with_errors(&first, &api.errors, "sample"),
+        gen_php_error_converter_with_errors(&second, &api.errors, "sample")
     );
     let fixture = tempfile::tempdir().unwrap();
     write_fixture(fixture.path(), &source);
@@ -161,7 +161,8 @@ fn fail_secondary() -> Result<(), ext_php_rs::exception::PhpException> {
 fn http_enabled() -> bool { cfg!(feature = "http") }
 #[php_module]
 pub fn get_module(module: ModuleBuilder) -> ModuleBuilder {
-    module.class::<PhpConversionError>().class::<PhpSecondaryError>().class::<PhpRejectedError>()
+    module.interface::<PhpInterfaceConversionErrorInterface>().interface::<PhpInterfaceSecondaryErrorInterface>()
+        .class::<PhpConversionError>().class::<PhpSecondaryError>().class::<PhpRejectedError>()
         .function(wrap_function!(fail_primary)).function(wrap_function!(fail_secondary)).function(wrap_function!(http_enabled))
 }
 "#
@@ -172,7 +173,8 @@ fn php_probe() -> &'static str {
 foreach ([['fail_primary', 'primary', 0], ['fail_secondary', 'secondary', 403]] as [$call, $reason, $kind]) {
     try { $call(); throw new Exception('missing failure'); }
     catch (Sample\RejectedError $error) {
-        if (!($error instanceof Sample\ConversionError) || $error->reason !== $reason || $error->kind !== $kind
+        if (!($error instanceof Sample\ConversionError) || !($error instanceof Sample\SecondaryErrorInterface)
+            || !($error instanceof Sample\ConversionErrorInterface) || $error->reason !== $reason || $error->kind !== $kind
             || $error->getMessage() !== "$reason failure" || property_exists($error, 'status')) {
             throw new Exception('incorrect payload: ' . json_encode(get_object_vars($error)));
         }

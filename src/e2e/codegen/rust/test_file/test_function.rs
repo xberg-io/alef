@@ -18,13 +18,10 @@ use crate::e2e::codegen::rust::mock_server::render_mock_server_setup;
 
 use super::helpers::{resolve_function_name_for_call, resolve_module_for_call};
 
-/// The local a streaming call's drained items are bound to.
+/// The local used when streaming assertions or documentation read drained items.
 ///
-/// ~keep Exported because a streaming call binds this, and never `result_var`: the raw stream
-/// goes to `stream` and is immediately consumed by the collect snippet, so `result` exists in
-/// no streaming body. The docs-snippet renderer has to present *this* name, and re-deriving
-/// the string there is exactly how the two generators end up disagreeing about which binding
-/// the snippet's tail may reference (`E0425`).
+/// ~keep Tests discard an unobserved collection; docs restore this binding before presenting
+/// it. Both paths use `stream` for the raw stream, never the non-streaming `result_var`.
 pub(crate) const STREAMING_COLLECTED_VAR: &str = "chunks";
 
 /// Argument list appended to a `client_factory` call when the project configures no
@@ -554,7 +551,6 @@ pub fn render_test_function(
         .flatten();
     // Name of the stream-level variable (the raw stream returned by the call).
     let stream_var = "stream";
-    let chunks_var = STREAMING_COLLECTED_VAR;
 
     // Check if any assertion actually uses the result variable.
     // If all assertions are skipped (field not on result type), use `_` to avoid
@@ -670,6 +666,39 @@ pub fn render_test_function(
         format!("let {result_binding} = ")
     };
 
+    let mut streaming_assertions = String::new();
+    if is_streaming {
+        // ~keep Render stream assertions once so the collection binding follows actual identifier use.
+        for assertion in &fixture.assertions {
+            if assertion.assertion_type == "not_error" {
+                // Already handled by .expect() above.
+                continue;
+            }
+            render_assertion_with_streaming(
+                &mut streaming_assertions,
+                assertion,
+                result_var,
+                &module,
+                dep_name,
+                false,
+                &[],
+                field_resolver,
+                result_is_tree,
+                result_is_simple,
+                result_is_vec,
+                result_is_option,
+                returns_result,
+                streaming_item_type,
+                is_streaming,
+            );
+        }
+    }
+    let chunks_var = if streaming_assertions_use_collection(&streaming_assertions) {
+        STREAMING_COLLECTED_VAR
+    } else {
+        "_"
+    };
+
     if is_streaming {
         // Streaming: bind the raw stream, then drain it into a Vec.
         let _ = writeln!(out, "    let {stream_var} = {call_expr}{await_suffix}{unwrap_suffix};");
@@ -761,29 +790,33 @@ pub fn render_test_function(
         }
     }
 
-    // Render assertions.
-    for assertion in &fixture.assertions {
-        if assertion.assertion_type == "not_error" {
-            // Already handled by .expect() above.
-            continue;
+    if is_streaming {
+        out.push_str(&streaming_assertions);
+    } else {
+        // Render assertions.
+        for assertion in &fixture.assertions {
+            if assertion.assertion_type == "not_error" {
+                // Already handled by .expect() above.
+                continue;
+            }
+            render_assertion_with_streaming(
+                out,
+                assertion,
+                result_var,
+                &module,
+                dep_name,
+                false,
+                &unwrapped_fields,
+                field_resolver,
+                result_is_tree,
+                result_is_simple,
+                result_is_vec,
+                result_is_option,
+                returns_result,
+                streaming_item_type,
+                is_streaming,
+            );
         }
-        render_assertion_with_streaming(
-            out,
-            assertion,
-            result_var,
-            &module,
-            dep_name,
-            false,
-            &unwrapped_fields,
-            field_resolver,
-            result_is_tree,
-            result_is_simple,
-            result_is_vec,
-            result_is_option,
-            returns_result,
-            streaming_item_type,
-            is_streaming,
-        );
     }
 
     render_handle_teardown(out, handle_teardown, false);
@@ -848,3 +881,22 @@ mod shared_runtime_tests;
 #[cfg(test)]
 #[path = "test_function/unit_result_binding_tests.rs"]
 mod unit_result_binding_tests;
+
+fn streaming_assertions_use_collection(assertions: &str) -> bool {
+    fn contains_collection(tokens: proc_macro2::TokenStream) -> bool {
+        tokens.into_iter().any(|token| match token {
+            proc_macro2::TokenTree::Ident(identifier) => identifier == STREAMING_COLLECTED_VAR,
+            proc_macro2::TokenTree::Group(group) => contains_collection(group.stream()),
+            _ => false,
+        })
+    }
+    contains_collection(
+        assertions
+            .parse()
+            .expect("rendered streaming assertions must tokenize as Rust"),
+    )
+}
+
+#[cfg(test)]
+#[path = "test_function/streaming_result_binding_tests.rs"]
+mod streaming_result_binding_tests;

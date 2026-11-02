@@ -78,13 +78,13 @@ fn isolated_finalization_child() {
     if case != "unchanged" {
         state.updated.push("changed.txt".into());
     }
+    let prepared = prepare_version_sync(&config, None, None, true, true).expect("source-only finalization");
     let outcome = finalize_version_sync(
         &config,
         std::path::Path::new("alef.toml"),
         "1.2.3",
-        true,
-        true,
         &mut state,
+        &prepared,
     );
     let expected_marker = if matches!(case.as_str(), "nonzero" | "spawn") {
         let error = outcome.expect_err("a required FFI build failure must stop finalization");

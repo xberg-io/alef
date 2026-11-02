@@ -18,8 +18,9 @@ fn error_with_duration_methods() -> ErrorDef {
 /// and its all-fields constructor changed signature for every existing caller. ~keep
 #[test]
 fn test_gen_java_error_types_maps_duration_methods_without_changing_existing_constructor() {
-    let files = gen_java_error_types(
+    let files = gen_java_error_types_with_errors(
         &error_with_duration_methods(),
+        std::slice::from_ref(&error_with_duration_methods()),
         "dev.sample_crate.sampleapp",
         "SampleApp",
     );
@@ -57,7 +58,12 @@ fn test_gen_java_error_types_duration_only_error_has_a_single_all_fields_constru
         "retry_after",
         TypeRef::Optional(Box::new(TypeRef::Duration)),
     )];
-    let files = gen_java_error_types(&error, "dev.sample_crate.sampleapp", "SampleApp");
+    let files = gen_java_error_types_with_errors(
+        &error,
+        std::slice::from_ref(&error),
+        "dev.sample_crate.sampleapp",
+        "SampleApp",
+    );
     let base = &files[0].1;
     assert_eq!(
         base.matches("public SampleAppErrorException(final String message, final java.time.Duration retryAfter)")
@@ -75,7 +81,13 @@ fn test_gen_java_error_types_duration_only_error_has_a_single_all_fields_constru
 
 #[test]
 fn test_gen_csharp_error_types_maps_duration_methods_without_changing_existing_constructors() {
-    let files = gen_csharp_error_types(&error_with_duration_methods(), "SampleCrate.SampleApp", None, &[]);
+    let files = gen_csharp_error_types_with_errors(
+        &error_with_duration_methods(),
+        std::slice::from_ref(&error_with_duration_methods()),
+        "SampleCrate.SampleApp",
+        None,
+        &[],
+    );
     let base = &files[0].1;
     assert!(base.contains("public TimeSpan? RetryAfter { get; }"), "{base}");
     assert!(base.contains("public TimeSpan Timeout { get; }"), "{base}");
@@ -251,7 +263,12 @@ fn test_python_error_with_only_a_duration_method_packs_only_that_value() {
 fn test_gen_java_variant_exceptions_forward_introspection_fields_to_the_base() {
     let mut error = error_with_duration_methods();
     error.variants = sample_error().variants;
-    let files = gen_java_error_types(&error, "dev.sample_crate.sampleapp", "SampleApp");
+    let files = gen_java_error_types_with_errors(
+        &error,
+        std::slice::from_ref(&error),
+        "dev.sample_crate.sampleapp",
+        "SampleApp",
+    );
     let variant = &files[1].1;
     assert!(
         variant.contains("final String message, final int statusCode, final boolean isTransientFlag, final String errorType, final java.time.Duration retryAfter, final java.time.Duration timeout) {"),
@@ -264,7 +281,8 @@ fn test_gen_java_variant_exceptions_forward_introspection_fields_to_the_base() {
 
     let mut plain = sample_error();
     plain.methods.clear();
-    let files = gen_java_error_types(&plain, "dev.sample_crate.test", "Sample");
+    let files =
+        gen_java_error_types_with_errors(&plain, std::slice::from_ref(&plain), "dev.sample_crate.test", "Sample");
     assert!(
         !files[1].1.contains("introspection values"),
         "no extra constructor without methods"
@@ -281,7 +299,13 @@ fn getters_for(error: &ErrorDef) -> Vec<LastErrorField> {
 #[test]
 fn test_gen_csharp_error_types_fills_properties_from_the_native_getters() {
     let error = error_with_duration_methods();
-    let files = gen_csharp_error_types(&error, "SampleCrate.SampleApp", None, &getters_for(&error));
+    let files = gen_csharp_error_types_with_errors(
+        &error,
+        std::slice::from_ref(&error),
+        "SampleCrate.SampleApp",
+        None,
+        &getters_for(&error),
+    );
     let base = &files[0].1;
     assert!(
         base.contains("public ushort StatusCode { get; private set; }"),
@@ -313,7 +337,8 @@ fn test_gen_csharp_error_types_fills_properties_from_the_native_getters() {
 #[test]
 fn test_gen_csharp_error_types_leaves_unwired_methods_get_only() {
     let error = error_with_duration_methods();
-    let files = gen_csharp_error_types(&error, "SampleCrate.SampleApp", None, &[]);
+    let files =
+        gen_csharp_error_types_with_errors(&error, std::slice::from_ref(&error), "SampleCrate.SampleApp", None, &[]);
     let base = &files[0].1;
     assert!(base.contains("public ushort StatusCode { get; }"), "{base}");
     assert!(!base.contains("ApplyLastError"), "no getters, nothing to apply: {base}");

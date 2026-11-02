@@ -2,7 +2,7 @@
 
 /** {{ doc }} */
 @SuppressWarnings({"checkstyle:LineLength", "PMD"})
-public class {{ class_name }} extends {{ main_class }}Exception {
+public class {{ class_name }} extends {{ main_class }}Exception{{ (" implements " ~ family_interface) if family_interface else "" }} {
   private static final long serialVersionUID = 1L;
 
   /** Creates a new {{ class_name }}. */

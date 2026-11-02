@@ -155,6 +155,8 @@ fn migrate_swift_package_manifests(files: &[GeneratedFile], base_dir: &Path) -> 
     }) {
         crate::scaffold::migrate_swift_rust_bridge_language_mode(base_dir, &manifest.path)
             .with_context(|| format!("failed to migrate pre-existing {}", manifest.path.display()))?;
+        crate::scaffold::migrate_swift_static_frameworks(base_dir, &manifest.path)
+            .with_context(|| format!("failed to migrate static frameworks in {}", manifest.path.display()))?;
     }
     Ok(())
 }

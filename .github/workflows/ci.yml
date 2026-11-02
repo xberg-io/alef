@@ -98,7 +98,10 @@ jobs:
       - name: Install Python, uv and Bats
         uses: xberg-io/actions/setup-mise@v1
         with:
-          install-args: ${{ runner.os == 'Windows' && 'python uv node' || 'python uv bats node' }}
+          install-args: >-
+            ${{ runner.os == 'Windows'
+                && 'python uv node github:Goldziher/poly'
+                || 'python uv bats node github:Goldziher/poly' }}
       - name: Check the Cargo task boundary before compilation
         run: python scripts/test_run_test_cargo.py -v
       - name: Hosted Swift consumer harness controls
@@ -146,7 +149,7 @@ jobs:
         if: runner.os != 'Windows'
         uses: Goldziher/poly@v0
         with:
-          version: v0.31.2
+          version: v0.32.1
       # Matches `template_versions::toolchain::JAVA_JVM_TARGET`: alef's generated Java service
       # bindings use the `java.lang.foreign` FFM API, stable only from JDK 22. This JDK is also
       # `javac`, the oracle `ALEF_REQUIRE_JAVAC` below requires. ~keep
@@ -192,15 +195,37 @@ jobs:
           tools: ruby
       # Ruby on Windows is a mise lock gap (toolchain-management rule); keep it on mise.toml's version. ~keep
       - name: Set up Ruby for generated Data regression (Windows)
+        id: windows_ruby
         if: runner.os == 'Windows'
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.4.12"
+          ruby-version: "4.0.9"
       - name: Install Steep for generated Ruby signature regression
         if: runner.os != 'Windows'
         run: gem install steep --version 2.1.0 --no-document
       - name: Install generated Ruby runtime dependency
         run: gem install sorbet-runtime --version 0.6.13506 --no-document
+      - name: Verify selected Ruby runtime and gems
+        shell: bash
+        env:
+          ALEF_TEST_RUBY_EXECUTABLE: >-
+            ${{ steps.windows_ruby.outputs.ruby-prefix
+                && format('{0}/bin/ruby.exe', steps.windows_ruby.outputs.ruby-prefix) || '' }}
+        run: |
+          mise exec -- python - <<'PY'
+          import os
+          import subprocess
+          import sys
+
+          ruby = os.environ.get("ALEF_TEST_RUBY_EXECUTABLE") or "ruby"
+          gems = ["sorbet-runtime"] + (["steep"] if sys.platform != "win32" else [])
+          script = (
+              'require "json"; ARGV.each { |name| require name }; '
+              'puts JSON.generate(ruby: RbConfig.ruby, version: RUBY_VERSION, '
+              'gems: ARGV.to_h { |name| [name, Gem.loaded_specs.fetch(name).full_gem_path] })'
+          )
+          subprocess.run([ruby, "-e", script, *gems], check=True)
+          PY
       - name: Cache uv downloads
         uses: actions/cache@v6
         with:
@@ -269,8 +294,22 @@ jobs:
         # `CARGO_TARGET_DIR` override resets the same directory the census step below reads back
         # (`scripts/toolchain-census.sh` resolves its own default the same way).
         run: rm -rf "$(scripts/toolchain-census-dir.sh)"
+      - name: Bind native Git Bash and verify workflow shell selection
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $nativeBash = mise exec -- python scripts/tests/managed_python_fixture.py
+          if ($LASTEXITCODE -ne 0) { throw "Native Git Bash selection failed" }
+          if (@($nativeBash).Count -ne 1) { throw "Expected exactly one native Git Bash binding" }
+          "ALEF_TEST_BASH_EXECUTABLE=$nativeBash" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $env:ALEF_TEST_BASH_EXECUTABLE = $nativeBash
+          mise exec -- python scripts/tests/test_managed_bash_fixture.py
+          if ($LASTEXITCODE -ne 0) { throw "Native Git Bash selector controls failed" }
       - name: Run tests
         env:
+          ALEF_TEST_RUBY_EXECUTABLE: >-
+            ${{ steps.windows_ruby.outputs.ruby-prefix
+                && format('{0}/bin/ruby.exe', steps.windows_ruby.outputs.ruby-prefix) || '' }}
           ALEF_REQUIRE_ELIXIR: "1"
           ALEF_REQUIRE_PYREFLY: "1"
           ALEF_REQUIRE_TSC: "1"
@@ -373,7 +412,7 @@ jobs:
         # `tests/ci_poly_pin_gate.rs` enforces both. ~keep
         uses: Goldziher/poly@v0
         with:
-          version: v0.31.2
+          version: v0.32.1
       # Both tools must be present *before* the lanes run. The lanes fail on a missing
       # tool rather than skipping, so this step exists to fail earlier and more legibly,
       # not to decide whether the gate runs. The poly assertions are deliberately strict
@@ -389,8 +428,8 @@ jobs:
           cargo sort --version
 
           installed_poly_version="$(poly --version | awk '{print $2}')"
-          if [ "$installed_poly_version" != "0.31.2" ]; then
-            echo "::error::expected poly 0.31.2 (pinned for the poly.toml added-large-files hook), got ${installed_poly_version:-<empty>}. Update the Goldziher/poly version: input above together with this check." >&2
+          if [ "$installed_poly_version" != "0.32.1" ]; then
+            echo "::error::expected poly 0.32.1 (pinned for the poly.toml added-large-files hook), got ${installed_poly_version:-<empty>}. Update the Goldziher/poly version: input above together with this check." >&2
             exit 1
           fi
           echo "poly ${installed_poly_version} matches the pinned version."

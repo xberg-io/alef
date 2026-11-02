@@ -355,7 +355,7 @@ pub(super) fn gen_go_file(
                 unit_enum_names,
                 passthrough_enum_names,
                 data_enum_names,
-                struct_names,
+                (struct_names, &api.types, &api.enums),
                 &active_trait_bridges,
             ));
             body.push_str("\n\n");
@@ -550,6 +550,9 @@ pub(super) fn gen_go_file(
     let mut imports = vec!["fmt"];
     if needs_json {
         imports.push("encoding/json");
+    }
+    if body_uses_qualified_name(&body, "bytes.") {
+        imports.push("bytes");
     }
     if body_uses_qualified_name(&body, "runtime.") {
         imports.push("runtime");

@@ -1,3 +1,4 @@
+use super::{FamilyInterfaceNames, default_interface_names, interface_name};
 use crate::core::ir::ErrorDef;
 
 use super::shared::{error_base_prefix, variant_display_message};
@@ -180,6 +181,7 @@ pub(crate) fn to_pascal_case(s: &str) -> String {
 /// When `error.methods` is non-empty, the base exception class gains private
 /// final fields, an extended constructor, and public getter methods for each
 /// whitelisted introspection method.  Variant classes delegate via `super(…)`.
+///
 pub fn gen_java_error_types(error: &ErrorDef, package: &str, main_class: &str) -> Vec<(String, String)> {
     gen_java_error_types_with_parent(error, package, main_class, None)
 }
@@ -189,6 +191,44 @@ pub fn gen_java_error_types_with_parent(
     package: &str,
     main_class: &str,
     parent: Option<&str>,
+) -> Vec<(String, String)> {
+    gen_java_error_types_with_interfaces(
+        error,
+        std::slice::from_ref(error),
+        package,
+        main_class,
+        parent,
+        &FamilyInterfaceNames::new(),
+    )
+}
+
+pub fn gen_java_error_types_with_errors(
+    error: &ErrorDef,
+    errors: &[ErrorDef],
+    package: &str,
+    main_class: &str,
+) -> Vec<(String, String)> {
+    gen_java_error_types_with_parent_and_errors(error, errors, package, main_class, None)
+}
+
+pub fn gen_java_error_types_with_parent_and_errors(
+    error: &ErrorDef,
+    errors: &[ErrorDef],
+    package: &str,
+    main_class: &str,
+    parent: Option<&str>,
+) -> Vec<(String, String)> {
+    let names = default_interface_names(errors, family_interface_type_name);
+    gen_java_error_types_with_interfaces(error, errors, package, main_class, parent, &names)
+}
+
+pub(crate) fn gen_java_error_types_with_interfaces(
+    error: &ErrorDef,
+    errors: &[ErrorDef],
+    package: &str,
+    main_class: &str,
+    parent: Option<&str>,
+    names: &FamilyInterfaceNames,
 ) -> Vec<(String, String)> {
     let mut files = Vec::with_capacity(error.variants.len() + 1);
 
@@ -224,6 +264,7 @@ pub fn gen_java_error_types_with_parent(
             base_name => base_name.as_str(),
             main_class => main_class,
             base_parent => parent.map(|parent| format!("{parent}Exception")).unwrap_or_else(|| format!("{main_class}Exception")),
+            interfaces => names.get(&error.name).cloned().into_iter().collect::<Vec<_>>(),
             doc => !error.doc.is_empty(),
             doc_lines => doc_lines,
             methods => method_infos.clone(),
@@ -244,16 +285,136 @@ pub fn gen_java_error_types_with_parent(
                 package => package,
                 class_name => class_name.as_str(),
                 base_name => base_name.as_str(),
+                interfaces => shared_family_interfaces(errors, error, variant, names),
                 doc => !variant.doc.is_empty(),
                 doc_lines => doc_lines,
                 has_methods => has_methods,
                 methods => method_infos.clone(),
+                extra_methods => shared_extra_methods(errors, &class_name)
+                    .iter()
+                    .map(|m| serde_json::json!({
+                        "java_type": java_boxed_type(typeref_to_java_type(&m.return_type)),
+                        "field_name": java_field_name(&m.name),
+                        "getter_name": java_getter_name(&m.name),
+                    }))
+                    .collect::<Vec<_>>(),
             },
         );
         files.push((class_name, content));
     }
 
     files
+}
+
+/// The introspection methods a shared C# or Java variant class carries beyond those its base
+/// family declares or inherits: the other declaring families' methods, nullable on the class because the
+/// families without them leave them unset.
+pub(crate) fn shared_extra_methods(errors: &[ErrorDef], class: &str) -> Vec<crate::core::ir::MethodDef> {
+    let shared = super::shared_exception_classes(errors, super::ExceptionNaming::Nominal);
+    let Some(members) = shared.get(class) else {
+        return Vec::new();
+    };
+    let inherited = super::lineage_methods(errors, &members.families[0]);
+    super::shared_introspection(errors, class, members)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(method, _)| method)
+        .filter(|method| inherited.iter().all(|own| own.name != method.name))
+        .collect()
+}
+
+/// The boxed Java type of `java_type`, so a shared class can hold `null` for a family that lacks
+/// the value.
+pub(crate) fn java_boxed_type(java_type: &str) -> &str {
+    match java_type {
+        "int" => "Integer",
+        "long" => "Long",
+        "boolean" => "Boolean",
+        "float" => "Float",
+        "double" => "Double",
+        other => other,
+    }
+}
+
+/// The C# and Java marker interface of `family`: `I{family}`, the prefix both backends give the
+/// interfaces they generate.
+pub fn family_interface_type_name(family: &str) -> String {
+    format!("I{family}")
+}
+
+/// The marker interfaces of the other families a shared variant class also belongs to.
+fn shared_family_interfaces(
+    errors: &[ErrorDef],
+    error: &ErrorDef,
+    variant: &crate::core::ir::ErrorVariant,
+    names: &FamilyInterfaceNames,
+) -> Vec<String> {
+    super::additional_exception_families(errors, &error.name, &variant.name, super::ExceptionNaming::Nominal)
+        .iter()
+        .map(|family| interface_name(names, family))
+        .collect()
+}
+
+/// `(type name, file content)` of the C# marker interface of `family`, which extends the
+/// interface of its `exception_base` parent.
+pub fn gen_csharp_family_interface(family: &str, parent: Option<&str>, namespace: &str) -> (String, String) {
+    let mut names = FamilyInterfaceNames::new();
+    names.insert(family.into(), family_interface_type_name(family));
+    if let Some(parent) = parent {
+        names.insert(parent.into(), family_interface_type_name(parent));
+    }
+    gen_csharp_family_interface_with_names(family, parent, namespace, &names)
+}
+
+pub(crate) fn gen_csharp_family_interface_with_names(
+    family: &str,
+    parent: Option<&str>,
+    namespace: &str,
+    names: &FamilyInterfaceNames,
+) -> (String, String) {
+    let name = interface_name(names, family);
+    let extends = parent
+        .map(|parent| format!(" : {}", interface_name(names, parent)))
+        .unwrap_or_default();
+    let content = format!(
+        "// This file is auto-generated by alef. DO NOT EDIT.\n\nnamespace {namespace};\n\n/// <summary>\n\
+         /// Implemented by every exception of the <c>{family}</c> family, including a variant exception it\n\
+         /// shares with another family and so does not derive from. C# catches only exception types, so\n\
+         /// filter on it: <c>catch (Exception e) when (e is {name})</c>.\n/// </summary>\n\
+         public interface {name}{extends}\n{{\n}}\n"
+    );
+    (name, content)
+}
+
+/// `(type name, file content)` of the Java marker interface of `family`, which extends the
+/// interface of its `exception_base` parent.
+pub fn gen_java_family_interface(family: &str, parent: Option<&str>, package: &str) -> (String, String) {
+    let mut names = FamilyInterfaceNames::new();
+    names.insert(family.into(), family_interface_type_name(family));
+    if let Some(parent) = parent {
+        names.insert(parent.into(), family_interface_type_name(parent));
+    }
+    gen_java_family_interface_with_names(family, parent, package, &names)
+}
+
+pub(crate) fn gen_java_family_interface_with_names(
+    family: &str,
+    parent: Option<&str>,
+    package: &str,
+    names: &FamilyInterfaceNames,
+) -> (String, String) {
+    let name = interface_name(names, family);
+    let extends = parent
+        .map(|parent| format!(" extends {}", interface_name(names, parent)))
+        .unwrap_or_default();
+    let content = format!(
+        "// DO NOT EDIT - auto-generated by alef\npackage {package};\n\n/**\n\
+         \x20* Implemented by every exception of the {{@code {family}}} family, including a variant exception\n\
+         \x20* it shares with another family and so does not extend. Java catches only exception types, so\n\
+         \x20* test for it: {{@code catch (Exception e) {{ if (e instanceof {name}) ... }}}}.\n */\n\
+         public interface {name}{extends} {{}}\n"
+    );
+    (name, content)
 }
 
 /// Map an IR `TypeRef` to a Java type string for error introspection getters.
@@ -349,11 +510,41 @@ pub(crate) fn java_default_value(ty: &crate::core::ir::TypeRef) -> &'static str 
 /// When `error.methods` is non-empty, the base exception class gains get-only
 /// properties for each whitelisted introspection method.  Variant classes
 /// delegate via `base(…)` and inherit the properties.
+///
 pub fn gen_csharp_error_types(
     error: &ErrorDef,
     namespace: &str,
     fallback_class: Option<&str>,
     last_error_getters: &[super::LastErrorField],
+) -> Vec<(String, String)> {
+    gen_csharp_error_types_with_interfaces(
+        error,
+        std::slice::from_ref(error),
+        namespace,
+        fallback_class,
+        last_error_getters,
+        &FamilyInterfaceNames::new(),
+    )
+}
+
+pub fn gen_csharp_error_types_with_errors(
+    error: &ErrorDef,
+    errors: &[ErrorDef],
+    namespace: &str,
+    fallback_class: Option<&str>,
+    last_error_getters: &[super::LastErrorField],
+) -> Vec<(String, String)> {
+    let names = default_interface_names(errors, family_interface_type_name);
+    gen_csharp_error_types_with_interfaces(error, errors, namespace, fallback_class, last_error_getters, &names)
+}
+
+pub(crate) fn gen_csharp_error_types_with_interfaces(
+    error: &ErrorDef,
+    errors: &[ErrorDef],
+    namespace: &str,
+    fallback_class: Option<&str>,
+    last_error_getters: &[super::LastErrorField],
+    names: &FamilyInterfaceNames,
 ) -> Vec<(String, String)> {
     let mut files = Vec::with_capacity(error.variants.len() + 1);
 
@@ -408,6 +599,7 @@ pub fn gen_csharp_error_types(
                 namespace => namespace,
                 base_name => base_name.as_str(),
                 base_parent => base_parent,
+                interfaces => names.get(&error.name).cloned().into_iter().collect::<Vec<_>>(),
                 doc => error_has_doc,
                 doc_lines => error_doc_lines,
                 methods => method_infos,
@@ -435,15 +627,75 @@ pub fn gen_csharp_error_types(
                 namespace => namespace,
                 class_name => class_name.as_str(),
                 base_name => base_name.as_str(),
+                interfaces => shared_family_interfaces(errors, error, variant, names),
                 doc => variant_has_doc,
                 doc_lines => variant_doc_lines,
                 has_methods => has_methods,
+                extra_methods => csharp_extra_methods(errors, &class_name, last_error_getters),
+                hides_apply => csharp_owner_applies_last_error(errors, &class_name, last_error_getters),
             },
         );
         files.push((class_name, out));
     }
 
     files
+}
+
+/// The nullable properties a shared C# variant class declares for the introspection methods only
+/// its other families have, with the `ApplyLastError` statements that fill them.
+///
+/// The native last-error getters report a slot the raising error lacks as 0, an empty string or
+/// -1, never as absent, so each assignment runs only for the native codes of the variants whose
+/// family reports the value. When a raising variant has no stable `error_code` the family cannot
+/// be told from the code; the assignment then runs for every code and the property documents the
+/// native default instead of `null`.
+fn csharp_extra_methods(errors: &[ErrorDef], class: &str, getters: &[super::LastErrorField]) -> Vec<serde_json::Value> {
+    let raisers: Vec<(&ErrorDef, Option<u32>)> = errors
+        .iter()
+        .flat_map(|error| {
+            error
+                .variants
+                .iter()
+                .filter(|variant| format!("{}Exception", variant.name) == class)
+                .map(move |variant| (error, variant.error_code))
+        })
+        .collect();
+    let coded = raisers.iter().all(|(_, code)| code.is_some());
+    shared_extra_methods(errors, class)
+        .iter()
+        .map(|method| {
+            let cs_type = typeref_to_csharp_type(&method.return_type);
+            let prop_name = to_pascal_case(&method.name);
+            let codes: Vec<String> = raisers
+                .iter()
+                .filter(|(error, _)| {
+                    super::lineage_methods(errors, &error.name)
+                        .iter()
+                        .any(|own| own.name == method.name)
+                })
+                .filter_map(|(_, code)| code.map(|code| format!("Code == {code}")))
+                .collect();
+            serde_json::json!({
+                "cs_type": if cs_type.ends_with('?') { cs_type.to_string() } else { format!("{cs_type}?") },
+                "prop_name": prop_name,
+                "apply_lines": csharp_last_error_apply_lines(method, &prop_name, getters),
+                "condition": if coded { codes.join(" || ") } else { String::new() },
+            })
+        })
+        .collect()
+}
+
+/// Whether the base family of the shared class `class`, or a family it inherits from, has an
+/// `ApplyLastError`, which the class's method for its additional properties then hides.
+fn csharp_owner_applies_last_error(errors: &[ErrorDef], class: &str, getters: &[super::LastErrorField]) -> bool {
+    super::shared_exception_classes(errors, super::ExceptionNaming::Nominal)
+        .get(class)
+        .and_then(|members| errors.iter().find(|error| error.name == members.families[0]))
+        .is_some_and(|owner| {
+            super::lineage_methods(errors, &owner.name)
+                .iter()
+                .any(|m| csharp_last_error_getter(m, getters).is_some())
+        })
 }
 
 /// Map an IR `TypeRef` to a C# type string for error introspection properties.
@@ -588,5 +840,14 @@ pub(crate) fn csharp_error_bases_with_last_error_fields(
                 .any(|m| csharp_last_error_getter(m, getters).is_some())
         })
         .map(|error| format!("{}Exception", error.name))
+        .chain(
+            super::shared_exception_classes(errors, super::ExceptionNaming::Nominal)
+                .into_keys()
+                .filter(|class| {
+                    shared_extra_methods(errors, class)
+                        .iter()
+                        .any(|m| csharp_last_error_getter(m, getters).is_some())
+                }),
+        )
         .collect()
 }

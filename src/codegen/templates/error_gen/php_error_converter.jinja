@@ -5,11 +5,11 @@ fn {{ fn_name }}(e: {{ rust_path }}) -> ext_php_rs::exception::PhpException {
     #[allow(unreachable_patterns)]
     let value = match &e {
 {% for variant in variants %}        {{ variant.pattern }} => ext_php_rs::convert::IntoZval::into_zval({{ variant.class_name }} {
-{% for field in variant.fields %}            {{ field.name }}: {{ field.value }},
-{% endfor %}{% for field in variant.info %}            info_{{ field.name }}: {{ field.value }},
+{% for value in variant.values %}            {{ value[0] }}: {{ value[1] }},
+{% endfor %}{% for field in variant.info %}            info_{{ field[0] }}: {{ field[1] }},
 {% endfor %}        }, false),
 {% endfor %}        _ => ext_php_rs::convert::IntoZval::into_zval({% if info %}{{ base_class }} {
-{% for field in info %}            info_{{ field.name }}: {{ field.value }},
+{% for field in info %}            info_{{ field[0] }}: {{ field[1] }},
 {% endfor %}        }{% else %}{{ base_class }}::default(){% endif %}, false),
     };
     let exception = ext_php_rs::exception::PhpException::from_class::<{{ base_class }}>(msg.clone());

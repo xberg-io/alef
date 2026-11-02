@@ -6,7 +6,9 @@
 
 use super::php::{classes, error_info};
 use super::shared::{error_variant_wildcard_pattern, python_exception_name, to_snake_case};
+use super::{ExceptionNaming, exception_lineage, shared_exception_classes};
 use crate::core::ir::{ApiSurface, ErrorDef};
+use std::collections::HashSet;
 
 fn rust_path_of(error: &ErrorDef, core_import: &str) -> String {
     if error.rust_path.is_empty() {
@@ -19,16 +21,20 @@ fn rust_path_of(error: &ErrorDef, core_import: &str) -> String {
 /// `ruby_init` statements that define the exception classes and their attribute readers.
 pub fn gen_magnus_error_class_registrations(api: &ApiSurface) -> anyhow::Result<Vec<String>> {
     let mut lines = Vec::new();
-    for class in classes(api, "", None)? {
+    let classes = classes(api, "", None)?;
+    let parents: HashSet<_> = classes.iter().filter_map(|class| class.parent.as_deref()).collect();
+    for class in &classes {
         let var = format!("{}_class", to_snake_case(&class.name));
         let parent = match &class.parent {
             Some(parent) => format!("{}_class", to_snake_case(parent)),
             None => "ruby.exception_standard_error()".to_string(),
         };
-        lines.push(format!(
-            "    let {var} = module.define_error(\"{}\", {parent})?;",
-            class.name
-        ));
+        let registration = format!("module.define_error(\"{}\", {parent})?", class.name);
+        if class.info.is_empty() && !parents.contains(class.name.as_str()) {
+            lines.push(format!("    {registration};"));
+        } else {
+            lines.push(format!("    let {var} = {registration};"));
+        }
         for field in &class.info {
             lines.push(format!(
                 "    {var}.define_attr(\"{}\", magnus::Attr::Read)?;",
@@ -39,7 +45,46 @@ pub fn gen_magnus_error_class_registrations(api: &ApiSurface) -> anyhow::Result<
             }
         }
     }
+    let shared = shared_exception_classes(&api.errors, ExceptionNaming::Python);
+    // Every family gets a module, parents first since a family's module includes its parent's.
+    let mut families: Vec<Vec<String>> = api
+        .errors
+        .iter()
+        .map(|error| exception_lineage(&api.errors, &error.name))
+        .collect();
+    families.sort_by_key(Vec::len);
+    for lineage in &families {
+        lines.push(format!(
+            "    module.funcall::<_, _, magnus::Value>(\"module_eval\", ({:?},))?;",
+            ruby_family_module(&lineage[0], lineage.get(1).map(String::as_str))
+        ));
+    }
+    for (class, members) in &shared {
+        for family in members.families.iter().skip(1) {
+            lines.push(format!(
+                "    module.funcall::<_, _, magnus::Value>(\"module_eval\", ({:?},))?;",
+                format!("{class}.include({family}::Family)")
+            ));
+        }
+    }
     Ok(lines)
+}
+
+/// Ruby source, evaluated inside the binding's module, that gives `family` a `Family` module its
+/// classes include, and makes `rescue SchemaError` also match a variant class the family shares
+/// with another family and so does not extend. The `===` override applies to the family class
+/// itself only, so rescuing one of its variant subclasses keeps matching that subclass alone.
+/// The module includes the `exception_base` parent's, so a shared class joining `SchemaError` is
+/// also a `RootError::Family`, and `rescue RootError` matches it.
+fn ruby_family_module(family: &str, parent: Option<&str>) -> String {
+    let module = parent.map_or_else(
+        || "module Family; end".to_string(),
+        |parent| format!("module Family; include {parent}::Family; end"),
+    );
+    format!(
+        "class {family}\n  {module}\n  include Family\n  def self.===(other)\n    \
+         super || (equal?({family}) && Family === other)\n  end\nend"
+    )
 }
 
 /// Generate a converter function that maps a core error to a typed Ruby exception.

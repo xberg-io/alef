@@ -14,6 +14,8 @@ mod native_methods;
 mod php_attributes;
 #[path = "tests/python_attributes.rs"]
 mod python_attributes;
+#[path = "tests/shared_classes.rs"]
+mod shared_classes;
 
 /// Helper to create a tuple-style field (e.g. `_0: String`).
 fn tuple_field(index: usize) -> FieldDef {
@@ -687,6 +689,10 @@ fn test_gen_java_error_types_with_methods() {
     assert_eq!(files.len(), 1);
     let base = &files[0].1;
     assert!(
+        !base.contains("implements "),
+        "legacy helpers emit no interface files: {base}"
+    );
+    assert!(
         base.contains("extends SampleAppException {"),
         "base exception must extend the method exception: {base}"
     );
@@ -729,6 +735,10 @@ fn test_gen_java_error_types_no_methods() {
     let error = sample_error();
     let files = gen_java_error_types(&error, "dev.sample_crate.test", "Sample");
     let base = &files[0].1;
+    assert!(
+        !base.contains("implements "),
+        "legacy helpers emit no interface files: {base}"
+    );
     assert!(!base.contains("private final"), "no fields when no methods: {base}");
     assert!(
         base.contains("extends SampleException {"),

@@ -15,7 +15,7 @@
 {% endif %}
         return {{ exception_class }}.withNativeCode(switch (errCode) {
 {% for c in cases %}
-            case {{ c.code }} -> new {{ c.class_name }}(msg{{ c.args }});
+            case {{ c.code }} -> {% if c.factory %}{{ c.class_name }}.withIntrospection{% else %}new {{ c.class_name }}{% endif %}(msg{{ c.args }});
 {% endfor %}
             default -> new {{ exception_class }}(errCode, msg);
         }, errCode);

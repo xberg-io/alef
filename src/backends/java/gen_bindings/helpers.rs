@@ -320,6 +320,7 @@ pub(crate) fn gen_infrastructure_exception_class(
     class_name: &str,
     code: i32,
     doc: &str,
+    family_interface: Option<&str>,
 ) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     crate::backends::java::template_env::render(
@@ -331,6 +332,7 @@ pub(crate) fn gen_infrastructure_exception_class(
             main_class => main_class,
             code => code,
             doc => doc,
+            family_interface => family_interface,
         },
     )
 }

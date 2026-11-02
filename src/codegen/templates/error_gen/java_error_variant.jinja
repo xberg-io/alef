@@ -10,23 +10,56 @@ package {{ package }};
 {% else %}
 /** Exception for {{ class_name }}. */
 {% endif %}
-public class {{ class_name }} extends {{ base_name }} {
+public class {{ class_name }} extends {{ base_name }}{{ (" implements " ~ interfaces | join(", ")) if interfaces else "" }} {
   private static final long serialVersionUID = 1L;
+{% for m in extra_methods %}
+
+  /** {{ m.field_name }}, {@code null} when the family that raised this exception has none. */
+  private final {{ m.java_type }} {{ m.field_name }};
+{% endfor %}
 
   /** Creates a new {{ class_name }} with the given message. */
   public {{ class_name }}(final String message) {
     super(message);
+{% for m in extra_methods %}
+    this.{{ m.field_name }} = null;
+{% endfor %}
   }
 
   /** Creates a new {{ class_name }} with the given message and cause. */
   public {{ class_name }}(final String message, final Throwable cause) {
     super(message, cause);
+{% for m in extra_methods %}
+    this.{{ m.field_name }} = null;
+{% endfor %}
   }
 {% if has_methods %}
 
   /** Creates a new {{ class_name }} with the given message and the native error's introspection values. */
   public {{ class_name }}(final String message{% for m in methods %}, final {{ m.java_type }} {{ m.field_name }}{% endfor %}) {
     super(message{% for m in methods %}, {{ m.field_name }}{% endfor %});
+{% for m in extra_methods %}
+    this.{{ m.field_name }} = null;
+{% endfor %}
   }
+{% endif %}
+{% if extra_methods %}
+
+  /** Creates a new {{ class_name }} with the given message and every raising family's introspection values. */
+  public static {{ class_name }} withIntrospection(final String message{% for m in methods %}, final {{ m.java_type }} {{ m.field_name }}{% endfor %}{% for m in extra_methods %}, final {{ m.java_type }} {{ m.field_name }}{% endfor %}) {
+    return new {{ class_name }}(true, message{% for m in methods %}, {{ m.field_name }}{% endfor %}{% for m in extra_methods %}, {{ m.field_name }}{% endfor %});
+  }
+
+  private {{ class_name }}(final boolean __alefSharedPayload, final String message{% for m in methods %}, final {{ m.java_type }} {{ m.field_name }}{% endfor %}{% for m in extra_methods %}, final {{ m.java_type }} {{ m.field_name }}{% endfor %}) {
+    super(message{% for m in methods %}, {{ m.field_name }}{% endfor %});
+{% for m in extra_methods %}
+    this.{{ m.field_name }} = {{ m.field_name }};
+{% endfor %}
+  }
+{% for m in extra_methods %}
+
+  /** Returns the {{ m.field_name }}, or {@code null} when the family that raised this exception has none. */
+  public {{ m.java_type }} {{ m.getter_name }}() { return this.{{ m.field_name }}; }
+{% endfor %}
 {% endif %}
 }

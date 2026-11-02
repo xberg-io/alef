@@ -1,14 +1,16 @@
 use super::shared::{error_variant_wildcard_pattern, millis_expr, millis_type, python_exception_name, to_snake_case};
-use super::{ExceptionNaming, LastErrorFieldKind, exception_families, last_error_field_kind};
+use super::{
+    ExceptionNaming, LastErrorFieldKind, additional_exception_families, exception_families, last_error_field_kind,
+    same_exception_lineage,
+};
 use crate::codegen::naming::{internal_rust_identifier, public_field_name};
 use crate::core::config::Language;
 use crate::core::ir::{ApiSurface, CoreWrapper, ErrorDef, ErrorVariant, PrimitiveType, TypeRef};
 use std::collections::{BTreeMap, HashSet};
 
 type PayloadLayout = BTreeMap<String, (String, String, String)>;
-type ClassLayouts = BTreeMap<String, (String, PayloadLayout)>;
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Clone)]
 struct PayloadField {
     name: String,
     php_name: String,
@@ -43,6 +45,25 @@ pub(super) struct ExceptionClass {
     pub(super) info: Vec<InfoField>,
     /// True for the project-level root class, which extends PHP's `RuntimeException`.
     root: bool,
+    /// The family marker interfaces this class implements beyond those its parent brings.
+    interfaces: Vec<String>,
+}
+
+/// The marker interface of one error family. Every class of the family implements it, so
+/// `catch (SchemaErrorInterface $e)` covers each of the family's variants, including a variant
+/// class it shares with another family and therefore does not extend.
+#[derive(serde::Serialize)]
+pub(super) struct FamilyInterface {
+    family: String,
+    name: String,
+    php_name_literal: String,
+    /// The interface of the family's `exception_base` parent, which this one extends.
+    parent: Option<String>,
+}
+
+/// The PHP name of `family`'s marker interface.
+pub(super) fn family_interface_name(family: &str) -> String {
+    format!("{family}Interface")
 }
 
 fn info_field(method: &crate::core::ir::MethodDef) -> Option<InfoField> {
@@ -182,53 +203,235 @@ fn payload_fields(variant: &ErrorVariant) -> Vec<PayloadField> {
         .collect()
 }
 
-fn record_payload_layout(
-    layouts: &mut ClassLayouts,
-    class: &str,
-    owner: String,
-    fields: Vec<PayloadField>,
-) -> anyhow::Result<()> {
-    let layout = fields
-        .into_iter()
-        .map(|field| (field.name, (field.php_name, field.rust_type, field.php_type)))
-        .collect::<PayloadLayout>();
-    if let Some((previous_owner, previous_layout)) = layouts.get(class) {
-        anyhow::ensure!(
-            previous_layout == &layout,
-            "incompatible PHP payload layouts for {}: {} has {:?}; {} has {:?}",
-            class,
-            previous_owner,
-            previous_layout,
-            owner,
-            layout
-        );
-    } else {
-        layouts.insert(class.into(), (owner, layout));
-    }
-    Ok(())
+/// One variant that maps to a class: its family, the variant and its payload fields.
+type Declaration<'a> = (&'a ErrorDef, &'a ErrorVariant, Vec<PayloadField>);
+
+fn layout_of(fields: &[PayloadField]) -> PayloadLayout {
+    fields
+        .iter()
+        .map(|field| {
+            (
+                field.name.clone(),
+                (field.php_name.clone(), field.rust_type.clone(), field.php_type.clone()),
+            )
+        })
+        .collect()
 }
 
-fn validate_payload_layouts(api: &ApiSurface) -> anyhow::Result<()> {
-    let mut layouts = ClassLayouts::new();
-    for error in &api.errors {
-        record_payload_layout(&mut layouts, &error.name, error.name.clone(), Vec::new())?;
+fn optional(mut field: PayloadField) -> PayloadField {
+    if !field.php_type.starts_with('?') {
+        field.rust_type = format!("Option<{}>", field.rust_type);
+        field.php_type = format!("?{}", field.php_type);
     }
-    for error in &api.errors {
+    field
+}
+
+/// The payload fields of every variant class, by class name.
+///
+/// A class shared by unrelated families carries the union of their fields; a field some family
+/// lacks becomes nullable, and a field two families declare with different types is rejected.
+/// Families of one `exception_base` lineage, and a variant named like an error class, must agree
+/// exactly, as one class has always served them.
+fn payload_layouts(errors: &[ErrorDef]) -> anyhow::Result<BTreeMap<String, Vec<PayloadField>>> {
+    let mut declarations: BTreeMap<String, Vec<Declaration<'_>>> = BTreeMap::new();
+    for error in errors {
         for variant in &error.variants {
-            record_payload_layout(
-                &mut layouts,
-                &python_exception_name(&variant.name, &error.name),
-                format!("{}::{}", error.name, variant.name),
-                payload_fields(variant),
-            )?;
+            declarations
+                .entry(python_exception_name(&variant.name, &error.name))
+                .or_default()
+                .push((error, variant, payload_fields(variant)));
         }
     }
-    Ok(())
+    let mut layouts = BTreeMap::new();
+    for (class, declared) in declarations {
+        let owner = |error: &ErrorDef, variant: &ErrorVariant| format!("{}::{}", error.name, variant.name);
+        if let Some(base) = errors.iter().find(|error| error.name == class) {
+            for (error, variant, fields) in &declared {
+                anyhow::ensure!(
+                    fields.is_empty(),
+                    "incompatible PHP payload layouts for {}: {} has {:?}; {} has {:?}",
+                    class,
+                    base.name,
+                    PayloadLayout::new(),
+                    owner(error, variant),
+                    layout_of(fields)
+                );
+            }
+        }
+        for (index, (error, variant, fields)) in declared.iter().enumerate() {
+            for (other_error, other_variant, other_fields) in &declared[..index] {
+                if same_exception_lineage(errors, &error.name, &other_error.name) {
+                    anyhow::ensure!(
+                        layout_of(fields) == layout_of(other_fields),
+                        "incompatible PHP payload layouts for {}: {} has {:?}; {} has {:?}",
+                        class,
+                        owner(other_error, other_variant),
+                        layout_of(other_fields),
+                        owner(error, variant),
+                        layout_of(fields)
+                    );
+                }
+            }
+        }
+        let mut union: Vec<(PayloadField, String)> = Vec::new();
+        for (error, variant, fields) in &declared {
+            for field in fields {
+                match union.iter().find(|(existing, _)| existing.name == field.name) {
+                    Some((existing, first)) => anyhow::ensure!(
+                        (&existing.php_name, &existing.rust_type, &existing.php_type)
+                            == (&field.php_name, &field.rust_type, &field.php_type),
+                        "incompatible PHP payload field {} of {}: {} has {} {}; {} has {} {}",
+                        field.name,
+                        class,
+                        first,
+                        existing.php_name,
+                        existing.rust_type,
+                        owner(error, variant),
+                        field.php_name,
+                        field.rust_type
+                    ),
+                    None => union.push((field.clone(), owner(error, variant))),
+                }
+            }
+        }
+        let fields = union
+            .into_iter()
+            .map(|(field, _)| {
+                if declared
+                    .iter()
+                    .all(|(_, _, fields)| fields.iter().any(|declared| declared.name == field.name))
+                {
+                    field
+                } else {
+                    optional(field)
+                }
+            })
+            .collect();
+        layouts.insert(class, fields);
+    }
+    Ok(layouts)
+}
+
+/// The introspection fields of every class, by class name.
+///
+/// A class several families raise -- a variant they share, or a family's base class that is also
+/// another family's variant -- carries every one of their introspection values. A family without
+/// one of the methods fills its default rather than `null`: PHP return types are covariant, and
+/// the root exception and the class's parent declare these getters non-nullable, so a nullable
+/// override would not load. One method two of them type differently is rejected.
+fn info_layouts(errors: &[ErrorDef]) -> anyhow::Result<BTreeMap<String, Vec<InfoField>>> {
+    let mut contributors: BTreeMap<String, Vec<&ErrorDef>> = BTreeMap::new();
+    for error in errors {
+        let classes = std::iter::once(error.name.clone()).chain(
+            error
+                .variants
+                .iter()
+                .map(|variant| python_exception_name(&variant.name, &error.name)),
+        );
+        for class in classes {
+            let entry = contributors.entry(class).or_default();
+            if !entry.iter().any(|existing| existing.name == error.name) {
+                entry.push(error);
+            }
+        }
+    }
+    let mut layouts = BTreeMap::new();
+    for (class, families) in contributors {
+        let per_family: Vec<(&ErrorDef, Vec<InfoField>)> =
+            families.iter().map(|error| (*error, error_info(error))).collect();
+        let mut union: Vec<(InfoField, &str)> = Vec::new();
+        for (error, fields) in &per_family {
+            for field in fields {
+                match union.iter().find(|(existing, _)| existing.name == field.name) {
+                    Some((existing, first)) => anyhow::ensure!(
+                        existing.rust_type == field.rust_type,
+                        "incompatible PHP introspection {} of {class}: {first} returns {}; {} returns {}",
+                        field.name,
+                        existing.rust_type,
+                        error.name,
+                        field.rust_type
+                    ),
+                    None => union.push((field.clone(), &error.name)),
+                }
+            }
+        }
+        let fields = union
+            .into_iter()
+            .map(|(mut field, _)| {
+                let everywhere = per_family
+                    .iter()
+                    .all(|(_, fields)| fields.iter().any(|declared| declared.name == field.name));
+                if !everywhere {
+                    field.doc.push_str(
+                        " The type's default (0, '' or false) when the family that raised it has no such value.",
+                    );
+                }
+                field
+            })
+            .collect();
+        layouts.insert(class, fields);
+    }
+    Ok(layouts)
+}
+
+/// `(field, value)` for every introspection field of a class one family raises: the family's own
+/// values, and the type's default for the values only other families report.
+fn info_values(own: &[InfoField], class_fields: Option<&Vec<InfoField>>) -> Vec<(String, String)> {
+    let Some(class_fields) = class_fields else {
+        return own
+            .iter()
+            .map(|field| (field.name.clone(), field.value.clone()))
+            .collect();
+    };
+    class_fields
+        .iter()
+        .map(|class_field| {
+            let value = own
+                .iter()
+                .find(|field| field.name == class_field.name)
+                .map_or_else(|| "Default::default()".to_string(), |field| field.value.clone());
+            (class_field.name.clone(), value)
+        })
+        .collect()
+}
+
+fn allocated_interfaces(api: &ApiSurface, root: Option<&str>) -> super::FamilyInterfaceNames {
+    let mut reserved = root.into_iter().map(str::to_string).collect::<Vec<_>>();
+    if let Some(companion_name) = root.and_then(|root| root.strip_prefix("Interface")) {
+        reserved.push(companion_name.into());
+    }
+    super::family_interface_names_with_reserved(api, family_interface_name, Language::Php, &reserved)
+}
+
+/// The marker interface of every error family, parents before children.
+pub(super) fn family_interfaces(
+    api: &ApiSurface,
+    namespace: &str,
+    root: Option<&str>,
+) -> anyhow::Result<Vec<FamilyInterface>> {
+    let names = allocated_interfaces(api, root);
+    Ok(exception_families(api, ExceptionNaming::Python)?
+        .into_iter()
+        .map(|family| {
+            let name = super::interface_name(&names, &family.error.name);
+            FamilyInterface {
+                family: family.error.name.clone(),
+                php_name_literal: format!("{:?}", format!("{namespace}\\{name}")),
+                name,
+                parent: family
+                    .parent
+                    .as_deref()
+                    .map(|parent| super::interface_name(&names, parent)),
+            }
+        })
+        .collect())
 }
 
 pub(super) fn classes(api: &ApiSurface, namespace: &str, root: Option<&str>) -> anyhow::Result<Vec<ExceptionClass>> {
     let families = exception_families(api, ExceptionNaming::Python)?;
-    validate_payload_layouts(api)?;
+    let names = allocated_interfaces(api, root);
+    let mut layouts = payload_layouts(&api.errors)?;
+    let info_layouts = info_layouts(&api.errors)?;
     // A root named like an error of the API would be two classes with one name.
     let root = root.filter(|name| !api.errors.is_empty() && api.errors.iter().all(|error| error.name != *name));
     let mut seen = HashSet::new();
@@ -243,35 +446,51 @@ pub(super) fn classes(api: &ApiSurface, namespace: &str, root: Option<&str>) -> 
             fields: Vec::new(),
             info: root_info(api),
             root: true,
+            interfaces: Vec::new(),
         });
     }
     for family in families {
         let error = family.error;
         let info = error_info(&error);
-        let mut add = |name: String, parent: Option<String>, fields: Vec<PayloadField>| {
+        let mut add = |name: String, parent: Option<String>, fields: Vec<PayloadField>, interfaces: Vec<String>| {
             if seen.insert(name.clone()) {
+                let info = info_layouts.get(&name).cloned().unwrap_or_else(|| info.clone());
                 classes.push(ExceptionClass {
                     rust_name: format!("Php{name}"),
                     php_name_literal: format!("{:?}", format!("{namespace}\\{name}")),
                     name,
                     parent,
                     fields,
-                    info: info.clone(),
+                    info,
                     root: false,
+                    interfaces,
                 });
+            } else if let Some(class) = classes.iter_mut().find(|class| class.name == name) {
+                // A family's base class can be another family's variant class (`AppError::GraphQL`
+                // is `GraphQLError`); the class declared first must still carry this family's
+                // marker interface. ~keep
+                for interface in interfaces {
+                    if !class.interfaces.contains(&interface) {
+                        class.interfaces.push(interface);
+                    }
+                }
             }
         };
         add(
             error.name.clone(),
             family.parent.or_else(|| root.map(str::to_string)),
             Vec::new(),
+            vec![super::interface_name(&names, &error.name)],
         );
         for variant in &error.variants {
-            add(
-                python_exception_name(&variant.name, &error.name),
-                Some(error.name.clone()),
-                payload_fields(variant),
-            );
+            let name = python_exception_name(&variant.name, &error.name);
+            let fields = layouts.remove(&name).unwrap_or_default();
+            let interfaces =
+                additional_exception_families(&api.errors, &error.name, &variant.name, ExceptionNaming::Python)
+                    .iter()
+                    .map(|family| super::interface_name(&names, family))
+                    .collect();
+            add(name, Some(error.name.clone()), fields, interfaces);
         }
     }
     Ok(classes)
@@ -281,15 +500,33 @@ pub(super) fn classes(api: &ApiSurface, namespace: &str, root: Option<&str>) -> 
 pub fn gen_php_error_types(api: &ApiSurface, namespace: &str, root: Option<&str>) -> anyhow::Result<String> {
     Ok(crate::codegen::template_env::render(
         "error_gen/php_error_types.jinja",
-        crate::alef_context! { classes => classes(api, namespace, root)? },
+        crate::alef_context! {
+            classes => classes(api, namespace, root)?,
+            interfaces => family_interfaces(api, namespace, root)?,
+        },
     ))
 }
 
 pub fn gen_php_error_stubs(api: &ApiSurface, root: Option<&str>) -> anyhow::Result<String> {
     Ok(crate::codegen::template_env::render(
         "error_gen/php_error_stubs.jinja",
-        crate::alef_context! { classes => classes(api, "", root)? },
+        crate::alef_context! {
+            classes => classes(api, "", root)?,
+            interfaces => family_interfaces(api, "", root)?,
+        },
     ))
+}
+
+/// The Rust names of the family marker interfaces, which the module registers before any class.
+pub fn php_error_interface_names(api: &ApiSurface) -> anyhow::Result<Vec<String>> {
+    php_error_interface_names_with_root(api, None)
+}
+
+pub fn php_error_interface_names_with_root(api: &ApiSurface, root: Option<&str>) -> anyhow::Result<Vec<String>> {
+    Ok(family_interfaces(api, "", root)?
+        .into_iter()
+        .map(|interface| format!("PhpInterface{}", interface.name))
+        .collect())
 }
 
 pub fn php_error_class_names(api: &ApiSurface, root: Option<&str>) -> anyhow::Result<Vec<String>> {
@@ -323,18 +560,21 @@ pub fn gen_php_error_dispatch(api: &ApiSurface, core_import: &str) -> String {
     )
 }
 
-pub(super) fn gen_converter(error: &ErrorDef, core_import: &str) -> String {
+pub(super) fn gen_converter(error: &ErrorDef, errors: &[ErrorDef], core_import: &str) -> String {
     let rust_path = if error.rust_path.is_empty() {
         format!("{core_import}::{}", error.name)
     } else {
         error.rust_path.replace('-', "_")
     };
     let info = error_info(error);
+    let layouts = payload_layouts(errors).unwrap_or_default();
+    let info_layouts = info_layouts(errors).unwrap_or_default();
     let variants = error
         .variants
         .iter()
         .map(|variant| {
             let fields = payload_fields(variant);
+            let class = python_exception_name(&variant.name, &error.name);
             let pattern = if fields.is_empty() {
                 error_variant_wildcard_pattern(&rust_path, variant)
             } else {
@@ -350,9 +590,9 @@ pub(super) fn gen_converter(error: &ErrorDef, core_import: &str) -> String {
             };
             crate::alef_context! {
                 pattern => pattern,
-                class_name => format!("Php{}", python_exception_name(&variant.name, &error.name)),
-                fields => fields,
-                info => info,
+                values => class_values(&fields, layouts.get(&class)),
+                info => info_values(&info, info_layouts.get(&class)),
+                class_name => format!("Php{class}"),
             }
         })
         .collect::<Vec<_>>();
@@ -362,8 +602,31 @@ pub(super) fn gen_converter(error: &ErrorDef, core_import: &str) -> String {
             rust_path => rust_path,
             fn_name => format!("{}_to_php_err", to_snake_case(&error.name)),
             base_class => format!("Php{}", error.name),
-            info => info,
+            info => info_values(&info, info_layouts.get(&error.name)),
             variants => variants,
         },
     )
+}
+
+/// `(field, value)` for every field of the variant's class: the variant's own values, wrapped in
+/// `Some` where the shared class made the field nullable, and `None` for the fields only other
+/// families declare.
+fn class_values(own: &[PayloadField], class_fields: Option<&Vec<PayloadField>>) -> Vec<(String, String)> {
+    let Some(class_fields) = class_fields else {
+        return own
+            .iter()
+            .map(|field| (field.name.clone(), field.value.clone()))
+            .collect();
+    };
+    class_fields
+        .iter()
+        .map(|class_field| {
+            let value = match own.iter().find(|field| field.name == class_field.name) {
+                Some(field) if field.rust_type == class_field.rust_type => field.value.clone(),
+                Some(field) => format!("Some({})", field.value),
+                None => "None".to_string(),
+            };
+            (class_field.name.clone(), value)
+        })
+        .collect()
 }

@@ -1,5 +1,5 @@
 use alef::codegen::error_gen::{
-    gen_php_error_converter, gen_php_error_stubs, gen_php_error_types, php_error_class_names,
+    gen_php_error_converter_with_errors, gen_php_error_stubs, gen_php_error_types, php_error_class_names,
 };
 use alef::core::ir::{ApiSurface, ErrorDef, ErrorVariant, FieldDef, PrimitiveType, TypeRef};
 
@@ -38,9 +38,9 @@ fn surface(errors: Vec<ErrorDef>) -> ApiSurface {
 }
 
 #[test]
-fn should_reject_incompatible_shared_variant_fields_at_every_class_entrypoint() {
+fn should_reject_shared_variant_fields_with_conflicting_types_at_every_class_entrypoint() {
     let api = surface(vec![
-        error("ErrorA", vec![field("vendor", TypeRef::String)]),
+        error("ErrorA", vec![field("status", TypeRef::String)]),
         error("ErrorB", vec![field("status", TypeRef::Primitive(PrimitiveType::U16))]),
     ]);
     let results = [
@@ -50,13 +50,7 @@ fn should_reject_incompatible_shared_variant_fields_at_every_class_entrypoint() 
     ];
     for result in results {
         let message = result.unwrap_err().to_string();
-        for expected in [
-            "RejectedError",
-            "ErrorA::Rejected",
-            "ErrorB::Rejected",
-            "vendor",
-            "status",
-        ] {
+        for expected in ["RejectedError", "ErrorA::Rejected", "ErrorB::Rejected", "status", "u16"] {
             assert!(message.contains(expected), "{message}");
         }
     }
@@ -141,11 +135,22 @@ fn should_reject_variant_payloads_that_collide_with_a_base_exception_class() {
 }
 
 #[test]
-fn should_reject_unit_and_payload_variants_sharing_one_exception_class() {
+fn should_make_payload_fields_nullable_on_a_class_shared_with_a_unit_variant() {
     let a = error("ErrorA", vec![field("vendor", TypeRef::String)]);
     let mut b = error("ErrorB", vec![]);
     b.variants[0].is_unit = true;
-    assert!(gen_php_error_types(&surface(vec![a, b]), "Sample", None).is_err());
+    let api = surface(vec![a, b]);
+    let types = gen_php_error_types(&api, "Sample", None).unwrap();
+    assert_eq!(types.matches("pub struct PhpRejectedError").count(), 1);
+    assert!(types.contains("pub vendor: Option<String>"), "{types}");
+    assert!(types.contains("#[php(extends(PhpErrorA))]\n#[php(implements(PhpInterfaceErrorBInterface))]"));
+    let unit_converter = gen_php_error_converter_with_errors(&api.errors[1], &api.errors, "sample");
+    assert!(unit_converter.contains("vendor: None,"), "{unit_converter}");
+    let payload_converter = gen_php_error_converter_with_errors(&api.errors[0], &api.errors, "sample");
+    assert!(
+        payload_converter.contains("vendor: Some(ToString::to_string(vendor)),"),
+        "{payload_converter}"
+    );
 }
 
 #[test]
@@ -156,7 +161,7 @@ fn should_omit_cfg_gated_fields_from_native_classes_stubs_and_converter_patterns
     let api = surface(vec![error.clone()]);
     let types = gen_php_error_types(&api, "Sample", None).unwrap();
     let stubs = gen_php_error_stubs(&api, None).unwrap();
-    let converter = gen_php_error_converter(&error, "sample");
+    let converter = gen_php_error_converter_with_errors(&error, std::slice::from_ref(&error), "sample");
     assert!(types.contains("pub reason: String"));
     assert!(!types.contains("pub status:"), "{types}");
     assert!(stubs.contains("$reason"));
@@ -166,4 +171,23 @@ fn should_omit_cfg_gated_fields_from_native_classes_stubs_and_converter_patterns
         "{converter}"
     );
     assert!(!converter.contains("status: *status"), "{converter}");
+}
+
+#[test]
+fn should_give_a_family_base_declared_as_another_family_variant_its_marker_interface() {
+    let mut app = error("AppError", vec![]);
+    app.variants[0].name = "GraphQL".into();
+    app.variants[0].is_unit = true;
+    let mut graphql = error("GraphQLError", vec![]);
+    graphql.variants[0].name = "Parse".into();
+    graphql.variants[0].is_unit = true;
+    let types = gen_php_error_types(&surface(vec![app, graphql]), "Sample", None).unwrap();
+    assert_eq!(types.matches("pub struct PhpGraphQLError {").count(), 1, "{types}");
+    assert!(
+        types.contains(
+            "#[php(extends(PhpAppError))]\n#[php(implements(PhpInterfaceGraphQLErrorInterface))]\n\
+             #[derive(Default)]\npub struct PhpGraphQLError {"
+        ),
+        "{types}"
+    );
 }
