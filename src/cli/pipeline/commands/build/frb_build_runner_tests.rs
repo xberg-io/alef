@@ -16,7 +16,7 @@ fn run_in_isolated_case(name: &str, body: impl FnOnce()) {
     let marker = format!("alef-569-case-completed:{full_name}");
     if std::env::var("ALEF_569_ISOLATED_CASE").ok().as_deref() == Some(full_name.as_str()) {
         body();
-        eprintln!("{marker}");
+        eprintln!("\n{marker}");
         return;
     }
     let logs = tempfile::tempdir().expect("isolated case logs");
@@ -62,6 +62,14 @@ fn run_in_isolated_case(name: &str, body: impl FnOnce()) {
         "the selected case must complete its body exactly once: {stderr}"
     );
     eprintln!("isolated {full_name}: {summary}");
+}
+
+#[test]
+fn should_separate_completion_receipts_from_unterminated_output() {
+    run_in_isolated_case("should_separate_completion_receipts_from_unterminated_output", || {
+        eprint!("unterminated fixture harness output");
+        std::io::stderr().flush().expect("flush unterminated fixture output");
+    });
 }
 
 #[cfg(unix)]

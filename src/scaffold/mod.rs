@@ -163,4 +163,7 @@ fn scaffold_language(
 }
 
 #[cfg(test)]
+mod python311_default_tests;
+
+#[cfg(test)]
 mod tests;

@@ -7,15 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.117.0] - 2026-11-02
+
+### Changed (BREAKING)
+
+- Generated Python packages now require Python 3.11 or newer. Package metadata, classifiers,
+  PyO3/maturin stable ABI flags, type checking and local/registry E2E packages use the same floor.
+  Regenerate owned outputs, rebuild wheels and update runtime matrices; Python 3.10 consumers
+  must retain an older qualified Alef release until migration. See [ADR 0012](adrs/0012-raise-the-generated-python-minimum.md).
+
 ### Changed
 
 - Update locked ureq to 3.5.1 and ureq-proto to 0.7.1 for HTTP connection reuse, transfer encoding,
   cookie and timeout fixes. (#817)
-- Python 3.11 is now the minimum supported version; Python 3.10 reached end of life.
 - Record a [full-corpus snippet metadata benchmark](docs/benchmarks/snippet-metadata-cache.md) with equivalent
   verification outcomes, actual construction counts and a stale-content negative control. (#753)
 
 ### Fixed
+
+- Qualify generated Python E2E calls through their language-specific callable resolver.
+- Frame isolated tool-fixture completion receipts independently of unterminated child output, retaining strict whole-line verification.
 
 - Resolve forward-declared Result aliases before lowering APIs, preserving private modules, foreign
   imports, qualified aliases and glob namespaces without borrowing unrelated errors. Retain explicit

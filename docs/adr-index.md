@@ -20,3 +20,4 @@ log; add a row in the same change as a new record.
 | [0009](../adrs/0009-publish-source-bound-draft-releases-before-public-promotion.md) | Publish source-bound draft releases before public promotion | proposed | 2026-10-31 |
 | [0010](../adrs/0010-represent-rust-u64-losslessly-in-the-next-major-dart-api.md) | Represent Rust u64 losslessly in the next major Dart API | proposed | 2026-10-31 |
 | [0011](../adrs/0011-share-error-variants-without-breaking-existing-client-contracts.md) | Share error variants without breaking existing client contracts | proposed | 2026-11-01 |
+| [0012](../adrs/0012-raise-the-generated-python-minimum.md) | Raise the generated Python minimum | accepted | 2026-11-02 |
