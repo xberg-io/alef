@@ -24,6 +24,8 @@ Migration details and remaining platform qualification are recorded in
 
 ### Fixed
 
+- Avoid constant Dart collection wrappers around nested unsigned defaults that require runtime constructors. (#780)
+
 - Generate exact `BigInt.parse` literals for declared `u64` scalar and nested DTO callers in the next-major
   Dart API, preserving narrower integers and numeric JSON passed through Rust constructors.
   Add a native qualification gate for emitted scalar calls, recursive DTOs and JSON constructor payloads.

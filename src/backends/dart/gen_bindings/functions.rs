@@ -294,7 +294,14 @@ fn render_default_value(
                 Some(values) if matches!(element_ty, TypeRef::Primitive(PrimitiveType::U64)) => {
                     Some(format!("Uint64List.fromList([{}])", values.join(", ")))
                 }
-                Some(values) => Some(format!("const [{}]", values.join(", "))),
+                Some(values) => {
+                    let prefix = if !items.iter().any(|item| default_needs_runtime(element_ty, item)) {
+                        "const "
+                    } else {
+                        ""
+                    };
+                    Some(format!("{prefix}[{}]", values.join(", ")))
+                }
                 None => zero_value_for_type(ty, type_defs, enums),
             }
         }
@@ -312,6 +319,27 @@ fn render_default_value(
         DefaultValue::Unresolved(_) | DefaultValue::TupleVariant(..) | DefaultValue::StructVariant(..) => None,
         DefaultValue::None => Some("null".to_string()),
         DefaultValue::FunctionCall(_) | DefaultValue::PublicFunctionCall(_) => None,
+    }
+}
+
+// A const list also constrains nested BigInt and typed-list constructor calls. ~keep
+fn default_needs_runtime(ty: &TypeRef, default: &DefaultValue) -> bool {
+    match default {
+        DefaultValue::IntLiteral(_) => matches!(ty, TypeRef::Primitive(PrimitiveType::U64)),
+        DefaultValue::ListLiteral(items) => {
+            let element = match ty {
+                TypeRef::Vec(inner) => inner.as_ref(),
+                other => other,
+            };
+            matches!(element, TypeRef::Primitive(PrimitiveType::U64))
+                || items.iter().any(|item| default_needs_runtime(element, item))
+        }
+        DefaultValue::Empty => match ty {
+            TypeRef::Primitive(PrimitiveType::U64) | TypeRef::Bytes => true,
+            TypeRef::Vec(inner) => empty_vec_literal(inner) != "[]",
+            _ => false,
+        },
+        _ => false,
     }
 }
 
