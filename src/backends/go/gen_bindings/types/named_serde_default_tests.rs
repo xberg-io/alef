@@ -17,7 +17,7 @@
 //! file-size cap and must not grow. ~keep
 
 use super::config_options::gen_config_options;
-use super::structs::gen_struct_type;
+use super::structs::{FlattenTypes, gen_struct_type};
 use crate::core::ir::{DefaultValue, FieldDef, PrimitiveType, TypeDef, TypeRef};
 
 fn named_default_field(name: &str, ty: TypeRef, path: &str, typed_default: DefaultValue) -> FieldDef {
@@ -51,6 +51,7 @@ fn emit_struct(typ: &TypeDef) -> String {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &[],
+        &FlattenTypes::default(),
     )
 }
 

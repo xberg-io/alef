@@ -187,6 +187,7 @@ fn test_gen_struct_type_emits_json_tags() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &[],
+        &FlattenTypes::default(),
     );
     assert!(out.contains("type MyConfig struct"));
     assert!(out.contains("json:\"timeout\""));
@@ -306,6 +307,7 @@ fn gen_struct_type_marshal_optional_bytes_field_does_not_dereference() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &[],
+        &FlattenTypes::default(),
     );
     assert!(!out.contains("*v.Data"), "expected no `*v.Data` dereference in:\n{out}");
     assert!(
@@ -408,6 +410,7 @@ fn test_gen_struct_type_emits_no_config_options_by_default() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &[],
+        &FlattenTypes::default(),
     );
     assert!(out.contains("type ContentConfig struct"), "expected struct definition");
     assert!(out.contains("OutputFormat"), "expected OutputFormat field");
@@ -811,6 +814,7 @@ fn gen_struct_type_required_duration_field_is_non_pointer_wire_safe_type() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &[],
+        &FlattenTypes::default(),
     );
     assert!(
         out.contains("Window DurationMillis `json:\"window\"`"),
@@ -837,6 +841,7 @@ fn gen_struct_type_optional_duration_field_with_real_default_is_pointer() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &[],
+        &FlattenTypes::default(),
     );
     assert!(
         out.contains("Window *DurationMillis `json:\"window,omitempty\"`"),
@@ -868,6 +873,7 @@ fn gen_struct_type_required_named_enum_field_in_default_struct_stays_required() 
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &[],
+        &FlattenTypes::default(),
     );
     assert!(
         out.contains("Enforcement Enforcement `json:\"enforcement\"`"),
@@ -907,6 +913,7 @@ fn gen_struct_type_container_serde_default_emits_omitempty_pointers() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &[],
+        &FlattenTypes::default(),
     );
     assert!(
         out.contains("Timeout *uint32 `json:\"timeout,omitempty\"`"),
@@ -938,6 +945,7 @@ fn gen_struct_type_without_container_serde_default_keeps_required_fields_non_poi
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &[],
+        &FlattenTypes::default(),
     );
     assert!(
         out.contains("Timeout uint32 `json:\"timeout\"`"),
@@ -986,6 +994,7 @@ fn gen_struct_type_required_struct_field_becomes_pointer_without_disturbing_requ
         &std::collections::HashSet::new(),
         &struct_names,
         &[],
+        &FlattenTypes::default(),
     );
 
     assert!(
@@ -1038,6 +1047,7 @@ fn gen_struct_type_field_level_serde_default_marks_struct_type_fields_omitempty(
         &std::collections::HashSet::new(),
         &struct_names,
         &[],
+        &FlattenTypes::default(),
     );
 
     assert!(
@@ -1068,6 +1078,7 @@ fn gen_struct_type_container_serde_default_marks_unit_enum_fields_omitempty() {
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &[],
+            &FlattenTypes::default(),
         )
     };
 
@@ -1111,6 +1122,7 @@ fn gen_struct_type_unresolved_default_field_becomes_pointer_omitempty() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &[],
+        &FlattenTypes::default(),
     );
 
     assert!(
@@ -1138,6 +1150,7 @@ fn gen_struct_type_empty_default_field_stays_the_plain_go_zero() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &[],
+        &FlattenTypes::default(),
     );
 
     assert!(
@@ -1776,6 +1789,7 @@ fn gen_struct_type_required_collections_are_never_omitted_and_never_null() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &[],
+        &FlattenTypes::default(),
     );
     assert!(
         out.contains("`json:\"extensions\"`"),
@@ -1822,6 +1836,7 @@ fn gen_struct_type_flattened_field_is_inlined_on_the_wire() {
         &std::collections::HashSet::new(),
         &["OperationPolicy"].into_iter().collect(),
         &[],
+        &FlattenTypes::default(),
     );
     assert!(
         out.contains("Operation *OperationPolicy `json:\"-\"`"),
@@ -1839,5 +1854,242 @@ fn gen_struct_type_flattened_field_is_inlined_on_the_wire() {
         out.contains("func (s *OperationRequest) UnmarshalJSON(data []byte) error")
             && out.contains("json.Unmarshal(data, &s.Operation)"),
         "flattened field decodes from the whole parent object:\n{out}"
+    );
+}
+
+/// A parent's own wire names are reserved on marshal even when `omitempty` dropped the
+/// value, so a flattened map can never supply another field's key; on unmarshal the map's
+/// `rest` starts from every key minus those same declared names.
+#[test]
+fn gen_struct_type_flattened_map_never_receives_owned_keys() {
+    let mut defaulted = simple_field("tags", TypeRef::Vec(Box::new(TypeRef::String)));
+    defaulted.default = Some("Default::default()".to_string());
+    let mut extras = simple_field(
+        "extras",
+        TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+    );
+    extras.serde_flatten = true;
+    let typ = test_struct_type(
+        "OperationRequest",
+        vec![simple_field("schema", TypeRef::String), defaulted, extras],
+        false,
+    );
+    let out = gen_struct_type(
+        &typ,
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+        &[],
+        &FlattenTypes::default(),
+    );
+    assert!(
+        out.contains("reserved := map[string]struct{}") && out.contains("\"schema\": {}"),
+        "parent wire names are reserved on marshal:\n{out}"
+    );
+    assert!(
+        out.contains("\"tags\": {}"),
+        "omitempty-owned names are reserved too:\n{out}"
+    );
+    assert!(
+        out.contains("if _, taken := reserved[key]; taken {"),
+        "flattened members skip reserved keys:\n{out}"
+    );
+    assert!(
+        out.contains("delete(rest, \"schema\")") && out.contains("delete(rest, \"tags\")"),
+        "the flattened map's rest drops declared owned keys:\n{out}"
+    );
+}
+
+/// A flattened struct member's keys are removed from a flattened map's `rest` by
+/// declaration, not by re-marshaling the decoded value — re-marshaling misses keys
+/// hidden by `omitempty` and invents keys from serde defaults.
+#[test]
+fn gen_struct_type_flattened_struct_member_keys_are_deleted_by_declaration() {
+    let mut tags = simple_field("tags", TypeRef::Vec(Box::new(TypeRef::String)));
+    tags.default = Some("Default::default()".to_string());
+    let policy = test_struct_type(
+        "Policy",
+        vec![simple_field("retries", TypeRef::Primitive(PrimitiveType::U32)), tags],
+        false,
+    );
+    let mut flattened = simple_field("policy", TypeRef::Named("Policy".to_string()));
+    flattened.serde_flatten = true;
+    let mut extras = simple_field(
+        "extras",
+        TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+    );
+    extras.serde_flatten = true;
+    let typ = test_struct_type(
+        "OperationRequest",
+        vec![simple_field("schema", TypeRef::String), flattened, extras],
+        false,
+    );
+    let out = gen_struct_type(
+        &typ,
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+        &["Policy"].into_iter().collect(),
+        &[],
+        &FlattenTypes {
+            structs: std::slice::from_ref(&policy),
+            data_enums: &[],
+        },
+    );
+    assert!(
+        out.contains("delete(rest, \"retries\")") && out.contains("delete(rest, \"tags\")"),
+        "member keys are removed from rest by declaration:\n{out}"
+    );
+    assert!(
+        !out.contains("json.Marshal(s.Policy)"),
+        "no re-marshal probing for a statically known member:\n{out}"
+    );
+    assert!(
+        out.contains("\"schema\": {}"),
+        "the parent's own wire names are reserved on marshal:\n{out}"
+    );
+}
+
+/// A flattened data enum is a sealed Go interface: encoding/json cannot decode into it,
+/// so decoding must go through the generated `Unmarshal<Name>` dispatcher, and the enum's
+/// tag/content keys must be reserved like any other member's.
+#[test]
+fn gen_struct_type_flattened_data_enum_uses_unmarshal_dispatcher() {
+    let enum_def = EnumDef {
+        name: "OperationPolicy".to_string(),
+        serde_tag: Some("operation".to_string()),
+        serde_content: Some("policy".to_string()),
+        serde_rename_all: Some("snake_case".to_string()),
+        variants: vec![
+            EnumVariant {
+                name: "Analyze".to_string(),
+                fields: vec![simple_field("_0", TypeRef::Named("AnalyzePolicy".to_string()))],
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "Merge3".to_string(),
+                fields: vec![simple_field("_0", TypeRef::Named("ThreeWayMergePolicy".to_string()))],
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    let mut flattened = simple_field("operation", TypeRef::Named("OperationPolicy".to_string()));
+    flattened.serde_flatten = true;
+    let typ = test_struct_type(
+        "OperationRequest",
+        vec![simple_field("schema", TypeRef::String), flattened],
+        false,
+    );
+    let out = gen_struct_type(
+        &typ,
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+        &["OperationPolicy"].into_iter().collect(),
+        &std::collections::HashSet::new(),
+        &[],
+        &FlattenTypes {
+            structs: &[],
+            data_enums: std::slice::from_ref(&enum_def),
+        },
+    );
+    assert!(
+        out.contains("value, err := UnmarshalOperationPolicy(data)") && out.contains("s.Operation = value"),
+        "flattened data enum decodes through the dispatcher:\n{out}"
+    );
+    assert!(
+        !out.contains("json.Unmarshal(data, &s.Operation)"),
+        "never decode a sealed interface directly:\n{out}"
+    );
+    assert!(
+        out.contains("\"schema\": {}"),
+        "the parent's own wire names are reserved on marshal:\n{out}"
+    );
+}
+
+/// An externally tagged flattened data enum consumes its variant wire names.
+#[test]
+fn gen_struct_type_flattened_externally_tagged_data_enum_uses_variant_wire_names() {
+    let enum_def = EnumDef {
+        name: "Section".to_string(),
+        serde_rename_all: Some("snake_case".to_string()),
+        variants: vec![
+            EnumVariant {
+                name: "PdfSection".to_string(),
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "TextSection".to_string(),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    let mut flattened = simple_field("section", TypeRef::Named("Section".to_string()));
+    flattened.serde_flatten = true;
+    let typ = test_struct_type(
+        "Document",
+        vec![simple_field("schema", TypeRef::String), flattened],
+        false,
+    );
+    let out = gen_struct_type(
+        &typ,
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+        &["Section"].into_iter().collect(),
+        &std::collections::HashSet::new(),
+        &[],
+        &FlattenTypes {
+            structs: &[],
+            data_enums: std::slice::from_ref(&enum_def),
+        },
+    );
+    assert!(
+        out.contains("value, err := UnmarshalSection(data)"),
+        "flattened externally tagged enum decodes through the dispatcher:\n{out}"
+    );
+    assert!(
+        out.contains("\"schema\": {}"),
+        "the parent's own wire names are reserved on marshal:\n{out}"
+    );
+}
+
+/// An optional flattened member must not be decoded at all when no key remains that the
+/// parent's own fields and earlier flattened members do not consume — mirroring serde's
+/// remaining-keys buffer, which yields `None` for an empty buffer.
+#[test]
+fn gen_struct_type_optional_flattened_field_is_presence_gated() {
+    let config = test_struct_type(
+        "Config",
+        vec![simple_field("retries", TypeRef::Primitive(PrimitiveType::U32))],
+        false,
+    );
+    let mut flattened = simple_field("config", TypeRef::Named("Config".to_string()));
+    flattened.optional = true;
+    flattened.serde_flatten = true;
+    let typ = test_struct_type(
+        "OperationRequest",
+        vec![simple_field("schema", TypeRef::String), flattened],
+        false,
+    );
+    let out = gen_struct_type(
+        &typ,
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+        &["Config"].into_iter().collect(),
+        &[],
+        &FlattenTypes {
+            structs: std::slice::from_ref(&config),
+            data_enums: &[],
+        },
+    );
+    assert!(
+        out.contains("var probe map[string]json.RawMessage")
+            && out.contains("delete(probe, \"schema\")")
+            && out.contains("if len(probe) > 0 {")
+            && out.contains("json.Unmarshal(data, &s.Config)"),
+        "optional flattened member decodes only when an unconsumed key remains:\n{out}"
     );
 }

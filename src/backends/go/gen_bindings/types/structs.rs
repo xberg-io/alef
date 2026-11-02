@@ -2,10 +2,10 @@ use std::borrow::Cow;
 
 use crate::backends::go::type_map::{go_field_type, go_optional_field_type};
 use crate::codegen::c_consumer;
-use crate::codegen::naming::{go_type_name, to_go_name, wire_field_name};
+use crate::codegen::naming::{go_type_name, to_go_name, wire_field_name, wire_variant_value};
 use crate::codegen::shared::binding_fields;
 use crate::core::config::{BridgeBinding, TraitBridgeConfig};
-use crate::core::ir::{FieldDef, TypeDef, TypeRef};
+use crate::core::ir::{EnumDef, FieldDef, TypeDef, TypeRef};
 
 use super::helpers::{emit_type_doc, is_tuple_field, needs_omitempty_pointer};
 
@@ -97,22 +97,103 @@ fn is_flattened_field(field: &FieldDef) -> bool {
     field.serde_flatten && !is_tuple_field(field)
 }
 
+/// Type registry lookups needed to inline a `#[serde(flatten)]` field's wire keys.
+pub(in crate::backends::go::gen_bindings) struct FlattenTypes<'a> {
+    /// All struct definitions in the API; resolves a flattened struct member's wire keys.
+    pub structs: &'a [TypeDef],
+    /// All enum definitions in the API; resolves a flattened data-enum member's wire keys
+    /// and its generated `Unmarshal<Name>` dispatcher.
+    pub data_enums: &'a [EnumDef],
+}
+
+impl Default for FlattenTypes<'_> {
+    fn default() -> Self {
+        Self {
+            structs: &[],
+            data_enums: &[],
+        }
+    }
+}
+
 /// One `#[serde(flatten)]` field. A flattened map collects only the keys no other field owns,
 /// so it is decoded last and never overrides a key another field writes.
 #[derive(serde::Serialize)]
 struct FlattenedGoField {
     go_field: String,
     is_map: bool,
+    optional: bool,
+    /// Decode through the generated `Unmarshal<Name>` dispatcher: a data enum is a sealed Go
+    /// interface, which encoding/json cannot decode into directly.
+    unmarshal_fn: Option<String>,
+    /// Wire keys this member consumes on the parent object. The flattened map never
+    /// receives them. Empty when the key set is not statically known (untagged enums,
+    /// unresolved types); decoding then falls back to re-marshaling the decoded value.
+    member_names: Vec<String>,
+    /// Keys removed from the probe before testing whether an optional member is present:
+    /// the parent's own wire names plus the member keys of flattened fields decoded
+    /// before this one, mirroring serde's remaining-keys buffer.
+    presence_exclude: Vec<String>,
 }
 
-fn flattened_go_fields(typ: &TypeDef) -> Vec<FlattenedGoField> {
-    let mut fields = binding_fields(&typ.fields)
-        .filter(|field| is_flattened_field(field))
-        .map(|field| FlattenedGoField {
+/// Wire keys a flattened member consumes on the parent object, and the dispatcher that
+/// decodes it when it is a data enum (sealed Go interface).
+fn flattened_member_keys(field: &FieldDef, flatten: &FlattenTypes<'_>) -> (Option<String>, Vec<String>) {
+    let Some(name) = direct_named_field_type(&field.ty) else {
+        return (None, Vec::new());
+    };
+    if let Some(enum_def) = flatten.data_enums.iter().find(|def| def.name == name) {
+        let member_names = if let (Some(tag), Some(content)) = (&enum_def.serde_tag, &enum_def.serde_content) {
+            vec![tag.clone(), content.clone()]
+        } else if !enum_def.serde_untagged {
+            enum_def
+                .variants
+                .iter()
+                .filter(|variant| !variant.binding_excluded)
+                .map(|variant| {
+                    wire_variant_value(
+                        &variant.name,
+                        variant.serde_rename.as_deref(),
+                        enum_def.serde_rename_all.as_deref(),
+                    )
+                })
+                .collect()
+        } else {
+            // An untagged enum consumes whatever remains; its key set is not statically known.
+            Vec::new()
+        };
+        return (Some(format!("Unmarshal{}", go_type_name(&enum_def.name))), member_names);
+    }
+    if let Some(struct_def) = flatten.structs.iter().find(|def| def.name == name) {
+        return (None, owned_wire_names(struct_def));
+    }
+    (None, Vec::new())
+}
+
+fn flattened_go_fields(typ: &TypeDef, flatten: &FlattenTypes<'_>) -> Vec<FlattenedGoField> {
+    let owned = owned_wire_names(typ);
+    let mut fields: Vec<FlattenedGoField> = Vec::new();
+    for field in binding_fields(&typ.fields).filter(|field| is_flattened_field(field)) {
+        let (unmarshal_fn, member_names) = flattened_member_keys(field, flatten);
+        let presence_exclude = owned
+            .iter()
+            .cloned()
+            .chain(
+                fields
+                    .iter()
+                    .filter(|earlier| !earlier.is_map)
+                    .flat_map(|earlier| earlier.member_names.iter().cloned()),
+            )
+            .collect();
+        fields.push(FlattenedGoField {
             go_field: to_go_name(&field.name),
             is_map: matches!(&field.ty, TypeRef::Map(_, _)),
-        })
-        .collect::<Vec<_>>();
+            optional: field.optional,
+            unmarshal_fn,
+            member_names,
+            presence_exclude,
+        });
+    }
+    // Maps collect whatever remains, so they decode after every other flattened field.
     fields.sort_by_key(|field| field.is_map);
     fields
 }
@@ -304,6 +385,7 @@ fn render_struct_marshal_json(
     go_name: &str,
     sets: &GoStructTypeSets<'_>,
     trait_bridges: &[TraitBridgeConfig],
+    flatten: &FlattenTypes<'_>,
 ) -> String {
     if !binding_fields(&typ.fields).any(|field| {
         !is_tuple_field(field)
@@ -323,7 +405,7 @@ fn render_struct_marshal_json(
         minijinja::Value::default(),
     ));
     out.push_str(&render_marshal_aux_assignments(typ, sets, trait_bridges));
-    let flattened = flattened_go_fields(typ);
+    let flattened = flattened_go_fields(typ, flatten);
     if flattened.is_empty() {
         out.push_str(&crate::backends::go::template_env::render(
             "struct_marshal_json_footer.jinja",
@@ -332,7 +414,10 @@ fn render_struct_marshal_json(
     } else {
         out.push_str(&crate::backends::go::template_env::render(
             "struct_marshal_json_flatten_footer.jinja",
-            crate::alef_context! { flattened => &flattened },
+            crate::alef_context! {
+                flattened => &flattened,
+                owned_names => owned_wire_names(typ),
+            },
         ));
     }
     out
@@ -475,9 +560,10 @@ fn render_struct_unmarshal_json(
     go_name: &str,
     sets: &GoStructTypeSets<'_>,
     trait_bridges: &[TraitBridgeConfig],
+    flatten: &FlattenTypes<'_>,
 ) -> String {
     let fields = data_enum_fields(typ, sets.data_enums, trait_bridges);
-    let flattened = flattened_go_fields(typ);
+    let flattened = flattened_go_fields(typ, flatten);
     if fields.is_empty() {
         if flattened.is_empty() {
             return String::new();
@@ -528,6 +614,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_struct_type(
     data_enum_names: &std::collections::HashSet<&str>,
     struct_names: &std::collections::HashSet<&str>,
     trait_bridges: &[TraitBridgeConfig],
+    flatten: &FlattenTypes<'_>,
 ) -> String {
     let mut out = String::with_capacity(1024);
 
@@ -553,8 +640,20 @@ pub(in crate::backends::go::gen_bindings) fn gen_struct_type(
         minijinja::Value::default(),
     ));
 
-    out.push_str(&render_struct_marshal_json(typ, &go_name, &sets, trait_bridges));
-    out.push_str(&render_struct_unmarshal_json(typ, &go_name, &sets, trait_bridges));
+    out.push_str(&render_struct_marshal_json(
+        typ,
+        &go_name,
+        &sets,
+        trait_bridges,
+        flatten,
+    ));
+    out.push_str(&render_struct_unmarshal_json(
+        typ,
+        &go_name,
+        &sets,
+        trait_bridges,
+        flatten,
+    ));
 
     out
 }

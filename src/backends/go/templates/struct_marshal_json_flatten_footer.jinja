@@ -6,6 +6,11 @@
 	if err := json.Unmarshal(encoded, &merged); err != nil {
 		return nil, err
 	}
+	// The parent's own wire names are reserved even when their value was omitted
+	// by omitempty: a flattened member must never supply another field's key.
+	reserved := map[string]struct{}{
+{% for name in owned_names %}		"{{ name }}": {},
+{% endfor %}	}
 {% for field in flattened %}	{
 		inline, err := json.Marshal(v.{{ field.go_field }})
 		if err != nil {
@@ -16,11 +21,14 @@
 			return nil, err
 		}
 		for key, member := range members {
-{% if field.is_map %}			if _, exists := merged[key]; !exists {
-				merged[key] = member
+			if _, taken := reserved[key]; taken {
+				continue
 			}
-{% else %}			merged[key] = member
-{% endif %}		}
+{% if field.is_map %}			if _, taken := merged[key]; taken {
+				continue
+			}
+{% endif %}			merged[key] = member
+		}
 	}
 {% endfor %}	return json.Marshal(merged)
 }

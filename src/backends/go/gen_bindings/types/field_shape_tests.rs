@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
 use crate::test_support::toolchain;
 
-use super::gen_struct_type;
+use super::{FlattenTypes, gen_struct_type};
 
 /// Compile the generated struct with the real Go toolchain, or `None` when Go is not installed.
 ///
@@ -192,6 +192,7 @@ fn optional_data_enum_field_uses_non_pointer_interface() {
         &HashSet::from([choice.name.as_str()]),
         &HashSet::from([type_def.name.as_str()]),
         &[],
+        &FlattenTypes::default(),
     );
 
     assert!(output.contains("Choice Choice `json:\"choice,omitempty\"`"), "{output}");
@@ -226,6 +227,7 @@ fn required_unresolved_named_field_uses_raw_message_pointer() {
         &HashSet::new(),
         &HashSet::from([type_def.name.as_str()]),
         &[],
+        &FlattenTypes::default(),
     );
 
     assert!(
@@ -274,6 +276,7 @@ fn optional_non_emitted_named_fields_use_raw_message_in_struct_and_marshal_aux()
             &HashSet::new(),
             &HashSet::from([type_def.name.as_str()]),
             &[],
+            &FlattenTypes::default(),
         );
         assert_eq!(
             output.matches("Payload *json.RawMessage").count(),
@@ -294,6 +297,7 @@ fn marshal_auxiliary_data_interface_uses_authoritative_type() {
         &HashSet::from([choice.name.as_str()]),
         &HashSet::from([type_def.name.as_str()]),
         &[],
+        &FlattenTypes::default(),
     );
 
     assert_eq!(output.matches("Choice Choice").count(), 2, "{output}");

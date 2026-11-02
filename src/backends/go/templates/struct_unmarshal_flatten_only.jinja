@@ -5,17 +5,43 @@ func (s *{{ go_name }}) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*s = {{ go_name }}(raw)
-{% for field in flattened %}{% if not field.is_map %}	if err := json.Unmarshal(data, &s.{{ field.go_field }}); err != nil {
+{% for field in flattened %}{% if not field.is_map %}{% if field.optional %}	{
+		// An optional flattened member decodes only when a key remains that the
+		// parent's own fields and earlier flattened members do not consume.
+		var probe map[string]json.RawMessage
+		if err := json.Unmarshal(data, &probe); err != nil {
+			return err
+		}
+{% for name in field.presence_exclude %}		delete(probe, "{{ name }}")
+{% endfor %}		if len(probe) > 0 {
+{% if field.unmarshal_fn %}			value, err := {{ field.unmarshal_fn }}(data)
+			if err != nil {
+				return err
+			}
+			s.{{ field.go_field }} = value
+{% else %}			if err := json.Unmarshal(data, &s.{{ field.go_field }}); err != nil {
+				return err
+			}
+{% endif %}		}
+	}
+{% else %}{% if field.unmarshal_fn %}	value, err := {{ field.unmarshal_fn }}(data)
+	if err != nil {
 		return err
 	}
-{% endif %}{% endfor %}{% for field in flattened %}{% if field.is_map %}	{
+	s.{{ field.go_field }} = value
+{% else %}	if err := json.Unmarshal(data, &s.{{ field.go_field }}); err != nil {
+		return err
+	}
+{% endif %}
+{% endif %}{% endif %}{% endfor %}{% for field in flattened %}{% if field.is_map %}	{
 		// A flattened map keeps only the keys no other field owns.
 		rest := map[string]json.RawMessage{}
 		if err := json.Unmarshal(data, &rest); err != nil {
 			return err
 		}
 {% for name in owned_names %}		delete(rest, "{{ name }}")
-{% endfor %}{% for other in flattened %}{% if not other.is_map %}		if inline, err := json.Marshal(s.{{ other.go_field }}); err == nil {
+{% endfor %}{% for other in flattened %}{% if not other.is_map %}{% if other.member_names %}{% for name in other.member_names %}		delete(rest, "{{ name }}")
+{% endfor %}{% else %}		if inline, err := json.Marshal(s.{{ other.go_field }}); err == nil {
 			var members map[string]json.RawMessage
 			if json.Unmarshal(inline, &members) == nil {
 				for key := range members {
@@ -23,7 +49,7 @@ func (s *{{ go_name }}) UnmarshalJSON(data []byte) error {
 				}
 			}
 		}
-{% endif %}{% endfor %}		s.{{ field.go_field }} = nil
+{% endif %}{% endif %}{% endfor %}		s.{{ field.go_field }} = nil
 		if len(rest) > 0 {
 			encoded, err := json.Marshal(rest)
 			if err != nil {

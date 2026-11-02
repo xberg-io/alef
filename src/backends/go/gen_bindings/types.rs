@@ -25,7 +25,9 @@ pub(super) use helpers::{
 };
 pub(super) use mapping::{cgo_type_for_primitive, go_return_expr, go_return_values_with_error, primitive_max_sentinel};
 pub(crate) use structs::go_struct_field_type;
-pub(super) use structs::{gen_opaque_type, gen_opaque_type_free_only, gen_struct_type, go_struct_field_names};
+pub(super) use structs::{
+    FlattenTypes, gen_opaque_type, gen_opaque_type_free_only, gen_struct_type, go_struct_field_names,
+};
 
 #[cfg(test)]
 #[path = "types/field_shape_tests.rs"]

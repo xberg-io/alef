@@ -4,9 +4,9 @@ use super::functions::{
 };
 use super::methods::{StreamingWrapperCtx, gen_method_wrapper, gen_streaming_method_wrapper};
 use super::types::{
-    gen_config_options, gen_duration_millis_helper, gen_enum_type, gen_last_error_helper, gen_last_error_wrap_helper,
-    gen_opaque_type, gen_opaque_type_free_only, gen_ptr_helper, gen_struct_type, gen_unmarshal_bytes_helper,
-    go_struct_field_names, primary_go_error,
+    FlattenTypes, gen_config_options, gen_duration_millis_helper, gen_enum_type, gen_last_error_helper,
+    gen_last_error_wrap_helper, gen_opaque_type, gen_opaque_type_free_only, gen_ptr_helper, gen_struct_type,
+    gen_unmarshal_bytes_helper, go_struct_field_names, primary_go_error,
 };
 use crate::codegen::naming::{field_uses_duration_map_wire, go_type_name, to_go_name};
 use crate::core::config::{AdapterPattern, ResolvedCrateConfig, TraitBridgeConfig};
@@ -357,6 +357,10 @@ pub(super) fn gen_go_file(
                 data_enum_names,
                 struct_names,
                 &active_trait_bridges,
+                &FlattenTypes {
+                    structs: &api.types,
+                    data_enums: &api.enums,
+                },
             ));
             body.push_str("\n\n");
             let empty_functional_options = vec![];

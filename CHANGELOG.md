@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Go: inline `#[serde(flatten)]` fields on the wire. The flattened field is hidden from
   encoding/json and its members are merged into (and decoded from) the parent object; a flattened
   map keeps only the keys no other field owns. (#793)
+- Go: reserve the parent's declared wire names when merging flattened members, so a flattened
+  map can never supply a key another field owns even when `omitempty` dropped that field's value.
+- Go: decode a flattened data-enum field through the generated `Unmarshal<Name>` dispatcher
+  (a sealed Go interface cannot be decoded by encoding/json), and remove a flattened member's
+  declared keys from a flattened map's remainder by declaration instead of re-marshaling the
+  decoded value, which both missed `omitempty`-hidden keys and invented serde-defaulted ones.
+- Go: decode an optional `#[serde(flatten)]` field only when a key remains that the parent's own
+  fields and earlier flattened members do not consume, mirroring serde's remaining-keys buffer.
 
 ## [0.115.14] - 2026-11-01
 
