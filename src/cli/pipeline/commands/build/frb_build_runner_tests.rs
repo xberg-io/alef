@@ -64,6 +64,14 @@ fn run_in_isolated_case(name: &str, body: impl FnOnce()) {
     eprintln!("isolated {full_name}: {summary}");
 }
 
+#[test]
+fn should_separate_completion_receipts_from_unterminated_output() {
+    run_in_isolated_case("should_separate_completion_receipts_from_unterminated_output", || {
+        eprint!("unterminated fixture harness output");
+        std::io::stderr().flush().expect("flush unterminated fixture output");
+    });
+}
+
 #[cfg(unix)]
 #[test]
 fn should_launch_isolated_cases_from_a_live_owned_directory_after_ambient_cwd_is_removed() {
