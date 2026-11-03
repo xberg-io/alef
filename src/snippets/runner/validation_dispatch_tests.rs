@@ -190,6 +190,47 @@ fn side_effect_policy_only_blocks_execution() {
     );
 }
 
+#[test]
+fn nullable_tags_do_not_bypass_network_execution_policy() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("network.md"),
+        "---\nside_effect: network\ntags: null\n---\n```rust\nfn main() {}\n```\n",
+    )
+    .unwrap();
+    let snippets = crate::snippets::discovery::discover_snippets(&[dir.path().to_path_buf()], None).unwrap();
+    assert_eq!(snippets.len(), 1);
+    assert_eq!(snippets[0].metadata.tags, Vec::<String>::new());
+    let config = RunnerConfig {
+        level: ValidationLevel::Run,
+        ..RunnerConfig::default()
+    };
+    assert_eq!(
+        side_effect_rejection(&snippets[0], &config).as_deref(),
+        Some("side effect class network is not allowed")
+    );
+}
+
+#[test]
+fn nullable_requires_preserve_explicit_skip_annotation() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("skip.md"),
+        "---\nskip: true\nreason: needs service\nrequires:\n---\n```rust\nfn main() {}\n```\n",
+    )
+    .unwrap();
+    let snippets = crate::snippets::discovery::discover_snippets(&[dir.path().to_path_buf()], None).unwrap();
+    assert_eq!(snippets.len(), 1);
+    assert_eq!(snippets[0].metadata.requires, Vec::<String>::new());
+    assert_eq!(
+        snippets[0].annotation,
+        Some(crate::snippets::types::SnippetAnnotation {
+            kind: SnippetAnnotationKind::Skip,
+            reason: Some("needs service".into()),
+        })
+    );
+}
+
 fn unclassified_snippet() -> Snippet {
     Snippet {
         metadata: SnippetMetadata {
