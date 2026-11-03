@@ -477,7 +477,8 @@ fn fallible_impl(generated: String) -> String {
         })
         .expect("generated conversion must contain its from function");
     function.sig.ident = syn::Ident::new("try_from", function.sig.ident.span());
-    function.sig.output = syn::parse_quote!(-> std::result::Result<Self, Self::Error>);
+    // ~keep Concrete error type, not `Self::Error`, which is ambiguous when `Self` has an `Error` variant.
+    function.sig.output = syn::parse_quote!(-> std::result::Result<Self, serde_json::Error>);
     let body = function.block.clone();
     function.block = syn::parse_quote!({ Ok(#body) });
     implementation.items.insert(

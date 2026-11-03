@@ -359,17 +359,21 @@ pub(crate) fn is_tagged_data_enum(enum_def: &EnumDef, types: &[TypeDef]) -> bool
         && !is_adjacent_content_collision_enum(enum_def)
 }
 
-/// True for an adjacently tagged enum (`#[serde(tag = "t", content = "c")]`) with two or more
-/// data-carrying variants. Every such variant writes its payload under the SAME content key, so a
-/// flat `#[napi(object)]` struct would declare that field once per variant at different payload
-/// types (E0124, and no common napi representation exists). Like the fully flattened internal
-/// case, the wire shape is only expressible as `serde_json::Value` passthrough, generic over what
-/// the core type's own serde impl produces; the `.d.ts` keeps the per-variant discriminated union.
-/// ~keep
+/// Adjacently tagged (`#[serde(tag, content)]`) with data variants whose payloads cannot share the
+/// content key (E0124 on a flat `#[napi(object)]`), so only `serde_json::Value` passthrough fits.
+/// One identical non-`Named` positional payload type shares one field and keeps the value export.
 pub(crate) fn is_adjacent_content_collision_enum(enum_def: &EnumDef) -> bool {
+    let data_variants = enum_def.variants.iter().filter(|v| !v.fields.is_empty());
+    let payloads: Vec<_> = data_variants
+        .map(|variant| match variant.fields.as_slice() {
+            [f] if tagged_enum_field_is_tuple(f) && !matches!(f.ty, TypeRef::Named(_)) => Some((&f.ty, f.optional)),
+            _ => None,
+        })
+        .collect();
     enum_def.serde_tag.is_some()
         && enum_def.serde_content.is_some()
-        && enum_def.variants.iter().filter(|v| !v.fields.is_empty()).count() > 1
+        && payloads.len() > 1
+        && (payloads[0].is_none() || payloads.iter().any(|payload| payload != &payloads[0]))
 }
 
 /// True when EVERY data-carrying variant of this internally-tagged enum has its single

@@ -187,10 +187,12 @@ pub(in crate::backends::napi) fn binding_type(context: Option<&ContainerContext>
     context.map_or_else(|| ty.clone(), |context| context.binding_type_ref(ty))
 }
 
+// ~keep The return type names `serde_json::Error` rather than `Self::Error`: `Self` is the core
+// enum, and a variant called `Error` makes `Self::Error` ambiguous (ambiguous_associated_items).
 pub(super) fn serde_try_from_impl(binding: &str, core: &str, expression: &str) -> String {
     let error = invalid_arg(core);
     format!(
-        "impl TryFrom<{binding}> for {core} {{\n    type Error = serde_json::Error;\n    fn try_from(val: {binding}) -> std::result::Result<Self, Self::Error> {{\n        {expression}\n    }}\n}}\n\
+        "impl TryFrom<{binding}> for {core} {{\n    type Error = serde_json::Error;\n    fn try_from(val: {binding}) -> std::result::Result<Self, serde_json::Error> {{\n        {expression}\n    }}\n}}\n\
          impl {binding} {{\n    fn try_into_core(self) -> napi::Result<{core}> {{\n        <{core} as TryFrom<Self>>::try_from(self){error}\n    }}\n}}\n"
     )
 }
