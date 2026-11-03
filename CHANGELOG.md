@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Add regression coverage for Dart u64 expectations in tagged-union payloads and whole function results. (#857)
+
 - Rust reference docs sample a borrowed struct or enum param (`&T`, `&mut T`, `Option<&T>`) with its
   `T::default()` or variant again instead of `todo!()`, a regression since 0.116.0.
 
