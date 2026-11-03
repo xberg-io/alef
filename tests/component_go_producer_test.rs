@@ -1,0 +1,92 @@
+use alef::codegen::component_producer::generate_component_producers;
+use alef::core::config::{ComponentContractConfig, ResolvedCrateConfig};
+use alef::core::ir::{ApiSurface, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
+
+fn fixture() -> (ApiSurface, ResolvedCrateConfig) {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "1.2.3".into(),
+        types: vec![TypeDef {
+            name: "Codec".into(),
+            rust_path: "demo::Codec".into(),
+            is_trait: true,
+            is_opaque: true,
+            methods: vec![MethodDef {
+                name: "transform".into(),
+                params: vec![ParamDef {
+                    name: "input".into(),
+                    ty: TypeRef::Bytes,
+                    is_ref: true,
+                    ..ParamDef::default()
+                }],
+                return_type: TypeRef::Bytes,
+                receiver: Some(ReceiverKind::Ref),
+                error_type: Some("Error".into()),
+                ..MethodDef::default()
+            }],
+            ..TypeDef::default()
+        }],
+        ..ApiSurface::default()
+    };
+    let component = serde_json::from_value(serde_json::json!({
+        "name": "reverse", "producer_language": "go", "features": [],
+        "provides": [{"contract": "codec", "implementation": "NewCodec"}]
+    }))
+    .expect("Go producer language must be accepted by the public component configuration");
+    let config = ResolvedCrateConfig {
+        name: "demo".into(),
+        component_contracts: vec![ComponentContractConfig {
+            name: "codec".into(),
+            trait_path: "demo::Codec".into(),
+            interface_version: 1,
+        }],
+        components: vec![component],
+        ..ResolvedCrateConfig::default()
+    };
+    (api, config)
+}
+
+#[test]
+fn go_producer_emits_buildable_c_shared_package_and_owned_buffer_contract() {
+    let (api, config) = fixture();
+    let files = generate_component_producers(&api, &config).expect("generate Go producer");
+    let names = files
+        .iter()
+        .map(|file| file.path.file_name().unwrap().to_str().unwrap())
+        .collect::<Vec<_>>();
+    for expected in ["go.mod", "component.go", "component.c", "codec.h"] {
+        assert!(names.contains(&expected), "missing {expected}; got {names:?}");
+    }
+    assert!(
+        !names.contains(&"Cargo.toml"),
+        "Go opt-in must dispatch to the Go producer"
+    );
+    let go = files.iter().find(|file| file.path.ends_with("component.go")).unwrap();
+    assert!(go.content.contains("import \"C\""));
+    assert!(go.content.contains("recover()"), "panic must never cross C ABI");
+    assert!(
+        go.content.contains("NewCodec()"),
+        "configured constructor must instantiate implementation"
+    );
+    let c = files.iter().find(|file| file.path.ends_with("component.c")).unwrap();
+    assert!(c.content.contains("alef_component_entry_v1_codec"));
+    assert!(
+        c.content.contains("free("),
+        "C-owned result buffers need C deallocation"
+    );
+    assert!(c.content.contains("AlefComponentV1"));
+}
+
+#[test]
+fn go_producer_rejects_async_contract_before_emitting_invalid_cgo() {
+    let (mut api, config) = fixture();
+    api.types[0].methods[0].is_async = true;
+    let error = generate_component_producers(&api, &config)
+        .expect_err("async Go producer is unsupported")
+        .to_string();
+    assert!(
+        error.contains("reverse") && error.contains("codec") && error.contains("transform"),
+        "{error}"
+    );
+    assert!(error.contains("async"), "{error}");
+}
