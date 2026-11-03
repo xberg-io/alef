@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Type-check Dart stream map conversions with `usize` keys and unchanged duration, path and character values. (#856)
 - Keep Dart streaming `usize` scalars, nested types and vectors consistent with the public binding's
   `int`/`Int64List` mapping by widening wire payloads before FRB encoding. Exercise native scalar,
   container and named DTO streams while preserving full-width `u64` as `BigInt`/`Uint64List`. (#856)

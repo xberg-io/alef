@@ -32,7 +32,7 @@ fn assert_stream_type_matches_public_binding(rust: &str, dart: &str) {
     assert_eq!(native.matches(&annotation).count(), 2, "{rust}: {native}");
 }
 
-fn stream_transport(item_type: &str, config: &ResolvedCrateConfig) -> String {
+pub(super) fn stream_transport(item_type: &str, config: &ResolvedCrateConfig) -> String {
     let adapter: AdapterConfig = serde_json::from_value(serde_json::json!({
         "name": "events", "pattern": "streaming", "core_path": "events",
         "owner_type": "SampleEngine", "item_type": item_type, "error_type": "SampleError",

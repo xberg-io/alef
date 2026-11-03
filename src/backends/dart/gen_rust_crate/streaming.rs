@@ -232,3 +232,7 @@ mod layout_tests;
 #[cfg(test)]
 #[path = "streaming_type_tests.rs"]
 mod type_tests;
+
+#[cfg(test)]
+#[path = "streaming_conversion_tests.rs"]
+mod conversion_tests;
