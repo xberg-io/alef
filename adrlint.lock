@@ -80,3 +80,8 @@ blake3 = "cf77672a8688d919bdddb54296a7cfb682a547d480ccea9f5f50c657473285a9"
 number = 18
 status = "accepted"
 blake3 = "f90f1d89af81198cddae1a1503d6e57abede23a062fd40dc2679fb33bdef79ee"
+
+[adrs."adrs/0019-configure-python-callback-host-aliases-explicitly.md"]
+number = 19
+status = "accepted"
+blake3 = "6bc6e167852378026b79616bfecfada04ebaea0a4984fe7321850af815efb4c6"

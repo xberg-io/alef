@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- Record explicit, crate-scoped Python callback host aliases in [ADR 0019](adrs/0019-configure-python-callback-host-aliases-explicitly.md).
+
 ### Added
 
 - Load signed component executables through bounded framed stdio, with shared processes, lifecycle checks and

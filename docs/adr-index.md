@@ -27,3 +27,4 @@ log; add a row in the same change as a new record.
 | [0016](../adrs/0016-apply-fixture-client-options-through-configured-json-factories.md) | Apply fixture client options through configured JSON factories | accepted | 2026-11-03 |
 | [0017](../adrs/0017-framed-stdio-transport-for-component-sidecars.md) | Framed stdio transport for component sidecars | accepted | 2026-11-03 |
 | [0018](../adrs/0018-go-c-shared-component-producers.md) | Go c-shared component producers | accepted | 2026-11-03 |
+| [0019](../adrs/0019-configure-python-callback-host-aliases-explicitly.md) | Configure Python callback host aliases explicitly | accepted | 2026-11-03 |
