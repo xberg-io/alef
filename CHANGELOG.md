@@ -7,13 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- Render Dart e2e expectations on `u64` fields as `BigInt` literals, matching the binding's `BigInt` mapping.
-- Emit `StrEnum` for generated Python string enums, which ruff UP042 requires now that generated packages declare Python 3.11.
-- Name `serde_json::Error` in generated Node `TryFrom` conversions instead of `Self::Error`, which is ambiguous when the core enum has a variant called `Error`.
-- Keep an adjacently tagged Node enum whose data variants share one payload type (`Custom(String)`, `Error(String)`) as a tagged object, restoring its namespace constructors and its value export from `index.d.ts` and `index.mjs` (TS2693).
-
 ## [0.119.0] - 2026-11-03
 
 ### Changed
@@ -30,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pass the fallibly converted request to Node adapter-backed methods, so a DTO converted with `TryFrom` no longer fails to compile on the adapter's `req.into()` (E0277).
 - Import `alef_napi_err` into the generated Node `service.rs`, whose error-mapping call sites could not resolve the crate-root helper (E0425).
 - Declare the source crates of error types defined outside the umbrella crate in the generated JNI `Cargo.toml`, which the shim's `jni_error_parts_*` functions name directly (E0433).
+- Render Dart e2e expectations on `u64` fields as `BigInt` literals, matching the binding's `BigInt` mapping.
+- Emit `StrEnum` for generated Python string enums, which ruff UP042 requires now that generated packages declare Python 3.11.
+- Name `serde_json::Error` in generated Node `TryFrom` conversions instead of `Self::Error`, which is ambiguous when the core enum has a variant called `Error`.
+- Keep an adjacently tagged Node enum whose data variants share one payload type (`Custom(String)`, `Error(String)`) as a tagged object, restoring its namespace constructors and its value export from `index.d.ts` and `index.mjs` (TS2693).
 
 ## [0.118.0] - 2026-11-03
 
