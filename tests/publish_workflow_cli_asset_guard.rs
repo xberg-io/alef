@@ -436,3 +436,24 @@ fn maintenance_latest_policy_controls_are_part_of_the_native_gate() {
         "complete successful 10-test maintenance-policy census: {summary}"
     );
 }
+
+#[test]
+fn draft_discovery_controls_are_part_of_the_native_gate() {
+    let controls = std::process::Command::new(managed_tool::executable("python"))
+        .args([
+            "-W",
+            "error::ResourceWarning",
+            "-m",
+            "unittest",
+            "scripts.tests.test_github_release_discovery",
+        ])
+        .current_dir(repo_root())
+        .output()
+        .expect("run source-bound draft discovery controls");
+    let summary = String::from_utf8_lossy(&controls.stderr);
+    assert!(controls.status.success(), "{summary}");
+    assert!(
+        offline_state_controls_passed(&summary, 20),
+        "complete successful 20-test draft-discovery census: {summary}"
+    );
+}

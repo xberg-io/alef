@@ -184,7 +184,7 @@ class DraftDiscoveryTest(unittest.TestCase):
                 self.api.release_pages = {}
                 state = self.module.ReleaseState(SPEC, self.api)
 
-                def changed_identity(method, endpoint, payload=None, content=None, identity=identity):
+                def changed_identity(method, endpoint, payload=None, content=None, *, identity=identity):
                     if method == "GET" and endpoint == "/releases/24":
                         return self.api.current.copy()
                     response = original(method, endpoint, payload, content)
@@ -209,7 +209,7 @@ class DraftDiscoveryTest(unittest.TestCase):
                 self.api.release_pages = {}
                 state = self.module.ReleaseState(SPEC, self.api)
 
-                def changed_draft(method, endpoint, payload=None, content=None, key=key, value=value):
+                def changed_draft(method, endpoint, payload=None, content=None, *, key=key, value=value):
                     response = original(method, endpoint, payload, content)
                     if method == "GET" and endpoint == "/releases/23":
                         response[key] = value
