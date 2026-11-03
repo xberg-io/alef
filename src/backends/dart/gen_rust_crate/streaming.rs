@@ -128,43 +128,66 @@ fn stream_wire_item(item_type: &str) -> (String, String) {
     let Ok(mut ty) = syn::parse_str::<syn::Type>(item_type) else {
         return (item_type.into(), "value".into());
     };
-    let resolved = crate::extract::type_resolver::resolve_type(&ty);
-    if !widen_stream_usize(&mut ty) {
+    let Some(conversion) = widen_stream_usize(&mut ty, "value") else {
         return (item_type.into(), "value".into());
-    }
-    (
-        ty.to_token_stream().to_string(),
-        super::newtype_conversions::from_core_value("value", &resolved),
-    )
+    };
+    (ty.to_token_stream().to_string(), conversion)
 }
 
-fn widen_stream_usize(ty: &mut syn::Type) -> bool {
-    let syn::Type::Path(path) = ty else { return false };
+fn widen_stream_usize(ty: &mut syn::Type, binding: &str) -> Option<String> {
+    let syn::Type::Path(path) = ty else { return None };
     if path.path.is_ident("usize") {
-        let wire = super::conversions::frb_rust_type_inner(&TypeRef::Primitive(PrimitiveType::Usize));
+        let primitive = TypeRef::Primitive(PrimitiveType::Usize);
+        let wire = super::conversions::frb_rust_type_inner(&primitive);
         let ident = &mut path.path.segments[0].ident;
         *ident = syn::Ident::new(&wire, ident.span());
-        return true;
+        return Some(super::newtype_conversions::from_core_value(binding, &primitive));
     }
-    let Some(segment) = path.path.segments.last_mut() else {
-        return false;
-    };
-    if !matches!(
-        segment.ident.to_string().as_str(),
-        "Option" | "Vec" | "HashMap" | "BTreeMap"
-    ) {
-        return false;
-    }
+    let segment = path.path.segments.last_mut()?;
     let syn::PathArguments::AngleBracketed(arguments) = &mut segment.arguments else {
-        return false;
+        return None;
     };
-    let mut changed = false;
-    for argument in &mut arguments.args {
-        if let syn::GenericArgument::Type(inner) = argument {
-            changed |= widen_stream_usize(inner);
+    stream_container_conversion(&segment.ident.to_string(), arguments, binding)
+}
+
+fn stream_container_conversion(
+    container: &str,
+    arguments: &mut syn::AngleBracketedGenericArguments,
+    binding: &str,
+) -> Option<String> {
+    let mut types = arguments
+        .args
+        .iter_mut()
+        .filter_map(|argument| match argument {
+            syn::GenericArgument::Type(ty) => Some(ty),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    match (container, types.as_mut_slice()) {
+        ("Option", [inner]) => {
+            let converted = widen_stream_usize(inner, "value")?;
+            Some(format!("({binding}).map(|value| {converted})"))
         }
+        ("Vec", [inner]) => {
+            let converted = widen_stream_usize(inner, "value")?;
+            Some(format!(
+                "({binding}).into_iter().map(|value| {converted}).collect::<Vec<_>>()"
+            ))
+        }
+        ("HashMap" | "BTreeMap", [key, value]) => {
+            let key = widen_stream_usize(key, "key");
+            let value = widen_stream_usize(value, "value");
+            if key.is_none() && value.is_none() {
+                return None;
+            }
+            let key = key.unwrap_or_else(|| "key".into());
+            let value = value.unwrap_or_else(|| "value".into());
+            Some(format!(
+                "({binding}).into_iter().map(|(key, value)| ({key}, {value})).collect()"
+            ))
+        }
+        _ => None,
     }
-    changed
 }
 
 fn dart_item_type(item_type: &str) -> String {
