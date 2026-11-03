@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.115.16] - 2026-11-03
+
 ### Fixed
 
 - Respect the configured schema build target and retain registry dependency selections when setting workspace versions.
@@ -21,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `"runtime:python" = "3.11"`; synchronize package metadata, classifiers, type checking, PyO3 and
   maturin ABI flags, and E2E manifests while preserving the 3.10 maintenance default and public Rust API.
 - Cover original three-key, null-Python and empty-Python registered E2E template contexts.
+
+### Documentation
+
+- Record the independent Python migration policy in
+  [ADR 0016](https://github.com/xberg-io/alef/commit/035994514c0c142cb47d1b7610cee20af05bf384).
 
 ## [0.115.15] - 2026-11-02
 
