@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Derive R compiler requirements from the bound crate and inherited workspace MSRV while preserving the bridge minimum; report invalid manifests with context. (#846)
 - Pass the fallibly converted request to Node adapter-backed methods, so a DTO converted with `TryFrom` no longer fails to compile on the adapter's `req.into()` (E0277).
 - Import `alef_napi_err` into the generated Node `service.rs`, whose error-mapping call sites could not resolve the crate-root helper (E0425).
+- Declare the source crates of error types defined outside the umbrella crate in the generated JNI `Cargo.toml`, which the shim's `jni_error_parts_*` functions name directly (E0433).
 
 ## [0.118.0] - 2026-11-03
 

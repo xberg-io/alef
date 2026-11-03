@@ -125,6 +125,22 @@ pub(crate) fn scaffold_jni(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
         ),
         crate::scaffold::render_workspace_dep_or(config, "tracing", &format!("\"{}\"", tv::cargo::TRACING)),
     ];
+    // The shims name each core error type by its source-crate path, so an error defined outside
+    // the umbrella crate needs that crate as a direct dependency. Only the referenced extra
+    // dependencies are declared: the rest would be unused here. ~keep
+    let error_crates = crate::backends::jni::jni_error_source_crates(api, config);
+    let extra_deps = crate::scaffold::render_extra_deps(config, Language::Jni);
+    dep_lines.extend(
+        extra_deps
+            .lines()
+            .filter(|line| {
+                line.split_once(" =").is_some_and(|(name, _)| {
+                    let name = name.trim();
+                    name != umbrella_dep_name && error_crates.contains(&name.replace('-', "_"))
+                })
+            })
+            .map(str::to_string),
+    );
     if target_overrides.is_empty() {
         dep_lines.push(crate::scaffold::render_core_dep(
             umbrella_dep_name,

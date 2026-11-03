@@ -51,16 +51,38 @@ fn jni_error_retry_after_expr(error: &crate::core::ir::ErrorDef) -> String {
     }
 }
 
+/// The path the shims name `error` by.
+fn jni_error_rust_path(error: &crate::core::ir::ErrorDef, core_import: &str) -> String {
+    if error.rust_path.is_empty() {
+        format!("{core_import}::{}", error.name)
+    } else {
+        error.rust_path.replace('-', "_")
+    }
+}
+
+/// The crate identifiers the generated shims name core error types through, so the JNI
+/// manifest can declare each one as a direct dependency.
+pub(crate) fn jni_error_source_crates(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+) -> std::collections::BTreeSet<String> {
+    let core_import = core_use_path(config);
+    api.errors
+        .iter()
+        .filter(|error| !error.binding_excluded)
+        .filter_map(|error| {
+            let rust_path = jni_error_rust_path(error, &core_import);
+            rust_path.split_once("::").map(|(krate, _)| krate.to_string())
+        })
+        .collect()
+}
+
 fn jni_error_contexts(api: &ApiSurface, core_import: &str) -> Vec<JniErrorContext> {
     api.errors
         .iter()
         .filter(|error| !error.binding_excluded)
         .map(|error| {
-            let rust_path = if error.rust_path.is_empty() {
-                format!("{core_import}::{}", error.name)
-            } else {
-                error.rust_path.replace('-', "_")
-            };
+            let rust_path = jni_error_rust_path(error, core_import);
             JniErrorContext {
                 snake: heck::ToSnakeCase::to_snake_case(error.name.as_str()),
                 variants: error
