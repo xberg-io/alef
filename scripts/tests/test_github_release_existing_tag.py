@@ -110,6 +110,9 @@ class ExistingTagTest(unittest.TestCase):
         original = self.api.request
 
         def wrong_created_id(method, endpoint, payload=None, content=None):
+            if (method, endpoint) == ("GET", "/releases/24"):
+                self.api.calls.append((method, endpoint, payload))
+                return self.api.current.copy()
             response = original(method, endpoint, payload, content)
             if (method, endpoint) == ("POST", "/releases"):
                 return dict(response, id=24)
@@ -117,10 +120,11 @@ class ExistingTagTest(unittest.TestCase):
 
         with (
             patch.object(self.api, "request", wrong_created_id),
-            rejected(self.module.ReleaseError, "prepared.*verified"),
+            rejected(self.module.ReleaseError, "identity does not match"),
         ):
             self.state.prepare()
         assert [(method, endpoint) for method, endpoint, _ in self.api.writes] == [("POST", "/releases")]
+        assert self.api.calls[-1] == ("GET", "/releases/24", None)
 
     def test_tag_is_rechecked_after_discovery_before_creation(self):
         original = self.api.release_page
