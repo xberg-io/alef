@@ -285,6 +285,7 @@ impl ComponentManager {
     ) -> Result<Arc<LoadedComponent>, ComponentError> {
         let cache_key = loaded_cache_key(component_id, contract_name);
         if let Some(component) = self.loaded_component(&cache_key) {
+            component.ensure_active()?;
             return Ok(component);
         }
 
@@ -293,6 +294,7 @@ impl ComponentManager {
         // Re-check now that this call holds the per-key lock: a concurrent caller for the
         // same key may have finished the work while this call was waiting for it.
         if let Some(component) = self.loaded_component(&cache_key) {
+            component.ensure_active()?;
             return Ok(component);
         }
 
@@ -329,6 +331,7 @@ impl ComponentManager {
             .unwrap_or_else(PoisonError::into_inner)
             .get(component_id)
         {
+            process.ensure_running()?;
             return Ok(Arc::clone(process));
         }
         let process = Arc::new(SidecarProcess::spawn(
@@ -412,8 +415,8 @@ impl ComponentManager {
             .loaded
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .keys()
-            .any(|key| key.starts_with(&loaded_prefix))
+            .iter()
+            .any(|(key, component)| key.starts_with(&loaded_prefix) && component.ensure_active().is_ok())
         {
             return Ok(ComponentStatus::Ready);
         }

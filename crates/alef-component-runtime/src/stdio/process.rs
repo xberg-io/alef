@@ -4,6 +4,7 @@ use crate::{ComponentError, ComponentManifest};
 use alef_component_abi::{ABI_MAJOR_V1, ABI_MINOR_V1};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError, mpsc};
 use std::time::Duration;
 
@@ -16,6 +17,7 @@ pub(crate) struct SidecarProcess {
     child: Mutex<Child>,
     sender: Mutex<Option<mpsc::Sender<Exchange>>>,
     timeout: Duration,
+    stopped: AtomicBool,
 }
 
 impl SidecarProcess {
@@ -40,6 +42,7 @@ impl SidecarProcess {
             child: Mutex::new(child),
             sender: Mutex::new(Some(sender)),
             timeout,
+            stopped: AtomicBool::new(false),
         };
         std::thread::Builder::new()
             .name("alef-sidecar-stdio".into())
@@ -72,7 +75,20 @@ impl SidecarProcess {
         })
     }
 
+    pub(crate) fn ensure_running(&self) -> Result<(), ComponentError> {
+        if self.stopped.load(Ordering::Acquire) {
+            return Err(ComponentError::SidecarStopped);
+        }
+        let mut child = self.child.lock().unwrap_or_else(PoisonError::into_inner);
+        if child.try_wait()?.is_some() {
+            self.stopped.store(true, Ordering::Release);
+            return Err(ComponentError::SidecarStopped);
+        }
+        Ok(())
+    }
+
     fn exchange(&self, request: &StdioRequest) -> Result<Vec<u8>, ComponentError> {
+        self.ensure_running()?;
         let request = serde_json::to_vec(request)?;
         super::validate_length(request.len())?;
         let mut sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
@@ -111,6 +127,7 @@ impl SidecarProcess {
     }
 
     fn stop(&self) {
+        self.stopped.store(true, Ordering::Release);
         let mut child = self.child.lock().unwrap_or_else(PoisonError::into_inner);
         // The child may already have exited; wait still reaps it in that case. ~keep
         let _ = child.kill();

@@ -206,6 +206,13 @@ impl LoadedComponent {
         })
     }
 
+    pub(crate) fn ensure_active(&self) -> Result<(), ComponentError> {
+        if let Some((process, _)) = &self.sidecar {
+            process.ensure_running()?;
+        }
+        Ok(())
+    }
+
     /// Invoke a named bytes-only method on this contract's stdio component.
     ///
     /// Native typed function tables require their generated bindings and do not implement
