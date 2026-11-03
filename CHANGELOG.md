@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Create existing-tag release drafts without an unused target commitish, retaining canonical tagged-source verification.
 - Preserve publication HTTP status and safe diagnostics when a chunked error response body is truncated.
 - Report bounded, credential-redacted publication API errors with the request path, GitHub message and rate-limit headers.
 - Pin Swift qualification to the public consumer revision that reports native build progress without

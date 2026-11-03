@@ -371,7 +371,6 @@ class ReleaseState:
             raise ReleaseError("Existing release is legacy/unbound or belongs to a different source")
         if (
             release.get("tag_name") != self.spec["tag"]
-            or release.get("target_commitish") != self.spec["source_sha"]
             or type(release.get("draft")) is not bool
             or type(release.get("id")) is not int
             or release["id"] <= 0
@@ -401,7 +400,6 @@ class ReleaseState:
             "/releases",
             {
                 "tag_name": self.spec["tag"],
-                "target_commitish": self.spec["source_sha"],
                 "name": self.spec["tag"],
                 "make_latest": "false",
                 "body": self.binding(),
