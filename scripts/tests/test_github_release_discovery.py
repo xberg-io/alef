@@ -137,12 +137,19 @@ class DraftDiscoveryTest(unittest.TestCase):
                 self.state.prepare()
             assert self.api.writes == []
 
-    def test_newly_created_draft_must_be_discoverable_before_prepare_succeeds(self):
+    def test_created_draft_is_verified_by_id_while_tag_and_list_discovery_are_stale(self):
         self.api.current = None
         self.api.release_pages = {}
-        with rejected(self.module.ReleaseError, "prepared.*verified"):
-            self.state.prepare()
+        state = self.state.prepare()
+        assert state["release"]["id"] == 23
+        assert state["release"]["draft"] is True
+        assert state["assets"] == {}
+        assert state["build_needed"] is True
+        assert state["public_ready"] is False
         assert [(method, endpoint) for method, endpoint, _ in self.api.writes] == [("POST", "/releases")]
+        endpoints = [endpoint for _, endpoint, _ in self.api.calls]
+        created = endpoints.index("/releases")
+        assert endpoints[created + 1 :] == ["/git/ref/tags/" + SPEC["tag"], "/releases/23"]
 
     def test_five_asset_upload_discovers_83_pages_once_and_fits_the_request_budget(self):
         self.api.annotated = True
