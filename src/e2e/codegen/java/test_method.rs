@@ -21,6 +21,7 @@ use super::values::{java_builder_expression, json_to_java};
 use super::visitor::{apply_java_visitor_arg, build_java_visitor, java_visitor_binding};
 use crate::e2e::codegen::inert_example;
 
+mod client_options;
 mod inert_refusal;
 use inert_refusal::render_java_refusal;
 
@@ -512,49 +513,8 @@ pub(super) fn render_test_method(
 
     // When client_factory is set, instantiate a client and dispatch the call as
     // a method on the client; otherwise call the static helper on `class_name`.
-    let (client_setup_lines, call_target) = if let Some(factory) = client_factory.as_deref() {
-        let factory_name = factory.to_lower_camel_case();
-        let fixture_id = &fixture.id;
-        let mut setup: Vec<String> = Vec::new();
-        let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
-        let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
-        if let Some(var) = api_key_var.filter(|_| has_mock) {
-            setup.push(format!("String apiKey = System.getenv(\"{var}\");"));
-            setup.push(format!(
-                "String mockServerUrl = System.getProperty(\"mockServerUrl\"); if (mockServerUrl == null) {{ mockServerUrl = System.getenv(\"MOCK_SERVER_URL\"); }} String baseUrl = (apiKey != null && !apiKey.isEmpty()) ? null : (mockServerUrl != null ? mockServerUrl + \"/fixtures/{fixture_id}\" : \"http://localhost:8000/fixtures/{fixture_id}\");"
-            ));
-            setup.push(format!(
-                "System.out.println(\"{fixture_id}: \" + (baseUrl == null ? \"using real API ({var} is set)\" : \"using mock server ({var} not set)\"));"
-            ));
-            setup.push(format!(
-                "var client = {class_name}.{factory_name}(baseUrl == null ? apiKey : \"test-key\", baseUrl, null, null, null);"
-            ));
-        } else if has_mock {
-            if fixture.has_host_root_route() {
-                setup.push(format!(
-                    "String mockServerUrl = System.getProperty(\"mockServerUrl\"); if (mockServerUrl == null) {{ mockServerUrl = System.getenv(\"MOCK_SERVER_URL\"); }} String defaultUrl = (mockServerUrl != null ? mockServerUrl : \"http://localhost:8000\") + \"/fixtures/{fixture_id}\"; String mockUrl = System.getProperty(\"mockServer.{fixture_id}\", defaultUrl);"
-                ));
-            } else {
-                setup.push(format!(
-                    "String mockServerUrl = System.getProperty(\"mockServerUrl\"); if (mockServerUrl == null) {{ mockServerUrl = System.getenv(\"MOCK_SERVER_URL\"); }} String mockUrl = (mockServerUrl != null ? mockServerUrl : \"http://localhost:8000\") + \"/fixtures/{fixture_id}\";"
-                ));
-            }
-            setup.push(format!(
-                "var client = {class_name}.{factory_name}(\"test-key\", mockUrl, null, null, null);"
-            ));
-        } else if let Some(api_key_var) = api_key_var {
-            setup.push(format!("String apiKey = System.getenv(\"{api_key_var}\");"));
-            setup.push(format!(
-                "org.junit.jupiter.api.Assumptions.assumeTrue(apiKey != null && !apiKey.isEmpty(), \"{api_key_var} not set\");"
-            ));
-            setup.push(format!("var client = {class_name}.{factory_name}(apiKey);"));
-        } else {
-            setup.push(format!("var client = {class_name}.{factory_name}(\"test-key\");"));
-        }
-        (setup, "client".to_string())
-    } else {
-        (Vec::new(), class_name.to_string())
-    };
+    let (client_setup_lines, call_target) =
+        client_options::setup(fixture, e2e_config, call_config, class_name, client_factory.as_deref());
 
     // Prepend client setup before any other setup_lines.
     let combined_setup: Vec<String> = client_setup_lines.into_iter().chain(setup_lines).collect();

@@ -134,7 +134,9 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], context: G
             }
             opts_type.is_some() && v.is_object() && !v.as_object().is_some_and(|o| o.is_empty())
         });
-        has_handle || has_json_obj
+        has_handle
+            || has_json_obj
+            || crate::e2e::codegen::client_factory::client_options_json_call(f, e2e_config, call, "go").is_some()
     });
 
     let needs_base64 = false;
