@@ -276,6 +276,8 @@ pub struct IrResultFieldMap {
     pub unresolvable_named_fields: HashMap<String, HashSet<String>>,
     pub display_safe_fields: HashMap<String, HashSet<String>>,
     pub map_scalar_value_fields: HashMap<String, HashSet<String>>,
+    /// Declared IR type of every binding-visible field, keyed by owner type then field name.
+    pub field_type_refs: HashMap<String, HashMap<String, crate::core::ir::TypeRef>>,
     pub root_type: Option<String>,
 }
 

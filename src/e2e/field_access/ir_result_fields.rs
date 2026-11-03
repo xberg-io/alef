@@ -34,7 +34,7 @@ use crate::core::ir::{EnumDef, FieldDef, TypeDef, TypeRef};
 use crate::e2e::codegen::call_ir::named_type;
 
 use super::parse::{parse_path, segment_name};
-use super::types::IrResultFieldMap;
+use super::types::{IrResultFieldMap, PathSegment};
 
 /// Which "this field may be absent" rule the target language's binding applies.
 ///
@@ -184,6 +184,10 @@ fn record_ir_result_field(
         .entry(type_def.name.clone())
         .or_default()
         .insert(field.name.clone());
+    map.field_type_refs
+        .entry(type_def.name.clone())
+        .or_default()
+        .insert(field.name.clone(), field.ty.clone());
     if rule.applies_to(field, type_def) {
         map.optional_fields
             .entry(type_def.name.clone())
@@ -369,6 +373,28 @@ pub(super) fn map_value_is_scalar_at_path(map: &impl MetadataView<IrResultFieldM
             .get(owner)
             .is_some_and(|fields| fields.contains(&leaf)),
     )
+}
+
+/// The declared IR type of the value `path` reads: the leaf field's type, its element type for
+/// an indexed leaf (`items[0]`), or its value type for a keyed leaf (`map[key]`). `None` when the
+/// anchored IR cannot resolve the path, so callers keep their untyped rendering.
+pub(super) fn value_type_at_path<'a>(map: &'a impl MetadataView<IrResultFieldMap>, path: &str) -> Option<&'a TypeRef> {
+    let (owner, leaf) = walk_to_owner(map, path)?;
+    let declared = map.data().field_type_refs.get(owner)?.get(&leaf)?;
+    match parse_path(path).last()? {
+        PathSegment::Field(_) => Some(declared),
+        PathSegment::ArrayField { .. } => vec_element_type(declared),
+        PathSegment::MapAccess { .. } => map_value_type(declared),
+        PathSegment::Length => None,
+    }
+}
+
+fn vec_element_type(ty: &TypeRef) -> Option<&TypeRef> {
+    match ty {
+        TypeRef::Vec(inner) => Some(inner),
+        TypeRef::Optional(inner) => vec_element_type(inner),
+        _ => None,
+    }
 }
 
 pub(super) fn data_interface_at_path(map: &impl MetadataView<IrResultFieldMap>, path: &str) -> Option<bool> {

@@ -275,7 +275,21 @@ pub(super) fn render_assertion_dart(
         }
     };
 
-    let format_value = |val: &serde_json::Value| -> String { dart_format_value(val) };
+    // A numeric fixture value compared against a `BigInt`-typed binding value must itself be a
+    // `BigInt`: `BigInt == int` is never true and the ordering matchers throw on mixed operands.
+    let declared = if result_is_simple {
+        None
+    } else {
+        assertion
+            .field
+            .as_deref()
+            .filter(|f| !f.is_empty())
+            .and_then(|f| field_resolver.target_value_type(f))
+    };
+    let element_declared = declared.and_then(super::values::collection_element_type);
+    let format_value = |val: &serde_json::Value| -> String { super::values::render_expected_value(val, declared) };
+    let format_element =
+        |val: &serde_json::Value| -> String { super::values::render_expected_value(val, element_declared) };
 
     match assertion.assertion_type.as_str() {
         "equals" | "field_equals" => {
@@ -462,7 +476,7 @@ pub(super) fn render_assertion_dart(
         }
         "contains" => {
             if let Some(expected) = &assertion.value {
-                let dart_val = format_value(expected);
+                let dart_val = format_element(expected);
                 // Try the "stringy aggregator" path first: when the field is a list of DTOs
                 // with multiple text-bearing accessors (e.g. List<ImportInfo> with
                 // source/items/alias), emit code that walks every accessor and does
@@ -485,7 +499,7 @@ pub(super) fn render_assertion_dart(
         "contains_all" => {
             if let Some(values) = &assertion.values {
                 for val in values {
-                    let dart_val = format_value(val);
+                    let dart_val = format_element(val);
                     let _ = writeln!(out, "    expect({field_accessor}, contains({dart_val}));");
                 }
             }
@@ -495,7 +509,7 @@ pub(super) fn render_assertion_dart(
                 let checks: Vec<String> = values
                     .iter()
                     .map(|v| {
-                        let dart_val = format_value(v);
+                        let dart_val = format_element(v);
                         format!("{field_accessor}.contains({dart_val})")
                     })
                     .collect();
@@ -505,11 +519,11 @@ pub(super) fn render_assertion_dart(
         }
         "not_contains" => {
             if let Some(expected) = &assertion.value {
-                let dart_val = format_value(expected);
+                let dart_val = format_element(expected);
                 let _ = writeln!(out, "    expect({field_accessor}, isNot(contains({dart_val})));");
             } else if let Some(values) = &assertion.values {
                 for val in values {
-                    let dart_val = format_value(val);
+                    let dart_val = format_element(val);
                     let _ = writeln!(out, "    expect({field_accessor}, isNot(contains({dart_val})));");
                 }
             }
@@ -702,7 +716,7 @@ pub(super) fn render_assertion_dart(
                 match check {
                     "equals" => {
                         if let Some(expected) = &assertion.value {
-                            let dart_val = format_value(expected);
+                            let dart_val = dart_format_value(expected);
                             let _ = writeln!(out, "    expect({method_call}, equals({dart_val}));");
                         }
                     }
@@ -714,7 +728,7 @@ pub(super) fn render_assertion_dart(
                     }
                     "greater_than_or_equal" => {
                         if let Some(val) = &assertion.value {
-                            let dart_val = format_value(val);
+                            let dart_val = dart_format_value(val);
                             let _ = writeln!(out, "    expect({method_call}, greaterThanOrEqualTo({dart_val}));");
                         }
                     }
