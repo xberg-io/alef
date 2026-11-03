@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Compare Dart u64 expectations in tagged-union payloads and whole function results as exact BigInt values. (#857)
+- Compare Dart u64 expectations in tagged-union payloads and whole function results as exact BigInt values,
+  with indexed variant-list regression coverage. (#857)
 
 - Rust reference docs sample a borrowed struct or enum param (`&T`, `&mut T`, `Option<&T>`) with its
   `T::default()` or variant again instead of `todo!()`, a regression since 0.116.0.

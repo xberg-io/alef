@@ -18,6 +18,30 @@ pub enum Format {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Envelope {
     pub format: Format,
+    pub entries: Vec<Entry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Entry {
+    pub body: Body,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Body {
+    pub payload: Option<Payload>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Payload {
+    Segments(Vec<Piece>),
+    Scalar(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Piece {
+    pub total: u64,
+    pub word: usize,
 }
 
 pub fn stats() -> Envelope {

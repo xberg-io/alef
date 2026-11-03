@@ -11,8 +11,8 @@ fn api() -> ApiSurface {
     std::fs::write(&source, include_str!("fixtures/u64_expectations.rs")).unwrap();
     let api = crate::extract::extractor::extract(&[&source], "wide-expectations", "1.0.0", None).unwrap();
     assert_eq!(api.functions.len(), 4);
-    assert_eq!(api.types.len(), 2);
-    assert_eq!(api.enums.len(), 1);
+    assert_eq!(api.types.len(), 5);
+    assert_eq!(api.enums.len(), 2);
     let total = api.functions.iter().find(|function| function.name == "total").unwrap();
     assert_eq!(total.return_type, TypeRef::Primitive(PrimitiveType::U64));
     api
@@ -66,12 +66,16 @@ fn assertion(kind: &str, field: Option<&str>, value: serde_json::Value) -> Asser
 }
 
 fn expect_line(source: &str, expected: &str) {
+    expect_lines(source, &[expected]);
+}
+
+fn expect_lines(source: &str, expected: &[&str]) {
     let lines: Vec<_> = source
         .lines()
         .map(str::trim)
         .filter(|line| line.starts_with("expect("))
         .collect();
-    assert_eq!(lines, vec![expected], "generated assertions: {source}");
+    assert_eq!(lines, expected, "generated assertions: {source}");
 }
 
 #[test]
@@ -155,4 +159,44 @@ fn should_preserve_null_optional_u64_payload_expectations() {
         &source,
         "expect((result.format as Format_Stats).field0.optionalCount, equals(null));",
     );
+}
+
+#[test]
+fn should_compare_indexed_variant_list_u64_fields_as_bigints() {
+    let source = emitted(
+        "stats",
+        false,
+        assertion(
+            "equals",
+            Some("entries[0].body.payload.segments[0].total"),
+            u64::MAX.into(),
+        ),
+    );
+    expect_lines(
+        &source,
+        &[
+            "expect(result.entries[0].body.payload, isA<Payload_Segments>());",
+            "expect((result.entries[0].body.payload as Payload_Segments).field0[0].total, equals(BigInt.parse('18446744073709551615')));",
+        ],
+    );
+}
+
+#[test]
+fn should_preserve_indexed_variant_list_int_fields_and_collection_counts() {
+    for (field, kind, expression, value) in [
+        ("entries[0].body.payload.segments[0].word", "equals", "[0].word", 23),
+        ("entries[0].body.payload.segments", "count_equals", ".length", 2),
+    ] {
+        let source = emitted("stats", false, assertion(kind, Some(field), value.into()));
+        expect_lines(
+            &source,
+            &[
+                "expect(result.entries[0].body.payload, isA<Payload_Segments>());",
+                &format!(
+                    "expect((result.entries[0].body.payload as Payload_Segments).field0{expression}, equals({value}));"
+                ),
+            ],
+        );
+        assert!(!source.contains("BigInt."), "{source}");
+    }
 }
