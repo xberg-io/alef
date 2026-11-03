@@ -19,6 +19,7 @@ import negative
 import receipts
 import runtime
 import rust_symbols
+import swift_test
 from contracts import immutable_ref, safe_test_census
 from strict_flags import strict_flags
 
@@ -299,7 +300,7 @@ class Gate:
                 "canonical-swift-binding-build",
                 ["cargo", "build", "--locked", "--release", "--manifest-path", "rust/Cargo.toml"],
             ),
-            ("canonical-safe-package-tests", ["swift", "test"]),
+            ("canonical-safe-package-tests", swift_test.command("swift")),
         ]:
             stage = self.command(name, argv, package, 2 * 1024**3, 900)
             output += (stage / "stdout.log").read_text() + (stage / "stderr.log").read_text()
@@ -358,7 +359,7 @@ def harness_controls():
     root = Path(os.environ["GITHUB_WORKSPACE"])
     evidence = Path(os.environ.get("SWIFT_GATE_CONTROL_EVIDENCE", str(root / "consumer-controls-evidence")))
     suite = unittest.defaultTestLoader.discover(str(Path(__file__).parent), pattern="test_*.py")
-    expected = 78
+    expected = 80
     actual = suite.countTestCases()
     if actual != expected:
         (evidence / "census-refusal.json").write_text(json.dumps({"expected": expected, "discovered": actual}))

@@ -8,6 +8,7 @@ from unittest import mock
 
 import driver
 import receipts
+import swift_adapter
 from assertions import raises
 
 
@@ -91,3 +92,93 @@ class ConsumerStages(unittest.TestCase):
         assert ceiling > 3600
         assert ceiling + 63 < driver.RELEASE_BUILD_TIMEOUT
         assert env["PATH"] == "/owned/bin" + driver.os.pathsep + "/usr/bin"
+
+
+class CompletedConsumerGate(RecordingConsumerGate):
+    def __init__(self, root):
+        super().__init__()
+        self.xberg, self.evidence = root / "xberg", root / "evidence"
+        self.paths = [root]
+        self.package = self.xberg / "packages/swift"
+        tests = self.package / "Tests/XbergTests/XbergTests.swift"
+        tests.parent.mkdir(parents=True)
+        tests.write_text("\n".join("func " + name + "() {}" for name in driver.receipts.SAFE_TESTS))
+        self.evidence.mkdir()
+        (self.xberg / "Cargo.lock").write_text("locked")
+        self.archive = self.xberg / "actual.a"
+        self.archive.write_bytes(b"!<arch>\n")
+        self.binding = {
+            "out_dir": str(self.evidence),
+            "raw_inputs": {},
+            "archives": [str(self.archive)],
+            "archive_sha256": receipts.sha(self.archive),
+        }
+
+    def phase(self, name, root, target):
+        target.mkdir()
+        return super().phase(name, root, target)
+
+    def metadata(self, *_args):
+        return "actual-package"
+
+    def inspect_executable(self, *_args):
+        self.calls.append({"name": "inspect-executable"})
+
+    def command(self, name, argv, cwd, budget, _timeout):
+        self.calls.append({"name": name, "argv": list(argv), "cwd": cwd, "budget": budget})
+        result = self.evidence / name
+        result.mkdir()
+        output = ""
+        if name == "extract-current-consumer":
+            (self.evidence / "ir.json").write_text(
+                json.dumps({key: ["actual"] for key in ["types", "functions", "enums", "errors", "services"]})
+            )
+        if name == "canonical-safe-package-tests":
+            output = (
+                "\n".join(
+                    "Test Case '-[XbergTests.XbergTests " + test + "]' passed" for test in driver.receipts.SAFE_TESTS
+                )
+                + "\nExecuted 2 tests, with 0 failures\n"
+            )
+        (result / "stdout.log").write_text(output)
+        (result / "stderr.log").write_text("")
+        return result
+
+
+class SwiftPackageCommand(unittest.TestCase):
+    def test_positive_consumer_command_prevents_private_sdk_autolink_and_keeps_strict_flags(self):
+        with tempfile.TemporaryDirectory() as directory:
+            gate = CompletedConsumerGate(Path(directory))
+            with (
+                mock.patch.object(driver.receipts, "binding_receipt", return_value=gate.binding),
+                mock.patch.object(driver.materialized, "verify"),
+                mock.patch.object(driver.native_receipts, "collect", return_value=[]),
+                mock.patch.object(driver.negative, "qualify", return_value={}),
+            ):
+                result = driver.Gate.consumer(gate, "/owned/alef-frozen")
+            assert set(result["safe_tests"]) == driver.receipts.SAFE_TESTS
+            calls = [row for row in gate.calls if row["name"] == "canonical-safe-package-tests"]
+            assert len(calls) == 1
+            assert calls[0]["argv"] == [
+                "swift",
+                "test",
+                "-Xswiftc",
+                "-Xfrontend",
+                "-Xswiftc",
+                "-disable-autolink-framework",
+                "-Xswiftc",
+                "-Xfrontend",
+                "-Xswiftc",
+                "SwiftUICore",
+            ]
+            forwarded = swift_adapter.arguments(calls[0]["argv"][1:], "/actual/link.map")
+            assert forwarded[-8:] == [
+                "-Xswiftc",
+                "-warnings-as-errors",
+                "-Xlinker",
+                "-fatal_warnings",
+                "-Xlinker",
+                "-map",
+                "-Xlinker",
+                "/actual/link.map",
+            ]
