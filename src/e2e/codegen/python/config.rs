@@ -1,5 +1,6 @@
 //! Python conftest.py and pyproject.toml rendering.
 
+use crate::core::config::python_build::PythonVersionPolicy;
 use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{EnumDef, TypeDef};
 use crate::core::template_versions as tv;
@@ -50,7 +51,24 @@ pub(crate) fn normalize_python_version(pkg_version: &str) -> String {
     }
 }
 
+#[cfg(test)]
 pub(super) fn render_pyproject(pkg_name: &str, pkg_path: &str, pkg_version: &str, dep_mode: DependencyMode) -> String {
+    render_pyproject_with_policy(
+        pkg_name,
+        pkg_path,
+        pkg_version,
+        dep_mode,
+        &PythonVersionPolicy::default(),
+    )
+}
+
+pub(super) fn render_pyproject_with_policy(
+    pkg_name: &str,
+    pkg_path: &str,
+    pkg_version: &str,
+    dep_mode: DependencyMode,
+    minimum: &PythonVersionPolicy,
+) -> String {
     let (deps_line, uv_sources_block) = match dep_mode {
         DependencyMode::Registry => {
             let normalized_version = normalize_python_version(pkg_version);
@@ -101,14 +119,9 @@ requires = {requires_array}
 name = "{pkg_name}-e2e"
 version = "0.0.0"
 description = "End-to-end tests"
-requires-python = ">=3.11"
+requires-python = ">={python_minimum}"
 classifiers = [
-  "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.11",
-  "Programming Language :: Python :: 3.12",
-  "Programming Language :: Python :: 3.13",
-  "Programming Language :: Python :: 3.14",
-]
+{python_classifiers}]
 {deps_line}
 
 [tool.setuptools]
@@ -126,7 +139,9 @@ python_files = "test_*.py"
 python_functions = "test_*"
 addopts = "-v --strict-markers --tb=short"
 timeout = 300
-"#
+"#,
+        python_minimum = minimum.version,
+        python_classifiers = minimum.classifier_lines,
     )
 }
 

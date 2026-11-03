@@ -64,6 +64,8 @@ pub struct PythonConfig {
     /// defaults to, by `alef::core::managed_versions`. An unknown key is rejected outright
     /// rather than ignored: silently dropping an override is the exact failure this table
     /// exists to prevent.
+    /// `runtime:python` selects a supported Python major/minor minimum, independent of the
+    /// development interpreter; it cannot lower this Alef release line's default.
     #[serde(default)]
     pub dependency_versions: BTreeMap<String, String>,
     /// Extracted opaque types whose Python objects may cross runtime threads.

@@ -13,7 +13,18 @@
 //! Everything both build paths need to agree with the scaffold lives here. ~keep
 
 use super::tools::ToolsConfig;
+use serde::Serialize;
 use std::path::Path;
+
+const SUPPORTED_PYTHON_MINIMUMS: &[(&str, &str)] = &[
+    ("3.11", "pyo3/abi3-py311"),
+    ("3.12", "pyo3/abi3-py312"),
+    ("3.13", "pyo3/abi3-py313"),
+    ("3.14", "pyo3/abi3-py314"),
+];
+
+pub(crate) const PYTHON_RUNTIME_VERSION_KEY: &str = "runtime:python";
+pub(crate) const PYTHON_MINIMUM_VERSION: &str = SUPPORTED_PYTHON_MINIMUMS[0].0;
 
 /// The feature name the generated pyo3 binding crate declares in its own `[features]` table to
 /// switch pyo3 into extension-module (and stable-ABI) mode. Emitted by
@@ -29,18 +40,95 @@ pub const PYO3_EXTENSION_MODULE_FEATURE: &str = "extension-module";
 /// what makes the artifact stable-ABI, so one wheel per platform covers Python 3.11+. Neither is
 /// on by default, so a build that omits the feature silently produces a libpython-linked,
 /// version-locked module wherever the link happens to succeed. ~keep
-pub const PYO3_EXTENSION_MODULE_PYO3_FEATURES: &[&str] = &["pyo3/extension-module", "pyo3/abi3-py311"];
+pub const PYO3_EXTENSION_MODULE_PYO3_FEATURES: &[&str] = &["pyo3/extension-module", SUPPORTED_PYTHON_MINIMUMS[0].1];
 
 /// The `[features]` line `scaffold::languages::python` emits into the binding crate's
 /// `Cargo.toml`, rendered from the two constants above so the declared feature and the flag the
 /// build passes cannot drift apart.
 pub fn extension_module_feature_line() -> String {
-    let values = PYO3_EXTENSION_MODULE_PYO3_FEATURES
+    format_extension_module_feature_line(PYO3_EXTENSION_MODULE_PYO3_FEATURES)
+}
+
+fn format_extension_module_feature_line(features: &[&str]) -> String {
+    let values = features
         .iter()
         .map(|feature| format!("\"{feature}\""))
         .collect::<Vec<_>>()
         .join(", ");
     format!("{PYO3_EXTENSION_MODULE_FEATURE} = [{values}]")
+}
+
+#[derive(Serialize)]
+pub(crate) struct PythonVersionPolicy {
+    pub(crate) version: &'static str,
+    pub(crate) abi_tag: String,
+    pub(crate) classifier_lines: String,
+    abi_feature: &'static str,
+}
+
+impl Default for PythonVersionPolicy {
+    fn default() -> Self {
+        Self::from_supported_index(0)
+    }
+}
+
+impl PythonVersionPolicy {
+    fn from_supported_index(index: usize) -> Self {
+        let (version, abi_feature) = SUPPORTED_PYTHON_MINIMUMS[index];
+        let classifier_lines = std::iter::once("Programming Language :: Python :: 3 :: Only".to_string())
+            .chain(
+                SUPPORTED_PYTHON_MINIMUMS[index..]
+                    .iter()
+                    .map(|(version, _)| format!("Programming Language :: Python :: {version}")),
+            )
+            .map(|classifier| format!("  \"{classifier}\",\n"))
+            .collect();
+        Self {
+            version,
+            abi_tag: format!("abi3-py{}", version.replace('.', "")),
+            abi_feature,
+            classifier_lines,
+        }
+    }
+
+    pub(crate) fn pyo3_features(&self) -> [&str; 2] {
+        ["pyo3/extension-module", self.abi_feature]
+    }
+
+    pub(crate) fn extension_module_feature_line(&self) -> String {
+        format_extension_module_feature_line(&self.pyo3_features())
+    }
+}
+
+pub(crate) fn python_version_policy(minimum: Option<&str>) -> anyhow::Result<PythonVersionPolicy> {
+    let minimum = minimum.unwrap_or(PYTHON_MINIMUM_VERSION);
+    let index = SUPPORTED_PYTHON_MINIMUMS
+        .iter()
+        .position(|(version, _)| *version == minimum)
+        .ok_or_else(|| {
+            let supported = SUPPORTED_PYTHON_MINIMUMS
+                .iter()
+                .map(|(version, _)| *version)
+                .collect::<Vec<_>>()
+                .join(", ");
+            anyhow::anyhow!(
+                "unsupported Python runtime minimum {minimum:?} for `{PYTHON_RUNTIME_VERSION_KEY}`; \
+                 expected one of {supported}"
+            )
+        })?;
+    Ok(PythonVersionPolicy::from_supported_index(index))
+}
+
+pub(crate) fn template_python_version_policy(
+    overrides: minijinja::value::Serde<Option<std::collections::BTreeMap<String, String>>>,
+) -> Result<minijinja::Value, minijinja::Error> {
+    let minimum = overrides
+        .0
+        .as_ref()
+        .and_then(|versions| versions.get(PYTHON_RUNTIME_VERSION_KEY));
+    python_version_policy(minimum.map(String::as_str))
+        .map(crate::template::to_value)
+        .map_err(|error| minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, error.to_string()))
 }
 
 /// The command prefix that runs a Python build tool inside the environment

@@ -1,4 +1,5 @@
 use crate::core::backend::GeneratedFile;
+use crate::core::config::python_build::{PythonVersionPolicy, python_version_policy};
 use crate::core::config::{AdapterPattern, Language, ResolvedCrateConfig};
 use crate::core::ir::ApiSurface;
 use crate::scaffold::dependency_versions::ManagedVersions;
@@ -61,8 +62,14 @@ fn format_toml_array_with_prefix(entries: &[String], prefix_len: usize) -> Strin
 /// for a wheel build rooted at the Python package directory, but not for the
 /// `maturin develop --manifest-path crates/<crate>-py/Cargo.toml` alef runs from the repo root.
 /// That is why the build path has to pass `--features` itself instead of relying on this. ~keep
+#[cfg(test)]
 fn maturin_extension_module_features() -> String {
-    let entries: Vec<String> = crate::core::config::python_build::PYO3_EXTENSION_MODULE_PYO3_FEATURES
+    maturin_extension_module_features_with_policy(&PythonVersionPolicy::default())
+}
+
+fn maturin_extension_module_features_with_policy(minimum: &PythonVersionPolicy) -> String {
+    let entries: Vec<String> = minimum
+        .pyo3_features()
         .iter()
         .map(|feature| format!("\"{feature}\""))
         .collect();
@@ -118,6 +125,7 @@ pub(crate) fn scaffold_python_cargo(
     config: &ResolvedCrateConfig,
 ) -> anyhow::Result<Vec<GeneratedFile>> {
     let versions = ManagedVersions::new(config, Language::Python);
+    let minimum = python_version_policy(Some(versions.get("runtime:python")))?;
     let meta = scaffold_meta(config);
     let version = &api.version;
     let module_name = config.python_module_name();
@@ -302,7 +310,7 @@ crate-type = ["cdylib"]
 [dependencies]
 {dep_block}
 {core_target_blocks_section}{lints_section}"#,
-        extension_module_feature = crate::core::config::python_build::extension_module_feature_line(),
+        extension_module_feature = minimum.extension_module_feature_line(),
         pkg_header = pkg_header,
         lints_section = lints_section,
         module_name = module_name,
@@ -321,6 +329,7 @@ crate-type = ["cdylib"]
 
 pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let versions = ManagedVersions::new(config, Language::Python);
+    let minimum = python_version_policy(Some(versions.get("runtime:python")))?;
     let meta = scaffold_meta(config);
     let pip_name = python_pip_name(config);
     let version = to_pep440(&api.version);
@@ -428,14 +437,9 @@ requires = [ "{maturin_build_requires}" ]
 name = "{pip_name}"
 version = "{version}"
 description = "{description}"
-{keywords}{license_toml}{authors}requires-python = ">=3.11"
+{keywords}{license_toml}{authors}requires-python = ">={python_minimum}"
 classifiers = [
-  "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.11",
-  "Programming Language :: Python :: 3.12",
-  "Programming Language :: Python :: 3.13",
-  "Programming Language :: Python :: 3.14",
-]
+{python_classifiers}]
 {dependencies}{urls_line}{homepage}
 [dependency-groups]
 dev = {dev_group}
@@ -444,13 +448,13 @@ dev = {dev_group}
 profile = "release"
 module-name = "{python_package}.{module_name}"
 manifest-path = "../../crates/{crate_dir}-py/Cargo.toml"
-# abi3-py311 produces a single wheel per platform that loads on Python 3.11+,
+# {python_abi_tag} produces a single wheel per platform that loads on Python {python_minimum}+,
 # avoiding a per-Python-version build matrix.
 features = {maturin_features}
 python-packages = [ "{python_package}" ]
 {sdist_include}
 [tool.pyrefly]
-python-version = "3.11"
+python-version = "{python_minimum}"
 preset = "strict"
 # `bad-return` and `bad-argument-type` used to be suppressed here for every generated
 # `api.py`: the wrapper's declared type (an `options.*` dataclass) and the value pyo3
@@ -524,7 +528,10 @@ open-unpacking = false
         module_name = module_name,
         crate_dir = core_crate_dir,
         maturin_build_requires = canonicalize_pep440_specifier(versions.get("pypi:maturin")),
-        maturin_features = maturin_extension_module_features(),
+        maturin_features = maturin_extension_module_features_with_policy(&minimum),
+        python_minimum = minimum.version,
+        python_abi_tag = minimum.abi_tag,
+        python_classifiers = minimum.classifier_lines,
         dev_group = dev_group_array,
         pyrefly_extra = pyrefly_extra,
     );
@@ -859,3 +866,6 @@ sources = []
         );
     }
 }
+
+#[cfg(test)]
+mod minimum_version_tests;

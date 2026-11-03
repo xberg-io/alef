@@ -23,3 +23,4 @@ log; add a row in the same change as a new record.
 | [0012](../adrs/0012-raise-the-generated-python-minimum.md) | Raise the generated Python minimum | accepted | 2026-11-02 |
 | [0013](../adrs/0013-inspect-swift-archives-with-the-selected-rust-toolchain-s-llvm.md) | Inspect Swift archives with the selected Rust toolchain's LLVM | accepted | 2026-11-03 |
 | [0014](../adrs/0014-raise-the-generated-minimums-for-the-other-host-languages.md) | Raise the generated minimums for the other host languages | accepted | 2026-11-03 |
+| [0016](../adrs/0016-configure-python-runtime-minimums-through-managed-versions.md) | Configure Python runtime minimums through managed versions | accepted | 2026-11-03 |

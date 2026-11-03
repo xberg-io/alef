@@ -795,6 +795,10 @@ static TEMPLATES: &[(&str, &str)] = &[
 pub(crate) fn make_env() -> Environment<'static> {
     let mut env = Environment::new();
     crate::template::configure_env(&mut env);
+    env.add_function(
+        "python_version_policy",
+        crate::core::config::python_build::template_python_version_policy,
+    );
     for (name, src) in runtime_assertion_templates::TEMPLATES
         .iter()
         .chain(TEMPLATES)

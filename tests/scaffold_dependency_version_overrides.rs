@@ -403,7 +403,7 @@ fn the_hash_notice_renders_above_the_first_real_line_of_each_manifest() {
 fn every_renderer_lookup_key_is_registered_for_its_language() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let renderers = [
-        ("src/scaffold/languages/python.rs", Language::Python, 9usize),
+        ("src/scaffold/languages/python.rs", Language::Python, 11usize),
         ("src/scaffold/languages/java.rs", Language::Java, 22),
         ("src/scaffold/languages/elixir.rs", Language::Elixir, 16),
         ("src/scaffold/languages/ruby/manifests.rs", Language::Ruby, 9),

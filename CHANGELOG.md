@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Configure supported Python runtime minimums through the existing `runtime:python` managed dependency key,
+  keeping requirements, classifiers, type checking, ABI flags and E2E packages aligned while retaining Main’s 3.11 default.
+
+### Fixed
+
+- Preserve registered Python E2E template callers that omit Python context or supply null or empty configuration.
+
+### Documentation
+
+- Amend the Python migration policy in [ADR 0016](adrs/0016-configure-python-runtime-minimums-through-managed-versions.md).
+
 ## [0.118.0] - 2026-11-03
 
 ### Added

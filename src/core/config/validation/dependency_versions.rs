@@ -25,12 +25,23 @@ pub(super) fn validate_dependency_version_overrides(config: &ResolvedCrateConfig
             .filter(|key| managed_versions::lookup(language, key).is_none())
             .collect();
         if unknown.is_empty() {
+            if language == Language::Python {
+                validate_python_runtime_minimum(config)?;
+            }
             continue;
         }
         unknown.sort_unstable();
         return Err(AlefError::Config(unknown_key_message(config, language, &unknown)));
     }
     Ok(())
+}
+
+fn validate_python_runtime_minimum(config: &ResolvedCrateConfig) -> Result<(), AlefError> {
+    use crate::core::config::python_build::{PYTHON_RUNTIME_VERSION_KEY, python_version_policy};
+
+    python_version_policy(config.managed_version(Language::Python, PYTHON_RUNTIME_VERSION_KEY))
+        .map(|_| ())
+        .map_err(|error| AlefError::Config(format!("crate `{}`: {error}", config.name)))
 }
 
 fn unknown_key_message(config: &ResolvedCrateConfig, language: Language, unknown: &[&str]) -> String {
@@ -132,3 +143,6 @@ sources = ["src/lib.rs"]
         );
     }
 }
+
+#[cfg(test)]
+mod runtime_minimum_tests;
