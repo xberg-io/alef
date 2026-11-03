@@ -538,7 +538,7 @@ pub(super) fn collect_named_types(ty: &crate::core::ir::TypeRef, out: &mut AHash
 }
 
 /// Collect only Named types that appear in `enum_names` (recursing into Vec/Optional/Map).
-/// Used to find enum-typed fields in has_default types for generating (str, Enum) classes.
+/// Used to find enum-typed fields in has_default types for generating `StrEnum` classes.
 pub(super) fn collect_named_types_filtered(
     ty: &crate::core::ir::TypeRef,
     enum_names: &AHashSet<&str>,

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Emit `StrEnum` for generated Python string enums, which ruff UP042 requires now that generated packages declare Python 3.11.
 - Name `serde_json::Error` in generated Node `TryFrom` conversions instead of `Self::Error`, which is ambiguous when the core enum has a variant called `Error`.
 - Keep an adjacently tagged Node enum whose data variants share one payload type (`Custom(String)`, `Error(String)`) as a tagged object, restoring its namespace constructors and its value export from `index.d.ts` and `index.mjs` (TS2693).
 

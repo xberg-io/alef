@@ -566,3 +566,95 @@ fn optional_enum_field_with_explicit_variant_default_still_renders_it() {
         "an explicit variant default on an optional field must still be rendered"
     );
 }
+
+fn scroll_direction_enum() -> EnumDef {
+    EnumDef {
+        name: "ScrollDirection".to_string(),
+        variants: vec![
+            EnumVariant {
+                name: "Up".to_string(),
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "Down".to_string(),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    }
+}
+
+/// The generated package floor is Python 3.11 (ADR 0012), so a unit enum rendered into
+/// `options.py` is a `StrEnum`. The `(str, Enum)` spelling trips ruff UP042 in every consumer.
+#[test]
+fn unit_enum_in_options_module_renders_as_str_enum() {
+    let api = ApiSurface {
+        enums: vec![scroll_direction_enum()],
+        ..Default::default()
+    };
+
+    let generated = gen_options_py(&api, "_native", &DtoConfig::default(), &[], false);
+
+    assert!(generated.contains("from enum import StrEnum\n"), "{generated}");
+    assert!(generated.contains("class ScrollDirection(StrEnum):\n"), "{generated}");
+    assert!(!generated.contains("(str, Enum)"), "{generated}");
+    assert!(!generated.contains("from enum import Enum\n"), "{generated}");
+
+    let python_is_311_or_newer = std::process::Command::new("python3")
+        .args(["-c", "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    if !python_is_311_or_newer {
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary Python module");
+    std::fs::write(directory.path().join("options.py"), generated).expect("generated options module must be written");
+    // `StrEnum` renders the value through `str()` and f-strings, which the e2e enum assertion
+    // (`_alef_e2e_text(value).lower() == expected.lower()`) depends on. ~keep
+    let probe = r#"
+from options import ScrollDirection
+
+assert ScrollDirection("up") is ScrollDirection.up
+assert ScrollDirection.up == "up"
+assert str(ScrollDirection.down) == "down"
+assert f"{ScrollDirection.down}" == "down"
+"#;
+    let output = std::process::Command::new("python3")
+        .arg("-c")
+        .arg(probe)
+        .current_dir(directory.path())
+        .output()
+        .expect("Python StrEnum probe must start");
+
+    assert!(
+        output.status.success(),
+        "generated Python StrEnum probe failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Negative control: an `options.py` with no unit enum of its own must not import `StrEnum`,
+/// or ruff F401 fires on the unused import.
+#[test]
+fn options_module_without_unit_enums_does_not_import_str_enum() {
+    let api = ApiSurface {
+        types: vec![TypeDef {
+            name: "Settings".to_string(),
+            has_default: true,
+            fields: vec![FieldDef {
+                name: "label".to_string(),
+                ty: TypeRef::String,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let generated = gen_options_py(&api, "_native", &DtoConfig::default(), &[], false);
+
+    assert!(!generated.contains("from enum import"), "{generated}");
+}
