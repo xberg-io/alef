@@ -250,8 +250,8 @@ fn activation_dispatch(config: &ResolvedCrateConfig, resolved: &[ResolvedCompone
             )?;
             writeln!(
                 out,
-                "            alef_component_abi::register_provider::<dyn {}>({:?}, proxy);",
-                contract_cfg.trait_path, provided.contract.name
+                "            alef_component_abi::register_provider::<dyn {}>({:?}, {:?}, proxy);",
+                contract_cfg.trait_path, component.component_name, provided.contract.name
             )?;
         }
         out.push_str("            Ok(())\n        }\n");
@@ -351,7 +351,7 @@ mod tests {
             "{generated}"
         );
         assert!(
-            generated.contains("register_provider::<dyn demo_core::Codec>(\"codec\", proxy)"),
+            generated.contains("register_provider::<dyn demo_core::Codec>(\"reverse\", \"codec\", proxy)"),
             "{generated}"
         );
         assert!(

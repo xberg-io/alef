@@ -381,7 +381,7 @@ pub fn activate_and_call(input: &[u8]) -> Result<Vec<u8>, String> {{
         .ensure_contract("reverse", "codec", b"{entry_symbol}\0")
         .map_err(|error| error.to_string())?;
     let proxy = std::sync::Arc::new(CodecProxy::new(&loaded)?);
-    alef_component_abi::register_provider::<dyn demo_core::Codec>("codec", proxy);
+    alef_component_abi::register_provider::<dyn demo_core::Codec>("reverse", "codec", proxy);
     demo_core::transform(input).map_err(|error| error.to_string())
 }}
 

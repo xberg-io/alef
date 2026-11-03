@@ -147,8 +147,12 @@ pub unsafe trait AlefContract {
     const CONTRACT_HASH: [u8; 32];
 }
 
+mod host;
 mod registry;
-pub use registry::{ContractRegistry, provider, register_provider};
+pub use host::{Construct, ConstructDefault, ConstructFromHost, FromHost, HostApi, LogLevel};
+pub use registry::{
+    AmbiguousProvider, ContractRegistry, provider, provider_of, providers, register_provider, try_provider,
+};
 
 #[cfg(test)]
 mod tests {
