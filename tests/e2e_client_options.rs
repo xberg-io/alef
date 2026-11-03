@@ -1,5 +1,5 @@
-//! Verifies the Rust and Python e2e generators apply a fixture's `client_options` to the client
-//! they build, and that a generator with no way to apply them leaves the fixture out.
+//! Verifies scalar and list options reach Rust/Python clients, and unconfigured generators
+//! leave fixtures out rather than executing them with default options.
 //!
 //! Rust writes the options into the JSON that `client_factory_from_json` reads. Python passes
 //! each option as a keyword argument of `client_factory`.
@@ -257,7 +257,7 @@ fn mentions_fixture(content: &str) -> bool {
 }
 
 #[test]
-fn every_language_but_rust_and_python_decides_to_leave_out_a_fixture_with_client_options() {
+fn every_unconfigured_language_leaves_out_a_fixture_with_client_options() {
     let cfg = build_config("rust", RUST_FACTORIES);
     let e2e = cfg.crates[0].e2e.clone().expect("e2e config present");
     let with_options = build_group(options()).fixtures.remove(0);
@@ -285,7 +285,7 @@ fn every_language_but_rust_and_python_decides_to_leave_out_a_fixture_with_client
 }
 
 #[test]
-fn no_language_but_rust_and_python_emits_a_fixture_with_client_options() {
+fn no_unconfigured_language_emits_a_fixture_with_client_options() {
     let cfg = build_config("rust", RUST_FACTORIES);
     let e2e = cfg.crates[0].e2e.clone().expect("e2e config present");
     let resolved = cfg.clone().resolve().expect("config resolves").remove(0);
@@ -324,4 +324,56 @@ fn no_language_but_rust_and_python_emits_a_fixture_with_client_options() {
         leaked.is_empty(),
         "these languages emitted a fixture with client_options: {leaked:?}"
     );
+}
+
+#[test]
+fn python_and_rust_preserve_array_option_values() {
+    let values = Some(BTreeMap::from([
+        (
+            "blocked_networks".into(),
+            serde_json::json!(["127.0.0.0/8", "quote\"slash\\"]),
+        ),
+        ("thresholds".into(), serde_json::json!([-1, 0, 1.5])),
+        ("empty".into(), serde_json::json!([])),
+    ]));
+    let python = generate(
+        &PythonE2eCodegen,
+        &build_config("python", "client_factory = \"create_client\""),
+        build_group(values.clone()),
+    );
+    assert!(python.contains("blocked_networks=["), "{python}");
+    assert!(python.contains("thresholds=[-1, 0, 1.5]"), "{python}");
+    assert!(python.contains("empty=[]"), "{python}");
+    let rust = generate(
+        &RustE2eCodegen,
+        &build_config("rust", RUST_FACTORIES),
+        build_group(values),
+    );
+    assert!(rust.contains("\"blocked_networks\":["), "{rust}");
+    assert!(rust.contains("\"thresholds\":[-1,0,1.5]"), "{rust}");
+    assert!(rust.contains("\"empty\":[]"), "{rust}");
+}
+
+#[test]
+fn python_prefers_the_configured_json_factory_for_option_lists() {
+    let cfg = build_config(
+        "python",
+        "client_factory = \"create_client\"\nclient_factory_from_json = \"create_client_from_json\"",
+    );
+    let content = generate(
+        &PythonE2eCodegen,
+        &cfg,
+        build_group(Some(BTreeMap::from([
+            ("blocked_networks".into(), serde_json::json!(["127.0.0.0/8"])),
+            ("class".into(), serde_json::json!(1)),
+        ]))),
+    );
+    assert!(
+        content.contains("from demo_client import create_client_from_json"),
+        "{content}"
+    );
+    assert!(content.contains("create_client_from_json(json.dumps("), "{content}");
+    assert!(content.contains("blocked_networks"), "{content}");
+    assert!(content.contains("smoke_client_options"), "{content}");
+    assert!(!content.contains("class=1"), "{content}");
 }

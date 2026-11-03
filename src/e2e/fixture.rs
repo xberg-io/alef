@@ -199,8 +199,9 @@ pub struct Fixture {
     #[serde(default)]
     pub websocket: Option<WebSocketFixture>,
     /// Options the generated test sets on the client it builds, keyed by option name
-    /// (for example `timeout_secs`, `max_retries`). A language whose generator cannot apply
-    /// them excludes the fixture (see `codegen::fixture_inclusion`).
+    /// (for example `timeout_secs`, `blocked_networks`). Values are scalars or homogeneous
+    /// arrays of strings or numbers. A generator without an applicable client factory excludes
+    /// the fixture (see `codegen::fixture_inclusion`).
     #[serde(default)]
     pub client_options: Option<BTreeMap<String, serde_json::Value>>,
 }
