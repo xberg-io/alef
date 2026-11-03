@@ -34,7 +34,10 @@ pub enum ResolveError {
     DuplicateCrateName(String),
 
     /// A crate has no target languages after merging workspace and per-crate config.
-    #[error("crate `{0}` has no target languages — set `languages` on the crate or in `[workspace]`")]
+    #[error(
+        "crate `{0}` has no target languages — set `languages` on the crate or in `[workspace]` \
+         (a crate with `[[crates.components]]` may omit them)"
+    )]
     EmptyLanguages(String),
 
     /// Two or more crates would write to the same output path for the same language.
@@ -105,7 +108,8 @@ impl NewAlefConfig {
     ///
     /// - [`ResolveError::NoCratesConfigured`] when `[[crates]]` is empty.
     /// - [`ResolveError::DuplicateCrateName`] when two crates share a name.
-    /// - [`ResolveError::EmptyLanguages`] when a crate has no target languages.
+    /// - [`ResolveError::EmptyLanguages`] when a crate has no target languages and declares no
+    ///   `[[crates.components]]` (a components-only crate may have an empty language list).
     /// - [`ResolveError::OverlappingOutputPath`] when two crates resolve to the
     ///   same output directory for the same language.
     pub fn resolve(&self) -> Result<Vec<ResolvedCrateConfig>, ResolveError> {
@@ -155,20 +159,14 @@ impl NewAlefConfig {
     fn resolve_one(&self, krate: &RawCrateConfig, multi_crate: bool) -> Result<ResolvedCrateConfig, ResolveError> {
         let ws = &self.workspace;
 
+        // A components-only crate (it declares `[[crates.components]]` and inherits no languages)
+        // has no binding to generate: only the component producer crates, build, package and lock
+        // steps apply, so an empty language list is valid there. ~keep
         let languages: Vec<Language> = match krate.languages.as_deref() {
             Some(langs) if !langs.is_empty() => langs.to_vec(),
-            Some(_) => {
-                if ws.languages.is_empty() {
-                    return Err(ResolveError::EmptyLanguages(krate.name.clone()));
-                }
-                ws.languages.clone()
-            }
-            None => {
-                if ws.languages.is_empty() {
-                    return Err(ResolveError::EmptyLanguages(krate.name.clone()));
-                }
-                ws.languages.clone()
-            }
+            _ if !ws.languages.is_empty() => ws.languages.clone(),
+            _ if !krate.components.is_empty() => Vec::new(),
+            _ => return Err(ResolveError::EmptyLanguages(krate.name.clone())),
         };
 
         let output_paths = resolve_output_paths(krate, &ws.output_template, &languages, multi_crate)?;

@@ -1299,7 +1299,7 @@
         },
         "targets": {
           "default": null,
-          "description": "Rust target triples for which this component is built and published.\n\nDefaults to every target in [`SUPPORTED_COMPONENT_TARGETS`] enabled by\nthe crate's `[targets]` table, minus anything listed in `bundled_on`.\nAn explicit list must be a subset of [`SUPPORTED_COMPONENT_TARGETS`]\nand must not overlap `bundled_on`.",
+          "description": "Rust target triples for which this component is built and published.\n\nDefaults to every target in [`SUPPORTED_COMPONENT_TARGETS`] enabled by\nthe crate's `[targets]` table, minus anything listed in `bundled_on`.\nAn explicit list may name any well-formed Rust target triple (see\n[`is_valid_target_triple`]), including ones outside the default matrix such as\n`aarch64-pc-windows-msvc`, and must not overlap `bundled_on`.",
           "items": {
             "type": "string"
           },
@@ -1346,6 +1346,13 @@
       "additionalProperties": false,
       "description": "Distribution settings shared by every component in a crate.\n\nMay be declared at the workspace level (`[component_distribution]`), the\ncrate level (`[crates.component_distribution]`), or both; see [`Self::merge`].",
       "properties": {
+        "artifact_name_template": {
+          "description": "Optional template for artifact file names, replacing the default\n[`DEFAULT_ARTIFACT_NAME_TEMPLATE`].\n\nPlaceholders: `{crate}`, `{component}`, `{version}`, `{target}`, `{fh16}` and `{ch16}`\n(the first 16 hex characters of the feature and contract hashes). Must contain\n`{component}` and `{target}`; the rendered name may only use `[A-Za-z0-9._-]`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "public_keys": {
           "additionalProperties": {
             "type": "string"
@@ -1356,7 +1363,7 @@
         },
         "url_template": {
           "default": "",
-          "description": "URL template used to locate a component artifact or release manifest.",
+          "description": "URL template used to locate a component artifact or release manifest.\n\nMust start with `https://` (or `file://` for local dev locks) and contain `{artifact}`,\nwhich expands to the artifact file name. `{crate}`, `{component}`, `{version}`,\n`{target}`, `{feature_hash}` and `{contract_hash}` are optional.",
           "type": "string"
         }
       },

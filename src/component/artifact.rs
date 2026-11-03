@@ -10,6 +10,8 @@ use ed25519_dalek::{Signature, Signer as _, SigningKey};
 use flate2::{Compression, GzBuilder};
 use sha2::{Digest, Sha256};
 
+use crate::core::config::component::DEFAULT_ARTIFACT_NAME_TEMPLATE;
+
 pub use alef_component_runtime::{
     COMPONENT_ABI_VERSION, COMPONENT_MANIFEST_SCHEMA, ComponentArtifactRecord, ComponentDeliveryMode,
     ComponentIdentity, ComponentLibrary, ComponentLock, ComponentLockEntry, ComponentManifest,
@@ -77,6 +79,15 @@ pub fn feature_hash(features: &[String], default_features: bool) -> String {
 }
 
 pub fn artifact_name(identity: &ComponentIdentity) -> Result<String> {
+    artifact_name_with(identity, None)
+}
+
+/// Render the artifact file name for `identity`.
+///
+/// `template` is a `ComponentDistributionConfig::artifact_name_template`; `None` uses
+/// [`DEFAULT_ARTIFACT_NAME_TEMPLATE`]. Every identity field and the rendered name are checked
+/// against the `[A-Za-z0-9._-]` charset, so a template can never introduce a path separator.
+pub fn artifact_name_with(identity: &ComponentIdentity, template: Option<&str>) -> Result<String> {
     for (kind, value) in [
         ("crate", identity.crate_name.as_str()),
         ("component", identity.component.as_str()),
@@ -93,15 +104,20 @@ pub fn artifact_name(identity: &ComponentIdentity) -> Result<String> {
         identity.contract_hash.len() >= 16,
         "contract hash must contain at least 16 hexadecimal characters"
     );
-    Ok(format!(
-        "{}-{}-{}-{}-{}-{}.tar.gz",
-        identity.crate_name,
-        identity.component,
-        identity.version,
-        &identity.feature_hash[..16],
-        &identity.contract_hash[..16],
-        identity.target
-    ))
+    let template = template.unwrap_or(DEFAULT_ARTIFACT_NAME_TEMPLATE);
+    let name = template
+        .replace("{crate}", &identity.crate_name)
+        .replace("{component}", &identity.component)
+        .replace("{version}", &identity.version)
+        .replace("{target}", &identity.target)
+        .replace("{fh16}", &identity.feature_hash[..16])
+        .replace("{ch16}", &identity.contract_hash[..16]);
+    ensure!(
+        !name.contains('{') && !name.contains('}'),
+        "artifact name template `{template}` contains an unknown placeholder"
+    );
+    validate_name("artifact name", &name)?;
+    Ok(name)
 }
 
 fn validate_name(kind: &str, value: &str) -> Result<()> {
@@ -200,6 +216,17 @@ pub fn write_package(
     manifest: ComponentManifest,
     signature: Option<ComponentSignature>,
 ) -> Result<ComponentArtifactRecord> {
+    write_package_named(library_path, output_dir, manifest, signature, None)
+}
+
+/// [`write_package`] with a custom `artifact_name_template` (see [`artifact_name_with`]).
+pub fn write_package_named(
+    library_path: &Path,
+    output_dir: &Path,
+    manifest: ComponentManifest,
+    signature: Option<ComponentSignature>,
+    name_template: Option<&str>,
+) -> Result<ComponentArtifactRecord> {
     let library_file = library_path
         .file_name()
         .and_then(|name| name.to_str())
@@ -215,7 +242,7 @@ pub fn write_package(
             signature.algorithm
         );
     }
-    let archive = artifact_name(&manifest.identity)?;
+    let archive = artifact_name_with(&manifest.identity, name_template)?;
     let manifest_bytes = manifest.canonical_bytes()?;
     let manifest_sha256 = sha256_bytes(&manifest_bytes);
     let signature_bytes = signature.as_ref().map(canonical_json).transpose()?;
@@ -396,18 +423,40 @@ pub fn build_lock(
     url_template: &str,
     public_keys: &BTreeMap<String, String>,
 ) -> Result<ComponentLock> {
+    build_lock_inner(records, url_template, Some(public_keys))
+}
+
+/// Build a lock with no `public_keys` and empty per-entry `key_id`s, for local dev loops.
+///
+/// The runtime skips signature verification for such a lock (see
+/// `alef_component_runtime::TrustPolicy::EmbeddedKeys`), so it must never be shipped.
+pub fn build_unsigned_lock(records: &[ComponentArtifactRecord], url_template: &str) -> Result<ComponentLock> {
+    build_lock_inner(records, url_template, None)
+}
+
+fn build_lock_inner(
+    records: &[ComponentArtifactRecord],
+    url_template: &str,
+    public_keys: Option<&BTreeMap<String, String>>,
+) -> Result<ComponentLock> {
     let mut artifacts = Vec::with_capacity(records.len());
     for record in records {
-        let signature = record
-            .signature
-            .as_ref()
-            .with_context(|| format!("component artifact `{}` is unsigned", record.archive))?;
-        ensure!(
-            public_keys.contains_key(&signature.key_id),
-            "component artifact `{}` uses unknown signing key `{}`",
-            record.archive,
-            signature.key_id
-        );
+        let key_id = match public_keys {
+            Some(public_keys) => {
+                let signature = record
+                    .signature
+                    .as_ref()
+                    .with_context(|| format!("component artifact `{}` is unsigned", record.archive))?;
+                ensure!(
+                    public_keys.contains_key(&signature.key_id),
+                    "component artifact `{}` uses unknown signing key `{}`",
+                    record.archive,
+                    signature.key_id
+                );
+                signature.key_id.clone()
+            }
+            None => String::new(),
+        };
         let identity = &record.manifest.identity;
         let url = expand_url(url_template, identity, &record.archive)?;
         artifacts.push(ComponentLockEntry {
@@ -420,7 +469,7 @@ pub fn build_lock(
             sha256: record.archive_sha256.clone(),
             size: record.archive_size,
             manifest_sha256: record.manifest_sha256.clone(),
-            key_id: signature.key_id.clone(),
+            key_id,
         });
     }
     artifacts.sort_by(|left, right| {
@@ -447,7 +496,7 @@ pub fn build_lock(
     }
     Ok(ComponentLock {
         schema_version: COMPONENT_MANIFEST_SCHEMA,
-        public_keys: public_keys.clone(),
+        public_keys: public_keys.cloned().unwrap_or_default(),
         artifacts,
     })
 }
@@ -468,6 +517,20 @@ const MAX_ARCHIVE_ENTRIES: usize = 3;
 const METADATA_ENTRY_SIZE_CEILING: u64 = 64 * 1024;
 
 pub fn verify_record(record_path: &Path, public_keys: &BTreeMap<String, String>) -> Result<()> {
+    verify_record_with(record_path, Some(public_keys), None)
+}
+
+/// Verify an artifact record and its archive.
+///
+/// With `public_keys`, the record must carry a valid signature by one of them. With `None`
+/// (unsigned dev flows) only hashes, identity and archive contents are checked, and an
+/// archive without `component.sig` is accepted. `name_template` is the configured
+/// `artifact_name_template`, used to recompute the expected archive file name.
+pub fn verify_record_with(
+    record_path: &Path,
+    public_keys: Option<&BTreeMap<String, String>>,
+    name_template: Option<&str>,
+) -> Result<()> {
     let record = read_record(record_path)?;
     ensure!(
         record.manifest.schema_version == COMPONENT_MANIFEST_SCHEMA,
@@ -482,7 +545,7 @@ pub fn verify_record(record_path: &Path, public_keys: &BTreeMap<String, String>)
         "manifest hash mismatch"
     );
     ensure!(
-        record.archive == artifact_name(&record.manifest.identity)?,
+        record.archive == artifact_name_with(&record.manifest.identity, name_template)?,
         "artifact filename does not match its identity"
     );
 
@@ -499,22 +562,24 @@ pub fn verify_record(record_path: &Path, public_keys: &BTreeMap<String, String>)
         "component archive hash mismatch"
     );
 
-    let signature = record.signature.as_ref().context("component artifact is unsigned")?;
-    let public_key = public_keys
-        .get(&signature.key_id)
-        .with_context(|| format!("component artifact uses unknown signing key `{}`", signature.key_id))?;
-    verify_manifest_signature(&record.manifest, signature, public_key)?;
-
     let (embedded_manifest, embedded_signature, embedded_library) =
         read_component_archive(&archive_path, &record.manifest)?;
     ensure!(
         embedded_manifest == record.manifest.canonical_bytes()?,
         "archive manifest differs from record manifest"
     );
-    ensure!(
-        embedded_signature == canonical_json(signature)?,
-        "archive signature differs from record signature"
-    );
+    if let Some(public_keys) = public_keys {
+        let signature = record.signature.as_ref().context("component artifact is unsigned")?;
+        let public_key = public_keys
+            .get(&signature.key_id)
+            .with_context(|| format!("component artifact uses unknown signing key `{}`", signature.key_id))?;
+        verify_manifest_signature(&record.manifest, signature, public_key)?;
+        let embedded_signature = embedded_signature.context("archive does not contain component.sig")?;
+        ensure!(
+            embedded_signature == canonical_json(signature)?,
+            "archive signature differs from record signature"
+        );
+    }
     ensure!(
         embedded_library.len() as u64 == record.manifest.library.size,
         "component library size mismatch"
@@ -532,7 +597,10 @@ pub fn verify_record(record_path: &Path, public_keys: &BTreeMap<String, String>)
 /// unexpected entry name, or an entry whose declared size exceeds the expected ceiling for
 /// its kind (bounding how much a corrupted or hand-crafted archive can force this to
 /// decompress and hold in memory).
-fn read_component_archive(archive_path: &Path, manifest: &ComponentManifest) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>)> {
+/// The manifest, optional signature and library bytes of a packaged component archive.
+type ArchiveContents = (Vec<u8>, Option<Vec<u8>>, Vec<u8>);
+
+fn read_component_archive(archive_path: &Path, manifest: &ComponentManifest) -> Result<ArchiveContents> {
     let archive_file = fs::File::open(archive_path)
         .with_context(|| format!("failed to read component archive {}", archive_path.display()))?;
     let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(archive_file));
@@ -594,7 +662,7 @@ fn read_component_archive(archive_path: &Path, manifest: &ComponentManifest) -> 
 
     Ok((
         manifest_bytes.context("archive does not contain component.json")?,
-        signature_bytes.context("archive does not contain component.sig")?,
+        signature_bytes,
         library_bytes.with_context(|| format!("archive does not contain {}", manifest.library.file))?,
     ))
 }
@@ -615,13 +683,38 @@ fn expand_url(template: &str, identity: &ComponentIdentity, artifact: &str) -> R
     Ok(url)
 }
 
+/// Where an Ed25519 signing key is read from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SigningKeySource {
+    /// A key file: PKCS#8 PEM or DER, or a raw 32-byte seed.
+    File(std::path::PathBuf),
+    /// An environment variable holding PKCS#8 PEM text, or base64 of PKCS#8 DER / a raw 32-byte
+    /// seed.
+    Env(String),
+    /// Standard input, in any form a key file may take.
+    Stdin,
+}
+
+/// Upper bound on key material read from stdin; a PKCS#8 Ed25519 key is under 200 bytes.
+const MAX_SIGNING_KEY_BYTES: u64 = 64 * 1024;
+
 /// Sign a component manifest's canonical bytes with an in-process Ed25519 key, replacing
 /// the previous `openssl pkeyutl -rawin` shell-out so signing no longer depends on the
 /// system OpenSSL build supporting Ed25519.
 pub fn sign_manifest(manifest: &ComponentManifest, private_key: &Path, key_id: &str) -> Result<ComponentSignature> {
+    let signing_key = load_signing_key(private_key)?;
+    sign_manifest_with_key(manifest, &signing_key, key_id)
+}
+
+/// Sign a component manifest with an already-loaded key, so a key read once (notably from
+/// stdin, which can only be read once) signs every manifest in a run.
+pub fn sign_manifest_with_key(
+    manifest: &ComponentManifest,
+    signing_key: &SigningKey,
+    key_id: &str,
+) -> Result<ComponentSignature> {
     ensure!(!key_id.trim().is_empty(), "signing key ID must not be empty");
     let payload = manifest.canonical_bytes()?;
-    let signing_key = load_signing_key(private_key)?;
     let signature = signing_key.sign(&payload);
     Ok(ComponentSignature {
         algorithm: "ed25519".to_string(),
@@ -630,30 +723,91 @@ pub fn sign_manifest(manifest: &ComponentManifest, private_key: &Path, key_id: &
     })
 }
 
+/// Load an Ed25519 signing key from a [`SigningKeySource`]. Error messages name the source but
+/// never include key material.
+pub fn load_signing_key_from_source(source: &SigningKeySource) -> Result<SigningKey> {
+    match source {
+        SigningKeySource::File(path) => load_signing_key(path),
+        SigningKeySource::Env(name) => load_signing_key_from_env(name, |name| std::env::var(name)),
+        SigningKeySource::Stdin => load_signing_key_from_reader(std::io::stdin().lock(), "stdin"),
+    }
+}
+
+/// Load a signing key from environment variable `name` read through `lookup`.
+///
+/// The value is PKCS#8 PEM text, or base64 (standard, surrounding whitespace ignored) of PKCS#8
+/// DER or a raw 32-byte seed. A missing or empty variable is an error; there is no default.
+pub fn load_signing_key_from_env(
+    name: &str,
+    lookup: impl FnOnce(&str) -> std::result::Result<String, std::env::VarError>,
+) -> Result<SigningKey> {
+    let value = match lookup(name) {
+        Ok(value) => value,
+        Err(std::env::VarError::NotPresent) => bail!("signing key environment variable `{name}` is not set"),
+        Err(std::env::VarError::NotUnicode(_)) => bail!("signing key environment variable `{name}` is not valid UTF-8"),
+    };
+    let trimmed = value.trim();
+    ensure!(
+        !trimmed.is_empty(),
+        "signing key environment variable `{name}` is empty"
+    );
+    let origin = format!("environment variable `{name}`");
+    if trimmed.starts_with("-----BEGIN") {
+        return signing_key_from_bytes(trimmed.as_bytes(), &origin);
+    }
+    let compact: String = trimmed.chars().filter(|character| !character.is_whitespace()).collect();
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(compact.as_bytes())
+        .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(compact.as_bytes()))
+        .map_err(|_| {
+            anyhow!("{origin} must hold a PKCS#8 PEM key or a base64-encoded PKCS#8 DER key or 32-byte seed")
+        })?;
+    signing_key_from_bytes(&bytes, &origin)
+}
+
+/// Load a signing key from `reader` (stdin in production), reading at most
+/// [`MAX_SIGNING_KEY_BYTES`]. `origin` names the source in error messages.
+pub fn load_signing_key_from_reader(reader: impl Read, origin: &str) -> Result<SigningKey> {
+    let mut bytes = Vec::new();
+    reader
+        .take(MAX_SIGNING_KEY_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("failed to read Ed25519 private key from {origin}"))?;
+    ensure!(
+        bytes.len() as u64 <= MAX_SIGNING_KEY_BYTES,
+        "Ed25519 private key from {origin} is larger than {MAX_SIGNING_KEY_BYTES} bytes"
+    );
+    // Piped PEM text usually ends in a newline; trim it. Binary keys are taken verbatim.
+    if let Ok(text) = std::str::from_utf8(&bytes)
+        && text.trim_start().starts_with("-----BEGIN")
+    {
+        return signing_key_from_bytes(text.trim().as_bytes(), origin);
+    }
+    ensure!(!bytes.is_empty(), "Ed25519 private key from {origin} is empty");
+    signing_key_from_bytes(&bytes, origin)
+}
+
 /// Load an Ed25519 signing key from every form `openssl genpkey -algorithm ED25519`
 /// (and `-outform DER`) produces -- PKCS#8 PEM or DER -- plus a raw 32-byte seed, so keys
 /// minted for the previous `openssl`-based signer keep working unchanged.
 fn load_signing_key(path: &Path) -> Result<SigningKey> {
     let bytes = fs::read(path).with_context(|| format!("failed to read Ed25519 private key {}", path.display()))?;
-    if let Ok(text) = std::str::from_utf8(&bytes)
+    signing_key_from_bytes(&bytes, &path.display().to_string())
+}
+
+fn signing_key_from_bytes(bytes: &[u8], origin: &str) -> Result<SigningKey> {
+    if let Ok(text) = std::str::from_utf8(bytes)
         && text.trim_start().starts_with("-----BEGIN")
     {
-        return SigningKey::from_pkcs8_pem(text).map_err(|error| {
-            anyhow!(
-                "failed to parse Ed25519 private key {} as PKCS#8 PEM: {error}",
-                path.display()
-            )
-        });
+        return SigningKey::from_pkcs8_pem(text)
+            .map_err(|error| anyhow!("failed to parse Ed25519 private key {origin} as PKCS#8 PEM: {error}"));
     }
-    if let Ok(key) = SigningKey::from_pkcs8_der(&bytes) {
+    if let Ok(key) = SigningKey::from_pkcs8_der(bytes) {
         return Ok(key);
     }
-    let seed: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
-        anyhow!(
-            "Ed25519 private key {} is not PKCS#8 PEM/DER or a raw 32-byte seed",
-            path.display()
-        )
-    })?;
+    let seed: [u8; 32] = bytes
+        .try_into()
+        .map_err(|_| anyhow!("Ed25519 private key {origin} is not PKCS#8 PEM/DER or a raw 32-byte seed"))?;
     Ok(SigningKey::from_bytes(&seed))
 }
 

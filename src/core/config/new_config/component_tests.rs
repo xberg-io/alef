@@ -185,12 +185,36 @@ fn resolve_accepts_an_explicit_empty_target_list() {
 }
 
 #[test]
-fn resolve_rejects_component_targets_the_v1_loader_cannot_load() {
-    let mut config = component_config("");
-    config.crates[0].components[0].targets = Some(vec!["aarch64-apple-ios".to_string()]);
+fn resolve_rejects_malformed_component_target_triples() {
+    for bad in [
+        "ios",
+        "x86_64-Linux-gnu",
+        "x86_64--linux",
+        "a-b-c-d-e-f",
+        "x86 64-unknown-linux",
+    ] {
+        let mut config = component_config("");
+        config.crates[0].components[0].targets = Some(vec![bad.to_string()]);
 
-    let error = config.resolve().unwrap_err().to_string();
-    assert!(error.contains("unsupported v1 target `aarch64-apple-ios`"), "{error}");
+        let error = config.resolve().unwrap_err().to_string();
+        assert!(
+            error.contains(&format!("target `{bad}` is not a valid Rust target triple")),
+            "{bad}: {error}"
+        );
+    }
+}
+
+#[test]
+fn resolve_accepts_component_targets_outside_the_default_matrix() {
+    let mut config = component_config("");
+    config.crates[0].components[0].targets = Some(vec![
+        "aarch64-pc-windows-msvc".to_string(),
+        "x86_64-unknown-linux-musl".to_string(),
+    ]);
+
+    let resolved = config.resolve().unwrap().remove(0);
+    let targets = crate::codegen::component::resolve_component_targets(&resolved, &resolved.components[0]);
+    assert_eq!(targets, vec!["aarch64-pc-windows-msvc", "x86_64-unknown-linux-musl"]);
 }
 
 #[test]
@@ -222,6 +246,13 @@ fn default_component_targets_come_from_the_crate_targets_table_minus_bundled_on(
 
 #[test]
 fn resolve_rejects_invalid_component_distribution_url_template() {
+    let mut file_url = component_config("");
+    file_url.crates[0].component_distribution.as_mut().unwrap().url_template =
+        "file:///tmp/dist/components/{artifact}".to_string();
+    file_url
+        .resolve()
+        .expect("file:// url_template is allowed for dev locks");
+
     let mut insecure = component_config("");
     insecure.crates[0].component_distribution.as_mut().unwrap().url_template =
         "http://downloads.test/{component}/{version}/{target}/{artifact}".to_string();
@@ -416,4 +447,105 @@ fn generated_schema_contains_component_configuration() {
     ] {
         assert!(rendered.contains(expected), "schema is missing `{expected}`");
     }
+}
+
+#[test]
+fn url_template_requires_only_the_artifact_placeholder() {
+    let mut config = component_config("");
+    config.crates[0].component_distribution.as_mut().unwrap().url_template =
+        "https://github.com/owner/repo/releases/download/v{version}/{artifact}".to_string();
+    config
+        .resolve()
+        .expect("a template with only {artifact} plus version must resolve");
+
+    config.crates[0].component_distribution.as_mut().unwrap().url_template =
+        "https://github.com/owner/repo/releases/download/{artifact}".to_string();
+    config.resolve().expect("a template with only {artifact} must resolve");
+}
+
+#[test]
+fn artifact_name_template_is_validated() {
+    let set = |template: &str| {
+        let mut config = component_config("");
+        config.crates[0]
+            .component_distribution
+            .as_mut()
+            .unwrap()
+            .artifact_name_template = Some(template.to_string());
+        config.resolve().map(|_| ()).map_err(|error| error.to_string())
+    };
+    set("poly-{component}-{version}-{target}.tar.gz").expect("valid template");
+    set("{crate}-{component}-{version}-{fh16}-{ch16}-{target}.tar.gz").expect("default-shaped template");
+    assert!(
+        set("poly-{component}-{version}.tar.gz")
+            .unwrap_err()
+            .contains("must contain `{target}`")
+    );
+    assert!(
+        set("poly-{target}.tar.gz")
+            .unwrap_err()
+            .contains("must contain `{component}`")
+    );
+    assert!(
+        set("{component}-{target}-{bogus}.tar.gz")
+            .unwrap_err()
+            .contains("unknown placeholder `{bogus}`")
+    );
+    assert!(
+        set("{component}/{target}.tar.gz")
+            .unwrap_err()
+            .contains("[A-Za-z0-9._-]")
+    );
+    assert!(set("{component}-{target").unwrap_err().contains("unmatched"));
+    assert!(set("{component}-{target}}").unwrap_err().contains("unmatched"));
+}
+
+#[test]
+fn crate_artifact_name_template_overrides_the_workspace_default() {
+    let workspace = ComponentDistributionConfig {
+        artifact_name_template: Some("ws-{component}-{target}.tar.gz".into()),
+        ..ComponentDistributionConfig::default()
+    };
+    let krate = ComponentDistributionConfig {
+        artifact_name_template: Some("crate-{component}-{target}.tar.gz".into()),
+        ..ComponentDistributionConfig::default()
+    };
+    let merged = ComponentDistributionConfig::merge(Some(&workspace), Some(&krate)).unwrap();
+    assert_eq!(
+        merged.artifact_name_template.as_deref(),
+        Some("crate-{component}-{target}.tar.gz")
+    );
+    let merged = ComponentDistributionConfig::merge(Some(&workspace), None).unwrap();
+    assert_eq!(
+        merged.artifact_name_template.as_deref(),
+        Some("ws-{component}-{target}.tar.gz")
+    );
+}
+
+#[test]
+fn resolve_allows_components_only_crates_without_languages() {
+    let config: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+
+[[crates]]
+name = "sample"
+sources = ["src/lib.rs"]
+languages = []
+
+[[crates.component_contracts]]
+name = "ocr"
+trait_path = "sample_core::OcrBackend"
+
+[[crates.components]]
+name = "tesseract"
+provides = [{ contract = "ocr", implementation = "sample_components::TesseractBackend" }]
+features = ["ocr-tesseract"]
+"#,
+    )
+    .unwrap();
+
+    let resolved = config.resolve().expect("components-only crate must resolve").remove(0);
+    assert!(resolved.languages.is_empty());
+    assert_eq!(resolved.components.len(), 1);
 }

@@ -624,6 +624,11 @@ pub(crate) enum ComponentAction {
         /// Print build commands without executing them.
         #[arg(long)]
         dry_run: bool,
+        /// Share one Cargo target directory across every component instead of using
+        /// `.alef/components/build/<crate>/<component>` per component. Pass the same value to
+        /// `component package`.
+        #[arg(long)]
+        target_dir: Option<PathBuf>,
     },
     /// Create deterministic signed component archives and artifact records.
     Package {
@@ -640,18 +645,26 @@ pub(crate) enum ComponentAction {
         #[arg(long)]
         version: Option<String>,
         /// Ed25519 private key: PKCS#8 PEM or DER (e.g. `openssl genpkey -algorithm ED25519`),
-        /// or a raw 32-byte seed.
-        #[arg(long, requires = "key_id", conflicts_with = "unsigned")]
+        /// or a raw 32-byte seed. Pass `-` to read the key from stdin.
+        #[arg(long, requires = "key_id", conflicts_with_all = ["unsigned", "signing_key_env"])]
         signing_key: Option<PathBuf>,
+        /// Name of an environment variable holding the Ed25519 private key as PKCS#8 PEM text, or
+        /// base64 of PKCS#8 DER / a raw 32-byte seed.
+        #[arg(long, requires = "key_id", conflicts_with_all = ["unsigned", "signing_key"])]
+        signing_key_env: Option<String>,
         /// Stable ID of the public key embedded in generated binding packages.
-        #[arg(long, requires = "signing_key")]
+        #[arg(long)]
         key_id: Option<String>,
         /// Produce an unsigned CI intermediate archive.
-        #[arg(long, conflicts_with = "signing_key")]
+        #[arg(long, conflicts_with_all = ["signing_key", "signing_key_env"])]
         unsigned: bool,
         /// Explicit built library path; valid only for one profile/target.
         #[arg(long)]
         library: Option<PathBuf>,
+        /// Cargo target directory the components were built into; must match the
+        /// `--target-dir` given to `component build` (default: per-component directories).
+        #[arg(long)]
+        target_dir: Option<PathBuf>,
     },
     /// Generate and stage a binding-embeddable components.lock.json from signed artifact records.
     Lock {
@@ -661,6 +674,16 @@ pub(crate) enum ComponentAction {
         /// Output lock manifest path.
         #[arg(long, short, default_value = "components.lock.json")]
         output: PathBuf,
+        /// Emit a dev lock with no `public_keys` from unsigned (or signed) records. The runtime
+        /// does not verify signatures against such a lock; never ship it. Archive hashes are
+        /// still checked.
+        #[arg(long)]
+        unsigned: bool,
+        /// Override the configured `url_template` (must contain `{artifact}`); e.g.
+        /// `file:///abs/dist/components/{artifact}` for a local dev lock. Required with
+        /// `--unsigned` when the crate has no `component_distribution`.
+        #[arg(long)]
+        url_template: Option<String>,
     },
     /// Verify artifact hashes, identities, library contents, and Ed25519 signatures.
     Verify {
@@ -955,3 +978,7 @@ mod tests {
         assert!(report_only);
     }
 }
+
+#[cfg(test)]
+#[path = "args_component_tests.rs"]
+mod component_tests;

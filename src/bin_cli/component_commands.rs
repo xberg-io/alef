@@ -3,16 +3,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 
 use crate::cli::{dispatch, pipeline};
 use crate::codegen::component::{ResolvedComponent, resolve_component_targets, resolve_components};
 use crate::component::artifact::{
-    ComponentArtifactRecord, ComponentLock, PackageInput, ProvidedContractInput, build_lock, canonical_json,
-    create_manifest, dynamic_library_name, feature_hash, read_record, sign_manifest, verify_record, write_lock,
-    write_package,
+    ComponentArtifactRecord, ComponentLock, PackageInput, ProvidedContractInput, SigningKeySource, build_lock,
+    build_unsigned_lock, canonical_json, create_manifest, dynamic_library_name, feature_hash,
+    load_signing_key_from_source, read_record, sign_manifest_with_key, verify_record_with, write_lock,
+    write_package_named,
 };
-use crate::core::config::{ComponentConfig, Language, ResolvedCrateConfig};
+use crate::core::config::{ComponentConfig, ComponentDistributionConfig, Language, ResolvedCrateConfig};
 
 use super::args::{Commands, ComponentAction};
 use super::dispatch::DispatchContext;
@@ -32,6 +33,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             target,
             debug,
             dry_run,
+            target_dir,
         } => {
             for config in &crates {
                 let contracts = extract_contracts(config, &context.config_path)?;
@@ -46,7 +48,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                         );
                     }
                     for rust_target in select_targets(config, profile, &target)? {
-                        build_component(config, profile, &rust_target, debug, dry_run)?;
+                        build_component(config, profile, &rust_target, debug, dry_run, target_dir.as_deref())?;
                     }
                 }
             }
@@ -59,9 +61,11 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             output,
             version,
             signing_key,
+            signing_key_env,
             key_id,
             unsigned,
             library,
+            target_dir,
         } => {
             let mut package_count = 0_usize;
             let requested_count = crates
@@ -86,10 +90,19 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     "--library can only be used when packaging exactly one profile/target"
                 );
             }
+            let key_source = signing_key_source(signing_key, signing_key_env);
             ensure!(
-                unsigned || signing_key.is_some(),
-                "component packages must be signed; pass --signing-key/--key-id or explicitly use --unsigned for a CI intermediate"
+                unsigned || key_source.is_some(),
+                "component packages must be signed; pass --signing-key (or --signing-key-env) with --key-id, or explicitly use --unsigned for a CI intermediate"
             );
+            // Load once, up front: stdin can be read only once, and a bad key should fail before
+            // any archive is written.
+            let loaded_key = match (&key_source, key_id.as_deref()) {
+                (Some(source), Some(_)) => Some(load_signing_key_from_source(source)?),
+                (Some(_), None) => bail!("--key-id is required with --signing-key/--signing-key-env"),
+                (None, Some(_)) => bail!("--key-id requires --signing-key or --signing-key-env"),
+                (None, None) => None,
+            };
 
             for config in crates {
                 let contracts = extract_contracts(config, &context.config_path)?;
@@ -130,9 +143,9 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                         .collect::<Vec<_>>();
                     let profile_feature_hash = feature_hash(&profile.features, profile.default_features);
                     for rust_target in select_targets(config, profile, &target)? {
-                        let library_path = library
-                            .clone()
-                            .unwrap_or_else(|| built_library_path(config, &profile.name, &rust_target, false));
+                        let library_path = library.clone().unwrap_or_else(|| {
+                            built_library_path(config, &profile.name, &rust_target, false, target_dir.as_deref())
+                        });
                         let manifest = create_manifest(
                             &library_path,
                             PackageInput {
@@ -146,14 +159,17 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                                 feature_hash: &profile_feature_hash,
                             },
                         )?;
-                        let signature = match (signing_key.as_deref(), key_id.as_deref()) {
+                        let signature = match (loaded_key.as_ref(), key_id.as_deref()) {
                             (Some(private_key), Some(signing_key_id)) => {
-                                Some(sign_manifest(&manifest, private_key, signing_key_id)?)
+                                Some(sign_manifest_with_key(&manifest, private_key, signing_key_id)?)
                             }
-                            (None, None) if unsigned => None,
-                            _ => bail!("both --signing-key and --key-id are required for signed component packages"),
+                            _ => None,
                         };
-                        let record = write_package(&library_path, &output, manifest, signature)?;
+                        let name_template = config
+                            .component_distribution
+                            .as_ref()
+                            .and_then(|distribution| distribution.artifact_name_template.as_deref());
+                        let record = write_package_named(&library_path, &output, manifest, signature, name_template)?;
                         tracing::info!("Packaged component {}", output.join(&record.archive).display());
                         package_count += 1;
                     }
@@ -162,7 +178,15 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             tracing::info!("Component package complete: {package_count} artifact(s)");
             Ok(None)
         }
-        ComponentAction::Lock { input, output } => {
+        ComponentAction::Lock {
+            input,
+            output,
+            unsigned,
+            url_template,
+        } => {
+            if let Some(template) = url_template.as_deref() {
+                ComponentDistributionConfig::validate_url_template(template).map_err(|message| anyhow!(message))?;
+            }
             let records = records_in(&input)?;
             ensure!(
                 !records.is_empty(),
@@ -172,11 +196,31 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             let mut public_keys = BTreeMap::new();
             let mut artifacts = Vec::new();
             for config in &crates {
-                let distribution = config
-                    .component_distribution
-                    .as_ref()
-                    .with_context(|| format!("crate `{}` has components but no component_distribution", config.name))?;
-                merge_public_keys(&mut public_keys, &distribution.public_keys)?;
+                let distribution = config.component_distribution.as_ref();
+                let signed_keys = if unsigned {
+                    None
+                } else {
+                    let distribution = distribution.with_context(|| {
+                        format!("crate `{}` has components but no component_distribution", config.name)
+                    })?;
+                    merge_public_keys(&mut public_keys, &distribution.public_keys)?;
+                    Some(&distribution.public_keys)
+                };
+                let template = url_template
+                    .clone()
+                    .or_else(|| {
+                        distribution
+                            .map(|distribution| distribution.url_template.clone())
+                            .filter(|template| !template.is_empty())
+                    })
+                    .with_context(|| {
+                        format!(
+                            "crate `{}` has no component_distribution.url_template; pass --url-template",
+                            config.name
+                        )
+                    })?;
+                let name_template =
+                    distribution.and_then(|distribution| distribution.artifact_name_template.as_deref());
                 let crate_records = records
                     .iter()
                     .filter(|(_, record)| record.manifest.identity.crate_name == config.name)
@@ -187,14 +231,18 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     config.name
                 );
                 for (path, _) in &crate_records {
-                    verify_record(path, &distribution.public_keys)?;
+                    verify_record_with(path, signed_keys, name_template)?;
                 }
                 ensure_configured_matrix_present(config, &crate_records)?;
                 let owned = crate_records
                     .iter()
                     .map(|(_, record)| (*record).clone())
                     .collect::<Vec<_>>();
-                artifacts.extend(build_lock(&owned, &distribution.url_template, &distribution.public_keys)?.artifacts);
+                let lock = match signed_keys {
+                    Some(keys) => build_lock(&owned, &template, keys)?,
+                    None => build_unsigned_lock(&owned, &template)?,
+                };
+                artifacts.extend(lock.artifacts);
             }
             artifacts.sort_by(|left, right| {
                 (
@@ -256,7 +304,11 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     .component_distribution
                     .as_ref()
                     .with_context(|| format!("crate `{}` has no component_distribution", config.name))?;
-                verify_record(path, &distribution.public_keys)?;
+                verify_record_with(
+                    path,
+                    Some(&distribution.public_keys),
+                    distribution.artifact_name_template.as_deref(),
+                )?;
                 if !contract_cache.contains_key(&config.name) {
                     contract_cache.insert(config.name.clone(), extract_contracts(config, &context.config_path)?);
                 }
@@ -268,6 +320,17 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             tracing::info!("Component verification complete: {verified} artifact(s)");
             Ok(None)
         }
+    }
+}
+
+/// Map the mutually exclusive `--signing-key` / `--signing-key-env` flags to a key source;
+/// `--signing-key -` selects stdin.
+fn signing_key_source(path: Option<PathBuf>, env_name: Option<String>) -> Option<SigningKeySource> {
+    match (path, env_name) {
+        (Some(path), _) if path.as_os_str() == "-" => Some(SigningKeySource::Stdin),
+        (Some(path), _) => Some(SigningKeySource::File(path)),
+        (None, Some(name)) => Some(SigningKeySource::Env(name)),
+        (None, None) => None,
     }
 }
 
@@ -355,8 +418,9 @@ fn build_component(
     rust_target: &str,
     debug: bool,
     dry_run: bool,
+    shared_target_dir: Option<&Path>,
 ) -> Result<()> {
-    let target_dir = component_target_dir(config, &profile.name);
+    let target_dir = component_target_dir(config, &profile.name, shared_target_dir);
     let producer_manifest = producer_manifest_path(config, &profile.name);
     ensure!(
         producer_manifest.is_file(),
@@ -395,7 +459,7 @@ fn build_component(
         "component `{}` build failed for target `{rust_target}`",
         profile.name
     );
-    let library = built_library_path(config, &profile.name, rust_target, debug);
+    let library = built_library_path(config, &profile.name, rust_target, debug, shared_target_dir);
     ensure!(
         library.is_file(),
         "component build succeeded but did not produce {}",
@@ -404,7 +468,12 @@ fn build_component(
     Ok(())
 }
 
-fn component_target_dir(config: &ResolvedCrateConfig, component: &str) -> PathBuf {
+/// Cargo target directory for one component build: the shared `--target-dir` when given, else a
+/// private `.alef/components/build/<crate>/<component>` directory.
+fn component_target_dir(config: &ResolvedCrateConfig, component: &str, shared: Option<&Path>) -> PathBuf {
+    if let Some(shared) = shared {
+        return shared.to_path_buf();
+    }
     Path::new(".alef")
         .join("components")
         .join("build")
@@ -412,8 +481,14 @@ fn component_target_dir(config: &ResolvedCrateConfig, component: &str) -> PathBu
         .join(component)
 }
 
-fn built_library_path(config: &ResolvedCrateConfig, component: &str, target: &str, debug: bool) -> PathBuf {
-    component_target_dir(config, component)
+fn built_library_path(
+    config: &ResolvedCrateConfig,
+    component: &str,
+    target: &str,
+    debug: bool,
+    shared_target_dir: Option<&Path>,
+) -> PathBuf {
+    component_target_dir(config, component, shared_target_dir)
         .join(target)
         .join(if debug { "debug" } else { "release" })
         .join(dynamic_library_name(&producer_package_name(config, component), target))
@@ -774,218 +849,5 @@ fn sorted_features(features: &[String]) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::component::artifact::{ComponentDeliveryMode, ComponentIdentity, ComponentLockEntry};
-    use crate::core::config::{ComponentConfig, ComponentProvidesConfig};
-
-    fn provides(contract: &str, implementation: &str) -> Vec<ComponentProvidesConfig> {
-        vec![ComponentProvidesConfig {
-            contract: contract.into(),
-            implementation: implementation.into(),
-        }]
-    }
-
-    #[test]
-    fn target_filter_must_be_declared_by_profile() {
-        let config = ResolvedCrateConfig::default();
-        let profile = ComponentConfig {
-            name: "fast".into(),
-            provides: provides("engine", "demo::Fast"),
-            features: vec!["fast".into()],
-            default_features: false,
-            targets: Some(vec!["aarch64-apple-darwin".into()]),
-            bundled_on: Vec::new(),
-        };
-        let requested = vec!["x86_64-unknown-linux-gnu".to_string()];
-        assert!(select_targets(&config, &profile, &requested).is_err());
-    }
-
-    #[test]
-    fn component_extraction_uses_feature_union_without_changing_binding_features() {
-        let config = ResolvedCrateConfig {
-            features: vec!["base".into()],
-            components: vec![
-                ComponentConfig {
-                    name: "fast".into(),
-                    provides: provides("engine", "demo::Fast"),
-                    features: vec!["simd".into(), "base".into()],
-                    default_features: false,
-                    targets: Some(vec!["aarch64-apple-darwin".into()]),
-                    bundled_on: Vec::new(),
-                },
-                ComponentConfig {
-                    name: "gpu".into(),
-                    provides: provides("engine", "demo::Gpu"),
-                    features: vec!["cuda".into()],
-                    default_features: false,
-                    targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
-                    bundled_on: Vec::new(),
-                },
-            ],
-            ..ResolvedCrateConfig::default()
-        };
-
-        let extraction = component_extraction_config(&config);
-        assert_eq!(extraction.features, vec!["base", "cuda", "simd"]);
-        assert_eq!(config.features, vec!["base"]);
-    }
-
-    #[test]
-    fn default_python_lock_path_does_not_select_workspace_manifest() {
-        let config = ResolvedCrateConfig {
-            name: "demo-core".into(),
-            output_paths: HashMap::from([("python".into(), PathBuf::from("packages/python/demo_core"))]),
-            ..ResolvedCrateConfig::default()
-        };
-        assert_eq!(
-            python_component_lock_path(&config),
-            PathBuf::from("crates/demo-core-py/components.lock.json")
-        );
-    }
-
-    #[test]
-    fn component_lock_paths_cover_each_native_binding_once() {
-        let config = ResolvedCrateConfig {
-            name: "demo-core".into(),
-            languages: vec![
-                Language::Python,
-                Language::Node,
-                Language::Ruby,
-                Language::Php,
-                Language::Elixir,
-                Language::R,
-                Language::Ffi,
-                Language::Go,
-                Language::Java,
-                Language::Csharp,
-                Language::Kotlin,
-                Language::Swift,
-                Language::Dart,
-                Language::Gleam,
-                Language::Zig,
-                Language::Jni,
-                Language::Wasm,
-                Language::KotlinAndroid,
-            ],
-            ..ResolvedCrateConfig::default()
-        };
-
-        assert_eq!(
-            binding_component_lock_paths(&config),
-            BTreeSet::from([
-                PathBuf::from("crates/demo-core-ffi/components.lock.json"),
-                PathBuf::from("crates/demo-core-node/components.lock.json"),
-                PathBuf::from("crates/demo-core-php/components.lock.json"),
-                PathBuf::from("crates/demo-core-py/components.lock.json"),
-                PathBuf::from("packages/elixir/components.lock.json"),
-                PathBuf::from("packages/dart/rust/components.lock.json"),
-                PathBuf::from("packages/r/components.lock.json"),
-                PathBuf::from("packages/ruby/components.lock.json"),
-                PathBuf::from("packages/swift/rust/components.lock.json"),
-            ])
-        );
-    }
-
-    #[test]
-    fn staged_binding_lock_is_scoped_to_one_crate_and_its_keys() {
-        let entry = |crate_name: &str, component: &str, key_id: &str| ComponentLockEntry {
-            identity: ComponentIdentity {
-                crate_name: crate_name.into(),
-                component: component.into(),
-                version: "1.0.0".into(),
-                target: "aarch64-apple-darwin".into(),
-                feature_hash: "01".repeat(32),
-                contract_hash: "02".repeat(32),
-            },
-            provides: Vec::new(),
-            mode: ComponentDeliveryMode::Download,
-            url: "https://example.invalid/component.tar.gz".into(),
-            sha256: "03".repeat(32),
-            size: 10,
-            manifest_sha256: "04".repeat(32),
-            key_id: key_id.into(),
-        };
-        let lock = ComponentLock {
-            schema_version: 1,
-            public_keys: BTreeMap::from([
-                ("alpha-key".into(), "alpha-public-key".into()),
-                ("beta-key".into(), "beta-public-key".into()),
-            ]),
-            artifacts: vec![
-                entry("alpha-core", "fast", "alpha-key"),
-                entry("beta-core", "fast", "beta-key"),
-            ],
-        };
-
-        let scoped = binding_lock_for_crate(&lock, "alpha-core");
-        assert_eq!(scoped.artifacts.len(), 1);
-        assert_eq!(scoped.artifacts[0].identity.crate_name, "alpha-core");
-        assert_eq!(
-            scoped.public_keys,
-            BTreeMap::from([("alpha-key".into(), "alpha-public-key".into())])
-        );
-    }
-
-    fn one_component_config() -> ResolvedCrateConfig {
-        ResolvedCrateConfig {
-            name: "demo-core".into(),
-            languages: vec![crate::core::config::Language::Ffi],
-            components: vec![ComponentConfig {
-                name: "fast".into(),
-                provides: provides("engine", "demo::Fast"),
-                features: vec!["fast".into()],
-                default_features: false,
-                targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
-                bundled_on: Vec::new(),
-            }],
-            ..ResolvedCrateConfig::default()
-        }
-    }
-
-    #[test]
-    fn bootstrap_writes_a_schema_valid_empty_lock_when_none_exists() {
-        let base_dir = tempfile::tempdir().unwrap();
-        let config = one_component_config();
-
-        bootstrap_missing_component_locks(&config, base_dir.path()).unwrap();
-
-        let path = base_dir.path().join(ffi_component_lock_path(&config));
-        let written = fs::read_to_string(&path).unwrap();
-        assert_eq!(written, "{\"schema_version\":2,\"public_keys\":{},\"artifacts\":[]}\n");
-        // Must parse back into the exact type `ComponentManager::from_lock` consumes, not just
-        // be well-formed JSON.
-        let parsed: ComponentLock = serde_json::from_str(&written).unwrap();
-        assert!(parsed.artifacts.is_empty());
-    }
-
-    #[test]
-    fn bootstrap_never_overwrites_an_existing_lock() {
-        let base_dir = tempfile::tempdir().unwrap();
-        let config = one_component_config();
-        let path = base_dir.path().join(ffi_component_lock_path(&config));
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, "not a lock, but must survive untouched").unwrap();
-
-        bootstrap_missing_component_locks(&config, base_dir.path()).unwrap();
-
-        assert_eq!(
-            fs::read_to_string(&path).unwrap(),
-            "not a lock, but must survive untouched"
-        );
-    }
-
-    #[test]
-    fn bootstrap_is_a_noop_for_a_crate_with_no_configured_components() {
-        let base_dir = tempfile::tempdir().unwrap();
-        let config = ResolvedCrateConfig {
-            name: "demo-core".into(),
-            languages: vec![crate::core::config::Language::Ffi],
-            ..ResolvedCrateConfig::default()
-        };
-
-        bootstrap_missing_component_locks(&config, base_dir.path()).unwrap();
-
-        assert!(fs::read_dir(base_dir.path()).unwrap().next().is_none());
-    }
-}
+#[path = "component_commands_tests.rs"]
+mod tests;

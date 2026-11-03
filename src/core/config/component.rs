@@ -4,7 +4,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// Desktop/server targets supported by the v1 native component loader.
+/// Desktop/server targets a component is built for by default.
+///
+/// This is the default matrix only: a component's explicit `targets` list may name any other
+/// well-formed Rust target triple (see [`is_valid_target_triple`]), e.g. `aarch64-pc-windows-msvc`.
 pub const SUPPORTED_COMPONENT_TARGETS: &[&str] = &[
     "x86_64-unknown-linux-gnu",
     "aarch64-unknown-linux-gnu",
@@ -12,6 +15,28 @@ pub const SUPPORTED_COMPONENT_TARGETS: &[&str] = &[
     "aarch64-apple-darwin",
     "x86_64-pc-windows-msvc",
 ];
+
+/// Whether `triple` is a well-formed Rust target triple: three to five `-`-separated segments of
+/// lowercase ASCII letters, digits, `_` or `.`.
+///
+/// This is a syntax check only; it does not know which triples `rustc` can build.
+#[must_use]
+pub fn is_valid_target_triple(triple: &str) -> bool {
+    let segments: Vec<&str> = triple.split('-').collect();
+    (3..=5).contains(&segments.len())
+        && segments.iter().all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'.'))
+        })
+}
+
+/// Placeholders accepted by [`ComponentDistributionConfig::artifact_name_template`].
+pub const ARTIFACT_NAME_PLACEHOLDERS: &[&str] = &["crate", "component", "version", "target", "fh16", "ch16"];
+
+/// Artifact file name used when no `artifact_name_template` is configured.
+pub const DEFAULT_ARTIFACT_NAME_TEMPLATE: &str = "{crate}-{component}-{version}-{fh16}-{ch16}-{target}.tar.gz";
 
 fn default_interface_version() -> u32 {
     1
@@ -64,8 +89,9 @@ pub struct ComponentConfig {
     ///
     /// Defaults to every target in [`SUPPORTED_COMPONENT_TARGETS`] enabled by
     /// the crate's `[targets]` table, minus anything listed in `bundled_on`.
-    /// An explicit list must be a subset of [`SUPPORTED_COMPONENT_TARGETS`]
-    /// and must not overlap `bundled_on`.
+    /// An explicit list may name any well-formed Rust target triple (see
+    /// [`is_valid_target_triple`]), including ones outside the default matrix such as
+    /// `aarch64-pc-windows-msvc`, and must not overlap `bundled_on`.
     #[serde(default)]
     pub targets: Option<Vec<String>>,
     /// Targets/platforms for which downloading component code is unsupported
@@ -85,8 +111,20 @@ pub struct ComponentConfig {
 #[serde(deny_unknown_fields)]
 pub struct ComponentDistributionConfig {
     /// URL template used to locate a component artifact or release manifest.
+    ///
+    /// Must start with `https://` (or `file://` for local dev locks) and contain `{artifact}`,
+    /// which expands to the artifact file name. `{crate}`, `{component}`, `{version}`,
+    /// `{target}`, `{feature_hash}` and `{contract_hash}` are optional.
     #[serde(default)]
     pub url_template: String,
+    /// Optional template for artifact file names, replacing the default
+    /// [`DEFAULT_ARTIFACT_NAME_TEMPLATE`].
+    ///
+    /// Placeholders: `{crate}`, `{component}`, `{version}`, `{target}`, `{fh16}` and `{ch16}`
+    /// (the first 16 hex characters of the feature and contract hashes). Must contain
+    /// `{component}` and `{target}`; the rendered name may only use `[A-Za-z0-9._-]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_name_template: Option<String>,
     /// Trusted public keys accepted when verifying component manifests.
     #[serde(default)]
     pub public_keys: BTreeMap<String, String>,
@@ -111,9 +149,88 @@ impl ComponentDistributionConfig {
             .filter(|url| !url.is_empty())
             .or_else(|| workspace.map(|config| config.url_template.clone()))
             .unwrap_or_default();
+        let artifact_name_template = krate
+            .and_then(|config| config.artifact_name_template.clone())
+            .or_else(|| workspace.and_then(|config| config.artifact_name_template.clone()));
         Some(Self {
             url_template,
+            artifact_name_template,
             public_keys,
         })
+    }
+
+    /// Check a `url_template`: it must use `https://` (or `file://`, for local dev locks), have
+    /// a non-empty remainder without whitespace, and contain `{artifact}`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a human-readable reason when the template is invalid.
+    pub fn validate_url_template(template: &str) -> Result<(), String> {
+        let template = template.trim();
+        if let Some(rest) = template.strip_prefix("file://") {
+            if rest.is_empty() || rest.chars().any(char::is_whitespace) {
+                return Err("component distribution url_template must be a non-empty file:// URL".into());
+            }
+        } else {
+            let authority = template
+                .strip_prefix("https://")
+                .and_then(|remainder| remainder.split('/').next());
+            if authority.is_none_or(|value| value.is_empty() || value.chars().any(char::is_whitespace)) {
+                return Err("component distribution url_template must use HTTPS (or file:// for dev locks)".into());
+            }
+        }
+        if !template.contains("{artifact}") {
+            return Err("component distribution url_template must contain `{artifact}`".into());
+        }
+        Ok(())
+    }
+
+    /// Check an `artifact_name_template`: known placeholders only, `{component}` and `{target}`
+    /// present, and a literal part limited to `[A-Za-z0-9._-]`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a human-readable reason when the template is invalid.
+    pub fn validate_artifact_name_template(template: &str) -> Result<(), String> {
+        let mut rest = template;
+        let mut seen = Vec::new();
+        let mut literal = String::new();
+        while let Some(open) = rest.find(['{', '}']) {
+            literal.push_str(&rest[..open]);
+            if !rest[open..].starts_with('{') {
+                return Err(format!("artifact_name_template `{template}` has an unmatched `}}`"));
+            }
+            let Some(close) = rest[open..].find('}') else {
+                return Err(format!("artifact_name_template `{template}` has an unmatched `{{`"));
+            };
+            let name = &rest[open + 1..open + close];
+            if !ARTIFACT_NAME_PLACEHOLDERS.contains(&name) {
+                return Err(format!(
+                    "artifact_name_template uses unknown placeholder `{{{name}}}`; allowed: {}",
+                    ARTIFACT_NAME_PLACEHOLDERS
+                        .iter()
+                        .map(|placeholder| format!("{{{placeholder}}}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+            seen.push(name);
+            rest = &rest[open + close + 1..];
+        }
+        literal.push_str(rest);
+        for required in ["component", "target"] {
+            if !seen.contains(&required) {
+                return Err(format!("artifact_name_template must contain `{{{required}}}`"));
+            }
+        }
+        if !literal
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        {
+            return Err(format!(
+                "artifact_name_template `{template}` may only contain [A-Za-z0-9._-] outside placeholders"
+            ));
+        }
+        Ok(())
     }
 }

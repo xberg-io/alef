@@ -80,10 +80,13 @@ fn validate_component_targets(crate_name: &str, component: &ComponentConfig) -> 
         return Ok(());
     };
     for target in targets {
-        if !crate::core::config::component::SUPPORTED_COMPONENT_TARGETS.contains(&target.as_str()) {
+        if !crate::core::config::component::is_valid_target_triple(target) {
             return invalid_component_config(
                 crate_name,
-                format!("component `{}` uses unsupported v1 target `{target}`", component.name),
+                format!(
+                    "component `{}` target `{target}` is not a valid Rust target triple",
+                    component.name
+                ),
             );
         }
         if component.bundled_on.iter().any(|bundled| bundled == target) {
@@ -155,20 +158,13 @@ fn validate_component_distribution(
     let Some(distribution) = distribution else {
         return Ok(());
     };
-    let url_template = distribution.url_template.trim();
-    let authority = url_template
-        .strip_prefix("https://")
-        .and_then(|remainder| remainder.split('/').next());
-    if authority.is_none_or(|value| value.is_empty() || value.chars().any(char::is_whitespace)) {
-        return invalid_component_config(crate_name, "component distribution url_template must use HTTPS");
+    if let Err(message) = ComponentDistributionConfig::validate_url_template(&distribution.url_template) {
+        return invalid_component_config(crate_name, message);
     }
-    for placeholder in ["component", "version", "target", "artifact"] {
-        if !url_template.contains(&format!("{{{placeholder}}}")) {
-            return invalid_component_config(
-                crate_name,
-                format!("component distribution url_template must contain `{{{placeholder}}}`"),
-            );
-        }
+    if let Some(template) = distribution.artifact_name_template.as_deref()
+        && let Err(message) = ComponentDistributionConfig::validate_artifact_name_template(template)
+    {
+        return invalid_component_config(crate_name, message);
     }
     if distribution.public_keys.is_empty() {
         return invalid_component_config(
