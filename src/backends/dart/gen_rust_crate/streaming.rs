@@ -181,3 +181,7 @@ mod tests {
 #[cfg(test)]
 #[path = "streaming_layout_tests.rs"]
 mod layout_tests;
+
+#[cfg(test)]
+#[path = "streaming_type_tests.rs"]
+mod type_tests;
