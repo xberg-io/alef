@@ -6,6 +6,7 @@ use crate::core::config::Language;
 use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeRef};
 use ahash::AHashSet;
 
+mod adapter_fallible_inputs;
 mod native_dto_nullability;
 
 pub(super) fn transparent_string_wrapper(paths: Vec<Vec<crate::core::ir::NewtypeContainer>>) -> String {
