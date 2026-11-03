@@ -426,6 +426,9 @@ class ReleaseState:
                 "prerelease": "-" in self.spec["version"],
             },
         )
+        if type(created.get("id")) is not int or created["id"] <= 0:
+            raise ReleaseError("Publication API returned an invalid created release identity")
+        self._admitted_release_id = created["id"]
         state = self.inspect()
         if state["release"] is None or state["release"]["id"] != created.get("id") or not state["release"]["draft"]:
             raise ReleaseError("The prepared source-bound draft could not be verified")

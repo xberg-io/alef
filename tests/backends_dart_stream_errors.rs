@@ -183,6 +183,6 @@ fn transport_items_inherit_the_widened_owner_cfg() {
         assert!(!cfg.contains("android"), "{name}: {cfg}");
         checked += 1;
     }
-    assert_eq!(checked, 36);
+    assert_eq!(checked, 41);
     native::assert_disabled_transport_compiles(root.path(), &source);
 }

@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compare Dart u64 expectations in tagged-union payloads and whole function results as exact BigInt values,
   including declared fields named `count` and indexed variant-list elements. (#857)
 
+- Preserve unchanged duration, path and character values when converting Dart stream maps with `usize` keys. (#856)
+- Keep Dart streaming `usize` scalars, nested types and vectors consistent with the public binding's
+  `int`/`Int64List` mapping by widening wire payloads before FRB encoding. Exercise native scalar,
+  container and named DTO streams while preserving full-width `u64` as `BigInt`/`Uint64List`. (#856)
+- Keep queued main CI commits in independent concurrency groups while cancelling superseded pull request runs. (#855)
+- Verify newly prepared release drafts by their created ID while GitHub tag and list discovery are stale. (#854)
+- Include source-bound draft discovery regressions in the native publication verification gate. (#854)
+- Check mismatched creation and refetched IDs through the direct release lookup fixture. (#854)
 - Rust reference docs sample a borrowed struct or enum param (`&T`, `&mut T`, `Option<&T>`) with its
   `T::default()` or variant again instead of `todo!()`, a regression since 0.116.0.
 

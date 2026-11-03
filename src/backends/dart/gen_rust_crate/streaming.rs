@@ -1,9 +1,10 @@
-use crate::backends::dart::type_map::DartMapper;
+use crate::backends::dart::type_map::{DartMapper, dart_primitive_is_bigint};
 use crate::codegen::naming::{PublicIdentifierKind, public_host_identifier};
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::config::Language;
 use crate::core::config::{AdapterConfig, ResolvedCrateConfig};
 use crate::core::ir::{ErrorDef, PrimitiveType, TypeDef, TypeRef};
+use quote::ToTokens;
 use std::collections::HashMap;
 
 pub(super) fn emit_streaming_sink_method(
@@ -87,6 +88,8 @@ fn emit_transport(
     owner_cfg: &str,
 ) {
     let transport = crate::adapters::streaming::dart_transport_names(adapter);
+    let item_type = adapter.item_type.as_deref().unwrap_or("()");
+    let (wire_item_type, item_conversion) = stream_wire_item(item_type);
     let dart_wire = public_host_identifier(Language::Dart, PublicIdentifierKind::Type, &transport.wire);
     let arms = [
         if transport.unit_item {
@@ -109,7 +112,9 @@ fn emit_transport(
         crate::alef_context! {
             transport => &transport,
             source_cfg => super::helpers::widen_opaque_wrapper_cfg(owner_cfg),
-            item_type => adapter.item_type.as_deref().unwrap_or("()"),
+            item_type => item_type,
+            wire_item_type => wire_item_type,
+            item_conversion => item_conversion,
             error_type => &error.name,
             core_error_type => super::error_bridge::core_error_path(error, &config.core_import_name()),
             dart_type => dart_item_type(adapter.item_type.as_deref().unwrap_or("()")),
@@ -117,6 +122,72 @@ fn emit_transport(
             encode_code => format!("{encode:?}"),
         },
     ));
+}
+
+fn stream_wire_item(item_type: &str) -> (String, String) {
+    let Ok(mut ty) = syn::parse_str::<syn::Type>(item_type) else {
+        return (item_type.into(), "value".into());
+    };
+    let Some(conversion) = widen_stream_usize(&mut ty, "value") else {
+        return (item_type.into(), "value".into());
+    };
+    (ty.to_token_stream().to_string(), conversion)
+}
+
+fn widen_stream_usize(ty: &mut syn::Type, binding: &str) -> Option<String> {
+    let syn::Type::Path(path) = ty else { return None };
+    if path.path.is_ident("usize") {
+        let primitive = TypeRef::Primitive(PrimitiveType::Usize);
+        let wire = super::conversions::frb_rust_type_inner(&primitive);
+        let ident = &mut path.path.segments[0].ident;
+        *ident = syn::Ident::new(&wire, ident.span());
+        return Some(super::newtype_conversions::from_core_value(binding, &primitive));
+    }
+    let segment = path.path.segments.last_mut()?;
+    let syn::PathArguments::AngleBracketed(arguments) = &mut segment.arguments else {
+        return None;
+    };
+    stream_container_conversion(&segment.ident.to_string(), arguments, binding)
+}
+
+fn stream_container_conversion(
+    container: &str,
+    arguments: &mut syn::AngleBracketedGenericArguments,
+    binding: &str,
+) -> Option<String> {
+    let mut types = arguments
+        .args
+        .iter_mut()
+        .filter_map(|argument| match argument {
+            syn::GenericArgument::Type(ty) => Some(ty),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    match (container, types.as_mut_slice()) {
+        ("Option", [inner]) => {
+            let converted = widen_stream_usize(inner, "value")?;
+            Some(format!("({binding}).map(|value| {converted})"))
+        }
+        ("Vec", [inner]) => {
+            let converted = widen_stream_usize(inner, "value")?;
+            Some(format!(
+                "({binding}).into_iter().map(|value| {converted}).collect::<Vec<_>>()"
+            ))
+        }
+        ("HashMap" | "BTreeMap", [key, value]) => {
+            let key = widen_stream_usize(key, "key");
+            let value = widen_stream_usize(value, "value");
+            if key.is_none() && value.is_none() {
+                return None;
+            }
+            let key = key.unwrap_or_else(|| "key".into());
+            let value = value.unwrap_or_else(|| "value".into());
+            Some(format!(
+                "({binding}).into_iter().map(|(key, value)| ({key}, {value})).collect()"
+            ))
+        }
+        _ => None,
+    }
 }
 
 fn dart_item_type(item_type: &str) -> String {
@@ -128,7 +199,6 @@ fn dart_item_type(item_type: &str) -> String {
 
 fn native_dart_type(ty: &TypeRef) -> String {
     match ty {
-        TypeRef::Primitive(PrimitiveType::U64 | PrimitiveType::Usize) => "BigInt".into(),
         TypeRef::Primitive(PrimitiveType::I64 | PrimitiveType::Isize) => "PlatformInt64".into(),
         TypeRef::Optional(inner) => format!("{}?", native_dart_type(inner)),
         TypeRef::Vec(inner) => native_typed_list(inner)
@@ -147,8 +217,8 @@ fn native_typed_list(ty: &TypeRef) -> Option<&'static str> {
         TypeRef::Primitive(PrimitiveType::I16) => "Int16List",
         TypeRef::Primitive(PrimitiveType::U32) => "Uint32List",
         TypeRef::Primitive(PrimitiveType::I32) => "Int32List",
-        TypeRef::Primitive(PrimitiveType::U64 | PrimitiveType::Usize) => "Uint64List",
-        TypeRef::Primitive(PrimitiveType::I64 | PrimitiveType::Isize) => "Int64List",
+        TypeRef::Primitive(prim) if dart_primitive_is_bigint(prim) => "Uint64List",
+        TypeRef::Primitive(PrimitiveType::I64 | PrimitiveType::Isize | PrimitiveType::Usize) => "Int64List",
         TypeRef::Primitive(PrimitiveType::F32) => "Float32List",
         TypeRef::Primitive(PrimitiveType::F64) => "Float64List",
         _ => return None,
@@ -181,3 +251,11 @@ mod tests {
 #[cfg(test)]
 #[path = "streaming_layout_tests.rs"]
 mod layout_tests;
+
+#[cfg(test)]
+#[path = "streaming_type_tests.rs"]
+mod type_tests;
+
+#[cfg(test)]
+#[path = "streaming_conversion_tests.rs"]
+mod conversion_tests;
