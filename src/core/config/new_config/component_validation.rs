@@ -215,3 +215,85 @@ pub(super) fn validate_component_host(krate: &RawCrateConfig) -> Result<(), Reso
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod transport_tests {
+    use crate::core::config::NewAlefConfig;
+
+    fn configuration(producer: &str, implementation: &str, stdio: &[&str]) -> NewAlefConfig {
+        serde_json::from_value(serde_json::json!({
+            "workspace": { "languages": ["ffi"] },
+            "crates": [{
+                "name": "sample", "sources": ["src/lib.rs"],
+                "component_contracts": [{ "name": "codec", "trait_path": "sample::Codec" }],
+                "components": [{
+                    "name": "reverse", "producer_language": producer,
+                    "provides": [{ "contract": "codec", "implementation": implementation }],
+                    "features": ["reverse"]
+                }],
+                "component_host": { "output": "host.rs", "stdio_components": stdio }
+            }]
+        }))
+        .expect("component transport configuration must deserialize")
+    }
+
+    #[test]
+    fn component_transport_accepts_go_constructor_and_known_stdio_id() {
+        let resolved = configuration("go", "NewCodec", &["reverse"]).resolve().unwrap();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].components[0].provides[0].implementation, "NewCodec");
+    }
+
+    #[test]
+    fn component_transport_rejects_go_expressions_keywords_and_injection() {
+        for implementation in [
+            "NewCodec()",
+            "codec.NewCodec",
+            "sample::Codec",
+            "func",
+            "_",
+            "9Codec",
+            "NewCodec;panic()",
+        ] {
+            let error = configuration("go", implementation, &[])
+                .resolve()
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("Go constructor identifier"), "{implementation}: {error}");
+        }
+    }
+
+    #[test]
+    fn component_transport_rejects_rust_dependencies_for_go_producer() {
+        let mut config = configuration("go", "NewCodec", &[]);
+        config.crates[0].components[0]
+            .extra_dependencies
+            .insert("serde".into(), serde_json::json!("1"));
+        let error = config.resolve().unwrap_err().to_string();
+        assert!(error.contains("extra_dependencies") && error.contains("Go"), "{error}");
+    }
+
+    #[test]
+    fn component_transport_retains_rust_item_path_validation() {
+        let error = configuration("rust", "NewCodec", &[])
+            .resolve()
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("fully-qualified Rust item path"), "{error}");
+        assert!(configuration("rust", "sample::Codec", &[]).resolve().is_ok());
+    }
+
+    #[test]
+    fn component_transport_rejects_unknown_or_duplicate_stdio_ids() {
+        for (ids, expected) in [
+            (vec!["missing"], "unknown component `missing`"),
+            (vec!["reverse", "reverse"], "duplicate stdio component `reverse`"),
+        ] {
+            let error = configuration("rust", "sample::Codec", &ids)
+                .resolve()
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(expected), "{error}");
+        }
+    }
+}

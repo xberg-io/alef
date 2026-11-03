@@ -243,4 +243,49 @@ mod tests {
         config.component_host = None;
         assert!(generate_component_host(&api, &config).unwrap().is_none());
     }
+
+    fn select_stdio(config: &mut ResolvedCrateConfig, ids: &[&str]) {
+        let host = config.component_host.as_ref().unwrap();
+        let mut value = serde_json::to_value(host).unwrap();
+        value["stdio_components"] = serde_json::json!(ids);
+        config.component_host = Some(serde_json::from_value(value).expect("stdio host configuration"));
+    }
+
+    #[test]
+    fn stdio_host_omits_typed_proxy_and_preserves_raw_contract_metadata() {
+        let (api, mut config) = fixture();
+        select_stdio(&mut config, &["reverse"]);
+        let rows = contract_hash_rows(&resolve_components(&api, &config).unwrap()).unwrap();
+        assert_eq!(rows.len(), 1);
+        let generated = generate_component_host(&api, &config).unwrap().unwrap().content;
+        assert!(generated.contains(".with_stdio_component(\"reverse\")"), "{generated}");
+        assert!(!generated.contains("pub struct CodecProxy"), "{generated}");
+        assert!(!generated.contains("ComponentInstance<"), "{generated}");
+        assert!(generated.contains("pub const COMPONENT_IDS: &[&str] = &[\"reverse\"];"));
+        assert!(generated.contains(&rows[0].2), "{generated}");
+        syn::parse_file(&generated).expect("stdio host must be valid Rust syntax");
+    }
+
+    #[test]
+    fn stdio_host_retains_proxy_when_a_native_component_provides_the_same_contract() {
+        let (api, mut config) = fixture();
+        let mut native = config.components[0].clone();
+        native.name = "native-codec".into();
+        config.components.push(native);
+        select_stdio(&mut config, &["reverse"]);
+        let generated = generate_component_host(&api, &config).unwrap().unwrap().content;
+        assert!(generated.contains(".with_stdio_component(\"reverse\")"), "{generated}");
+        assert!(!generated.contains(".with_stdio_component(\"native-codec\")"));
+        assert_eq!(generated.matches("pub struct CodecProxy").count(), 1);
+        assert!(generated.contains("&[\"reverse\", \"native-codec\"]"), "{generated}");
+    }
+
+    #[test]
+    fn native_host_does_not_select_stdio_components() {
+        let (api, config) = fixture();
+        let generated = generate_component_host(&api, &config).unwrap().unwrap().content;
+        assert!(generated.contains("pub struct CodecProxy"));
+        assert!(!generated.contains("with_stdio_component"));
+        assert!(generated.contains(".map(|manager| manager.offline(offline))"));
+    }
 }
