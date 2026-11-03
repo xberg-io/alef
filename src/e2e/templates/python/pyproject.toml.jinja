@@ -1,4 +1,5 @@
-{% set minimum = python_version_policy(python.dependency_versions) -%}
+{% set python_config = python | default({}, true) -%}
+{% set minimum = python_version_policy(python_config.dependency_versions) -%}
 [build-system]
 build-backend = "setuptools.build_meta"
 requires = [ "setuptools>=68", "wheel" ]
