@@ -9,6 +9,10 @@ description = "Verified downloader and dynamic loader for Alef native components
 homepage = "https://github.com/xberg-io/alef"
 repository = "https://github.com/xberg-io/alef"
 
+[features]
+# Lets `RootCerts::PlatformVerifier` trust the OS certificate store (TLS-inspecting proxies).
+platform-verifier = ["ureq/platform-verifier"]
+
 [dependencies]
 alef-component-abi = { path = "../alef-component-abi", version = "0.118.0" }
 base64 = "0.23"
@@ -24,10 +28,6 @@ tar = "0.4"
 tempfile = "3"
 thiserror = "2"
 ureq = "3"
-
-[features]
-# Lets `RootCerts::PlatformVerifier` trust the OS certificate store (TLS-inspecting proxies).
-platform-verifier = ["ureq/platform-verifier"]
 
 [lints.clippy]
 missing_safety_doc = "deny"
