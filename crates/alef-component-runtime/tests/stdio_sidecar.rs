@@ -63,7 +63,8 @@ fn manager(scenario: &str) -> (tempfile::TempDir, ComponentManager) {
         "public_keys":{"test":base64::engine::general_purpose::STANDARD.encode(signing.verifying_key().to_bytes())},
         "artifacts":[{"identity":identity,"provides":provides,"mode":"download",
             "url":format!("file://{}",path.display()),"sha256":digest(&archive),"size":archive.len(),
-            "manifest_sha256":digest(&manifest_bytes),"key_id":"test"}]})).unwrap();
+            "manifest_sha256":digest(&manifest_bytes),"key_id":"test"}]}))
+    .unwrap();
     let manager = ComponentManager::from_lock(lock, dir.path().join("cache"), "test-target", AlefHostApiV1::EMPTY)
         .unwrap()
         .with_stdio_component("demo")
@@ -92,7 +93,10 @@ fn should_load_signed_sidecar_and_reuse_one_process_across_contracts() {
 fn should_reject_mismatching_handshake_before_becoming_ready() {
     for scenario in ["bad_hash", "bad_version", "bad_identity", "bad_feature"] {
         let (_dir, manager) = manager(scenario);
-        assert!(manager.ensure_contract("demo", "engine", b"unused\0").is_err(), "{scenario}");
+        assert!(
+            manager.ensure_contract("demo", "engine", b"unused\0").is_err(),
+            "{scenario}"
+        );
         assert_eq!(manager.status("demo").unwrap(), ComponentStatus::Cached);
     }
 }
@@ -123,13 +127,15 @@ fn should_bound_hanging_calls_and_reject_broken_frames() {
 fn should_serialize_concurrent_calls_without_crossing_responses() {
     let (_dir, manager) = manager("valid");
     let engine = manager.ensure_contract("demo", "engine", b"unused\0").unwrap();
-    let threads: Vec<_> = (0..12).map(|value| {
-        let engine = Arc::clone(&engine);
-        std::thread::spawn(move || {
-            let payload = vec![value; 4096];
-            assert_eq!(engine.invoke_bytes("echo", &payload).unwrap(), payload);
+    let threads: Vec<_> = (0..12)
+        .map(|value| {
+            let engine = Arc::clone(&engine);
+            std::thread::spawn(move || {
+                let payload = vec![value; 4096];
+                assert_eq!(engine.invoke_bytes("echo", &payload).unwrap(), payload);
+            })
         })
-    }).collect();
+        .collect();
     for thread in threads {
         thread.join().unwrap();
     }
@@ -143,7 +149,11 @@ fn should_reap_child_after_manager_and_last_component_are_dropped() {
     drop(manager);
     assert_eq!(engine.invoke_bytes("echo", b"retained").unwrap(), b"retained");
     drop(engine);
-    let status = std::process::Command::new("kill").args(["-0", &pid])
-        .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().unwrap();
+    let status = std::process::Command::new("kill")
+        .args(["-0", &pid])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .unwrap();
     assert!(!status.success(), "sidecar {pid} survived its final owner");
 }
