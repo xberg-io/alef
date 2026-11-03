@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Test CI concurrency against distinct main commits and superseded pull request updates. (#855)
+- Keep queued main CI commits in independent concurrency groups while cancelling superseded pull request runs. (#855)
 - Verify newly prepared release drafts by their created ID while GitHub tag and list discovery are stale. (#854)
 - Include source-bound draft discovery regressions in the native publication verification gate. (#854)
 - Check mismatched creation and refetched IDs through the direct release lookup fixture. (#854)

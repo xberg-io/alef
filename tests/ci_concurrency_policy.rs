@@ -74,7 +74,11 @@ fn assert_policy(workflow: &Value) {
             render(&concurrency["group"], &second),
             "main commits must have independent concurrency groups"
         );
-        assert_eq!(render(&concurrency["cancel-in-progress"], &first), "false");
+        assert_eq!(
+            render(&concurrency["cancel-in-progress"], &first),
+            "false",
+            "main CI must not cancel in-progress runs"
+        );
     }
     let first = context("pull_request", "refs/pull/42/merge", "aaaa");
     let second = context("pull_request", "refs/pull/42/merge", "bbbb");
@@ -87,7 +91,17 @@ fn assert_policy(workflow: &Value) {
         render(&concurrency["group"], &first),
         render(&concurrency["group"], &other)
     );
-    assert_eq!(render(&concurrency["cancel-in-progress"], &first), "true");
+    assert_eq!(
+        render(&concurrency["cancel-in-progress"], &first),
+        "true",
+        "superseded pull request runs must be cancelled"
+    );
+    let mut other_workflow = first.clone();
+    other_workflow["workflow"] = "Other CI".into();
+    assert_ne!(
+        render(&concurrency["group"], &first),
+        render(&concurrency["group"], &other_workflow)
+    );
 }
 
 #[test]
@@ -104,7 +118,7 @@ fn should_reject_ref_groups_that_replace_pending_main_commits() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "main CI must not cancel in-progress runs")]
 fn should_reject_always_cancelling_main_ci() {
     let mut workflow = workflow();
     workflow["concurrency"]["cancel-in-progress"] = Value::Bool(true);
@@ -112,7 +126,7 @@ fn should_reject_always_cancelling_main_ci() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "superseded pull request runs must be cancelled")]
 fn should_reject_disabling_cancellation_for_superseded_pull_requests() {
     let mut workflow = workflow();
     workflow["concurrency"]["cancel-in-progress"] = Value::Bool(false);
