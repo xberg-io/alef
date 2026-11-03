@@ -15,6 +15,7 @@ mod mix_exs_tests {
             "1.4.0-rc.55",
             DependencyMode::Registry,
             MixTestSurface {
+                has_json_clients: false,
                 has_http_tests: false,
                 has_mock_server_tests: true,
                 has_nif_tests: true,
@@ -44,6 +45,7 @@ mod mix_exs_tests {
             "../../packages/elixir",
             DependencyMode::Local,
             MixTestSurface {
+                has_json_clients: false,
                 has_http_tests: false,
                 has_mock_server_tests: false,
                 has_nif_tests: true,

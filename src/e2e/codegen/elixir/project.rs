@@ -89,6 +89,7 @@ ExUnit.start()
 /// deps (`:rustler` + its NIF loader, or `:finch` + `:req` + `:jason`) the manifest must declare.
 /// Bundled so `render_mix_exs` stays at 4 parameters. ~keep
 pub(super) struct MixTestSurface {
+    pub(super) has_json_clients: bool,
     pub(super) has_http_tests: bool,
     pub(super) has_mock_server_tests: bool,
     pub(super) has_nif_tests: bool,
@@ -161,15 +162,25 @@ pub(super) fn render_mix_exs(
     // Finch without the corresponding mix dep, producing
     // `(UndefinedFunctionError) function Finch.start_link/1 is undefined`
     // at `mix test`.
-    if test_surface.has_http_tests || test_surface.has_mock_server_tests || test_surface.uses_harness {
-        deps.push(format!("      {{:finch, \"{finch}\"}}", finch = tv::hex::FINCH));
-        deps.push(format!("      {{:req, \"{req}\"}}", req = tv::hex::REQ));
-        deps.push(format!("      {{:jason, \"{jason}\"}}", jason = tv::hex::JASON));
-    }
+    append_runtime_dependencies(&mut deps, &test_surface);
 
     let _ = writeln!(out, "{}", deps.join(",\n"));
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out, "  end");
     let _ = writeln!(out, "end");
     out
+}
+
+fn append_runtime_dependencies(deps: &mut Vec<String>, test_surface: &MixTestSurface) {
+    if test_surface.has_http_tests || test_surface.has_mock_server_tests || test_surface.uses_harness {
+        deps.push(format!("      {{:finch, \"{finch}\"}}", finch = tv::hex::FINCH));
+        deps.push(format!("      {{:req, \"{req}\"}}", req = tv::hex::REQ));
+        deps.push(format!("      {{:jason, \"{jason}\"}}", jason = tv::hex::JASON));
+    }
+
+    if test_surface.has_json_clients
+        && !(test_surface.has_http_tests || test_surface.has_mock_server_tests || test_surface.uses_harness)
+    {
+        deps.push(format!("      {{:jason, \"{jason}\"}}", jason = tv::hex::JASON));
+    }
 }

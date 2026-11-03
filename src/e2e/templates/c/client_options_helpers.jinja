@@ -1,0 +1,49 @@
+static char* alef_e2e_json_quote(const char* value) {
+    if (value == NULL) return NULL;
+    const size_t length = strlen(value);
+    if (length > (SIZE_MAX - 3) / 6) return NULL;
+    char* quoted = malloc(length * 6 + 3);
+    if (quoted == NULL) return NULL;
+    const char* hex = "0123456789abcdef";
+    char* next = quoted;
+    *next++ = '"';
+    for (const unsigned char* byte = (const unsigned char*)value; *byte; ++byte) {
+        if (*byte == '"' || *byte == '\\') {
+            *next++ = '\\';
+            *next++ = (char)*byte;
+        } else if (*byte < 0x20) {
+            *next++ = '\\';
+            *next++ = 'u';
+            *next++ = '0';
+            *next++ = '0';
+            *next++ = hex[*byte >> 4];
+            *next++ = hex[*byte & 0xf];
+        } else {
+            *next++ = (char)*byte;
+        }
+    }
+    *next++ = '"';
+    *next = '\0';
+    return quoted;
+}
+
+static char* alef_e2e_client_json(const char* prefix, const char* api_key, const char* base_url) {
+    char* key_json = alef_e2e_json_quote(api_key);
+    char* url_json = base_url == NULL ? NULL : alef_e2e_json_quote(base_url);
+    if (key_json == NULL || (base_url != NULL && url_json == NULL)) {
+        free(key_json);
+        free(url_json);
+        return NULL;
+    }
+    const char* separator = base_url == NULL ? "" : ",\"base_url\":";
+    const char* url = url_json == NULL ? "" : url_json;
+    int needed = snprintf(NULL, 0, "%s%s%s%s}", prefix, key_json, separator, url);
+    char* config = needed < 0 ? NULL : malloc((size_t)needed + 1);
+    if (config != NULL && snprintf(config, (size_t)needed + 1, "%s%s%s%s}", prefix, key_json, separator, url) != needed) {
+        free(config);
+        config = NULL;
+    }
+    free(key_json);
+    free(url_json);
+    return config;
+}

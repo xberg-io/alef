@@ -351,18 +351,25 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_test_case(
     let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
     let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
     let client_setup = if let Some(factory) = client_factory {
+        let construct =
+            |key, url| super::client_options::expression(fixture, e2e_config, call_config, lang, factory, (key, url));
         if let Some(var) = api_key_var.filter(|_| has_mock) {
+            let client_call = construct("apiKey ?? 'test-key'", Some("baseUrl"));
             let mock_url = format!("`${{process.env.MOCK_SERVER_URL}}/fixtures/{}`", fixture.id);
             format!(
                 "const apiKey = process.env.{var};\n    \
                  const baseUrl = apiKey ? undefined : {mock_url};\n    \
                  console.log(`{id}: ${{apiKey ? 'using real API ({var} is set)' : 'using mock server ({var} not set)'}}`);\n    \
-                 const client = {factory}(apiKey ?? 'test-key', baseUrl);",
+                 const client = {client_call};",
                 id = fixture.id
             )
         } else if has_mock {
-            format!("const client = {factory}('test-key', {base_url_expr});")
+            {
+                let client_call = construct("'test-key'", Some(base_url_expr.as_str()));
+                format!("const client = {client_call};")
+            }
         } else if let Some(var) = api_key_var {
+            let client_call = construct("apiKey", None);
             // Live-API tests: skip when the env var isn't set so the suite can run
             // without real credentials, matching the python codegen's pattern.
             format!(
@@ -370,10 +377,13 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_test_case(
                  if (!apiKey) {{\n        \
                      return;\n    \
                  }}\n    \
-                 const client = {factory}(apiKey);"
+                 const client = {client_call};"
             )
         } else {
-            format!("const client = {factory}('test-key', {base_url_expr});")
+            {
+                let client_call = construct("'test-key'", Some(base_url_expr.as_str()));
+                format!("const client = {client_call};")
+            }
         }
     } else {
         String::new()

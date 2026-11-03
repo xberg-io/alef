@@ -432,11 +432,52 @@ pub fn render_test_file(
                 &fixture.tags,
                 &fixture.input,
             );
+            if let Some((factory, _)) =
+                crate::e2e::codegen::client_factory::client_options_json_call(fixture, e2e_config, call_config, lang)
+                && !imports.iter().any(|name| name == factory)
+            {
+                imports.push(factory.to_string());
+            }
             let fixture_fn = resolve_node_function_name(call_config);
             let is_free_function_call = client_factory.is_some()
                 && crate::e2e::codegen::client_factory::is_free_function_call(e2e_config, call_config, lang);
             if (client_factory.is_none() || is_free_function_call) && !imports.contains(&fixture_fn) {
                 imports.push(fixture_fn);
+            }
+        }
+
+        if let Some(factory) = client_factory
+            && fixtures
+                .iter()
+                .filter(|fixture| !fixture.is_http_test())
+                .all(|fixture| {
+                    let call = e2e_config.resolve_call_for_fixture(
+                        fixture.call.as_deref(),
+                        &fixture.id,
+                        &fixture.resolved_category(),
+                        &fixture.tags,
+                        &fixture.input,
+                    );
+                    crate::e2e::codegen::client_factory::is_free_function_call(e2e_config, call, lang)
+                        || crate::e2e::codegen::client_factory::client_options_json_call(
+                            fixture, e2e_config, call, lang,
+                        )
+                        .is_some()
+                })
+        {
+            let factory_is_json = fixtures.iter().any(|fixture| {
+                let call = e2e_config.resolve_call_for_fixture(
+                    fixture.call.as_deref(),
+                    &fixture.id,
+                    &fixture.resolved_category(),
+                    &fixture.tags,
+                    &fixture.input,
+                );
+                crate::e2e::codegen::client_factory::client_options_json_call(fixture, e2e_config, call, lang)
+                    .is_some_and(|(json_factory, _)| json_factory == factory)
+            });
+            if !factory_is_json {
+                imports.retain(|name| name != factory);
             }
         }
 

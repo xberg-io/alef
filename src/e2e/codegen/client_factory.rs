@@ -182,7 +182,7 @@ fn option_language_aliases(language: &str) -> [&str; 3] {
         "wasm" => [language, "node", "typescript"],
         "node" => [language, "typescript", "typescript"],
         "typescript" => [language, "node", "node"],
-        "kotlin_android" => [language, "kotlin", "kotlin"],
+        "kotlin_android" => [language, "kotlin", "java"],
         "php_ext" => [language, "php", "php"],
         _ => [language, language, language],
     }
@@ -239,7 +239,7 @@ pub fn client_option_value_is_supported(value: &serde_json::Value) -> bool {
     }
 }
 
-const CLIENT_OPTIONS_LANGUAGES: [&str; 20] = [
+const CLIENT_OPTIONS_LANGUAGES: [&str; 19] = [
     "rust",
     "python",
     "typescript",
@@ -250,7 +250,6 @@ const CLIENT_OPTIONS_LANGUAGES: [&str; 20] = [
     "kotlin_android",
     "csharp",
     "php",
-    "php_ext",
     "ruby",
     "elixir",
     "gleam",
@@ -801,7 +800,12 @@ mod tests {
 
     #[test]
     fn variant_json_factories_inherit_aliases_but_named_calls_take_precedence() {
-        for (language, alias) in [("wasm", "typescript"), ("kotlin_android", "kotlin"), ("php_ext", "php")] {
+        for (language, alias) in [
+            ("wasm", "typescript"),
+            ("kotlin_android", "kotlin"),
+            ("kotlin_android", "java"),
+            ("php_ext", "php"),
+        ] {
             let config = config_with_factory_for(alias, Some("create_client"), Some("default_json"));
             assert_eq!(
                 from_json_factory(&config, &CallConfig::default(), language),

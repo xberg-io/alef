@@ -13,6 +13,7 @@ use super::values::{escape_dart, mime_from_extension, type_name_to_create_from_j
 const COMPATIBLE_OPTIONS_TYPE_LANGS: &[&str] = &["csharp", "c", "go", "java", "php", "python", "r"];
 
 mod args;
+mod client_options;
 
 fn dart_error_matcher(
     out: &mut String,
@@ -150,6 +151,7 @@ fn apply_fixture_visitor(
 struct DartReceiverCtx<'a> {
     client_factory_camel: Option<&'a str>,
     config_call: Option<(&'a str, &'a str)>,
+    options_call: Option<(&'a str, &'a str)>,
     is_snippet: bool,
     fixture: &'a Fixture,
     receiver_class: &'a str,
@@ -167,6 +169,7 @@ fn resolve_dart_receiver(ctx: &DartReceiverCtx<'_>) -> (String, Option<String>) 
     let DartReceiverCtx {
         client_factory_camel,
         config_call,
+        options_call,
         is_snippet,
         fixture,
         receiver_class,
@@ -174,6 +177,12 @@ fn resolve_dart_receiver(ctx: &DartReceiverCtx<'_>) -> (String, Option<String>) 
         fixture_id,
     } = *ctx;
     if let Some(factory) = client_factory_camel {
+        if let Some((from_json_factory, json)) = options_call {
+            return (
+                "client".to_string(),
+                Some(client_options::setup(fixture, receiver_class, from_json_factory, json)),
+            );
+        }
         if let Some((from_json_factory, json)) = config_call {
             let create_line = format!(
                 "final client = await {receiver_class}.{from_json_factory}('{}');",
@@ -480,9 +489,13 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
     let config_call = is_snippet
         .then(|| crate::e2e::codegen::client_factory::client_config_call(fixture, e2e_config, call_config, lang))
         .flatten();
+    let options_call = (!is_snippet)
+        .then(|| crate::e2e::codegen::client_factory::client_options_json_call(fixture, e2e_config, call_config, lang))
+        .flatten();
     let (receiver, extra_setup): (String, Option<String>) = resolve_dart_receiver(&DartReceiverCtx {
         client_factory_camel: client_factory_camel.as_deref(),
         config_call: config_call.as_ref().map(|(factory, json)| (*factory, json.as_str())),
+        options_call: options_call.as_ref().map(|(factory, json)| (*factory, json.as_str())),
         is_snippet,
         fixture,
         receiver_class: &receiver_class,

@@ -1,0 +1,7 @@
+{% if api_key_var %}
+final clientApiKey = Platform.environment['{{ api_key_var }}'];
+{% if not has_mock %}
+if (clientApiKey == null || clientApiKey.isEmpty) { return; }
+{% endif %}
+{% endif %}
+final client = await {{ class_name }}.{{ factory }}('{{ prefix }}' + jsonEncode({{ api_key }}) + ',"base_url":' + jsonEncode({{ base_url }}) + '}');

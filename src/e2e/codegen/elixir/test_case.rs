@@ -554,10 +554,21 @@ pub(super) fn render_test_case(
             } else {
                 format!("(System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\"")
             };
-            let _ = writeln!(
-                out,
-                "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", base_url: {base_url_expr})"
-            );
+            if let Some(setup) = super::client_options::render(
+                fixture,
+                e2e_config,
+                call_config,
+                &module_path,
+                "\"test-key\"",
+                &base_url_expr,
+            ) {
+                let _ = writeln!(out, "      {setup}");
+            } else {
+                let _ = writeln!(
+                    out,
+                    "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", base_url: {base_url_expr})"
+                );
+            }
         }
         let call_invocation = if effective_args.is_empty() {
             format!("{module_path}.{function_name}()")
@@ -620,10 +631,21 @@ pub(super) fn render_test_case(
             );
             let _ = writeln!(out, "        {{\"test-key\", [base_url: {mock_url_expr}]}}");
             let _ = writeln!(out, "      end");
-            let _ = writeln!(
-                out,
-                "      {{:ok, client}} = {module_path}.{factory}(api_key_val, client_opts)"
-            );
+            if let Some(setup) = super::client_options::render(
+                fixture,
+                e2e_config,
+                call_config,
+                &module_path,
+                "api_key_val",
+                "Keyword.get(client_opts, :base_url)",
+            ) {
+                let _ = writeln!(out, "      {setup}");
+            } else {
+                let _ = writeln!(
+                    out,
+                    "      {{:ok, client}} = {module_path}.{factory}(api_key_val, client_opts)"
+                );
+            }
         } else {
             let base_url_expr = if fixture.has_host_root_route() {
                 let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
@@ -633,10 +655,21 @@ pub(super) fn render_test_case(
             } else {
                 format!("(System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\"")
             };
-            let _ = writeln!(
-                out,
-                "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", base_url: {base_url_expr})"
-            );
+            if let Some(setup) = super::client_options::render(
+                fixture,
+                e2e_config,
+                call_config,
+                &module_path,
+                "\"test-key\"",
+                &base_url_expr,
+            ) {
+                let _ = writeln!(out, "      {setup}");
+            } else {
+                let _ = writeln!(
+                    out,
+                    "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", base_url: {base_url_expr})"
+                );
+            }
         }
     }
 

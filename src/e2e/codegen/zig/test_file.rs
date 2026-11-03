@@ -512,7 +512,8 @@ fn render_test_fn(
     // Note: `bytes` arg setup uses c_allocator directly and does NOT require GPA.
     // For the streaming-virtual path, `allocator` is only needed if there are also
     // non-streaming assertions that require JSON parsing via parseFromSlice.
-    let needs_gpa = setup_needs_gpa
+    let needs_gpa = (!for_docs && fixture.client_options.is_some())
+        || setup_needs_gpa
         || streaming_path_has_non_streaming
         || (!uses_streaming_virtual_path && result_is_json_struct && !expects_error && any_happy_emits_code);
     if needs_gpa {
@@ -535,7 +536,25 @@ fn render_test_fn(
     // matching what `java/snippet_body.jinja` and `csharp/snippet_body.jinja` emit. ~keep
     // When not configured, fall back to calling the top-level package function directly.
     let call_prefix = if let Some(factory) = client_factory {
-        if let Some((from_json_factory, json)) = for_docs
+        if let Some((options_factory, json)) = (!for_docs)
+            .then(|| {
+                crate::e2e::codegen::client_factory::client_options_json_call(fixture, e2e_config, call_config, lang)
+            })
+            .flatten()
+        {
+            let prefix = crate::e2e::codegen::client_factory::client_options_json_prefix(&json);
+            let setup = crate::e2e::template_env::render(
+                "zig/client_options.jinja",
+                crate::alef_context! {
+                    factory => options_factory, module => module_name, prefix => escape_zig(&prefix),
+                    fixture_id => fixture.id, has_mock => fixture.needs_mock_server(),
+                    host_root => fixture.has_host_root_route(),
+                    env_key => format!("MOCK_SERVER_{}",fixture.id.to_ascii_uppercase().replace('-', "_")),
+                    api_key_var => fixture.env.as_ref().and_then(|env|env.api_key_var.as_deref()),
+                },
+            );
+            out.push_str(&setup);
+        } else if let Some((from_json_factory, json)) = for_docs
             .then(|| crate::e2e::codegen::client_factory::client_config_call(fixture, e2e_config, call_config, lang))
             .flatten()
         {

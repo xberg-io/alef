@@ -551,6 +551,9 @@ pub mod hex {
     // renovate: datasource=hex depName=gleam_stdlib
     pub const GLEAM_STDLIB_VERSION_RANGE: &str = ">= 0.34.0 and < 2.0.0";
 
+    // renovate: datasource=hex depName=gleam_json
+    pub const GLEAM_JSON_VERSION_RANGE: &str = ">= 3.1.0 and < 4.0.0";
+
     // See GLEAM_STDLIB_VERSION_RANGE above for why this needs `rangeStrategy=widen`. ~keep
     // renovate: datasource=hex depName=gleeunit
     pub const GLEEUNIT_VERSION_RANGE: &str = ">= 1.0.0 and < 2.0.0";

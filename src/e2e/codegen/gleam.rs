@@ -85,7 +85,15 @@ impl E2eCodegen for GleamE2eCodegen {
         // Generate gleam.toml.
         files.push(GeneratedFile {
             path: output_base.join("gleam.toml"),
-            content: project::render_gleam_toml(&pkg_path, &pkg_name, e2e_config.dep_mode),
+            content: project::render_gleam_toml(
+                &pkg_path,
+                &pkg_name,
+                e2e_config.dep_mode,
+                groups
+                    .iter()
+                    .flat_map(|group| &group.fixtures)
+                    .any(|fixture| fixture.client_options.is_some()),
+            ),
             generated_header: false,
         });
 

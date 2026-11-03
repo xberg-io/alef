@@ -7,6 +7,46 @@ use minijinja::Environment;
 
 static TEMPLATES: &[(&str, &str)] = &[
     (
+        "dart/client_options_setup.jinja",
+        include_str!("templates/dart/client_options_setup.jinja"),
+    ),
+    (
+        "swift/client_options.jinja",
+        include_str!("templates/swift/client_options.jinja"),
+    ),
+    (
+        "ruby/client_options.jinja",
+        include_str!("templates/ruby/client_options.jinja"),
+    ),
+    (
+        "elixir/client_options.jinja",
+        include_str!("templates/elixir/client_options.jinja"),
+    ),
+    (
+        "gleam/client_options.jinja",
+        include_str!("templates/gleam/client_options.jinja"),
+    ),
+    (
+        "php/client_options.jinja",
+        include_str!("templates/php/client_options.jinja"),
+    ),
+    (
+        "r/client_options.jinja",
+        include_str!("templates/r/client_options.jinja"),
+    ),
+    (
+        "zig/client_options.jinja",
+        include_str!("templates/zig/client_options.jinja"),
+    ),
+    (
+        "c/client_options.jinja",
+        include_str!("templates/c/client_options.jinja"),
+    ),
+    (
+        "c/client_options_helpers.jinja",
+        include_str!("templates/c/client_options_helpers.jinja"),
+    ),
+    (
         "homebrew/suite.bats.jinja",
         include_str!("templates/homebrew/suite.bats.jinja"),
     ),

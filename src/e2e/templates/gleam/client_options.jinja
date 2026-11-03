@@ -1,0 +1,36 @@
+{% if has_mock %}
+  let options_mock_url = case envoy.get("MOCK_SERVER_URL") {
+    Ok(url) -> url <> "/fixtures/{{ fixture_id }}"
+    Error(_) -> panic as "MOCK_SERVER_URL must be set"
+  }
+{% if host_root %}
+  let options_mock_url = case envoy.get("{{ env_key }}") {
+    Ok(url) -> url
+    Error(_) -> options_mock_url
+  }
+{% endif %}
+{% endif %}
+{% if api_key_var %}
+{% if has_mock %}
+  let #(options_api_key, options_base_url) = case envoy.get("{{ api_key_var }}") {
+    Ok(key) if key != "" -> #(key, option.None)
+    _ -> #("test-key", option.Some(options_mock_url))
+  }
+{% else %}
+  let assert Ok(options_api_key) = envoy.get("{{ api_key_var }}")
+{% endif %}
+{% else %}
+  let options_api_key = "test-key"
+{% endif %}
+  let options_json = "{{ prefix }}" <> json.to_string(json.string(options_api_key)) <>
+{% if has_mock and api_key_var %}
+    case options_base_url {
+      option.None -> "}"
+      option.Some(url) -> ",\"base_url\":" <> json.to_string(json.string(url)) <> "}"
+    }
+{% elif has_mock %}
+    ",\"base_url\":" <> json.to_string(json.string(options_mock_url)) <> "}"
+{% else %}
+    "}"
+{% endif %}
+  let assert Ok(client) = {{ module }}.{{ factory }}(options_json)

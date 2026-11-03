@@ -184,7 +184,8 @@ pub(super) fn render_test_file(
                 && resolve_field(&f.input, &a.field).is_array()
         })
     });
-    if has_http_fixtures || has_mock_url_refs || has_json_array_args {
+    let has_client_options = fixtures.iter().any(|fixture| fixture.client_options.is_some());
+    if has_http_fixtures || has_mock_url_refs || has_json_array_args || has_client_options {
         let _ = writeln!(out, "import 'dart:convert';");
     }
     // Require dart:ffi for setenv if e2e config has env vars to inject

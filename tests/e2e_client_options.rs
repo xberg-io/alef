@@ -385,9 +385,6 @@ fn every_registered_client_generator_admits_a_configured_json_factory() {
     let mut count = 0;
     for generator in all_generators() {
         let language = generator.language_name();
-        if matches!(language, "brew" | "homebrew") {
-            continue;
-        }
         let mut e2e = cfg.crates[0].e2e.clone().expect("e2e config");
         e2e.call.overrides.insert(
             language.into(),
@@ -397,6 +394,16 @@ fn every_registered_client_generator_admits_a_configured_json_factory() {
                 ..Default::default()
             },
         );
+        if matches!(language, "brew" | "homebrew" | "php_ext") {
+            assert!(
+                matches!(
+                    fixture_inclusion(&fixture, language, &e2e),
+                    InclusionDecision::Exclude(_)
+                ),
+                "{language}: packaging smoke does not execute client fixtures"
+            );
+            continue;
+        }
         assert_eq!(
             fixture_inclusion(&fixture, language, &e2e),
             InclusionDecision::Include,
@@ -404,5 +411,5 @@ fn every_registered_client_generator_admits_a_configured_json_factory() {
         );
         count += 1;
     }
-    assert_eq!(count, 19, "every registered non-CLI generator was checked");
+    assert_eq!(count, 18, "every registered client fixture generator was checked");
 }

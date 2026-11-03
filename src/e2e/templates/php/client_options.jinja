@@ -1,0 +1,23 @@
+{% if api_key_var %}
+$clientApiKey = getenv('{{ api_key_var }}');
+{% if has_mock %}
+        $useRealApi = $clientApiKey !== false && $clientApiKey !== '';
+        $clientBaseUrl = $useRealApi ? null : {{ mock_url }};
+        $clientApiKey = $useRealApi ? $clientApiKey : 'test-key';
+{% else %}
+        if ($clientApiKey === false || $clientApiKey === '') { $this->markTestSkipped('{{ api_key_var }} not set'); return; }
+        $clientBaseUrl = null;
+{% endif %}
+{% else %}
+$clientApiKey = 'test-key';
+{% if has_mock %}
+        $clientBaseUrl = {{ mock_url }};
+{% else %}
+        $clientBaseUrl = null;
+{% endif %}
+{% endif %}
+        $clientConfigJson = '{{ prefix }}' . json_encode($clientApiKey, JSON_THROW_ON_ERROR);
+        if ($clientBaseUrl !== null) {
+            $clientConfigJson .= ',"base_url":' . json_encode($clientBaseUrl, JSON_THROW_ON_ERROR);
+        }
+        $client = \{{ namespace }}\{{ class_name }}::{{ factory }}($clientConfigJson . '}');

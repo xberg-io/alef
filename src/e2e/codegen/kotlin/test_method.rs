@@ -6,6 +6,7 @@
 //! `render_assertion` invocations here plus the shared computation feeding them — a small,
 //! bounded amount of production wiring, not new unrelated functionality.
 
+mod client_options;
 mod inert_refusal;
 use inert_refusal::refuse_inert_example;
 
@@ -408,6 +409,28 @@ pub(super) fn render_test_method(
         let mock_url_expr = format!(
             "System.getProperty(\"mockServer.{fixture_id}\", (System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\") ?: \"\") ?: \"\") + \"/fixtures/{fixture_id}\")"
         );
+        let options_client_call = client_options::expression(
+            fixture,
+            e2e_config,
+            call_config,
+            lang,
+            class_name_for_call,
+            &mock_url_expr,
+        );
+        if options_client_call.is_some()
+            && fixture.mock_response.is_none()
+            && fixture.http.is_none()
+            && let Some(name) = fixture.env.as_ref().and_then(|env| env.api_key_var.as_deref())
+        {
+            let name = escape_kotlin(name);
+            let _ = writeln!(
+                out,
+                "        org.junit.jupiter.api.Assumptions.assumeTrue(!System.getenv(\"{name}\").isNullOrEmpty(), \"{name} not set\")"
+            );
+        }
+        let client_call = options_client_call.unwrap_or_else(|| {
+            format!("{class_name_for_call}.{factory}(apiKey = \"test-key\", baseUrl = {mock_url_expr})")
+        });
         // For a streaming owner_type adapter the call is dispatched on the owner
         // handle instance, not on the mock-backed `client` the factory constructs.
         let call_receiver = streaming_owner_handle.as_deref().unwrap_or("client");
@@ -432,10 +455,7 @@ pub(super) fn render_test_method(
             for line in &setup_lines {
                 let _ = writeln!(out, "            {line}");
             }
-            let _ = writeln!(
-                out,
-                "            val client = {class_name_for_call}.{factory}(apiKey = \"test-key\", baseUrl = {mock_url_expr})"
-            );
+            let _ = writeln!(out, "            val client = {client_call}");
             let _ = writeln!(out, "            {call_expr}");
             let _ = writeln!(out, "            client.close()");
             let _ = writeln!(out, "        }}");
@@ -452,10 +472,7 @@ pub(super) fn render_test_method(
         for line in &setup_lines {
             let _ = writeln!(out, "        {line}");
         }
-        let _ = writeln!(
-            out,
-            "        val client = {class_name_for_call}.{factory}(apiKey = \"test-key\", baseUrl = {mock_url_expr})"
-        );
+        let _ = writeln!(out, "        val client = {client_call}");
         let _ = writeln!(
             out,
             "        val {result_var} = {call_receiver}.{function_name}({args_str})"
