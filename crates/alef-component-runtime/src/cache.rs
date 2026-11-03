@@ -174,8 +174,10 @@ impl ArtifactCache {
 
     /// One request-and-install attempt; the flag says whether a failure is worth retrying.
     fn download_once(&self, entry: &ComponentLockEntry, url: &str) -> Result<CachedArtifact, (ComponentError, bool)> {
+        let tls = self.download.tls_config(url).map_err(|error| (error, false))?;
         let response = ureq::get(url)
             .config()
+            .tls_config(tls)
             .timeout_connect(Some(self.download.connect_timeout))
             .timeout_global(Some(self.download.total_timeout))
             .build()

@@ -1,6 +1,7 @@
 //! Download tuning for [`ArtifactCache`](crate::ArtifactCache): timeouts, retry policy,
 //! progress reporting, cancellation, and transient-error classification.
 
+use crate::ComponentError;
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,6 +19,24 @@ pub const DEFAULT_RETRY_BACKOFF: Duration = Duration::from_millis(500);
 /// Callback invoked as archive bytes stream in: `(downloaded, total)`, where `total` is the
 /// archive size pinned by the lock entry.
 pub type ProgressCallback = Arc<dyn Fn(u64, u64) + Send + Sync>;
+
+/// Which trust anchors verify the TLS server certificate of a component download.
+///
+/// `WebPki` (the default) uses the Mozilla root set compiled into the binary, so behaviour does not
+/// depend on the machine. `PlatformVerifier` defers to the operating system trust store, which is
+/// what hosts behind a TLS-inspecting corporate proxy need: the proxy's CA is installed system-wide
+/// but is not in the Mozilla set. It requires the `platform-verifier` cargo feature of this crate;
+/// without it a download fails with [`ComponentError::Download`] naming the missing feature rather
+/// than silently falling back to `WebPki`. Integrity of the downloaded archive is unaffected: it is
+/// still pinned by the lock entry's SHA-256 (and signature).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RootCerts {
+    /// Mozilla root certificates compiled into the binary.
+    #[default]
+    WebPki,
+    /// The operating system's certificate verifier (needs the `platform-verifier` feature).
+    PlatformVerifier,
+}
 
 /// How a component archive is downloaded.
 ///
@@ -51,6 +70,8 @@ pub struct DownloadOptions {
     pub max_attempts: u32,
     /// Delay before the first retry, doubled each time.
     pub retry_backoff: Duration,
+    /// Trust anchors for HTTPS downloads; see [`RootCerts`].
+    pub root_certs: RootCerts,
 }
 
 impl Default for DownloadOptions {
@@ -62,6 +83,7 @@ impl Default for DownloadOptions {
             cancel: None,
             max_attempts: DEFAULT_MAX_ATTEMPTS,
             retry_backoff: DEFAULT_RETRY_BACKOFF,
+            root_certs: RootCerts::default(),
         }
     }
 }
@@ -75,6 +97,7 @@ impl fmt::Debug for DownloadOptions {
             .field("cancel", &self.cancel)
             .field("max_attempts", &self.max_attempts)
             .field("retry_backoff", &self.retry_backoff)
+            .field("root_certs", &self.root_certs)
             .finish()
     }
 }
@@ -114,6 +137,33 @@ impl DownloadOptions {
     pub fn with_retry_backoff(mut self, backoff: Duration) -> Self {
         self.retry_backoff = backoff;
         self
+    }
+
+    /// Select the trust anchors for HTTPS downloads; see [`RootCerts`].
+    #[must_use]
+    pub fn with_root_certs(mut self, root_certs: RootCerts) -> Self {
+        self.root_certs = root_certs;
+        self
+    }
+
+    /// The ureq TLS configuration for these options. `url` only labels the error.
+    pub(crate) fn tls_config(&self, url: &str) -> Result<ureq::tls::TlsConfig, ComponentError> {
+        let roots = match self.root_certs {
+            RootCerts::WebPki => ureq::tls::RootCerts::WebPki,
+            #[cfg(feature = "platform-verifier")]
+            RootCerts::PlatformVerifier => ureq::tls::RootCerts::PlatformVerifier,
+            #[cfg(not(feature = "platform-verifier"))]
+            RootCerts::PlatformVerifier => {
+                return Err(ComponentError::Download {
+                    url: url.to_owned(),
+                    message: "RootCerts::PlatformVerifier requires the `platform-verifier` feature of \
+                              alef-component-runtime"
+                        .to_owned(),
+                });
+            }
+        };
+        let _ = url;
+        Ok(ureq::tls::TlsConfig::builder().root_certs(roots).build())
     }
 
     pub(crate) fn is_cancelled(&self) -> bool {
@@ -204,6 +254,24 @@ mod tests {
             "reset"
         ))));
         assert!(!is_transient_request_error(&ureq::Error::TooManyRedirects));
+    }
+
+    #[test]
+    fn default_root_certs_is_webpki() {
+        assert_eq!(DownloadOptions::default().root_certs, RootCerts::WebPki);
+        assert!(DownloadOptions::default().tls_config("https://example.test").is_ok());
+    }
+
+    #[test]
+    fn platform_verifier_config_matches_feature() {
+        let options = DownloadOptions::default().with_root_certs(RootCerts::PlatformVerifier);
+        let result = options.tls_config("https://example.test");
+        if cfg!(feature = "platform-verifier") {
+            assert!(result.is_ok());
+        } else {
+            let error = result.unwrap_err().to_string();
+            assert!(error.contains("platform-verifier"), "{error}");
+        }
     }
 
     #[test]

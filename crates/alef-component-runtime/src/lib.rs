@@ -7,6 +7,13 @@
 //! [`ArtifactCache::with_download_options`]. The defaults match the historical 10 s connect and
 //! 300 s total timeouts.
 //!
+//! # Root certificates
+//!
+//! Downloads trust the compiled-in Mozilla roots ([`RootCerts::WebPki`]). Behind a TLS-inspecting
+//! proxy, enable this crate's `platform-verifier` feature and select
+//! [`RootCerts::PlatformVerifier`] with [`DownloadOptions::with_root_certs`] to use the operating
+//! system trust store. Requesting it without the feature fails the download with a clear error.
+//!
 //! # Mirrors
 //!
 //! A lock entry's `url` is fixed when the lock is generated. Air-gapped and corporate hosts can
@@ -45,7 +52,7 @@ mod stamp;
 pub mod target;
 
 pub use cache::{ArtifactCache, CachedArtifact, TrustPolicy};
-pub use download::{DownloadOptions, ProgressCallback};
+pub use download::{DownloadOptions, ProgressCallback, RootCerts};
 pub use error::ComponentError;
 pub use host_services::HostServices;
 pub use keys::decode_public_key;

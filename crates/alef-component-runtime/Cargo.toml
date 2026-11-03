@@ -25,5 +25,9 @@ tempfile = "3"
 thiserror = "2"
 ureq = "3"
 
+[features]
+# Lets `RootCerts::PlatformVerifier` trust the OS certificate store (TLS-inspecting proxies).
+platform-verifier = ["ureq/platform-verifier"]
+
 [lints.clippy]
 missing_safety_doc = "deny"
