@@ -12,7 +12,7 @@ fn api() -> ApiSurface {
     let api = crate::extract::extractor::extract(&[&source], "wide-expectations", "1.0.0", None).unwrap();
     assert_eq!(api.functions.len(), 4);
     assert_eq!(api.types.len(), 5);
-    assert_eq!(api.enums.len(), 2);
+    assert_eq!(api.enums.len(), 3);
     let total = api.functions.iter().find(|function| function.name == "total").unwrap();
     assert_eq!(total.return_type, TypeRef::Primitive(PrimitiveType::U64));
     api
@@ -82,6 +82,8 @@ fn expect_lines(source: &str, expected: &[&str]) {
 fn should_compare_tagged_union_payload_u64_values_as_bigints() {
     for (field, expression) in [
         ("format.stats.count", "(result.format as Format_Stats).field0.count"),
+        ("format.stats.length", "(result.format as Format_Stats).field0.length"),
+        ("format.stats.size", "(result.format as Format_Stats).field0.size"),
         (
             "format.stats.optional_count",
             "(result.format as Format_Stats).field0.optionalCount",
@@ -122,6 +124,7 @@ fn should_preserve_plain_int_payload_expectations_and_collection_counts() {
         ("format.stats.word", "equals", "word", "equals", 23),
         ("format.stats.signed", "equals", "signed", "equals", -1),
         ("format.stats.counts", "count_equals", "counts.length", "equals", 2),
+        ("format.stats.counts.length", "equals", "counts.length", "equals", 2),
     ] {
         let source = emitted("stats", false, assertion(kind, Some(field), value.into()));
         expect_line(
@@ -163,22 +166,26 @@ fn should_preserve_null_optional_u64_payload_expectations() {
 
 #[test]
 fn should_compare_indexed_variant_list_u64_fields_as_bigints() {
-    let source = emitted(
-        "stats",
-        false,
-        assertion(
-            "equals",
-            Some("entries[0].body.payload.segments[0].total"),
-            u64::MAX.into(),
+    for (variant, expression) in [
+        (
+            "Segments",
+            "(result.entries[0].body.payload as Payload_Segments).field0[0].total",
         ),
-    );
-    expect_lines(
-        &source,
-        &[
-            "expect(result.entries[0].body.payload, isA<Payload_Segments>());",
-            "expect((result.entries[0].body.payload as Payload_Segments).field0[0].total, equals(BigInt.parse('18446744073709551615')));",
-        ],
-    );
+        (
+            "Kinds",
+            "((result.entries[0].body.payload as Payload_Kinds).field0[0] as PieceKind_Text).total",
+        ),
+    ] {
+        let field = format!("entries[0].body.payload.{}[0].total", variant.to_lowercase());
+        let source = emitted("stats", false, assertion("equals", Some(&field), u64::MAX.into()));
+        expect_lines(
+            &source,
+            &[
+                &format!("expect(result.entries[0].body.payload, isA<Payload_{variant}>());"),
+                &format!("expect({expression}, equals(BigInt.parse('18446744073709551615')));"),
+            ],
+        );
+    }
 }
 
 #[test]

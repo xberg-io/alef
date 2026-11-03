@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Stats {
     pub count: u64,
+    pub length: u64,
+    pub size: u64,
     pub optional_count: Option<u64>,
     pub counts: Vec<u64>,
     pub word: usize,
@@ -35,6 +37,7 @@ pub struct Body {
 #[serde(untagged)]
 pub enum Payload {
     Segments(Vec<Piece>),
+    Kinds(Vec<PieceKind>),
     Scalar(String),
 }
 
@@ -42,6 +45,12 @@ pub enum Payload {
 pub struct Piece {
     pub total: u64,
     pub word: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum PieceKind {
+    Text { total: u64, word: usize },
 }
 
 pub fn stats() -> Envelope {

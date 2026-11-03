@@ -309,27 +309,6 @@ impl FieldResolver {
         super::super::ir_result_fields::pointer_at_path(&self.ir_result_field_map, &self.result_relative_path(field))
     }
 
-    /// The declared IR type of the value `field` reads from the anchored result type, when the IR
-    /// resolves the path. Backends map it through their own binding type decision.
-    pub fn target_value_type(&self, field: &str) -> Option<&crate::core::ir::TypeRef> {
-        if field.is_empty() {
-            return self.declared_result_value_type.as_ref();
-        }
-        let path = self.result_relative_path(field);
-        super::super::ir_result_fields::value_type_at_path(&self.ir_result_field_map, &path).or_else(|| {
-            let root = self.ir_result_field_map.root_type.as_deref()?;
-            self.target_value_type_from(root, &path)
-        })
-    }
-
-    fn target_value_type_from(&self, root: &str, path: &str) -> Option<&crate::core::ir::TypeRef> {
-        if let Some((_, union, variant, suffix)) = self.ir_tagged_union_split_from(root, path) {
-            let (_, payload) = self.union_variant_payload(&union, &variant)?;
-            return self.target_value_type_from(payload, &suffix);
-        }
-        super::super::ir_result_fields::value_type_at_path_from(&self.ir_result_field_map, root, path)
-    }
-
     pub fn target_field_is_data_interface(&self, field: &str) -> bool {
         super::super::ir_result_fields::data_interface_at_path(&self.ir_result_field_map, self.resolve(field))
             .unwrap_or(false)
