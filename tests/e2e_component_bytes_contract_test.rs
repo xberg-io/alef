@@ -174,6 +174,7 @@ fn codec_config() -> ResolvedCrateConfig {
             default_features: true,
             targets: Some(vec!["test-target".into()]),
             bundled_on: Vec::new(),
+            extra_dependencies: Default::default(),
         }],
         ..ResolvedCrateConfig::default()
     }
@@ -201,7 +202,7 @@ fn find_built_library(target_dir: &Path) -> PathBuf {
 /// core crate path dependency needs no patch: `component_crate_dir` and `core_crate_dir` already
 /// agree on `crates/{core}` and `crates/{core}-{component}-component` as siblings.
 fn patch_unpublished_deps(manifest: &str) -> String {
-    let unpatched = format!("alef-component-abi = \"{}\"", env!("CARGO_PKG_VERSION"));
+    let unpatched = format!("alef-component-abi = \"={}\"", env!("CARGO_PKG_VERSION"));
     let patched = format!(
         "alef-component-abi = {{ path = {:?} }}",
         repo_root().join("crates/alef-component-abi")
@@ -373,6 +374,7 @@ fn host_api() -> alef_component_abi::AlefHostApiV1 {{
         abi_minor: 0,
         context: std::ptr::null_mut(),
         log: None,
+        ..alef_component_abi::AlefHostApiV1::EMPTY
     }}
 }}
 
@@ -381,7 +383,7 @@ pub fn activate_and_call(input: &[u8]) -> Result<Vec<u8>, String> {{
         .ensure_contract("reverse", "codec", b"{entry_symbol}\0")
         .map_err(|error| error.to_string())?;
     let proxy = std::sync::Arc::new(CodecProxy::new(&loaded)?);
-    alef_component_abi::register_provider::<dyn demo_core::Codec>("codec", proxy);
+    alef_component_abi::register_provider::<dyn demo_core::Codec>("reverse", "codec", proxy);
     demo_core::transform(input).map_err(|error| error.to_string())
 }}
 

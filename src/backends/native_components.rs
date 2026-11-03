@@ -1,6 +1,6 @@
 //! Shared Rust-side component manager emitted by native binding backends.
 
-use crate::codegen::component::{ResolvedComponent, entry_point_symbol, resolve_components};
+use crate::codegen::component::{ResolvedComponent, entry_point_symbol_literal, resolve_components};
 use crate::codegen::component_proxy::generate_component_proxies;
 use crate::codegen::naming::{to_class_name, to_constant_name};
 use crate::core::config::ResolvedCrateConfig;
@@ -72,13 +72,7 @@ fn alef_component_manager() -> std::result::Result<&'static alef_component_runti
                 "{lock_manifest_path}"
             )))
             .map_err(|error| format!("invalid embedded components.lock.json: {{error}}"))?;
-            let host = alef_component_abi::AlefHostApiV1 {{
-                struct_size: 0,
-                abi_major: 0,
-                abi_minor: 0,
-                context: std::ptr::null_mut(),
-                log: None,
-            }};
+            let host = alef_component_abi::AlefHostApiV1::EMPTY;
             let target = alef_component_target().map_err(|reason| format!("unsupported_host: {{reason}}"))?;
             alef_component_runtime::ComponentManager::from_lock(lock, alef_component_cache_root(), target, host)
                 .map(|manager| manager.offline(std::env::var_os("{offline_env}").is_some()))
@@ -237,10 +231,10 @@ fn activation_dispatch(config: &ResolvedCrateConfig, resolved: &[ResolvedCompone
                     )
                 })?;
             let proxy_name = format!("{}Proxy", to_class_name(&provided.contract.name));
-            let entry_symbol = entry_point_symbol(&provided.contract.name);
+            let entry_symbol = entry_point_symbol_literal(&provided.contract.name);
             writeln!(
                 out,
-                "            let loaded = manager.ensure_contract({component:?}, {contract:?}, b\"{entry_symbol}\\0\").map_err(alef_component_error_message)?;",
+                "            let loaded = manager.ensure_contract({component:?}, {contract:?}, {entry_symbol}).map_err(alef_component_error_message)?;",
                 component = component.component_name,
                 contract = provided.contract.name,
             )?;
@@ -250,8 +244,8 @@ fn activation_dispatch(config: &ResolvedCrateConfig, resolved: &[ResolvedCompone
             )?;
             writeln!(
                 out,
-                "            alef_component_abi::register_provider::<dyn {}>({:?}, proxy);",
-                contract_cfg.trait_path, provided.contract.name
+                "            alef_component_abi::register_provider::<dyn {}>({:?}, {:?}, proxy);",
+                contract_cfg.trait_path, component.component_name, provided.contract.name
             )?;
         }
         out.push_str("            Ok(())\n        }\n");
@@ -333,6 +327,7 @@ mod tests {
                 default_features: false,
                 targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
                 bundled_on: Vec::new(),
+                extra_dependencies: Default::default(),
             }],
             ..ResolvedCrateConfig::default()
         };
@@ -351,7 +346,7 @@ mod tests {
             "{generated}"
         );
         assert!(
-            generated.contains("register_provider::<dyn demo_core::Codec>(\"codec\", proxy)"),
+            generated.contains("register_provider::<dyn demo_core::Codec>(\"reverse\", \"codec\", proxy)"),
             "{generated}"
         );
         assert!(
@@ -392,6 +387,7 @@ mod tests {
                 default_features: false,
                 targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
                 bundled_on: Vec::new(),
+                extra_dependencies: Default::default(),
             }],
             ..ResolvedCrateConfig::default()
         };

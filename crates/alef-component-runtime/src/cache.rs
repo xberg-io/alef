@@ -1,5 +1,7 @@
+use crate::download::{DownloadOptions, TrackedReader, is_transient_request_error};
 use crate::keys::decode_public_key;
 use crate::manifest::{COMPONENT_ABI_VERSION, COMPONENT_MANIFEST_SCHEMA};
+use crate::stamp;
 use crate::{ComponentError, ComponentLockEntry, ComponentManifest, ComponentSignature};
 use base64::Engine as _;
 use ed25519_dalek::{Signature, Verifier as _};
@@ -10,12 +12,10 @@ use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek as _, SeekFrom, Write as _};
 use std::path::{Component, Path, PathBuf};
-use std::time::Duration;
+use std::sync::Arc;
 
-/// Maximum time allowed to establish a connection to a component's download URL.
-const DOWNLOAD_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-/// Maximum time allowed for an entire component download, connection included.
-const DOWNLOAD_TOTAL_TIMEOUT: Duration = Duration::from_secs(300);
+/// Rewrites a lock entry's download URL at runtime; see [`ArtifactCache::with_url_override`].
+pub(crate) type UrlOverride = Arc<dyn Fn(&ComponentLockEntry) -> String + Send + Sync>;
 
 #[derive(Clone, Debug)]
 pub enum TrustPolicy {
@@ -23,11 +23,27 @@ pub enum TrustPolicy {
     EmbeddedKeys(BTreeMap<String, String>),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ArtifactCache {
-    root: PathBuf,
+    pub(crate) root: PathBuf,
     trust: TrustPolicy,
     offline: bool,
+    pub(crate) download: DownloadOptions,
+    url_override: Option<UrlOverride>,
+    verified_stamp: bool,
+}
+
+impl std::fmt::Debug for ArtifactCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArtifactCache")
+            .field("root", &self.root)
+            .field("trust", &self.trust)
+            .field("offline", &self.offline)
+            .field("download", &self.download)
+            .field("url_override", &self.url_override.as_ref().map(|_| "<fn>"))
+            .field("verified_stamp", &self.verified_stamp)
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,6 +59,61 @@ impl ArtifactCache {
             root: root.into(),
             trust,
             offline: false,
+            download: DownloadOptions::default(),
+            url_override: None,
+            verified_stamp: false,
+        }
+    }
+
+    /// Replace the download tuning (timeouts, retries, progress, cancellation).
+    #[must_use]
+    pub fn with_download_options(mut self, options: DownloadOptions) -> Self {
+        self.download = options;
+        self
+    }
+
+    #[must_use]
+    pub fn download_options(&self) -> &DownloadOptions {
+        &self.download
+    }
+
+    /// Fetch artifacts from `resolve(entry)` instead of the lock entry's own `url`.
+    ///
+    /// Intended for air-gapped or corporate mirrors. Integrity never depends on the URL: the
+    /// archive size, SHA-256 and the manifest signature are still checked against the lock.
+    /// A returned `file://` URL is read from disk.
+    #[must_use]
+    pub fn with_url_override(
+        mut self,
+        resolve: impl Fn(&ComponentLockEntry) -> String + Send + Sync + 'static,
+    ) -> Self {
+        self.url_override = Some(Arc::new(resolve));
+        self
+    }
+
+    /// Trust a verified stamp instead of re-hashing an installed library on every process
+    /// start. Off by default.
+    ///
+    /// After the first full check a stamp (archive sha, size, mtime in nanoseconds, and on Unix
+    /// device, inode and ctime) is written next to the object. A later process that finds the
+    /// library still matching the stamp skips reading and hashing it; the manifest digest,
+    /// identity and signature are still verified every time.
+    ///
+    /// Still caught: replacing the file (new inode), size changes, and edits that change the
+    /// mtime or, on Unix, the ctime. Not caught: a same-size in-place edit that restores the
+    /// mtime on Windows, or by an attacker who can forge Unix ctime. Anyone able to do that can
+    /// already rewrite the cache (including the stamp), so enable this only for caches that
+    /// only the current user can write.
+    #[must_use]
+    pub fn with_verified_stamp(mut self, enabled: bool) -> Self {
+        self.verified_stamp = enabled;
+        self
+    }
+
+    fn resolve_url(&self, entry: &ComponentLockEntry) -> String {
+        match &self.url_override {
+            Some(resolve) => resolve(entry),
+            None => entry.url.clone(),
         }
     }
 
@@ -68,37 +139,84 @@ impl ArtifactCache {
     pub fn install(&self, entry: &ComponentLockEntry) -> Result<CachedArtifact, ComponentError> {
         let destination = self.object_path(entry)?;
         if destination.is_dir()
-            && let Ok(cached) = self.verify_installation(entry, &destination)
+            && let Ok(cached) = self.verify_cached(entry, &destination)
         {
+            self.touch_used(&entry.sha256);
             return Ok(cached);
         }
-        if let Some(path) = entry.url.strip_prefix("file://") {
+        let url = self.resolve_url(entry);
+        if let Some(path) = url.strip_prefix("file://") {
             return self.install_from_reader(entry, File::open(path)?);
         }
         if self.offline {
             return Err(ComponentError::Offline {
                 component: entry.identity.component.clone(),
-                url: entry.url.clone(),
+                url,
             });
         }
-        let response = ureq::get(&entry.url)
+        let attempts = self.download.max_attempts.max(1);
+        let mut attempt = 1;
+        loop {
+            if self.download.is_cancelled() {
+                return Err(ComponentError::Cancelled);
+            }
+            let (error, transient) = match self.download_once(entry, &url) {
+                Ok(cached) => return Ok(cached),
+                Err(failure) => failure,
+            };
+            if !transient || attempt >= attempts {
+                return Err(error);
+            }
+            std::thread::sleep(self.download.backoff_delay(attempt));
+            attempt += 1;
+        }
+    }
+
+    /// One request-and-install attempt; the flag says whether a failure is worth retrying.
+    fn download_once(&self, entry: &ComponentLockEntry, url: &str) -> Result<CachedArtifact, (ComponentError, bool)> {
+        let tls = self.download.tls_config(url).map_err(|error| (error, false))?;
+        let response = ureq::get(url)
             .config()
-            .timeout_connect(Some(DOWNLOAD_CONNECT_TIMEOUT))
-            .timeout_global(Some(DOWNLOAD_TOTAL_TIMEOUT))
+            .tls_config(tls)
+            .timeout_connect(Some(self.download.connect_timeout))
+            .timeout_global(Some(self.download.total_timeout))
             .build()
             .header(
                 "User-Agent",
                 concat!("alef-component-runtime/", env!("CARGO_PKG_VERSION")),
             )
             .call()
-            .map_err(|error| ComponentError::Download {
-                url: entry.url.clone(),
-                message: error.to_string(),
+            .map_err(|error| {
+                let transient = is_transient_request_error(&error);
+                (
+                    ComponentError::Download {
+                        url: url.to_owned(),
+                        message: error.to_string(),
+                    },
+                    transient,
+                )
             })?;
-        self.install_from_reader(entry, response.into_body().into_reader())
+        let mut body = TrackedReader::new(response.into_body().into_reader());
+        let result = self.install_from_reader(entry, &mut body);
+        result.map_err(|error| {
+            let transient = body.read_failed && matches!(error, ComponentError::Io(_));
+            (error, transient)
+        })
     }
 
+    /// Install an archive from `reader`, honouring this cache's progress and cancellation
+    /// settings (see [`DownloadOptions`]). Never retries: the reader cannot be rewound.
     pub fn install_from_reader(
+        &self,
+        entry: &ComponentLockEntry,
+        reader: impl Read,
+    ) -> Result<CachedArtifact, ComponentError> {
+        let cached = self.install_stream(entry, reader)?;
+        self.touch_used(&entry.sha256);
+        Ok(cached)
+    }
+
+    fn install_stream(
         &self,
         entry: &ComponentLockEntry,
         mut reader: impl Read,
@@ -117,7 +235,7 @@ impl ArtifactCache {
 
         let destination = self.object_path(entry)?;
         if destination.is_dir()
-            && let Ok(cached) = self.verify_installation(entry, &destination)
+            && let Ok(cached) = self.verify_cached(entry, &destination)
         {
             return Ok(cached);
         }
@@ -127,6 +245,9 @@ impl ArtifactCache {
         let mut copied = 0_u64;
         let mut buffer = [0_u8; 64 * 1024];
         loop {
+            if self.download.is_cancelled() {
+                return Err(ComponentError::Cancelled);
+            }
             let count = reader.read(&mut buffer)?;
             if count == 0 {
                 break;
@@ -140,6 +261,7 @@ impl ArtifactCache {
                     actual: copied,
                 });
             }
+            self.download.report(copied, entry.size);
         }
         if entry.size != copied {
             return Err(ComponentError::SizeMismatch {
@@ -158,24 +280,46 @@ impl ArtifactCache {
         archive.as_file_mut().seek(SeekFrom::Start(0))?;
         let staging = tempfile::Builder::new().prefix(".install-").tempdir_in(&objects)?;
         extract_safely(archive.as_file_mut(), staging.path())?;
-        let cached = self.verify_installation(entry, staging.path())?;
+        let cached = self.verify_installation(entry, staging.path(), None)?;
 
         if destination.exists() {
             fs::remove_dir_all(&destination)?;
         }
+        let _ = fs::remove_file(self.stamp_path(&entry.sha256));
         let staging_path = staging.keep();
         if let Err(error) = fs::rename(&staging_path, &destination) {
             let _ = fs::remove_dir_all(&staging_path);
             return Err(ComponentError::Io(error));
         }
+        let library = destination.join(&cached.manifest.library.file);
+        if self.verified_stamp
+            && let Ok(stamp) = stamp::capture(&entry.sha256, &library)
+        {
+            stamp::write(&self.stamp_path(&entry.sha256), &stamp);
+        }
         Ok(CachedArtifact {
             root: destination.clone(),
-            library: destination.join(&cached.manifest.library.file),
+            library,
             manifest: cached.manifest,
         })
     }
 
-    fn verify_installation(&self, entry: &ComponentLockEntry, root: &Path) -> Result<CachedArtifact, ComponentError> {
+    pub(crate) fn stamp_path(&self, sha256: &str) -> PathBuf {
+        self.root.join("sha256").join(format!("{sha256}.verified"))
+    }
+
+    /// Verify an object already in the cache, using the verified stamp when enabled.
+    fn verify_cached(&self, entry: &ComponentLockEntry, root: &Path) -> Result<CachedArtifact, ComponentError> {
+        let stamp_path = self.stamp_path(&entry.sha256);
+        self.verify_installation(entry, root, self.verified_stamp.then_some(stamp_path.as_path()))
+    }
+
+    fn verify_installation(
+        &self,
+        entry: &ComponentLockEntry,
+        root: &Path,
+        stamp_path: Option<&Path>,
+    ) -> Result<CachedArtifact, ComponentError> {
         let manifest_bytes = fs::read(root.join("component.json"))?;
         if sha256(&manifest_bytes) != decode_digest(&entry.manifest_sha256)? {
             return Err(ComponentError::ManifestDigestMismatch);
@@ -192,28 +336,51 @@ impl ArtifactCache {
         }
         let library_relative = safe_relative_path(&manifest.library.file)?;
         let library = root.join(&library_relative);
-        let library_bytes = fs::read(&library).map_err(|error| {
+        let trusted = stamp_path.is_some_and(|path| stamp::is_current(path, &entry.sha256, &library));
+        let before = if trusted || stamp_path.is_none() {
+            None
+        } else {
+            stamp::capture(&entry.sha256, &library).ok()
+        };
+        let missing = |error: std::io::Error| {
             if error.kind() == std::io::ErrorKind::NotFound {
                 ComponentError::MissingLibrary(library.clone())
             } else {
                 ComponentError::Io(error)
             }
-        })?;
-        if library_bytes.len() as u64 != manifest.library.size {
-            return Err(ComponentError::SizeMismatch {
-                expected: manifest.library.size,
-                actual: library_bytes.len() as u64,
-            });
-        }
-        let expected_library = decode_digest(&manifest.library.sha256)?;
-        let actual_library = sha256(&library_bytes);
-        if expected_library != actual_library {
-            return Err(ComponentError::DigestMismatch {
-                expected: manifest.library.sha256.clone(),
-                actual: hex::encode(actual_library),
-            });
+        };
+        if trusted {
+            let size = fs::metadata(&library).map_err(missing)?.len();
+            if size != manifest.library.size {
+                return Err(ComponentError::SizeMismatch {
+                    expected: manifest.library.size,
+                    actual: size,
+                });
+            }
+        } else {
+            let library_bytes = fs::read(&library).map_err(missing)?;
+            if library_bytes.len() as u64 != manifest.library.size {
+                return Err(ComponentError::SizeMismatch {
+                    expected: manifest.library.size,
+                    actual: library_bytes.len() as u64,
+                });
+            }
+            let expected_library = decode_digest(&manifest.library.sha256)?;
+            let actual_library = sha256(&library_bytes);
+            if expected_library != actual_library {
+                return Err(ComponentError::DigestMismatch {
+                    expected: manifest.library.sha256.clone(),
+                    actual: hex::encode(actual_library),
+                });
+            }
         }
         self.verify_manifest_signature(entry, root, &manifest_bytes)?;
+        // Record the stamp only when the file did not change while it was being hashed.
+        if let (Some(path), Some(before)) = (stamp_path, before)
+            && stamp::capture(&entry.sha256, &library).is_ok_and(|after| after == before)
+        {
+            stamp::write(path, &before);
+        }
         Ok(CachedArtifact {
             root: root.to_owned(),
             library,
@@ -260,7 +427,7 @@ impl ArtifactCache {
     }
 }
 
-fn decode_digest(value: &str) -> Result<[u8; 32], ComponentError> {
+pub(crate) fn decode_digest(value: &str) -> Result<[u8; 32], ComponentError> {
     let bytes = hex::decode(value).map_err(|_| ComponentError::InvalidDigest(value.to_owned()))?;
     bytes
         .try_into()
@@ -432,370 +599,4 @@ fn stream_library_entry<R: Read>(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{ComponentIdentity, ComponentLibrary};
-    use ed25519_dalek::{Signer as _, SigningKey};
-    use std::io::Cursor;
-
-    fn package(signing: Option<(&SigningKey, &str)>) -> (Vec<u8>, ComponentLockEntry) {
-        let library = b"native";
-        let identity = ComponentIdentity {
-            crate_name: "demo-core".into(),
-            component: "fast".into(),
-            version: "1.0.0".into(),
-            target: "test-target".into(),
-            feature_hash: hex::encode([1; 32]),
-            contract_hash: hex::encode([2; 32]),
-        };
-        let manifest = ComponentManifest {
-            schema_version: COMPONENT_MANIFEST_SCHEMA,
-            abi_version: 1,
-            identity: identity.clone(),
-            provides: vec![crate::ComponentProvidedContract {
-                contract: "engine".into(),
-                interface_version: 1,
-                contract_hash: hex::encode([2; 32]),
-                implementation: "demo::Fast".into(),
-            }],
-            features: vec!["fast".into()],
-            default_features: false,
-            library: ComponentLibrary {
-                file: "libdemo.so".into(),
-                sha256: hex::encode(sha256(library)),
-                size: library.len() as u64,
-            },
-        };
-        let manifest_bytes = manifest.canonical_bytes().unwrap();
-        let signature = signing.map(|(key, id)| ComponentSignature {
-            algorithm: "ed25519".into(),
-            key_id: id.into(),
-            signature: base64::engine::general_purpose::STANDARD.encode(key.sign(&manifest_bytes).to_bytes()),
-        });
-        let mut compressed = Vec::new();
-        {
-            let encoder = flate2::write::GzEncoder::new(&mut compressed, flate2::Compression::default());
-            let mut builder = tar::Builder::new(encoder);
-            append(&mut builder, "component.json", &manifest_bytes);
-            if let Some(signature) = &signature {
-                append(
-                    &mut builder,
-                    "component.sig",
-                    &crate::canonical_json(signature).unwrap(),
-                );
-            }
-            append(&mut builder, "libdemo.so", library);
-            builder.into_inner().unwrap().finish().unwrap();
-        }
-        let entry = ComponentLockEntry {
-            identity,
-            provides: manifest.provides.clone(),
-            mode: crate::ComponentDeliveryMode::Download,
-            url: "unused".into(),
-            sha256: hex::encode(sha256(&compressed)),
-            size: compressed.len() as u64,
-            manifest_sha256: hex::encode(sha256(&manifest_bytes)),
-            key_id: signature.map(|value| value.key_id).unwrap_or_default(),
-        };
-        (compressed, entry)
-    }
-
-    fn append(builder: &mut tar::Builder<flate2::write::GzEncoder<&mut Vec<u8>>>, path: &str, content: &[u8]) {
-        let mut header = tar::Header::new_gnu();
-        header.set_size(content.len() as u64);
-        header.set_mode(0o644);
-        header.set_cksum();
-        builder.append_data(&mut header, path, Cursor::new(content)).unwrap();
-    }
-
-    #[test]
-    fn installs_and_verifies_full_trust_chain() {
-        let signing = SigningKey::from_bytes(&[7; 32]);
-        let (bytes, entry) = package(Some((&signing, "release")));
-        let keys = BTreeMap::from([(
-            "release".into(),
-            base64::engine::general_purpose::STANDARD.encode(signing.verifying_key().to_bytes()),
-        )]);
-        let dir = tempfile::tempdir().unwrap();
-        let cache = ArtifactCache::new(dir.path(), TrustPolicy::EmbeddedKeys(keys));
-        let installed = cache.install_from_reader(&entry, Cursor::new(bytes)).unwrap();
-        assert_eq!(fs::read(installed.library).unwrap(), b"native");
-        assert_eq!(installed.manifest.identity, entry.identity);
-    }
-
-    /// Regression for the padding disagreement between this loader, `alef`'s config
-    /// validation, and `alef`'s artifact verification: config accepted unpadded base64
-    /// keys while the loader accepted only standard-padded base64, so a key that passed
-    /// config validation and was baked into the lock would fail every load here.
-    #[test]
-    fn installs_and_verifies_full_trust_chain_with_unpadded_base64_key() {
-        let signing = SigningKey::from_bytes(&[7; 32]);
-        let (bytes, entry) = package(Some((&signing, "release")));
-        let keys = BTreeMap::from([(
-            "release".into(),
-            base64::engine::general_purpose::STANDARD_NO_PAD.encode(signing.verifying_key().to_bytes()),
-        )]);
-        let dir = tempfile::tempdir().unwrap();
-        let cache = ArtifactCache::new(dir.path(), TrustPolicy::EmbeddedKeys(keys));
-        let installed = cache.install_from_reader(&entry, Cursor::new(bytes)).unwrap();
-        assert_eq!(fs::read(installed.library).unwrap(), b"native");
-        assert_eq!(installed.manifest.identity, entry.identity);
-    }
-
-    #[test]
-    fn reuses_verified_cache_when_source_is_unavailable() {
-        let (bytes, mut entry) = package(None);
-        let dir = tempfile::tempdir().unwrap();
-        let cache = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly);
-        let installed = cache.install_from_reader(&entry, Cursor::new(bytes)).unwrap();
-        entry.url = "file:///source/does/not/exist".into();
-
-        let reused = cache.install(&entry).unwrap();
-        assert_eq!(reused, installed);
-    }
-
-    #[test]
-    fn rejects_unsigned_archive_when_lock_names_a_key() {
-        let (bytes, mut entry) = package(None);
-        entry.key_id = "release".into();
-        let keys = BTreeMap::from([(
-            "release".into(),
-            base64::engine::general_purpose::STANDARD
-                .encode(SigningKey::from_bytes(&[7; 32]).verifying_key().to_bytes()),
-        )]);
-        let dir = tempfile::tempdir().unwrap();
-        let cache = ArtifactCache::new(dir.path(), TrustPolicy::EmbeddedKeys(keys));
-        assert!(matches!(
-            cache.install_from_reader(&entry, Cursor::new(bytes)),
-            Err(ComponentError::SignatureRequired)
-        ));
-    }
-
-    #[test]
-    fn rejects_archive_digest_mismatch() {
-        let (bytes, mut entry) = package(None);
-        entry.sha256 = "00".repeat(32);
-        let dir = tempfile::tempdir().unwrap();
-        let cache = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly);
-        assert!(matches!(
-            cache.install_from_reader(&entry, Cursor::new(bytes)),
-            Err(ComponentError::DigestMismatch { .. })
-        ));
-    }
-
-    #[test]
-    fn stops_when_download_exceeds_pinned_size() {
-        let (bytes, mut entry) = package(None);
-        entry.size = 1;
-        let dir = tempfile::tempdir().unwrap();
-        let cache = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly);
-        assert!(matches!(
-            cache.install_from_reader(&entry, Cursor::new(bytes)),
-            Err(ComponentError::SizeMismatch { expected: 1, .. })
-        ));
-    }
-
-    #[test]
-    fn rejects_invalid_signature_without_installing() {
-        let signing = SigningKey::from_bytes(&[7; 32]);
-        let wrong_key = SigningKey::from_bytes(&[8; 32]);
-        let (bytes, entry) = package(Some((&signing, "release")));
-        let keys = BTreeMap::from([(
-            "release".into(),
-            base64::engine::general_purpose::STANDARD.encode(wrong_key.verifying_key().to_bytes()),
-        )]);
-        let dir = tempfile::tempdir().unwrap();
-        let cache = ArtifactCache::new(dir.path(), TrustPolicy::EmbeddedKeys(keys));
-        let destination = cache.object_path(&entry).unwrap();
-
-        assert!(matches!(
-            cache.install_from_reader(&entry, Cursor::new(bytes)),
-            Err(ComponentError::SignatureVerification)
-        ));
-        assert!(!destination.exists());
-    }
-
-    #[test]
-    fn offline_mode_rejects_a_missing_artifact_without_a_network_attempt() {
-        let (_bytes, mut entry) = package(None);
-        entry.url = "https://example.invalid/component.tar.gz".into();
-        let dir = tempfile::tempdir().unwrap();
-        let cache = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly).offline(true);
-
-        let error = cache.install(&entry).unwrap_err();
-
-        assert!(matches!(
-            error,
-            ComponentError::Offline { ref component, ref url }
-                if component == "fast" && url == "https://example.invalid/component.tar.gz"
-        ));
-    }
-
-    #[test]
-    fn offline_mode_still_reuses_an_already_verified_cache_entry() {
-        let (bytes, entry) = package(None);
-        let dir = tempfile::tempdir().unwrap();
-        let cache = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly);
-        let installed = cache.install_from_reader(&entry, Cursor::new(bytes)).unwrap();
-
-        let offline_cache = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly).offline(true);
-        let reused = offline_cache.install(&entry).unwrap();
-
-        assert_eq!(reused, installed);
-    }
-
-    #[test]
-    fn offline_mode_does_not_block_a_file_url() {
-        let (bytes, mut entry) = package(None);
-        let dir = tempfile::tempdir().unwrap();
-        let source = dir.path().join("source.tar.gz");
-        fs::write(&source, &bytes).unwrap();
-        entry.url = format!("file://{}", source.display());
-
-        let cache_root = tempfile::tempdir().unwrap();
-        let cache = ArtifactCache::new(cache_root.path(), TrustPolicy::DigestOnly).offline(true);
-
-        assert!(cache.install(&entry).is_ok());
-    }
-
-    #[test]
-    fn rejects_parent_traversal_archive_entry() {
-        let mut tar_bytes = Vec::new();
-        {
-            let mut builder = tar::Builder::new(&mut tar_bytes);
-            let mut header = tar::Header::new_gnu();
-            header.set_size(1);
-            header.set_mode(0o644);
-            header.as_mut_bytes()[..7].copy_from_slice(b"../evil");
-            header.set_cksum();
-            builder.append(&header, Cursor::new(b"x")).unwrap();
-            builder.finish().unwrap();
-        }
-        let mut compressed = Vec::new();
-        {
-            let mut encoder = flate2::write::GzEncoder::new(&mut compressed, flate2::Compression::default());
-            encoder.write_all(&tar_bytes).unwrap();
-            encoder.finish().unwrap();
-        }
-        let dir = tempfile::tempdir().unwrap();
-        assert!(matches!(
-            extract_safely(Cursor::new(compressed), dir.path()),
-            Err(ComponentError::UnsafeArchiveEntry(path)) if path == "../evil"
-        ));
-        assert!(!dir.path().parent().unwrap().join("evil").exists());
-    }
-
-    fn manifest_declaring_library_size(size: u64) -> ComponentManifest {
-        ComponentManifest {
-            schema_version: COMPONENT_MANIFEST_SCHEMA,
-            abi_version: 1,
-            identity: ComponentIdentity {
-                crate_name: "demo-core".into(),
-                component: "fast".into(),
-                version: "1.0.0".into(),
-                target: "test-target".into(),
-                feature_hash: hex::encode([1; 32]),
-                contract_hash: hex::encode([2; 32]),
-            },
-            provides: vec![crate::ComponentProvidedContract {
-                contract: "engine".into(),
-                interface_version: 1,
-                contract_hash: hex::encode([2; 32]),
-                implementation: "demo::Fast".into(),
-            }],
-            features: vec!["fast".into()],
-            default_features: false,
-            library: ComponentLibrary {
-                file: "libdemo.so".into(),
-                sha256: hex::encode(sha256(b"native")),
-                size,
-            },
-        }
-    }
-
-    /// A component archive can only ever grow to the size the manifest itself declares (plus
-    /// a small fixed headroom): a library entry that decompresses to far more than that is
-    /// rejected before the whole thing is buffered or written to disk, bounding how much a
-    /// crafted or corrupted archive can force this loader to decompress.
-    #[test]
-    fn rejects_library_entry_exceeding_the_manifest_declared_size() {
-        let manifest = manifest_declaring_library_size(6);
-        let manifest_bytes = manifest.canonical_bytes().unwrap();
-        let oversized_library = vec![b'x'; (LIBRARY_SIZE_HEADROOM + 4096) as usize];
-
-        let mut compressed = Vec::new();
-        {
-            let encoder = flate2::write::GzEncoder::new(&mut compressed, flate2::Compression::default());
-            let mut builder = tar::Builder::new(encoder);
-            append(&mut builder, "component.json", &manifest_bytes);
-            append(&mut builder, "libdemo.so", &oversized_library);
-            builder.into_inner().unwrap().finish().unwrap();
-        }
-
-        let dir = tempfile::tempdir().unwrap();
-        assert!(matches!(
-            extract_safely(Cursor::new(compressed), dir.path()),
-            Err(ComponentError::ExtractedSizeExceeded { .. })
-        ));
-        assert!(!dir.path().join("libdemo.so").exists());
-    }
-
-    /// The library entry must be a regular file: a symlink (which could point anywhere on
-    /// the filesystem once `dlopen`ed) is rejected outright, never followed or written.
-    #[test]
-    fn rejects_symlink_library_entry() {
-        let manifest = manifest_declaring_library_size(6);
-        let manifest_bytes = manifest.canonical_bytes().unwrap();
-
-        let mut compressed = Vec::new();
-        {
-            let encoder = flate2::write::GzEncoder::new(&mut compressed, flate2::Compression::default());
-            let mut builder = tar::Builder::new(encoder);
-            append(&mut builder, "component.json", &manifest_bytes);
-            let mut header = tar::Header::new_gnu();
-            header.set_size(0);
-            header.set_mode(0o777);
-            header.set_entry_type(tar::EntryType::Symlink);
-            header.set_link_name("/etc/passwd").unwrap();
-            header.set_path("libdemo.so").unwrap();
-            header.set_cksum();
-            builder.append(&header, Cursor::new(&[][..])).unwrap();
-            builder.into_inner().unwrap().finish().unwrap();
-        }
-
-        let dir = tempfile::tempdir().unwrap();
-        assert!(matches!(
-            extract_safely(Cursor::new(compressed), dir.path()),
-            Err(ComponentError::UnsafeArchiveEntry(path)) if path == "libdemo.so"
-        ));
-        assert!(!dir.path().join("libdemo.so").exists());
-    }
-
-    /// A packaged component archive never has more than three entries (manifest, optional
-    /// signature, library); a fourth is not an archive this loader made.
-    #[test]
-    fn rejects_archive_with_too_many_entries() {
-        let manifest = manifest_declaring_library_size(6);
-        let manifest_bytes = manifest.canonical_bytes().unwrap();
-
-        let mut compressed = Vec::new();
-        {
-            let encoder = flate2::write::GzEncoder::new(&mut compressed, flate2::Compression::default());
-            let mut builder = tar::Builder::new(encoder);
-            append(&mut builder, "component.json", &manifest_bytes);
-            append(&mut builder, "component.sig", b"{}");
-            append(&mut builder, "libdemo.so", b"native");
-            append(&mut builder, "unexpected.txt", b"extra");
-            builder.into_inner().unwrap().finish().unwrap();
-        }
-
-        let dir = tempfile::tempdir().unwrap();
-        assert!(matches!(
-            extract_safely(Cursor::new(compressed), dir.path()),
-            Err(ComponentError::TooManyArchiveEntries {
-                max: MAX_ARCHIVE_ENTRIES,
-                ..
-            })
-        ));
-    }
-}
+mod tests;

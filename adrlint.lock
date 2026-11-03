@@ -60,3 +60,8 @@ blake3 = "dd27a67be4b7081b19a67a501d15d5ec6aed2cbbd53ca036aaef0683a9a53ecd"
 number = 14
 status = "accepted"
 blake3 = "e85c0e4d4ff648bfb59d01e18efc3fbf633f4e15cd5a52a8f6e8bc796d0f61d1"
+
+[adrs."adrs/0015-abi-and-runtime-stability-policy-for-component-crates.md"]
+number = 15
+status = "accepted"
+blake3 = "dd36fe5d374244454c39ecfdface529956a41a53dc372e4d0bbbad23c3e0bf62"

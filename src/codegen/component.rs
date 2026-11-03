@@ -109,6 +109,8 @@ pub struct ResolvedComponent {
     /// Targets this component is downloaded for; excludes anything in `bundled_on`.
     pub targets: Vec<String>,
     pub bundled_on: Vec<String>,
+    /// Extra Cargo dependencies for the generated producer crate (crate name -> spec).
+    pub extra_dependencies: BTreeMap<String, serde_json::Value>,
     pub provides: Vec<ResolvedProvidedContract>,
 }
 
@@ -199,6 +201,7 @@ pub fn resolve_components(api: &ApiSurface, config: &ResolvedCrateConfig) -> Res
             default_features: component.default_features,
             targets: resolve_component_targets(config, component),
             bundled_on: component.bundled_on.clone(),
+            extra_dependencies: component.extra_dependencies.clone(),
             provides,
         });
     }
@@ -229,8 +232,13 @@ impl ComponentContractIr {
     }
 
     /// BLAKE3 hash of the canonical JSON representation.
+    ///
+    /// `trait_path` is excluded: the same contract re-exported through another crate path has
+    /// the same identity (name, interface version, method signatures, referenced shapes).
     pub fn hash(&self) -> Result<[u8; 32]> {
-        let encoded = serde_json::to_vec(self).context("serializing canonical component contract")?;
+        let mut canonical = self.clone();
+        canonical.trait_path.clear();
+        let encoded = serde_json::to_vec(&canonical).context("serializing canonical component contract")?;
         Ok(*blake3::hash(&encoded).as_bytes())
     }
 
@@ -251,7 +259,9 @@ impl ComponentContractIr {
         out.push_str("typedef struct { const uint8_t *ptr; size_t len; } AlefComponentSlice;\n");
         out.push_str("typedef void (*AlefComponentBufferFree)(void *, uint8_t *, size_t, size_t);\n");
         out.push_str("typedef struct { uint8_t *ptr; size_t len; size_t capacity; void *context; AlefComponentBufferFree free; } AlefComponentOwnedBuffer;\n");
-        out.push_str("typedef struct { size_t struct_size; uint32_t abi_major; uint32_t abi_minor; void *context; void (*log)(void *, uint32_t, AlefComponentStr); } AlefComponentHostApiV1;\n");
+        out.push_str("typedef AlefComponentStatus (*AlefComponentServiceCall)(void *, AlefComponentStr, AlefComponentSlice, AlefComponentOwnedBuffer *);\n");
+        out.push_str("typedef AlefComponentStatus (*AlefComponentServiceNotify)(void *, AlefComponentStr, AlefComponentSlice);\n");
+        out.push_str("typedef struct { size_t struct_size; uint32_t abi_major; uint32_t abi_minor; void *context; void (*log)(void *, uint32_t, AlefComponentStr); void *services_context; AlefComponentServiceCall service_call; AlefComponentServiceNotify service_notify; } AlefComponentHostApiV1;\n");
         out.push_str("typedef void (*AlefComponentTaskCallback)(void *, AlefComponentStatus, AlefComponentOwnedBuffer, AlefComponentOwnedBuffer);\n");
         out.push_str(
             "typedef AlefComponentStatus (*AlefComponentTaskStart)(void *, AlefComponentTaskCallback, void *);\n",
@@ -317,6 +327,13 @@ impl ComponentContractIr {
 #[must_use]
 pub fn entry_point_symbol(contract_name: &str) -> String {
     format!("alef_component_entry_v1_{}", contract_name.to_snake_case())
+}
+
+/// The entry symbol as a NUL-terminated Rust byte-string literal, ready to pass to
+/// `ComponentManager::ensure_contract` (e.g. `b"alef_component_entry_v1_codec\0"`).
+#[must_use]
+pub fn entry_point_symbol_literal(contract_name: &str) -> String {
+    format!("b\"{}\\0\"", entry_point_symbol(contract_name))
 }
 
 fn find_trait<'a>(api: &'a ApiSurface, trait_path: &str) -> Result<&'a TypeDef> {
@@ -694,6 +711,27 @@ mod tests {
     }
 
     #[test]
+    fn hash_ignores_the_trait_path_the_contract_is_reached_through() {
+        let direct = ComponentContractIr::from_trait(&sample_api(), "extractor", "demo::Extractor", 1).unwrap();
+        let mut reexported = direct.clone();
+        reexported.trait_path = "facade::reexports::Extractor".into();
+        assert_ne!(direct, reexported);
+        assert_eq!(direct.hash().unwrap(), reexported.hash().unwrap());
+        assert_eq!(direct.hash_hex().unwrap(), reexported.hash_hex().unwrap());
+    }
+
+    #[test]
+    fn hash_is_deterministic_and_tracks_name_and_interface_version() {
+        let base = ComponentContractIr::from_trait(&sample_api(), "extractor", "demo::Extractor", 1).unwrap();
+        let again = ComponentContractIr::from_trait(&sample_api(), "extractor", "demo::Extractor", 1).unwrap();
+        assert_eq!(base.hash().unwrap(), again.hash().unwrap());
+        let renamed = ComponentContractIr::from_trait(&sample_api(), "other", "demo::Extractor", 1).unwrap();
+        let bumped = ComponentContractIr::from_trait(&sample_api(), "extractor", "demo::Extractor", 2).unwrap();
+        assert_ne!(base.hash().unwrap(), renamed.hash().unwrap());
+        assert_ne!(base.hash().unwrap(), bumped.hash().unwrap());
+    }
+
+    #[test]
     fn resolves_components_against_one_contract_hash() {
         let mut config = ResolvedCrateConfig {
             component_contracts: vec![ComponentContractConfig {
@@ -714,6 +752,7 @@ mod tests {
                 default_features: false,
                 targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
                 bundled_on: Vec::new(),
+                extra_dependencies: Default::default(),
             });
         }
         let components = resolve_components(&sample_api(), &config).unwrap();
@@ -771,6 +810,7 @@ mod tests {
             default_features: false,
             targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
             bundled_on: vec!["wasm32-unknown-unknown".into()],
+            extra_dependencies: Default::default(),
         });
 
         let components = resolve_components(&api, &config).unwrap();
@@ -799,6 +839,7 @@ mod tests {
             default_features: false,
             targets: None,
             bundled_on: vec!["aarch64-apple-darwin".into()],
+            extra_dependencies: Default::default(),
         };
         let targets = resolve_component_targets(&config, &component);
         assert_eq!(targets.len(), SUPPORTED_COMPONENT_TARGETS.len() - 1);

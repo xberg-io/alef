@@ -1080,6 +1080,7 @@ module_name = "test_lib"
                 default_features: false,
                 targets: None,
                 bundled_on: Vec::new(),
+                extra_dependencies: Default::default(),
             }],
             ..Default::default()
         };

@@ -24,13 +24,18 @@ use std::fmt::Write as _;
 ///
 /// A component provides one or more contracts, each through its own producer
 /// entry point (see `crate::codegen::component::entry_point_symbol`); this
-/// emits one `<Contract>Proxy` per contract any component provides, so the
-/// count of generated proxies equals the total number of `provides` entries
-/// across `resolved`, not the number of components.
+/// emits one `<Contract>Proxy` per distinct contract any component provides.
+/// Several components may provide the same contract (each activation builds a
+/// proxy over its own loaded component), so a contract shared by components
+/// is emitted once, not once per `provides` entry.
 pub fn generate_component_proxies(config: &ResolvedCrateConfig, resolved: &[ResolvedComponent]) -> Result<String> {
     let mut out = String::new();
+    let mut emitted = std::collections::BTreeSet::new();
     for component in resolved {
         for provided in &component.provides {
+            if !emitted.insert(provided.contract.name.clone()) {
+                continue;
+            }
             write!(out, "{}", generate_proxy(config, provided)?)?;
         }
     }
@@ -474,6 +479,7 @@ mod tests {
                 default_features: false,
                 targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
                 bundled_on: Vec::new(),
+                extra_dependencies: Default::default(),
             }],
             ..ResolvedCrateConfig::default()
         };
@@ -519,6 +525,24 @@ mod tests {
         assert!(generated.contains("pub struct CodecProxy"), "{generated}");
         assert!(generated.contains("pub struct CoderProxy"), "{generated}");
         assert!(generated.contains("impl demo::Coder for CoderProxy"), "{generated}");
+
+        let wrapped = format!("mod generated {{ {generated} }}");
+        syn::parse_file(&wrapped).expect("generated component proxies must be valid Rust syntax");
+    }
+
+    #[test]
+    fn two_components_providing_one_contract_get_one_proxy() {
+        let (api, mut config) = fixture();
+        let mut second = config.components[0].clone();
+        second.name = "reverse-lite".into();
+        second.features = vec!["reverse-lite".into()];
+        config.components.push(second);
+        let resolved = resolve_components(&api, &config).unwrap();
+        assert_eq!(resolved.len(), 2);
+
+        let generated = generate_component_proxies(&config, &resolved).unwrap();
+        assert_eq!(generated.matches("pub struct CodecProxy").count(), 1, "{generated}");
+        assert_eq!(generated.matches("struct CodecApiV1").count(), 1, "{generated}");
 
         let wrapped = format!("mod generated {{ {generated} }}");
         syn::parse_file(&wrapped).expect("generated component proxies must be valid Rust syntax");

@@ -80,6 +80,29 @@ impl AlefOwnedBuffer {
 
 pub type AlefLogCallback = unsafe extern "C" fn(context: *mut c_void, level: u32, message: AlefStr);
 
+/// Host service request/response call: `service` names the service, `request` carries its
+/// bytes-only payload. On `OK` the host stores the response in `*out`; on any other status it
+/// may store a UTF-8 error message there instead. Either way a non-empty `*out` is owned by the
+/// caller, who releases it through the buffer's own `free` callback (same rule as every other
+/// [`AlefOwnedBuffer`]). Must be callable from any thread and must not unwind.
+pub type AlefServiceCall = unsafe extern "C" fn(
+    context: *mut c_void,
+    service: AlefStr,
+    request: AlefSlice,
+    out: *mut AlefOwnedBuffer,
+) -> AlefStatus;
+
+/// Fire-and-forget host notification (progress, streaming chunks). The host copies `payload`
+/// before returning. Must be callable from any thread and must not unwind.
+pub type AlefServiceNotify =
+    unsafe extern "C" fn(context: *mut c_void, service: AlefStr, payload: AlefSlice) -> AlefStatus;
+
+/// The host's side of the component boundary, passed to a component's `create` function.
+///
+/// Versioned by `struct_size`: the fields up to and including `log` are the original v1 layout;
+/// `services_context`, `service_call` and `service_notify` were appended later. A host built
+/// before the append reports a smaller `struct_size`, and a producer must treat the missing
+/// fields as absent (see [`HostApi`]) rather than read past `struct_size`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct AlefHostApiV1 {
@@ -88,6 +111,31 @@ pub struct AlefHostApiV1 {
     pub abi_minor: u32,
     pub context: *mut c_void,
     pub log: Option<AlefLogCallback>,
+    /// Context handed back to `service_call` / `service_notify`. Appended field.
+    pub services_context: *mut c_void,
+    /// Optional request/response service call. Appended field.
+    pub service_call: Option<AlefServiceCall>,
+    /// Optional one-way notification. Appended field.
+    pub service_notify: Option<AlefServiceNotify>,
+}
+
+impl AlefHostApiV1 {
+    /// Size in bytes of the original v1 layout (everything before `services_context`).
+    pub const BASE_SIZE: usize = core::mem::offset_of!(AlefHostApiV1, services_context);
+
+    /// A host API with no callbacks and a full-size `struct_size`; use with struct update syntax
+    /// (`AlefHostApiV1 { log: Some(f), ..AlefHostApiV1::EMPTY }`) so literals keep compiling when
+    /// fields are appended.
+    pub const EMPTY: Self = Self {
+        struct_size: core::mem::size_of::<Self>(),
+        abi_major: ABI_MAJOR_V1,
+        abi_minor: ABI_MINOR_V1,
+        context: core::ptr::null_mut(),
+        log: None,
+        services_context: core::ptr::null_mut(),
+        service_call: None,
+        service_notify: None,
+    };
 }
 
 pub type AlefTaskCallback =
@@ -147,8 +195,12 @@ pub unsafe trait AlefContract {
     const CONTRACT_HASH: [u8; 32];
 }
 
+mod host;
 mod registry;
-pub use registry::{ContractRegistry, provider, register_provider};
+pub use host::{Construct, ConstructDefault, ConstructFromHost, FromHost, HostApi, HostServiceError, LogLevel};
+pub use registry::{
+    AmbiguousProvider, ContractRegistry, provider, provider_of, providers, register_provider, try_provider,
+};
 
 #[cfg(test)]
 mod tests {

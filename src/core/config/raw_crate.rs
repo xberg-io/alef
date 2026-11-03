@@ -16,7 +16,7 @@ use std::path::PathBuf;
 
 use super::SourceCrate;
 use super::cargo_lints::CargoLintsConfig;
-use super::component::{ComponentConfig, ComponentContractConfig, ComponentDistributionConfig};
+use super::component::{ComponentConfig, ComponentContractConfig, ComponentDistributionConfig, ComponentHostConfig};
 use super::e2e::E2eConfig;
 use super::extras::{AdapterConfig, Language};
 use super::languages::{
@@ -104,6 +104,10 @@ pub struct RawCrateConfig {
     /// [`ComponentDistributionConfig::merge`].
     #[serde(default)]
     pub component_distribution: Option<ComponentDistributionConfig>,
+
+    /// Standalone Rust host module for non-binding hosts that load this crate's components.
+    #[serde(default)]
+    pub component_host: Option<ComponentHostConfig>,
 
     /// Per-target build opt-out toggles for this crate, overriding the
     /// workspace `[targets]` table per key. Keys are canonical target families

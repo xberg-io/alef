@@ -82,7 +82,16 @@ fn field_name(declaration: &str) -> String {
 fn host_api_v1_header_fields_match_alef_component_abi_declaration_order() {
     assert_eq!(
         struct_field_names(&rendered_header(), "AlefComponentHostApiV1"),
-        ["struct_size", "abi_major", "abi_minor", "context", "log"],
+        [
+            "struct_size",
+            "abi_major",
+            "abi_minor",
+            "context",
+            "log",
+            "services_context",
+            "service_call",
+            "service_notify",
+        ],
         "AlefComponentHostApiV1 in c_header() must list fields in the same order as \
          alef_component_abi::AlefHostApiV1"
     );

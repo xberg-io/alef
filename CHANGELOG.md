@@ -7,14 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.118.0] - 2026-11-03
+
+### Added
+
+- Allow components-only crates: `[[crates.components]]` with an empty `languages` list scaffolds only the producer crates. (#824)
+- Require only `{artifact}` in component `url_template` and add `artifact_name_template` to control the archive file name. (#828)
+- Add `alef component lock --unsigned` (with `--url-template`) to emit key-less dev locks from unsigned records, including `file://` URLs. (#829)
+- Add `DownloadOptions` to the component runtime: connect/total timeouts, progress callback, cancellation and retry. (#830)
+- Add a runtime mirror URL override for component downloads; integrity still comes from the lock hashes. (#831)
+- Add component cache list, remove and prune APIs with last-used stamps, and expose lock entries publicly. (#832)
+- Read the component signing key from an environment variable (`--signing-key-env`) or stdin (`--signing-key -`). (#834)
+- Make the component target list configurable and add runtime `host_target()` detection. (#840)
+- Pass the host API to producer constructors through a `FromHost` constructor, so implementations can use `HostApi` logging. (#837)
+- Add a versioned host service table (`service_call` / `service_notify`) to `AlefHostApiV1`, `HostApi::call_service` / `notify` on the producer side and a `HostServices` trait with `ComponentManager::with_host_services` on the host side. Hosts built before the table remain loadable and report `Unsupported`. (#838)
+- Add `[crates.component_host]` to generate a standalone Rust host module (contract tables, proxies, entry-symbol and contract-hash constants, `component_manager` constructor) for hosts without ffi/pyo3 bindings, and `alef component contract-hash` to print each contract's lock hash. (#825)
+- Add `RootCerts` (`WebPki` default, `PlatformVerifier`) to `DownloadOptions` and a `platform-verifier` feature on `alef-component-runtime` so downloads can trust the OS certificate store behind TLS-inspecting proxies. `Cargo.lock` needs regenerating for the optional `rustls-platform-verifier` dependency. (#841)
+- Document the static-link fallback for hosts that cannot `dlopen` (musl) and point `bundled_on` at it; no backend generates bundled delivery. (#844)
+- Add per-component `extra_dependencies` (crate name to Cargo dependency spec) emitted verbatim into the generated producer `Cargo.toml`; names are validated and the built-in producer dependencies cannot be overridden. (#827)
+
+### Changed (BREAKING)
+
+- The component contract hash no longer includes `trait_path`; it is computed from the contract name, interface version, method signatures and referenced record and enum shapes, so re-exporting a contract trait through another crate path keeps its hash. Every existing contract hash changes (ADR 0015): regenerate locks and rebuild components. (#827)
+- The generated producer crate pins `alef-component-abi` to the exact alef version (`=X.Y.Z`) instead of a caret requirement. (#827)
+- Key the standalone component provider registry by (component, contract) and dedupe generated proxies; `register_provider` now takes the component name. (#826)
+
 ### Changed
 
+- Skip the full library re-hash on cache hits by writing a verified stamp after the first successful verification. (#833)
+- Share one Cargo target directory across component builds with `--target-dir` on `component build` and `component package`. (#839)
 - Raise the emitted language floors ([ADR 0014](adrs/0014-raise-the-generated-minimums-for-the-other-host-languages.md)) to Node 22, Ruby 3.3, PHP 8.3, Elixir 1.17, Go 1.27, Java 25, R 4.4, macOS 26 (SwiftPM tools-version 6.2) and Rust 1.99; alef's own crates now declare `rust-version = "1.99"`.
 - Record the strict Swift consumer gate's compiler-matched LLVM reader decision in
   [ADR 0013](adrs/0013-inspect-swift-archives-with-the-selected-rust-toolchain-s-llvm.md).
 
+### Documentation
+
+- Record the component ABI, manifest/lock and contract-hash stability policy and consumer pinning guidance in
+  [ADR 0015](adrs/0015-abi-and-runtime-stability-policy-for-component-crates.md). (#845)
+
 ### Fixed
 
+- Assert `Send + Sync` on producer implementations at compile time. (#835)
+- Keep the panic payload text in errors from generated component wrappers. (#836)
 - Create existing-tag release drafts without an unused target commitish, retaining canonical tagged-source verification.
 - Prevent XCTest’s private SwiftUICore autolink hint in all three Swift qualification test commands,
   preserving strict diagnostics and the exact callback failure checks.

@@ -31,6 +31,11 @@ pub(super) fn validate_components(
         validate_component_provides(&krate.name, component, &contract_names)?;
         validate_nonempty_values(&krate.name, &component.name, "features", &component.features)?;
         validate_component_targets(&krate.name, component)?;
+        for (name, spec) in &component.extra_dependencies {
+            crate::core::config::component::validate_extra_dependency(&krate.name, name, spec).or_else(|reason| {
+                invalid_component_config(&krate.name, format!("component `{}`: {reason}", component.name))
+            })?;
+        }
     }
 
     validate_component_distribution(&krate.name, component_distribution)
@@ -80,10 +85,13 @@ fn validate_component_targets(crate_name: &str, component: &ComponentConfig) -> 
         return Ok(());
     };
     for target in targets {
-        if !crate::core::config::component::SUPPORTED_COMPONENT_TARGETS.contains(&target.as_str()) {
+        if !crate::core::config::component::is_valid_target_triple(target) {
             return invalid_component_config(
                 crate_name,
-                format!("component `{}` uses unsupported v1 target `{target}`", component.name),
+                format!(
+                    "component `{}` target `{target}` is not a valid Rust target triple",
+                    component.name
+                ),
             );
         }
         if component.bundled_on.iter().any(|bundled| bundled == target) {
@@ -155,20 +163,13 @@ fn validate_component_distribution(
     let Some(distribution) = distribution else {
         return Ok(());
     };
-    let url_template = distribution.url_template.trim();
-    let authority = url_template
-        .strip_prefix("https://")
-        .and_then(|remainder| remainder.split('/').next());
-    if authority.is_none_or(|value| value.is_empty() || value.chars().any(char::is_whitespace)) {
-        return invalid_component_config(crate_name, "component distribution url_template must use HTTPS");
+    if let Err(message) = ComponentDistributionConfig::validate_url_template(&distribution.url_template) {
+        return invalid_component_config(crate_name, message);
     }
-    for placeholder in ["component", "version", "target", "artifact"] {
-        if !url_template.contains(&format!("{{{placeholder}}}")) {
-            return invalid_component_config(
-                crate_name,
-                format!("component distribution url_template must contain `{{{placeholder}}}`"),
-            );
-        }
+    if let Some(template) = distribution.artifact_name_template.as_deref()
+        && let Err(message) = ComponentDistributionConfig::validate_artifact_name_template(template)
+    {
+        return invalid_component_config(crate_name, message);
     }
     if distribution.public_keys.is_empty() {
         return invalid_component_config(
@@ -197,4 +198,20 @@ fn validate_component_distribution(
 
 fn invalid_component_config<T>(crate_name: &str, message: impl std::fmt::Display) -> Result<T, ResolveError> {
     Err(ResolveError::InvalidConfig(format!("crate `{crate_name}`: {message}")))
+}
+
+/// Validate `[crates.component_host]`: the paths are well formed and the crate has components.
+pub(super) fn validate_component_host(krate: &RawCrateConfig) -> Result<(), ResolveError> {
+    let Some(host) = &krate.component_host else {
+        return Ok(());
+    };
+    host.validate()
+        .or_else(|reason| invalid_component_config(&krate.name, reason))?;
+    if krate.components.is_empty() {
+        return invalid_component_config(
+            &krate.name,
+            "component_host requires at least one `[[crates.components]]` entry",
+        );
+    }
+    Ok(())
 }

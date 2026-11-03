@@ -56,7 +56,9 @@ fn alef_owned_buffer_matches_c_header_layout() {
 #[test]
 fn alef_host_api_v1_matches_c_header_layout_and_leads_with_struct_size() {
     // `typedef struct { size_t struct_size; uint32_t abi_major; uint32_t abi_minor;
-    //   void *context; void (*log)(void *, uint32_t, AlefComponentStr); } AlefComponentHostApiV1;`
+    //   void *context; void (*log)(void *, uint32_t, AlefComponentStr); void *services_context;
+    //   AlefComponentServiceCall service_call; AlefComponentServiceNotify service_notify; }
+    //   AlefComponentHostApiV1;`
     assert_eq!(
         offset_of!(AlefHostApiV1, struct_size),
         0,
@@ -67,7 +69,13 @@ fn alef_host_api_v1_matches_c_header_layout_and_leads_with_struct_size() {
     assert_eq!(offset_of!(AlefHostApiV1, abi_minor), PTR + size_of::<u32>());
     assert_eq!(offset_of!(AlefHostApiV1, context), 2 * PTR);
     assert_eq!(offset_of!(AlefHostApiV1, log), 3 * PTR);
-    assert_eq!(size_of::<AlefHostApiV1>(), 4 * PTR);
+    // Fields below were appended after the original layout; `struct_size` tells a producer
+    // whether the host has them, so none of the offsets above may ever move.
+    assert_eq!(offset_of!(AlefHostApiV1, services_context), 4 * PTR);
+    assert_eq!(offset_of!(AlefHostApiV1, service_call), 5 * PTR);
+    assert_eq!(offset_of!(AlefHostApiV1, service_notify), 6 * PTR);
+    assert_eq!(size_of::<AlefHostApiV1>(), 7 * PTR);
+    assert_eq!(AlefHostApiV1::BASE_SIZE, 4 * PTR);
     assert_eq!(align_of::<AlefHostApiV1>(), PTR);
 }
 

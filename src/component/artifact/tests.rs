@@ -483,3 +483,170 @@ fn manifest_rejects_a_contract_provided_more_than_once() {
     .unwrap_err();
     assert!(error.to_string().contains("more than once"));
 }
+
+fn identity_fixture() -> ComponentIdentity {
+    ComponentIdentity {
+        crate_name: "poly".into(),
+        component: "ruff".into(),
+        version: "1.2.3".into(),
+        target: "aarch64-pc-windows-msvc".into(),
+        feature_hash: "a".repeat(64),
+        contract_hash: "b".repeat(64),
+    }
+}
+
+#[test]
+fn artifact_name_template_renders_every_placeholder() {
+    let identity = identity_fixture();
+    assert_eq!(
+        artifact_name_with(&identity, Some("poly-{component}-{version}-{target}.tar.gz")).unwrap(),
+        "poly-ruff-1.2.3-aarch64-pc-windows-msvc.tar.gz"
+    );
+    assert_eq!(
+        artifact_name_with(&identity, Some("{crate}_{component}_{fh16}_{ch16}.tgz")).unwrap(),
+        "poly_ruff_aaaaaaaaaaaaaaaa_bbbbbbbbbbbbbbbb.tgz"
+    );
+    assert_eq!(
+        artifact_name_with(&identity, None).unwrap(),
+        artifact_name(&identity).unwrap()
+    );
+}
+
+#[test]
+fn artifact_name_template_rejects_unsafe_or_unknown_output() {
+    let identity = identity_fixture();
+    assert!(artifact_name_with(&identity, Some("../{component}.tar.gz")).is_err());
+    assert!(artifact_name_with(&identity, Some("a/{component}.tar.gz")).is_err());
+    assert!(artifact_name_with(&identity, Some("{bogus}-{component}.tar.gz")).is_err());
+    assert!(artifact_name_with(&identity, Some("..")).is_err());
+}
+
+#[test]
+fn custom_artifact_name_round_trips_through_package_and_verify() {
+    let temp = tempfile::tempdir().unwrap();
+    let signing_key = SigningKey::from_bytes(&[7; 32]);
+    let manifest = manifest_fixture(&temp, "named-library");
+    let library = temp.path().join("libnamed-library.so");
+    let signature = sign_manifest_with_key(&manifest, &signing_key, "release").unwrap();
+    let template = "poly-{component}-{version}-{target}.tar.gz";
+    let record = write_package_named(&library, temp.path(), manifest, Some(signature), Some(template)).unwrap();
+    assert_eq!(record.archive, "poly-fast-1.2.3-x86_64-unknown-linux-gnu.tar.gz");
+    assert!(temp.path().join(&record.archive).is_file());
+
+    let keys = BTreeMap::from([(
+        "release".to_string(),
+        base64::engine::general_purpose::STANDARD.encode(signing_key.verifying_key().to_bytes()),
+    )]);
+    let record_path = record.record_path(temp.path());
+    verify_record_with(&record_path, Some(&keys), Some(template)).unwrap();
+    // The default naming scheme must not accept the custom file name.
+    assert!(verify_record(&record_path, &keys).is_err());
+}
+
+#[test]
+fn unsigned_lock_has_no_public_keys_and_parses_as_a_runtime_lock() {
+    let temp = tempfile::tempdir().unwrap();
+    let manifest = manifest_fixture(&temp, "dev-library");
+    let library = temp.path().join("libdev-library.so");
+    let record = write_package(&library, temp.path(), manifest, None).unwrap();
+    verify_record_with(&record.record_path(temp.path()), None, None).unwrap();
+    // A signature-requiring verification must still refuse the unsigned record.
+    assert!(verify_record(&record.record_path(temp.path()), &BTreeMap::new()).is_err());
+
+    let url_template = format!("file://{}/{{artifact}}", temp.path().display());
+    let lock = build_unsigned_lock(std::slice::from_ref(&record), &url_template).unwrap();
+    assert!(lock.public_keys.is_empty());
+    assert_eq!(lock.artifacts.len(), 1);
+    assert_eq!(lock.artifacts[0].key_id, "");
+    assert_eq!(
+        lock.artifacts[0].url,
+        format!("file://{}/{}", temp.path().display(), record.archive)
+    );
+
+    // The runtime's lock type (deny_unknown_fields) accepts the serialized shape; with no keys
+    // and an empty key_id its cache skips signature verification.
+    let lock_path = temp.path().join("components.lock.json");
+    write_lock(&lock_path, &lock).unwrap();
+    let parsed: ComponentLock = serde_json::from_slice(&fs::read(&lock_path).unwrap()).unwrap();
+    assert_eq!(parsed, lock);
+    let raw: serde_json::Value = serde_json::from_slice(&fs::read(&lock_path).unwrap()).unwrap();
+    assert_eq!(raw["public_keys"], serde_json::json!({}));
+}
+
+#[test]
+fn signed_lock_still_refuses_unsigned_records() {
+    let temp = tempfile::tempdir().unwrap();
+    let manifest = manifest_fixture(&temp, "unsigned-library");
+    let library = temp.path().join("libunsigned-library.so");
+    let record = write_package(&library, temp.path(), manifest, None).unwrap();
+    let keys = BTreeMap::from([("release".to_string(), "key".to_string())]);
+    let error = build_lock(&[record], "https://example.invalid/{artifact}", &keys).unwrap_err();
+    assert!(error.to_string().contains("is unsigned"), "{error}");
+}
+
+fn test_signing_key() -> SigningKey {
+    SigningKey::from_bytes(&[9; 32])
+}
+
+#[test]
+fn signing_key_loads_from_an_environment_value_in_every_form() {
+    let key = test_signing_key();
+    let der = key.to_pkcs8_der().unwrap();
+    let pem = pem_wrap("PRIVATE KEY", der.as_bytes());
+    let b64_der = base64::engine::general_purpose::STANDARD.encode(der.as_bytes());
+    let b64_seed = base64::engine::general_purpose::STANDARD.encode(key.to_bytes());
+    for value in [pem, format!("  {b64_der}\n"), b64_seed] {
+        let loaded = load_signing_key_from_env("RELEASE_KEY", |name| {
+            assert_eq!(name, "RELEASE_KEY");
+            Ok(value.clone())
+        })
+        .unwrap();
+        assert_eq!(loaded.to_bytes(), key.to_bytes());
+    }
+}
+
+#[test]
+fn signing_key_env_errors_name_the_variable_and_never_default() {
+    let missing = load_signing_key_from_env("RELEASE_KEY", |_| Err(std::env::VarError::NotPresent)).unwrap_err();
+    assert!(missing.to_string().contains("`RELEASE_KEY` is not set"), "{missing}");
+    let empty = load_signing_key_from_env("RELEASE_KEY", |_| Ok("  \n".into())).unwrap_err();
+    assert!(empty.to_string().contains("is empty"), "{empty}");
+    let secret = "c2VjcmV0LW5vdC1hLWtleQ==";
+    let invalid = load_signing_key_from_env("RELEASE_KEY", |_| Ok(secret.into())).unwrap_err();
+    assert!(!format!("{invalid:#}").contains(secret), "{invalid:#}");
+}
+
+#[test]
+fn signing_key_loads_from_a_reader_pem_with_trailing_newline() {
+    let key = test_signing_key();
+    let mut pem = pem_wrap("PRIVATE KEY", key.to_pkcs8_der().unwrap().as_bytes());
+    pem.push('\n');
+    let loaded = load_signing_key_from_reader(pem.as_bytes(), "stdin").unwrap();
+    assert_eq!(loaded.to_bytes(), key.to_bytes());
+    let der = load_signing_key_from_reader(key.to_pkcs8_der().unwrap().as_bytes(), "stdin").unwrap();
+    assert_eq!(der.to_bytes(), key.to_bytes());
+    assert!(load_signing_key_from_reader(&b""[..], "stdin").is_err());
+}
+
+#[test]
+fn signing_key_reader_rejects_oversized_input() {
+    let oversized = vec![b'x'; (MAX_SIGNING_KEY_BYTES + 1) as usize];
+    let error = load_signing_key_from_reader(oversized.as_slice(), "stdin").unwrap_err();
+    assert!(error.to_string().contains("larger than"), "{error}");
+}
+
+#[test]
+fn rotation_signature_from_either_key_verifies_against_a_multi_key_set() {
+    let temp = tempfile::tempdir().unwrap();
+    let manifest = manifest_fixture(&temp, "rotated-library");
+    let old = SigningKey::from_bytes(&[1; 32]);
+    let new = SigningKey::from_bytes(&[2; 32]);
+    let encode = |key: &SigningKey| base64::engine::general_purpose::STANDARD.encode(key.verifying_key().to_bytes());
+    for (key, key_id) in [(&old, "release-2025"), (&new, "release-2026")] {
+        let signature = sign_manifest_with_key(&manifest, key, key_id).unwrap();
+        verify_manifest_signature(&manifest, &signature, &encode(key)).unwrap();
+    }
+    // A signature does not verify under the other key of the rotation pair.
+    let signature = sign_manifest_with_key(&manifest, &old, "release-2025").unwrap();
+    assert!(verify_manifest_signature(&manifest, &signature, &encode(&new)).is_err());
+}
