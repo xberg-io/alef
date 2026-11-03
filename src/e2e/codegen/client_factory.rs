@@ -218,6 +218,16 @@ pub fn client_options_json_call<'a>(
     Some((factory, serde_json::Value::Object(options).to_string()))
 }
 
+/// Prefix for appending a JSON-encoded runtime credential to the object returned by [`client_options_json_call`].
+/// Static numeric text stays opaque so target-language JSON parsers cannot round large integers.
+pub fn client_options_json_prefix(json: &str) -> String {
+    let object = json
+        .strip_suffix('}')
+        .expect("client options are a serialized JSON object");
+    let separator = if object == "{" { "" } else { "," };
+    format!("{object}{separator}\"api_key\":")
+}
+
 /// Values accepted by the fixture schema, including empty homogeneous arrays.
 pub fn client_option_value_is_supported(value: &serde_json::Value) -> bool {
     match value {
@@ -834,5 +844,25 @@ mod tests {
             let reason = client_options_exclusion(&fixture, &config, "rust").expect("invalid values excluded");
             assert!(reason.contains("homogeneous"), "{reason}");
         }
+    }
+
+    #[test]
+    fn json_option_prefix_appends_credentials_to_an_empty_object() {
+        assert_eq!(client_options_json_prefix("{}"), "{\"api_key\":");
+    }
+
+    #[test]
+    fn json_option_prefix_preserves_large_integer_text_and_encoded_runtime_values() {
+        let json = "{\"limit\":18446744073709551615,\"empty\":[]}";
+        let prefix = client_options_json_prefix(json);
+        assert_eq!(prefix, "{\"limit\":18446744073709551615,\"empty\":[],\"api_key\":");
+        let api_key = serde_json::json!("quote\"slash\\");
+        let base_url = serde_json::json!("http://127.0.0.1/fixtures/example");
+        let complete = format!("{prefix}{api_key},\"base_url\":{base_url}}}");
+        let parsed: serde_json::Value = serde_json::from_str(&complete).expect("complete object");
+        assert_eq!(parsed["limit"].as_u64(), Some(u64::MAX));
+        assert_eq!(parsed["empty"], serde_json::json!([]));
+        assert_eq!(parsed["api_key"], api_key);
+        assert_eq!(parsed["base_url"], base_url);
     }
 }
