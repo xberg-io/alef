@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Cover Dart streaming `usize` wire payloads and conversions through actual FRB native generation. (#856)
 - Keep Dart streaming `usize` scalars, nested types and vectors consistent with the public binding's
   `int`/`Int64List` mapping, preserving full-width `u64` as `BigInt`/`Uint64List`. (#856)
 - Rust reference docs sample a borrowed struct or enum param (`&T`, `&mut T`, `Option<&T>`) with its
