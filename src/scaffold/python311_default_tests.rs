@@ -147,7 +147,7 @@ fn assert_e2e_files(files: &[GeneratedFile], registry: bool) {
         assert_eq!(
             files
                 .iter()
-                .filter(|file| file.path.to_string_lossy() == format!("{base}/python/{name}"))
+                .filter(|file| file.path == std::path::Path::new(&format!("{base}/python/{name}")))
                 .count(),
             1
         );

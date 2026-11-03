@@ -91,7 +91,7 @@ fn generate(mixed: bool) -> String {
         .expect("generation");
     files
         .into_iter()
-        .find(|file| file.path.to_string_lossy().ends_with("tests/imports.test.ts"))
+        .find(|file| file.path.ends_with("tests/imports.test.ts"))
         .expect("test file")
         .content
 }
