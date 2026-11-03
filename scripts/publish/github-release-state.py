@@ -17,12 +17,15 @@ import zipfile
 import zlib
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 CRATES = ("alef-component-abi", "alef-component-runtime", "alef")
 REPOSITORY = "xberg-io/alef"
 MAX_JSON_BYTES = 2 * 1024 * 1024
+MAX_ERROR_JSON_BYTES = 4096
+MAX_DIAGNOSTIC_TEXT = 512
+NUMERIC_ERROR_HEADERS = ("Retry-After", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset")
 MAX_ARCHIVE_BYTES = 256 * 1024 * 1024
 MAX_UNPACKED_BYTES = 512 * 1024 * 1024
 READ_CHUNK_BYTES = 1024 * 1024
@@ -160,6 +163,48 @@ class NoRedirect(HTTPRedirectHandler):
         raise ReleaseError("Publication API redirect refused")
 
 
+def diagnostic_text(value, token):
+    secrets = {token, os.environ.get("GH_TOKEN"), os.environ.get("GITHUB_TOKEN")} - {None, ""}
+    for secret in sorted(secrets, key=len, reverse=True):
+        for spelling in (secret, quote(secret, safe="")):
+            value = re.sub(re.escape(spelling), "[redacted]", value, flags=re.IGNORECASE)
+    value = re.sub(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s]+", "[redacted]", value)
+    value = re.sub(r"(?i)(?:authorization\s*[:=]\s*)?(?:bearer|basic)\s+[^\s,;]+", "[redacted]", value)
+    value = re.sub(r"(?:github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9]+)", "[redacted]", value)
+    value = re.sub(
+        r"(?i)\b(?:authorization|(?:access[_-]?)?token|password|secret|api[_-]?key)[\"']?\s*[:=]\s*[\"']?[^\s,;]+",
+        "[redacted]",
+        value,
+    )
+    return value[:MAX_DIAGNOSTIC_TEXT]
+
+
+def http_error_details(error, token):
+    try:
+        with error:
+            body = error.read(MAX_ERROR_JSON_BYTES + 1)
+        value = json.loads(body) if len(body) <= MAX_ERROR_JSON_BYTES else None
+    except (ValueError, UnicodeError, OSError, RecursionError):
+        value = None
+    details = []
+    if isinstance(value, dict) and isinstance(value.get("message"), str):
+        details.append("message=" + json.dumps(diagnostic_text(value["message"], token)))
+    for name in NUMERIC_ERROR_HEADERS:
+        value = (error.headers or {}).get(name)
+        if isinstance(value, str) and re.fullmatch(r"[0-9]{1,20}", value):
+            details.append(name.lower() + "=" + diagnostic_text(value, token))
+    return details
+
+
+def http_error_message(request, error, token):
+    method = request.get_method()
+    method = method if re.fullmatch(r"[A-Z]{1,10}", method) else "UNKNOWN"
+    path = diagnostic_text(urlsplit(request.full_url).path, token)
+    path = re.sub(r"[^A-Za-z0-9_./%+\[\]-]", "_", path)
+    summary = f"Publication API {method} {path} returned HTTP {error.code}"
+    return "; ".join([summary, *http_error_details(error, token)])
+
+
 class GithubApi:
     def __init__(self):
         self.token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
@@ -181,7 +226,7 @@ class GithubApi:
             with build_opener(NoRedirect()).open(request, timeout=90) as response:
                 body = response.read(MAX_JSON_BYTES + 1)
         except HTTPError as error:
-            raise ReleaseError(f"Publication API returned HTTP {error.code}", error.code) from None
+            raise ReleaseError(http_error_message(request, error, self.token), error.code) from None
         except (URLError, TimeoutError, OSError):
             raise ReleaseError("Publication API transport failed; no automatic retry") from None
         if len(body) > MAX_JSON_BYTES:

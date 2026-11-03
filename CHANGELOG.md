@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Report bounded, credential-redacted publication API errors with the request path, GitHub message and rate-limit headers.
 - Pin Swift qualification to the public consumer revision that reports native build progress without
   emitting Cargo warnings.
 - Keep Swift negative link controls strict when SwiftPM suppresses duplicate-library warnings, and
