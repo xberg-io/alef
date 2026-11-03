@@ -127,3 +127,32 @@ fn should_preserve_plain_int_payload_expectations_and_collection_counts() {
         assert!(!source.contains("BigInt."), "{source}");
     }
 }
+
+#[test]
+fn should_compare_tagged_union_u64_collection_members_as_bigints() {
+    for kind in ["contains", "contains_all"] {
+        let mut check = assertion(kind, Some("format.stats.counts"), u64::MAX.into());
+        if kind == "contains_all" {
+            check.value = None;
+            check.values = Some(vec![u64::MAX.into()]);
+        }
+        let source = emitted("stats", false, check);
+        expect_line(
+            &source,
+            "expect((result.format as Format_Stats).field0.counts, contains(BigInt.parse('18446744073709551615')));",
+        );
+    }
+}
+
+#[test]
+fn should_preserve_null_optional_u64_payload_expectations() {
+    let source = emitted(
+        "stats",
+        false,
+        assertion("equals", Some("format.stats.optional_count"), serde_json::Value::Null),
+    );
+    expect_line(
+        &source,
+        "expect((result.format as Format_Stats).field0.optionalCount, equals(null));",
+    );
+}

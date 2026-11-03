@@ -186,6 +186,8 @@ pub struct FieldResolver {
     /// `optional_fields`/`ir_reachable_fields` behaviour stands unchanged. See
     /// [`IrResultFieldMap`].
     pub(super) ir_result_field_map: AnchoredMap<IrResultFieldMap>,
+    /// The full call return type, including unnamed scalar and collection results.
+    pub(super) declared_result_value_type: Option<crate::core::ir::TypeRef>,
     /// Whether the call's own declared Rust return type resolves to a raw byte payload
     /// (`bytes::Bytes`, `Vec<u8>`, `[u8]`, `[u8; N]` — all collapsed to `TypeRef::Bytes` by
     /// `extract::type_resolver`) rather than a struct. Populated via
