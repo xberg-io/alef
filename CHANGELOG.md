@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.119.0] - 2026-11-03
+
 ### Changed
 
 - Document E2E JSON factory transport and native encoding guarantees in [ADR 0016](adrs/0016-apply-fixture-client-options-through-configured-json-factories.md).
