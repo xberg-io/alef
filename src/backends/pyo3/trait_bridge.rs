@@ -5,6 +5,7 @@
 
 mod bridge_methods;
 mod generator;
+mod host_aliases;
 mod options_field;
 mod registry;
 mod visitor_bridge;
@@ -105,6 +106,33 @@ pub(crate) fn gen_trait_bridge_with_absent_types(
     pyclass_absent_types: &ahash::AHashSet<String>,
     core_to_binding_convertible_types: &ahash::AHashSet<String>,
 ) -> anyhow::Result<BridgeOutput> {
+    gen_trait_bridge_with_host_aliases(
+        trait_type,
+        bridge_cfg,
+        core_import,
+        error_type,
+        error_constructor,
+        api,
+        reexported_types,
+        pyclass_absent_types,
+        core_to_binding_convertible_types,
+        &std::collections::BTreeMap::new(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn gen_trait_bridge_with_host_aliases(
+    trait_type: &TypeDef,
+    bridge_cfg: &TraitBridgeConfig,
+    core_import: &str,
+    error_type: &str,
+    error_constructor: &str,
+    api: &ApiSurface,
+    reexported_types: &[String],
+    pyclass_absent_types: &ahash::AHashSet<String>,
+    core_to_binding_convertible_types: &ahash::AHashSet<String>,
+    host_aliases: &std::collections::BTreeMap<String, String>,
+) -> anyhow::Result<BridgeOutput> {
     let type_paths: HashMap<String, String> = api
         .types
         .iter()
@@ -179,7 +207,11 @@ pub(crate) fn gen_trait_bridge_with_absent_types(
             error_type: error_type.to_string(),
             error_constructor: error_constructor.to_string(),
         };
-        let mut output = gen_bridge_all(&spec, &generator);
+        let aliased = host_aliases::HostAliasGenerator {
+            base: &generator,
+            aliases: host_aliases,
+        };
+        let mut output = gen_bridge_all(&spec, &aliased);
         output.code.push_str(&writeback::gen_merge_helpers(
             trait_type,
             &spec,

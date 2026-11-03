@@ -1,6 +1,7 @@
 use super::validation::validate_generation_api;
 use crate::cli::{cache, registry};
 use crate::codegen::generators::trait_bridge;
+use crate::core::backend::Backend as _;
 use crate::core::backend::GeneratedFile;
 use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::ApiSurface;
@@ -177,9 +178,22 @@ pub fn generate(
             let pruned = config.trait_bridge_language_surface(validated_api.api(), *lang);
             let validated_api = trait_bridge::validated_language_surface(&pruned, validated_api);
 
-            let mut files = backend
-                .generate_bindings_checked(validated_api, config)
-                .with_context(|| format!("failed to generate bindings for {lang_str}"))?;
+            let host_aliases = if *lang == Language::Python {
+                crate::core::extension::read_extension_config(config_path, "python_host_aliases")?
+            } else {
+                None
+            };
+            let mut files = if let Some(raw) = host_aliases {
+                anyhow::ensure!(
+                    backend.name() == "pyo3",
+                    "python_host_aliases requires the PyO3 backend"
+                );
+                crate::backends::pyo3::Pyo3Backend::with_host_aliases(&raw)?
+                    .generate_bindings_checked(validated_api, config)
+            } else {
+                backend.generate_bindings_checked(validated_api, config)
+            }
+            .with_context(|| format!("failed to generate bindings for {lang_str}"))?;
 
             crate::with_extensions(|exts| {
                 let env = crate::core::template_env::TemplateEnv::new();

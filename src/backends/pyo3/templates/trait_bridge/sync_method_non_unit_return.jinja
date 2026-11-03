@@ -3,7 +3,23 @@ Python::attach(|py| {
     py.import("contextvars")
         .and_then(|m| m.call_method0("copy_context"))
         .and_then(|ctx| {
+{% if host_alias %}
+            let bound_method = match obj.getattr("{{ method_name }}") {
+                Ok(method) => method,
+                Err(error) if error.is_instance_of::<pyo3::exceptions::PyAttributeError>(py) => {
+                    match py.import("inspect")?.call_method1("getattr_static", (obj, "{{ method_name }}")) {
+                        Ok(_) => return Err(error),
+                        Err(absent) if absent.is_instance_of::<pyo3::exceptions::PyAttributeError>(py) => {
+                            obj.getattr("{{ host_alias }}")?
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
+                Err(error) => return Err(error),
+            };
+{% else %}
             let bound_method = obj.getattr("{{ method_name }}")?;
+{% endif %}
             ctx.call_method1("run", ({{ run_args }}))
         })
 {% if native_return_binding %}

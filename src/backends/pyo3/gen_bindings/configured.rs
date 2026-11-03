@@ -1,0 +1,64 @@
+use super::Pyo3Backend;
+use crate::core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
+use crate::core::config::{Language, ResolvedCrateConfig};
+use crate::core::ir::ApiSurface;
+
+#[derive(Default)]
+pub(super) struct ConfiguredPyo3Backend {
+    pub(super) host_aliases: crate::extensions::python_host_aliases::PythonHostAliases,
+}
+
+impl Pyo3Backend {
+    /// Configure explicit Result callback aliases from the built-in extension table.
+    pub fn with_host_aliases(raw: &toml::Value) -> anyhow::Result<impl Backend + use<>> {
+        Ok(ConfiguredPyo3Backend {
+            host_aliases: crate::extensions::python_host_aliases::PythonHostAliases::from_raw(raw)?,
+        })
+    }
+}
+
+impl Backend for Pyo3Backend {
+    fn name(&self) -> &str {
+        "pyo3"
+    }
+    fn language(&self) -> Language {
+        Language::Python
+    }
+    fn capabilities(&self) -> Capabilities {
+        ConfiguredPyo3Backend::default().capabilities()
+    }
+    fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        ConfiguredPyo3Backend::default().generate_bindings(api, config)
+    }
+    fn generate_type_stubs(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
+        ConfiguredPyo3Backend::default().generate_type_stubs(api, config)
+    }
+    fn generate_public_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
+        ConfiguredPyo3Backend::default().generate_public_api(api, config)
+    }
+    fn generate_service_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
+        ConfiguredPyo3Backend::default().generate_service_api(api, config)
+    }
+    fn build_config(&self) -> Option<BuildConfig> {
+        ConfiguredPyo3Backend::default().build_config()
+    }
+    fn trait_bridge_registration_surface(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> Vec<crate::core::backend::TraitBridgeRegistrationSurface> {
+        ConfiguredPyo3Backend::default().trait_bridge_registration_surface(api, config)
+    }
+}

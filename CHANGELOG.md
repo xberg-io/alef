@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Configure explicit Python host callback aliases through `extensions.python_host_aliases`, preserving fallible callback errors and existing host overrides without changing public config or IR layouts.
+
 ## [0.115.16] - 2026-11-03
 
 ### Fixed

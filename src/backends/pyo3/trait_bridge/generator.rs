@@ -49,6 +49,74 @@ pub struct Pyo3BridgeGenerator {
     pub unit_enum_return_types: std::collections::HashSet<String>,
 }
 
+impl Pyo3BridgeGenerator {
+    pub(super) fn sync_body(&self, method: &MethodDef, spec: &TraitBridgeSpec, host_alias: Option<&str>) -> String {
+        let name = &method.name;
+        let has_error = method.error_type.is_some();
+
+        let py_args = self.sync_py_args(method);
+        let run_args = if py_args.is_empty() {
+            "bound_method,".to_string()
+        } else {
+            format!("bound_method, {py_args}")
+        };
+        let call = if py_args.is_empty() {
+            format!("self.inner.bind(py).call_method0(\"{name}\")")
+        } else {
+            format!("self.inner.bind(py).call_method1(\"{name}\", ({py_args}))")
+        };
+        let error_expr = spec.make_error(&format!(
+            "format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", self.cached_name, e)"
+        ));
+
+        if matches!(method.return_type, TypeRef::Unit) {
+            crate::backends::pyo3::template_env::render(
+                "trait_bridge/sync_method_unit_return.jinja",
+                crate::alef_context! {
+                    method_name => name,
+                    host_alias => host_alias,
+                    call => call,
+                    run_args => run_args,
+                    has_error => has_error,
+                    error_expr => error_expr,
+                    wrapper => spec.wrapper_name(),
+                },
+            )
+        } else {
+            let ext = self.extract_ty(&method.return_type);
+            let is_named = matches!(method.return_type, TypeRef::Named(_));
+            let is_unit_enum = self.is_unit_enum_return(&method.return_type);
+            let return_type_name = self.return_type_display_name(&method.return_type);
+            let deserialize_error_expr = if is_unit_enum {
+                format!(
+                    "pyo3::exceptions::PyRuntimeError::new_err(format!(\"method '{name}' returned a value that does not match the expected return type `{return_type_name}`: {{}}. The returned value must be one of `{return_type_name}`'s variant names (e.g. \\\"Early\\\") or its JSON-quoted form.\", e))"
+                )
+            } else {
+                format!(
+                    "pyo3::exceptions::PyRuntimeError::new_err(format!(\"method '{name}' returned a value that does not match the expected return type `{return_type_name}`: {{}}. The returned value must be a mapping matching the fields of `{return_type_name}`.\", e))"
+                )
+            };
+            crate::backends::pyo3::template_env::render(
+                "trait_bridge/sync_method_non_unit_return.jinja",
+                crate::alef_context! {
+                    method_name => name,
+                    host_alias => host_alias,
+                    call => call,
+                    run_args => run_args,
+                    is_named => is_named,
+                    is_unit_enum => is_unit_enum,
+                    extract_ty => ext,
+                    native_return_binding => self.native_struct_return(&method.return_type),
+                    has_error => has_error,
+                    error_expr => error_expr,
+                    deserialize_error_expr => deserialize_error_expr,
+                    wrapper => spec.wrapper_name(),
+                },
+            )
+        }
+    }
+}
+
 impl TraitBridgeGenerator for Pyo3BridgeGenerator {
     fn foreign_object_type(&self) -> &str {
         "Py<PyAny>"
@@ -75,67 +143,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
     }
 
     fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
-        let name = &method.name;
-        let has_error = method.error_type.is_some();
-
-        let py_args = self.sync_py_args(method);
-        let run_args = if py_args.is_empty() {
-            "bound_method,".to_string()
-        } else {
-            format!("bound_method, {py_args}")
-        };
-        let call = if py_args.is_empty() {
-            format!("self.inner.bind(py).call_method0(\"{name}\")")
-        } else {
-            format!("self.inner.bind(py).call_method1(\"{name}\", ({py_args}))")
-        };
-        let error_expr = spec.make_error(&format!(
-            "format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", self.cached_name, e)"
-        ));
-
-        if matches!(method.return_type, TypeRef::Unit) {
-            crate::backends::pyo3::template_env::render(
-                "trait_bridge/sync_method_unit_return.jinja",
-                crate::alef_context! {
-                    method_name => name,
-                    call => call,
-                    run_args => run_args,
-                    has_error => has_error,
-                    error_expr => error_expr,
-                    wrapper => spec.wrapper_name(),
-                },
-            )
-        } else {
-            let ext = self.extract_ty(&method.return_type);
-            let is_named = matches!(method.return_type, TypeRef::Named(_));
-            let is_unit_enum = self.is_unit_enum_return(&method.return_type);
-            let return_type_name = self.return_type_display_name(&method.return_type);
-            let deserialize_error_expr = if is_unit_enum {
-                format!(
-                    "pyo3::exceptions::PyRuntimeError::new_err(format!(\"method '{name}' returned a value that does not match the expected return type `{return_type_name}`: {{}}. The returned value must be one of `{return_type_name}`'s variant names (e.g. \\\"Early\\\") or its JSON-quoted form.\", e))"
-                )
-            } else {
-                format!(
-                    "pyo3::exceptions::PyRuntimeError::new_err(format!(\"method '{name}' returned a value that does not match the expected return type `{return_type_name}`: {{}}. The returned value must be a mapping matching the fields of `{return_type_name}`.\", e))"
-                )
-            };
-            crate::backends::pyo3::template_env::render(
-                "trait_bridge/sync_method_non_unit_return.jinja",
-                crate::alef_context! {
-                    method_name => name,
-                    call => call,
-                    run_args => run_args,
-                    is_named => is_named,
-                    is_unit_enum => is_unit_enum,
-                    extract_ty => ext,
-                    native_return_binding => self.native_struct_return(&method.return_type),
-                    has_error => has_error,
-                    error_expr => error_expr,
-                    deserialize_error_expr => deserialize_error_expr,
-                    wrapper => spec.wrapper_name(),
-                },
-            )
-        }
+        self.sync_body(method, spec, None)
     }
 
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
