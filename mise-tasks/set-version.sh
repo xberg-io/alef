@@ -26,5 +26,6 @@ sed -i.bak "s/^alef_version = \".*\"/alef_version = \"$version\"/" alef.toml
 rm -f alef.toml.bak
 sed -i.bak -E "s|pub const ALEF_REV: &str = \"v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z._-]+)?\";|pub const ALEF_REV: \&str = \"v$version\";|" src/core/template_versions.rs
 rm -f src/core/template_versions.rs.bak
-CARGO_TARGET_DIR=target/schema-task cargo run --quiet -- schema --schema-version "$version" --output schemas/alef.schema.json
-cargo update
+CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-target/schema-task}" \
+  cargo run --quiet -- schema --schema-version "$version" --output schemas/alef.schema.json
+cargo update --workspace
