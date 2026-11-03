@@ -4,7 +4,7 @@ use std::fs;
 fn r_config(root: &Path, source: &str) -> ResolvedCrateConfig {
     let mut config = test_config();
     config.workspace_root = Some(root.to_path_buf());
-    config.sources = vec![source.to_string()];
+    config.sources = vec![PathBuf::from(source)];
     config
 }
 
