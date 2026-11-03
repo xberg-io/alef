@@ -90,14 +90,26 @@ class HttpErrorDiagnosticsTest(unittest.TestCase):
                 assert self.stream.read_sizes == [4097]
 
     def test_credentials_urls_and_control_characters_are_redacted_from_message(self):
-        self.body = json.dumps({"message": (
-            "offline-dummy-only https://user:url-password@example.invalid/?token=url-secret "
-            "Authorization: Bearer bearer-secret github_pat_privateToken access_token=assigned-secret\n\x1b"
-        )}).encode()
+        self.body = json.dumps(
+            {
+                "message": (
+                    "offline-dummy-only https://user:url-password@example.invalid/?token=url-secret "
+                    "Authorization: Bearer bearer-secret github_pat_privateToken access_token=assigned-secret\n\x1b"
+                )
+            }
+        ).encode()
         message = str(self.failed_request("/releases?token=query-secret"))
         for forbidden in (
-            "offline-dummy-only", "url-password", "url-secret", "bearer-secret", "privateToken",
-            "assigned-secret", "query-secret", "Authorization", "\n", "\x1b",
+            "offline-dummy-only",
+            "url-password",
+            "url-secret",
+            "bearer-secret",
+            "privateToken",
+            "assigned-secret",
+            "query-secret",
+            "Authorization",
+            "\n",
+            "\x1b",
         ):
             assert forbidden not in message, forbidden
         assert "[redacted]" in message
@@ -107,7 +119,8 @@ class HttpErrorDiagnosticsTest(unittest.TestCase):
         error = self.failed_request("/releases/offline-dummy-only?token=query-secret")
         assert str(error) == (
             'Publication API POST /repos/xberg-io/alef/releases/[redacted] returned HTTP 403; message="'
-            + "x" * 512 + '"'
+            + "x" * 512
+            + '"'
         )
 
     def cli_failure(self):
