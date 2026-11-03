@@ -56,6 +56,20 @@ def validate_spec(spec):
         raise ReleaseError("Unsafe archive name")
 
 
+def latest_policy(manifest, version):
+    policy = manifest
+    for key in ("package", "metadata", "alef", "release"):
+        if not isinstance(policy, dict):
+            raise ReleaseError("Invalid tagged release Latest policy table")
+        policy = policy.get(key, {})
+    if not isinstance(policy, dict) or set(policy) - {"make_latest"}:
+        raise ReleaseError("Invalid tagged release Latest policy table")
+    make_latest = policy.get("make_latest", True)
+    if type(make_latest) is not bool:
+        raise ReleaseError("Tagged release Latest policy make_latest must be a boolean")
+    return "legacy" if make_latest and "-" not in version else "false"
+
+
 def canonical_spec(tag, sha, manifest_bytes, targets_bytes):
     try:
         manifest = tomllib.loads(manifest_bytes.decode())
@@ -68,6 +82,7 @@ def canonical_spec(tag, sha, manifest_bytes, targets_bytes):
             "assets": [f"alef-{row['target']}.{row['archive_ext']}" for row in targets],
         }
         validate_spec(spec)
+        latest_policy(manifest, spec["version"])
         return spec
     except (ValueError, KeyError, TypeError, UnicodeError):
         raise ReleaseError("Invalid canonical tagged Cargo/CLI-target metadata") from None
@@ -215,6 +230,7 @@ class ReleaseState:
         self.api = api
         self.dry_run = dry_run
         self._canonical_spec = None
+        self._latest_policy = None
         self._admitted_release_id = None
 
     def check_tag(self):
@@ -243,12 +259,15 @@ class ReleaseState:
 
     def check_source(self):
         if self._canonical_spec is None:
-            self._canonical_spec = canonical_spec(
+            manifest = self.read_source_file("Cargo.toml")
+            canonical = canonical_spec(
                 self.spec["tag"],
                 self.spec["source_sha"],
-                self.read_source_file("Cargo.toml"),
+                manifest,
                 self.read_source_file(".github/cli-targets.json"),
             )
+            self._latest_policy = latest_policy(tomllib.loads(manifest.decode()), canonical["version"])
+            self._canonical_spec = canonical
         if self.spec != self._canonical_spec:
             raise ReleaseError("Specification differs from immutable tagged Cargo/CLI-target metadata")
 
@@ -439,7 +458,7 @@ class ReleaseState:
         self.api.request(
             "PATCH",
             f"/releases/{state['release']['id']}",
-            {"draft": False, "make_latest": "false" if "-" in self.spec["version"] else "legacy"},
+            {"draft": False, "make_latest": self._latest_policy},
         )
         final = self.inspect()
         if final["release"]["draft"]:

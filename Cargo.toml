@@ -35,6 +35,9 @@ include = [
   "src/e2e/codegen/brew/run_tests.rs",
 ]
 
+[package.metadata.alef.release]
+make_latest = false
+
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/alef-{ target }{ archive-suffix }"
 bin-dir = "alef-{ target }/{ bin }{ binary-ext }"
