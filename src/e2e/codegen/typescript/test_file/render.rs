@@ -465,7 +465,7 @@ pub fn render_test_file(
                         .is_some()
                 })
         {
-            let factory_is_json = fixtures.iter().any(|fixture| {
+            let factory_is_referenced = fixtures.iter().any(|fixture| {
                 let call = e2e_config.resolve_call_for_fixture(
                     fixture.call.as_deref(),
                     &fixture.id,
@@ -473,10 +473,12 @@ pub fn render_test_file(
                     &fixture.tags,
                     &fixture.input,
                 );
-                crate::e2e::codegen::client_factory::client_options_json_call(fixture, e2e_config, call, lang)
-                    .is_some_and(|(json_factory, _)| json_factory == factory)
+                (crate::e2e::codegen::client_factory::is_free_function_call(e2e_config, call, lang)
+                    && resolve_node_function_name(call) == factory)
+                    || crate::e2e::codegen::client_factory::client_options_json_call(fixture, e2e_config, call, lang)
+                        .is_some_and(|(json_factory, _)| json_factory == factory)
             });
-            if !factory_is_json {
+            if !factory_is_referenced {
                 imports.retain(|name| name != factory);
             }
         }
