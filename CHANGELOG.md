@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve snippet skip and side-effect safeguards when YAML list metadata is null while upgrading the YAML parser.
+  (#852)
 - Emit `futures` only for async Rust component producers, inherit declared licenses and document generated crates and
   entrypoints. (#851)
 - Support debug component packaging and target-filtered locks. Keep explicit unsigned lock output isolated from binding

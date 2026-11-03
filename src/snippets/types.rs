@@ -341,9 +341,20 @@ pub struct SnippetMetadata {
     pub level: Option<ValidationLevel>,
     pub skip: bool,
     pub reason: Option<String>,
+    #[serde(deserialize_with = "deserialize_nullable_metadata_list")]
     pub tags: Vec<String>,
+    #[serde(deserialize_with = "deserialize_nullable_metadata_list")]
     pub requires: Vec<String>,
     pub side_effect: Option<SideEffectClass>,
+}
+
+// Preserve nullable YAML lists explicitly: a list error discards the whole frontmatter,
+// including skip and side-effect safeguards, when the parser falls back to defaults. ~keep
+fn deserialize_nullable_metadata_list<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<Vec<String>>::deserialize(deserializer).map(Option::unwrap_or_default)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

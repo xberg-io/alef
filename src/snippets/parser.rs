@@ -294,6 +294,70 @@ print("hello")
     }
 
     #[test]
+    fn nullable_lists_preserve_frontmatter_safety_metadata() {
+        for field in ["tags", "requires"] {
+            for value in ["null", "~", ""] {
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("snippet.md");
+                let content = format!(
+                    "---\nid: guarded\nside_effect: network\nskip: true\nreason: needs service\n{field}: {value}\n---\n```rust\nfn main() {{}}\n```\n"
+                );
+                std::fs::write(&path, content).unwrap();
+
+                let blocks = parse_code_blocks(&path).unwrap();
+                assert_eq!(blocks.len(), 1, "{field}: {value}");
+                let metadata = &blocks[0].metadata;
+                assert_eq!(metadata.id.as_deref(), Some("guarded"), "{field}: {value}");
+                assert_eq!(
+                    metadata.side_effect,
+                    Some(crate::snippets::types::SideEffectClass::Network)
+                );
+                assert!(metadata.skip, "{field}: {value}");
+                assert_eq!(metadata.reason.as_deref(), Some("needs service"));
+                assert_eq!(metadata.tags, Vec::<String>::new());
+                assert_eq!(metadata.requires, Vec::<String>::new());
+                assert_eq!(blocks[0].code, "fn main() {}");
+            }
+        }
+    }
+
+    #[test]
+    fn nullable_list_compatibility_preserves_missing_empty_and_populated_lists() {
+        for (lists, expected_tags, expected_requires) in [
+            ("", vec![], vec![]),
+            ("tags: []\nrequires: []\n", vec![], vec![]),
+            ("tags: [smoke]\nrequires: [service]\n", vec!["smoke"], vec!["service"]),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("snippet.md");
+            let content = format!("---\nside_effect: network\n{lists}---\n```rust\nfn main() {{}}\n```\n");
+            std::fs::write(&path, content).unwrap();
+
+            let blocks = parse_code_blocks(&path).unwrap();
+            assert_eq!(blocks.len(), 1);
+            assert_eq!(blocks[0].metadata.tags, expected_tags);
+            assert_eq!(blocks[0].metadata.requires, expected_requires);
+            assert_eq!(
+                blocks[0].metadata.side_effect,
+                Some(crate::snippets::types::SideEffectClass::Network)
+            );
+        }
+    }
+
+    #[test]
+    fn nullable_list_compatibility_rejects_non_list_metadata_values() {
+        for field in ["tags", "requires"] {
+            for value in ["wrong", "42", "{key: value}", "[{}]"] {
+                let yaml = format!("side_effect: network\n{field}: {value}\n");
+                assert!(
+                    serde_saphyr::from_str::<SnippetMetadata>(&yaml).is_err(),
+                    "{field}: {value} must remain invalid"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn parses_mdx_frontmatter_with_source_line() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("snippet.mdx");
