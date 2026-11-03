@@ -85,6 +85,7 @@ fn stream_wire_payloads_use_the_public_usize_representation() {
 }
 
 fn write_fixture(root: &Path) {
+    std::fs::create_dir_all(root.join("rust/src")).unwrap();
     for (name, content) in [
         ("core/src/lib.rs", CORE),
         (
@@ -108,7 +109,10 @@ fn write_fixture(root: &Path) {
 
 fn successful(root: &Path, name: &str, arguments: &[&str]) -> CapturedStreams {
     let mut command = mise_task::mise_run(root, name);
-    command.args(arguments).env("RUSTC_WRAPPER", "");
+    command
+        .args(arguments)
+        .env("RUSTC_WRAPPER", "")
+        .env("CARGO_TARGET_DIR", root.join("rust/target"));
     dart_sdk::forward_machine_caches(&mut command);
     let output = run_command_streams(&mut command, 600).unwrap();
     assert!(output.success, "{name}: {}\n{}", output.stdout, output.stderr);
