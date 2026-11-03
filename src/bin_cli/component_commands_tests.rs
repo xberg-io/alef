@@ -331,17 +331,15 @@ fn go_component_command_uses_c_shared_and_the_packaged_output_path() {
         ("linux", "x86_64") => "x86_64-unknown-linux-gnu",
         platform => panic!("unsupported test host: {platform:?}"),
     };
-    for debug in [false, true] {
-        let command = component_build_command(
-            &config,
-            &config.components[0],
-            target,
-            debug,
-            Some(directory.path()),
-            &manifest,
-        )
-        .unwrap();
-        let library = built_library_path(&config, "fast", target, debug, Some(directory.path()));
+    for (debug, shared) in [
+        (false, None),
+        (true, None),
+        (false, Some(directory.path())),
+        (true, Some(directory.path())),
+    ] {
+        let command =
+            component_build_command(&config, &config.components[0], target, debug, shared, &manifest).unwrap();
+        let library = std::path::absolute(built_library_path(&config, "fast", target, debug, shared)).unwrap();
         assert_eq!(command.get_program(), "go");
         assert_eq!(command.get_current_dir(), Some(directory.path()));
         assert_eq!(
