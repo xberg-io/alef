@@ -325,7 +325,8 @@ fn go_component_command_uses_c_shared_and_the_packaged_output_path() {
     let target = match (std::env::consts::OS, std::env::consts::ARCH) {
         ("macos", "aarch64") => "aarch64-apple-darwin",
         ("macos", "x86_64") => "x86_64-apple-darwin",
-        ("windows", "x86_64") => "x86_64-pc-windows-gnu",
+        ("windows", "x86_64") => "x86_64-pc-windows-msvc",
+        ("windows", "aarch64") => "aarch64-pc-windows-msvc",
         ("linux", "aarch64") => "aarch64-unknown-linux-gnu",
         ("linux", "x86_64") => "x86_64-unknown-linux-gnu",
         platform => panic!("unsupported test host: {platform:?}"),
@@ -378,14 +379,12 @@ fn go_component_targets_map_only_supported_native_abis() {
         ("x86_64-apple-darwin", ("darwin", "amd64")),
         ("aarch64-apple-darwin", ("darwin", "arm64")),
         ("x86_64-pc-windows-gnu", ("windows", "amd64")),
+        ("x86_64-pc-windows-msvc", ("windows", "amd64")),
+        ("aarch64-pc-windows-msvc", ("windows", "arm64")),
     ] {
         assert_eq!(go_target(target).unwrap(), expected);
     }
-    for target in [
-        "wasm32-unknown-unknown",
-        "x86_64-unknown-linux-musl",
-        "x86_64-pc-windows-msvc",
-    ] {
+    for target in ["wasm32-unknown-unknown", "x86_64-unknown-linux-musl"] {
         assert!(
             go_target(target)
                 .unwrap_err()
