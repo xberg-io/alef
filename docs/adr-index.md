@@ -25,3 +25,5 @@ log; add a row in the same change as a new record.
 | [0014](../adrs/0014-raise-the-generated-minimums-for-the-other-host-languages.md) | Raise the generated minimums for the other host languages | accepted | 2026-11-03 |
 | [0015](../adrs/0015-abi-and-runtime-stability-policy-for-component-crates.md) | ABI and runtime stability policy for component crates | accepted | 2026-11-03 |
 | [0016](../adrs/0016-apply-fixture-client-options-through-configured-json-factories.md) | Apply fixture client options through configured JSON factories | accepted | 2026-11-03 |
+| [0017](../adrs/0017-framed-stdio-transport-for-component-sidecars.md) | Framed stdio transport for component sidecars | accepted | 2026-11-03 |
+| [0018](../adrs/0018-go-c-shared-component-producers.md) | Go c-shared component producers | accepted | 2026-11-03 |

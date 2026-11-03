@@ -49,6 +49,45 @@ pub(in crate::backends::napi) fn prepare_bindings(
     signature: &[ParamDef],
     required_unwrapped: bool,
 ) -> String {
+    bind_inputs(
+        generated,
+        context,
+        params,
+        signature,
+        required_unwrapped,
+        input_binding_name,
+        false,
+    )
+}
+
+/// Convert fallible inputs ahead of an adapter body. The body comes from a shared adapter
+/// template that reads each parameter by its own name (`req.into()`), so the converted value
+/// shadows the parameter: the template's `.into()` is then the identity conversion.
+pub(in crate::backends::napi) fn prepare_adapter_bindings(
+    generated: String,
+    context: Option<&ContainerContext>,
+    params: &[ParamDef],
+) -> String {
+    bind_inputs(
+        generated,
+        context,
+        params,
+        params,
+        true,
+        |_, parameter| parameter.name.clone(),
+        true,
+    )
+}
+
+fn bind_inputs(
+    generated: String,
+    context: Option<&ContainerContext>,
+    params: &[ParamDef],
+    signature: &[ParamDef],
+    required_unwrapped: bool,
+    binding_name: impl Fn(&syn::Block, &ParamDef) -> String,
+    annotate_core_type: bool,
+) -> String {
     let Some(context) = context.filter(|context| has_inputs(Some(context), params)) else {
         return generated;
     };
@@ -58,7 +97,7 @@ pub(in crate::backends::napi) fn prepare_bindings(
         if !context.is_fallible(&parameter.ty) {
             continue;
         }
-        let name = input_binding_name(&block, parameter);
+        let name = binding_name(&block, parameter);
         let optional_default = declared.optional && !parameter.optional && !required_unwrapped;
         let expression = context.input_expression(parameter, optional_default);
         let mut found = false;
@@ -75,7 +114,12 @@ pub(in crate::backends::napi) fn prepare_bindings(
         }
         if !found {
             let mutable = if parameter.is_mut { "mut " } else { "" };
-            let added: syn::Block = syn::parse_str(&format!("{{let {mutable}{name} = {expression};}}"))
+            let annotation = annotate_core_type
+                .then(|| context.core_input_type(parameter))
+                .flatten()
+                .map(|ty| format!(": {ty}"))
+                .unwrap_or_default();
+            let added: syn::Block = syn::parse_str(&format!("{{let {mutable}{name}{annotation} = {expression};}}"))
                 .expect("fallible input binding must parse");
             block.stmts.splice(0..0, added.stmts);
         }

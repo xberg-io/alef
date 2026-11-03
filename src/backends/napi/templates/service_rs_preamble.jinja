@@ -4,6 +4,9 @@ use napi::bindgen_prelude::*;
 use napi::threadsafe_function::ThreadsafeFunction;
 use napi_derive::napi;
 use std::sync::Arc;
+{% if imports_error_dispatch %}
+use crate::alef_napi_err;
+{% endif %}
 
 /// Wrapper that lets an arbitrary JSON handler return participate in
 /// `Either<Promise<_>, _>`. Both `Either` arms and `Promise<T>` require

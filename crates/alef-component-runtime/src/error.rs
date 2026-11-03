@@ -99,6 +99,16 @@ pub enum ComponentError {
     InvalidUtf8,
     #[error("component string exceeds the maximum supported length")]
     StringTooLong,
+    #[error("unsupported component transport operation: {0}")]
+    UnsupportedTransport(&'static str),
+    #[error("stdio component protocol error: {0}")]
+    SidecarProtocol(String),
+    #[error("stdio component response timed out")]
+    SidecarTimeout,
+    #[error("stdio component connection is stopped")]
+    SidecarStopped,
+    #[error("stdio component call failed with status {status}: {message}")]
+    SidecarCall { status: i32, message: String },
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
     #[error("I/O error: {0}")]
@@ -158,6 +168,11 @@ impl ComponentError {
             Self::NullInstance => "null_instance",
             Self::InvalidUtf8 => "invalid_utf8",
             Self::StringTooLong => "string_too_long",
+            Self::UnsupportedTransport(_) => "unsupported_transport",
+            Self::SidecarProtocol(_) => "sidecar_protocol",
+            Self::SidecarTimeout => "sidecar_timeout",
+            Self::SidecarStopped => "sidecar_stopped",
+            Self::SidecarCall { .. } => "sidecar_call_failed",
             Self::Json(_) => "json_error",
             Self::Io(_) => "io_error",
         }

@@ -658,6 +658,9 @@ pub(crate) enum ComponentAction {
         /// Produce an unsigned CI intermediate archive.
         #[arg(long, conflicts_with_all = ["signing_key", "signing_key_env"])]
         unsigned: bool,
+        /// Package the library built without release optimizations.
+        #[arg(long)]
+        debug: bool,
         /// Explicit built library path; valid only for one profile/target.
         #[arg(long)]
         library: Option<PathBuf>,
@@ -671,9 +674,13 @@ pub(crate) enum ComponentAction {
         /// Directory containing `*.record.json` files from `component package`.
         #[arg(long, short, default_value = "dist/components")]
         input: PathBuf,
-        /// Output lock manifest path.
-        #[arg(long, short, default_value = "components.lock.json")]
-        output: PathBuf,
+        /// Output lock manifest path (default: components.lock.json). Explicit unsigned
+        /// output stays isolated instead of staging into binding packages.
+        #[arg(long, short)]
+        output: Option<PathBuf>,
+        /// Rust target triples (default: every configured target).
+        #[arg(long, value_delimiter = ',')]
+        target: Vec<String>,
         /// Emit a dev lock with no `public_keys` from unsigned (or signed) records. The runtime
         /// does not verify signatures against such a lock; never ship it. Archive hashes are
         /// still checked.

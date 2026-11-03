@@ -29,7 +29,11 @@ pub(super) fn validate_components(
             return invalid_component_config(&krate.name, format!("duplicate component `{}`", component.name));
         }
         validate_component_provides(&krate.name, component, &contract_names)?;
-        validate_nonempty_values(&krate.name, &component.name, "features", &component.features)?;
+        if component.producer_language != crate::core::config::ComponentProducerLanguage::Go
+            || !component.features.is_empty()
+        {
+            validate_nonempty_values(&krate.name, &component.name, "features", &component.features)?;
+        }
         validate_component_targets(&krate.name, component)?;
         validate_component_dependencies(&krate.name, component)?;
     }
@@ -207,13 +211,6 @@ fn validate_component_distribution(
     {
         return invalid_component_config(crate_name, message);
     }
-    if distribution.public_keys.is_empty() {
-        return invalid_component_config(
-            crate_name,
-            "component distribution must declare at least one public key",
-        );
-    }
-
     for (key_id, encoded_key) in &distribution.public_keys {
         validate_component_name(crate_name, "component distribution public key", key_id)?;
         // Shared with `alef-component-runtime`'s loader and `alef`'s artifact verification

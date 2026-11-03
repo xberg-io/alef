@@ -16,9 +16,6 @@ pub(in crate::backends::napi::gen_bindings) fn gen_service_rs(
     let core_import = config.core_import_name();
     let mut out = String::new();
 
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    out.push_str(&render("service_rs_preamble.jinja", crate::alef_context! {}));
-
     let referenced_contracts: Vec<&HandlerContractDef> = {
         let mut names: Vec<&str> = api
             .services
@@ -134,7 +131,16 @@ pub(in crate::backends::napi::gen_bindings) fn gen_service_rs(
         }
     }
 
-    out
+    // `alef_napi_err` is defined once at the crate root (`lib.rs`); this module reaches it only
+    // through an import. ~keep
+    let imports_error_dispatch = out.contains("alef_napi_err");
+    let mut file = hash::header(CommentStyle::DoubleSlash);
+    file.push_str(&render(
+        "service_rs_preamble.jinja",
+        crate::alef_context! { imports_error_dispatch },
+    ));
+    file.push_str(&out);
+    file
 }
 
 /// Emit the `{ContractName}Bridge` struct + trait impl.

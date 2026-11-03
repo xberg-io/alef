@@ -72,7 +72,7 @@ pub enum ComponentProducerLanguage {
     /// Rust cdylib producer.
     #[default]
     Rust,
-    /// Go executable producer using the byte protocol.
+    /// Go c-shared producer using the native C ABI.
     Go,
 }
 
@@ -84,7 +84,7 @@ impl ComponentProducerLanguage {
 
 /// Whether a constructor can be emitted as a Go function name without an expression.
 #[must_use]
-pub fn is_valid_go_constructor_identifier(name: &str) -> bool {
+pub(crate) fn is_valid_go_constructor_identifier(name: &str) -> bool {
     const RESERVED: &[&str] = &[
         "_",
         "init",

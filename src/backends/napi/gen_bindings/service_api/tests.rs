@@ -781,3 +781,30 @@ fn rust_output_has_generated_header() {
         "expected the standard alef generated-file header to be present; output:\n{output}"
     );
 }
+
+/// Regression: the service module converts core errors with `.map_err(alef_napi_err)`, but the
+/// helper is defined at the crate root (`lib.rs`), so `service.rs` must import it or every call
+/// site fails with E0425.
+#[test]
+fn rust_output_imports_the_error_dispatch_helper_it_calls() {
+    let api = make_fixture_surface();
+    let output = gen_service_rs(&api, &make_accessor_config());
+
+    assert!(
+        output.matches(".map_err(alef_napi_err)").count() >= 2,
+        "fixture must exercise the error-mapping call sites; output:\n{output}"
+    );
+    let file = syn::parse_file(&output).expect("service.rs must parse");
+    let imports = file
+        .items
+        .iter()
+        .filter(|item| {
+            matches!(item, syn::Item::Use(import)
+                if quote::ToTokens::to_token_stream(&import.tree).to_string() == "crate :: alef_napi_err")
+        })
+        .count();
+    assert_eq!(
+        imports, 1,
+        "service.rs must import the crate-root helper once; output:\n{output}"
+    );
+}

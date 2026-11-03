@@ -7,16 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Load signed component executables through bounded framed stdio, with shared processes, lifecycle checks and
+  standalone Rust host selection. (#842)
+- Generate Go c-shared component producers, native CLI builds and a reusable ABI conformance suite; preserve user-owned
+  Go module and implementation seeds. (#843)
+
+### Changed (BREAKING)
+
+- Extend component configuration and resolved Rust structs with producer-language and stdio-selection fields. Rust
+  callers constructing these structs must initialize the new fields; existing configuration files keep Rust defaults.
+- Add sidecar cases to the public component runtime error enum; exhaustive Rust matches must handle the new cases.
+
+### Fixed
+
+- Emit `futures` only for async Rust component producers, inherit declared licenses and document generated crates and
+  entrypoints. (#851)
+- Support debug component packaging and target-filtered locks. Keep explicit unsigned lock output isolated from binding
+  locks, and permit keyless distribution settings for explicit unsigned development flows. (#851)
+- Limit workspace version synchronization to the selected core and its generated package family, preserving unrelated
+  package versions and dependency pins. (#851)
+
+## [0.119.0] - 2026-11-03
+
 ### Changed
 
 - Document E2E JSON factory transport and native encoding guarantees in [ADR 0016](adrs/0016-apply-fixture-client-options-through-configured-json-factories.md).
 
 ### Fixed
 
+- Keep maintenance releases out of GitHub Latest when their immutable tagged Cargo manifest opts out.
 - Apply scalar and array-valued E2E client options through configured JSON factories, preserving exact numeric values and runtime credentials and routing. (#822)
 - Preserve configured Swift macOS minimum overrides in local and registry E2E manifests.
 - Preserve imports for named free-function calls that share an export with an E2E client factory.
 - Derive R compiler requirements from the bound crate and inherited workspace MSRV while preserving the bridge minimum; report invalid manifests with context. (#846)
+- Pass the fallibly converted request to Node adapter-backed methods, so a DTO converted with `TryFrom` no longer fails to compile on the adapter's `req.into()` (E0277).
+- Import `alef_napi_err` into the generated Node `service.rs`, whose error-mapping call sites could not resolve the crate-root helper (E0425).
+- Declare the source crates of error types defined outside the umbrella crate in the generated JNI `Cargo.toml`, which the shim's `jni_error_parts_*` functions name directly (E0433).
 
 ## [0.118.0] - 2026-11-03
 

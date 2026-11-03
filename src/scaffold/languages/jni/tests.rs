@@ -834,3 +834,63 @@ package_version = "0.26"
     );
     toml::from_str::<toml::Value>(cargo_toml).expect("generated JNI Cargo.toml must be valid TOML");
 }
+
+/// Regression: the JNI shim names each core error type in a `jni_error_parts_*` function. An
+/// error that lives in a source crate other than the umbrella crate (`demo_graphql::GraphQLError`)
+/// needs that crate as a direct dependency, or the shim fails with E0433. Only the crates the
+/// shim names are declared, so an unreferenced extra dependency is not flagged as unused.
+#[test]
+fn scaffold_jni_declares_the_source_crates_of_error_types() {
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["kotlin_android", "jni"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.extra_dependencies]
+demo-graphql = { path = "../demo-graphql" }
+demo-http = { path = "../demo-http" }
+
+[crates.kotlin_android]
+package = "dev.demo"
+namespace = "dev.demo"
+"#,
+    );
+    let error = |name: &str, rust_path: &str| crate::core::ir::ErrorDef {
+        exception_base: None,
+        name: name.into(),
+        rust_path: rust_path.into(),
+        original_rust_path: String::new(),
+        variants: Vec::new(),
+        doc: String::new(),
+        methods: Vec::new(),
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        version: Default::default(),
+    };
+    let api = ApiSurface {
+        errors: vec![
+            error("AppError", "demo::AppError"),
+            error("GraphQLError", "demo_graphql::GraphQLError"),
+        ],
+        ..Default::default()
+    };
+
+    let cargo_toml = &scaffold_jni(&api, &config).unwrap()[0].content;
+    let manifest: toml::Table = toml::from_str(cargo_toml).unwrap();
+    let dependencies = manifest["dependencies"].as_table().unwrap();
+
+    assert_eq!(
+        dependencies.get("demo-graphql").and_then(|dep| dep.get("path")),
+        Some(&toml::Value::String("../demo-graphql".into())),
+        "the error type's source crate must be a dependency; got:\n{cargo_toml}"
+    );
+    assert!(
+        !dependencies.contains_key("demo-http"),
+        "an extra dependency the shim never names must not be declared; got:\n{cargo_toml}"
+    );
+    assert!(dependencies.contains_key("demo"), "{cargo_toml}");
+}

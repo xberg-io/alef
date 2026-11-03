@@ -225,7 +225,8 @@ pub(in crate::backends::napi::gen_bindings) fn gen_opaque_instance_method(
     );
 
     let adapter_key = format!("{type_name}.{}", method.name);
-    let body = if let Some(adapter_body) = adapter_bodies.get(&adapter_key) {
+    let adapter_body = adapter_bodies.get(&adapter_key);
+    let body = if let Some(adapter_body) = adapter_body {
         adapter_body.clone()
     } else if !opaque_can_delegate {
         if cfg.has_serde
@@ -378,7 +379,11 @@ pub(in crate::backends::napi::gen_bindings) fn gen_opaque_instance_method(
         }
     };
 
-    let body = super::super::inputs::prepare_bindings(body, inputs, &method.params, &method.params, true);
+    let body = if adapter_body.is_some() {
+        super::super::inputs::prepare_adapter_bindings(body, inputs, &method.params)
+    } else {
+        super::super::inputs::prepare_bindings(body, inputs, &method.params, &method.params, true)
+    };
     let body = super::super::inputs::wrap_body(
         body,
         fallible_inputs,
