@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Prevent XCTest’s private SwiftUICore autolink hint in all three Swift qualification test commands,
+  preserving strict diagnostics and the exact callback failure checks.
+
 - Pin Swift qualification to the public consumer revision that reports native build progress without
   emitting Cargo warnings.
 - Keep Swift negative link controls strict when SwiftPM suppresses duplicate-library warnings, and

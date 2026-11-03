@@ -4,6 +4,7 @@ import re
 import shutil
 from pathlib import Path
 
+import swift_test
 from receipts import missing_callbacks, sha, strict_output_warnings
 
 
@@ -62,7 +63,7 @@ def qualify(gate, archive, package):
         raise RuntimeError("actual archive has zero references to removed generated callbacks")
     result = gate.command(
         "missing-callback-link",
-        [gate.real_swift, "test", "-v", "-Xswiftc", "-warnings-as-errors", "-Xlinker", "-fatal_warnings"],
+        [*swift_test.command(gate.real_swift), "-v", "-Xswiftc", "-warnings-as-errors", "-Xlinker", "-fatal_warnings"],
         negative,
         2 * 1024**3,
         600,
@@ -73,8 +74,7 @@ def qualify(gate, archive, package):
     result = gate.command(
         "fatal-warning-link",
         [
-            gate.real_swift,
-            "test",
+            *swift_test.command(gate.real_swift),
             "-v",
             "-Xswiftc",
             "-warnings-as-errors",
