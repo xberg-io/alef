@@ -296,7 +296,9 @@ fn inject_package_swift_extras(
     test_target_dep.push_str(&extras_products);
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn render_package_swift(
+    min_macos: &str,
     module_name: &str,
     registry_url: &str,
     pkg_path: &str,
@@ -305,8 +307,6 @@ pub(super) fn render_package_swift(
     include_harness_target: bool,
     extras: Option<&crate::core::config::manifest_extras::ManifestExtras>,
 ) -> String {
-    let min_macos = toolchain::SWIFT_MIN_MACOS;
-
     // For local deps SwiftPM identity = last path component (e.g. "../../packages/swift" → "swift").
     // For registry deps we use .package(url:, branch:) to pull the Swift package from GitHub.
     // SwiftPM will resolve the release/swift/<version> branch which contains the correct
@@ -415,6 +415,7 @@ mod tests {
     #[test]
     fn render_package_swift_local_mode_baseline() {
         let out = render_package_swift(
+            toolchain::SWIFT_MIN_MACOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -437,6 +438,7 @@ mod tests {
     #[test]
     fn render_package_swift_registry_mode_baseline() {
         let out = render_package_swift(
+            toolchain::SWIFT_MIN_MACOS,
             "TreeSitter",
             "https://github.com/tree-sitter/tree-sitter-swift.git",
             "",
@@ -473,6 +475,7 @@ mod tests {
             }),
         );
         let out = render_package_swift(
+            toolchain::SWIFT_MIN_MACOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -510,6 +513,7 @@ mod tests {
             }),
         );
         let out = render_package_swift(
+            toolchain::SWIFT_MIN_MACOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -532,6 +536,7 @@ mod tests {
             ExtraDepSpec::Simple("1.0.0".to_string()),
         );
         let out = render_package_swift(
+            toolchain::SWIFT_MIN_MACOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -567,6 +572,7 @@ mod tests {
             ExtraDepSpec::Simple("2.0.0".to_string()),
         );
         let out = render_package_swift(
+            toolchain::SWIFT_MIN_MACOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -598,6 +604,7 @@ mod tests {
     fn render_package_swift_empty_extras_matches_none() {
         let extras = ManifestExtras::default();
         let with_empty = render_package_swift(
+            toolchain::SWIFT_MIN_MACOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -607,6 +614,7 @@ mod tests {
             Some(&extras),
         );
         let without = render_package_swift(
+            toolchain::SWIFT_MIN_MACOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -629,6 +637,7 @@ mod tests {
             ExtraDepSpec::Simple("1.0.0".to_string()),
         );
         let first = render_package_swift(
+            toolchain::SWIFT_MIN_MACOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -638,6 +647,7 @@ mod tests {
             Some(&extras),
         );
         let second = render_package_swift(
+            toolchain::SWIFT_MIN_MACOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -652,6 +662,7 @@ mod tests {
     #[test]
     fn render_package_swift_includes_harness_target_when_needed() {
         let out = render_package_swift(
+            toolchain::SWIFT_MIN_MACOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -670,6 +681,7 @@ mod tests {
     #[test]
     fn render_package_swift_omits_harness_target_when_not_needed() {
         let out = render_package_swift(
+            toolchain::SWIFT_MIN_MACOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -690,6 +702,7 @@ mod tests {
         // placeholder. The real checksum lives on the release/swift/<version> branch created by
         // the publish workflow. This test ensures we always use .branch() for registry mode.
         let out = render_package_swift(
+            toolchain::SWIFT_MIN_MACOS,
             "MyLib",
             "https://example.com/my-lib.git",
             "",

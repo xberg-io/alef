@@ -123,6 +123,7 @@ impl E2eCodegen for SwiftE2eCodegen {
         files.push(GeneratedFile {
             path: output_base.join("Package.swift"),
             content: project::render_package_swift(
+                &crate::scaffold::naming::swift_min_macos(config),
                 module_name,
                 &registry_url,
                 &pkg_path,
