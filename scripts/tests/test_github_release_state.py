@@ -535,15 +535,15 @@ class ApiBoundaryTest(unittest.TestCase):
             api.release_page(1)
 
     def test_http_errors_keep_status_but_never_provider_body_or_auth(self):
-        api = self.module.GithubApi()
+        api, endpoint = self.module.GithubApi(), "/releases/tags/v0.115.11"
         for code in (401, 403, 404, 429, 500):
             self.failure = code
             caught = []
             try:
-                api.request("GET", "/releases/tags/v0.115.11")
+                api.request("GET", endpoint)
             except self.module.ReleaseError as error:
                 caught.append((error.status, str(error)))
-            assert caught == [(code, f"Publication API returned HTTP {code}")]
+            assert caught == [(code, f"Publication API GET /repos/xberg-io/alef{endpoint} returned HTTP {code}")]
 
 
 class SourceAndRegistryTest(unittest.TestCase):
