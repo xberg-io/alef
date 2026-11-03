@@ -96,11 +96,97 @@ pub struct ComponentConfig {
     pub targets: Option<Vec<String>>,
     /// Targets/platforms for which downloading component code is unsupported
     /// (e.g. mobile/wasm hosts) and the component must instead be linked
-    /// directly into the binding. Not implemented by any backend yet -- this
-    /// only shapes config, validation, and the lock file's per-target
-    /// `mode` so backends have a typed switch to read later.
+    /// directly into the binding. No backend generates the bundled delivery
+    /// itself: this shapes config, validation, and the lock file's per-target
+    /// `mode`. For Rust hosts the supported fallback is a manual static link
+    /// (the host depends on the implementation crate behind a cargo feature
+    /// and calls it directly, since musl targets cannot `dlopen`); see
+    /// "Bundled (static-link) fallback" in `docs/design/components.md`.
     #[serde(default)]
     pub bundled_on: Vec<String>,
+    /// Extra Cargo dependencies for this component's generated producer crate, keyed by crate name.
+    ///
+    /// Each value is a Cargo dependency spec: a version string (`"1"`) or an inline table
+    /// (`{ version = "1", features = ["x"] }`, `{ path = "../x" }`, `{ git = "..." }`), emitted
+    /// verbatim into the producer `Cargo.toml`. Lets an implementation type live in a crate other
+    /// than the core crate. Cannot override `alef-component-abi`, `futures` or the core crate.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(with = "BTreeMap<String, serde_json::Value>")]
+    pub extra_dependencies: BTreeMap<String, serde_json::Value>,
+}
+
+/// Dependencies of the generated producer crate that `extra_dependencies` must not override.
+pub const PRODUCER_BUILTIN_DEPENDENCIES: &[&str] = &["alef-component-abi", "futures"];
+
+/// Whether `name` is a valid Cargo package name: ASCII letters, digits, `-` and `_`, starting
+/// with a letter or `_`.
+#[must_use]
+pub fn is_valid_cargo_package_name(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    matches!(bytes.next(), Some(first) if first.is_ascii_alphabetic() || first == b'_')
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+/// Check one `extra_dependencies` entry: a valid, non-builtin crate name and a spec that is a
+/// non-empty version string or a table of strings, booleans and string arrays.
+///
+/// # Errors
+///
+/// Returns a human-readable reason when the entry is invalid.
+pub fn validate_extra_dependency(core_crate: &str, name: &str, spec: &serde_json::Value) -> Result<(), String> {
+    use serde_json::Value;
+    if !is_valid_cargo_package_name(name) {
+        return Err(format!(
+            "extra dependency name `{name}` must be a Cargo package name (ASCII letters, digits, `-`, `_`)"
+        ));
+    }
+    let normalized = name.replace('_', "-");
+    let builtin = PRODUCER_BUILTIN_DEPENDENCIES
+        .iter()
+        .copied()
+        .chain([core_crate])
+        .any(|builtin| builtin.replace('_', "-") == normalized);
+    if builtin {
+        return Err(format!(
+            "extra dependency `{name}` would override a dependency of the generated producer crate"
+        ));
+    }
+    let invalid = || format!("extra dependency `{name}` must be a version string or a table of Cargo dependency keys");
+    match spec {
+        Value::String(version) if !version.trim().is_empty() => Ok(()),
+        Value::Object(table) if !table.is_empty() => {
+            let scalar_ok = |value: &Value| match value {
+                Value::String(_) | Value::Bool(_) => true,
+                Value::Array(items) => items.iter().all(Value::is_string),
+                _ => false,
+            };
+            if table.values().all(scalar_ok) {
+                Ok(())
+            } else {
+                Err(invalid())
+            }
+        }
+        _ => Err(invalid()),
+    }
+}
+
+/// Render an `extra_dependencies` spec as the right-hand side of a `[dependencies]` line.
+///
+/// # Errors
+///
+/// Returns an error when the value cannot be represented in TOML.
+pub fn render_dependency_spec(spec: &serde_json::Value) -> Result<String, String> {
+    let value = toml::Value::try_from(spec).map_err(|error| error.to_string())?;
+    match value {
+        toml::Value::Table(table) => {
+            let entries = table
+                .iter()
+                .map(|(key, value)| format!("{} = {value}", toml::Value::String(key.clone())))
+                .collect::<Vec<_>>();
+            Ok(format!("{{ {} }}", entries.join(", ")))
+        }
+        other => Ok(other.to_string()),
+    }
 }
 
 /// Distribution settings shared by every component in a crate.
@@ -345,5 +431,47 @@ mod host_tests {
         let parsed: ComponentHostConfig = toml::from_str("output = \"g.rs\"\nlock_path = \"l.json\"").unwrap();
         assert_eq!(parsed, host("g.rs", Some("l.json")));
         assert!(toml::from_str::<ComponentHostConfig>("output = \"g.rs\"\ncache_root = \"x\"").is_err());
+    }
+}
+
+#[cfg(test)]
+mod extra_dependency_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn accepts_version_strings_and_tables() {
+        assert!(validate_extra_dependency("core", "serde_json", &json!("1")).is_ok());
+        assert!(validate_extra_dependency("core", "x", &json!({ "version": "1", "features": ["a"] })).is_ok());
+        assert!(validate_extra_dependency("core", "x", &json!({ "path": "../x", "optional": true })).is_ok());
+    }
+
+    #[test]
+    fn rejects_bad_names_specs_and_builtins() {
+        assert!(validate_extra_dependency("core", "bad name", &json!("1")).is_err());
+        assert!(validate_extra_dependency("core", "1x", &json!("1")).is_err());
+        assert!(validate_extra_dependency("core", "x", &json!("")).is_err());
+        assert!(validate_extra_dependency("core", "x", &json!(1)).is_err());
+        assert!(validate_extra_dependency("core", "x", &json!({})).is_err());
+        assert!(validate_extra_dependency("core", "x", &json!({ "features": [1] })).is_err());
+        assert!(validate_extra_dependency("core", "futures", &json!("1")).is_err());
+        assert!(validate_extra_dependency("core", "alef_component_abi", &json!("1")).is_err());
+        assert!(validate_extra_dependency("my-core", "my_core", &json!("1")).is_err());
+    }
+
+    #[test]
+    fn renders_strings_and_inline_tables() {
+        assert_eq!(render_dependency_spec(&json!("1.2")).unwrap(), "\"1.2\"");
+        let rendered =
+            render_dependency_spec(&json!({ "version": "1", "features": ["a", "b"], "default-features": false }))
+                .unwrap();
+        assert!(rendered.starts_with("{ ") && rendered.ends_with(" }"), "{rendered}");
+        for part in [
+            "\"version\" = \"1\"",
+            "\"features\" = [\"a\", \"b\"]",
+            "\"default-features\" = false",
+        ] {
+            assert!(rendered.contains(part), "{rendered} missing {part}");
+        }
     }
 }

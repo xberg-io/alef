@@ -586,3 +586,52 @@ output = "gen.rs"
     let error = config.resolve().unwrap_err().to_string();
     assert!(error.contains("component_host requires"), "{error}");
 }
+
+#[test]
+fn extra_dependencies_parse_from_toml_and_resolve() {
+    let mut config = component_config("");
+    config.crates[0].components[0].extra_dependencies.insert(
+        "pdf-engine".to_string(),
+        serde_json::json!({ "version": "2", "features": ["fast"] }),
+    );
+    let resolved = config.resolve().unwrap().remove(0);
+    assert!(resolved.components[0].extra_dependencies.contains_key("pdf-engine"));
+
+    let parsed: crate::core::config::ComponentConfig = toml::from_str(
+        r#"
+name = "x"
+provides = []
+features = []
+[extra_dependencies]
+serde_json = "1"
+engine = { version = "2", features = ["a"] }
+"#,
+    )
+    .unwrap();
+    assert_eq!(parsed.extra_dependencies.len(), 2);
+    assert_eq!(parsed.extra_dependencies["serde_json"], serde_json::json!("1"));
+}
+
+#[test]
+fn resolve_rejects_invalid_or_overriding_extra_dependencies() {
+    for (name, spec, expected) in [
+        ("bad name", serde_json::json!("1"), "must be a Cargo package name"),
+        ("futures", serde_json::json!("1"), "would override"),
+        ("alef_component_abi", serde_json::json!("1"), "would override"),
+        ("sample", serde_json::json!("1"), "would override"),
+        ("ok", serde_json::json!(3), "version string or a table"),
+    ] {
+        let mut config = component_config("");
+        config.crates[0].components[0]
+            .extra_dependencies
+            .insert(name.to_string(), spec);
+        let error = config.resolve().unwrap_err().to_string();
+        assert!(error.contains(expected), "{name}: {error}");
+    }
+}
+
+#[test]
+fn generated_schema_contains_extra_dependencies() {
+    let schema = crate::core::config::alef_config_schema("test").unwrap();
+    assert!(serde_json::to_string(&schema).unwrap().contains("extra_dependencies"));
+}

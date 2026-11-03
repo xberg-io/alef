@@ -48,6 +48,7 @@ mod tests {
                 default_features: false,
                 targets: Some(vec!["aarch64-apple-darwin".into()]),
                 bundled_on: Vec::new(),
+                extra_dependencies: Default::default(),
             }],
             ..ResolvedCrateConfig::default()
         }

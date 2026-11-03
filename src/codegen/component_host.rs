@@ -173,6 +173,7 @@ mod tests {
                 default_features: false,
                 targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
                 bundled_on: Vec::new(),
+                extra_dependencies: Default::default(),
             }],
             component_host: Some(ComponentHostConfig {
                 output: "crates/host/src/components_gen.rs".into(),

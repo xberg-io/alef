@@ -20,9 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pass the host API to producer constructors through a `FromHost` constructor, so implementations can use `HostApi` logging. (#837)
 - Add a versioned host service table (`service_call` / `service_notify`) to `AlefHostApiV1`, `HostApi::call_service` / `notify` on the producer side and a `HostServices` trait with `ComponentManager::with_host_services` on the host side. Hosts built before the table remain loadable and report `Unsupported`. (#838)
 - Add `[crates.component_host]` to generate a standalone Rust host module (contract tables, proxies, entry-symbol and contract-hash constants, `component_manager` constructor) for hosts without ffi/pyo3 bindings, and `alef component contract-hash` to print each contract's lock hash. (#825)
+- Add `RootCerts` (`WebPki` default, `PlatformVerifier`) to `DownloadOptions` and a `platform-verifier` feature on `alef-component-runtime` so downloads can trust the OS certificate store behind TLS-inspecting proxies. `Cargo.lock` needs regenerating for the optional `rustls-platform-verifier` dependency. (#841)
+- Document the static-link fallback for hosts that cannot `dlopen` (musl) and point `bundled_on` at it; no backend generates bundled delivery. (#844)
+- Add per-component `extra_dependencies` (crate name to Cargo dependency spec) emitted verbatim into the generated producer `Cargo.toml`; names are validated and the built-in producer dependencies cannot be overridden. (#827)
 
 ### Changed (BREAKING)
 
+- The component contract hash no longer includes `trait_path`; it is computed from the contract name, interface version, method signatures and referenced record and enum shapes, so re-exporting a contract trait through another crate path keeps its hash. Every existing contract hash changes (ADR 0015): regenerate locks and rebuild components. (#827)
+- The generated producer crate pins `alef-component-abi` to the exact alef version (`=X.Y.Z`) instead of a caret requirement. (#827)
 - Key the standalone component provider registry by (component, contract) and dedupe generated proxies; `register_provider` now takes the component name. (#826)
 
 ### Changed

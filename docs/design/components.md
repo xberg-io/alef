@@ -188,3 +188,57 @@ no environment variables. The host crate depends on `alef-component-runtime`,
 To check a committed hash against the lock in CI, run `alef component contract-hash [--crate X]`;
 it prints one `component contract hash crate=… component=… contract=… hash=…` line per provided
 contract, computed the same way as the lock's contract hash.
+
+## Bundled (static-link) fallback
+
+`bundled_on` marks targets where downloading component code is unsupported; alef records them in
+the lock (`mode = bundled`, no artifact) but no backend generates the bundled delivery. Static
+musl binaries cannot `dlopen`, so a Rust host that ships such a target links the implementation
+in itself:
+
+1. Add the producer's implementation crate as an optional dependency of the host, enabled by a
+   cargo feature (for example `bundled = ["dep:my-impl"]`) with the component's `features`
+   forwarded.
+2. Build the contract's provider directly from the implementation type (the `implementation`
+   path in `provides`) instead of going through `ComponentManager`, under
+   `#[cfg(feature = "bundled")]`. Gate the `component_manager` path with
+   `#[cfg(not(feature = "bundled"))]`.
+3. Build the musl release with `--features bundled`; glibc, macOS and Windows builds keep the
+   downloadable component and its small core.
+
+The generated host module does not do this for you: it cannot know how a given host selects between the
+two paths, so the switch stays a few lines of host code.
+
+## Root certificates
+
+Downloads verify TLS against the Mozilla roots compiled into the binary by default. Hosts behind a
+TLS-inspecting proxy (`HTTPS_PROXY` is honoured) need the operating system trust store instead:
+enable the `platform-verifier` feature of `alef-component-runtime` and call
+`DownloadOptions::with_root_certs(RootCerts::PlatformVerifier)`. Requesting it without the feature
+fails the download with an error naming the feature, never a silent fallback to the Mozilla roots.
+Archive integrity is unchanged, since size, SHA-256 and signature come from the lock.
+
+## Extra producer dependencies and contract identity
+
+`extra_dependencies` on a component adds Cargo dependencies to its generated producer crate, so an
+implementation type can live in a crate other than the core crate:
+
+```toml
+[[crates.components]]
+name = "pdf"
+# ...
+[crates.components.extra_dependencies]
+pdf-engine = { version = "2", features = ["fast"] }
+serde_json = "1"
+```
+
+Each value is a Cargo dependency spec (a version string or an inline table) emitted verbatim into
+the producer `Cargo.toml`. Names must be valid Cargo package names and cannot override
+`alef-component-abi`, `futures` or the core crate. The producer pins `alef-component-abi` to the
+exact alef version (`=X.Y.Z`).
+
+The contract hash no longer includes `trait_path`: it covers the contract name, interface version,
+method signatures and the record and enum shapes they reference. A contract trait re-exported
+through a different crate path therefore has the same hash, and one contract crate can be
+implemented by several engine crates without an aggregator. This changes every previously
+computed contract hash (see ADR 0015); relock and rebuild components.

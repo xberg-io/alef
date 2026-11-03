@@ -24,7 +24,7 @@ pub fn generate_component_producers(api: &ApiSurface, config: &ResolvedCrateConf
         let crate_dir = component_crate_dir(config, &component.component_name);
         files.push(GeneratedFile {
             path: crate_dir.join("Cargo.toml"),
-            content: producer_manifest(api, config, &component),
+            content: producer_manifest(api, config, &component)?,
             generated_header: true,
         });
         files.push(GeneratedFile {
@@ -51,7 +51,7 @@ fn component_crate_dir(config: &ResolvedCrateConfig, component: &str) -> PathBuf
     ))
 }
 
-fn producer_manifest(api: &ApiSurface, config: &ResolvedCrateConfig, component: &ResolvedComponent) -> String {
+fn producer_manifest(api: &ApiSurface, config: &ResolvedCrateConfig, component: &ResolvedComponent) -> Result<String> {
     let package = format!(
         "{}-{}-component",
         config.core_crate_dir(),
@@ -65,7 +65,17 @@ fn producer_manifest(api: &ApiSurface, config: &ResolvedCrateConfig, component: 
         .map(|feature| format!("\"{feature}\""))
         .collect::<Vec<_>>()
         .join(", ");
-    format!(
+    let mut extra = String::new();
+    for (name, spec) in &component.extra_dependencies {
+        let rendered = crate::core::config::component::render_dependency_spec(spec).map_err(|reason| {
+            anyhow::anyhow!(
+                "component `{}` extra dependency `{name}`: {reason}",
+                component.component_name
+            )
+        })?;
+        writeln!(extra, "{name} = {rendered}")?;
+    }
+    Ok(format!(
         r#"[package]
 name = "{package}"
 version = "{version}"
@@ -76,14 +86,14 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-alef-component-abi = "{alef_version}"
+alef-component-abi = "={alef_version}"
 futures = "0.3"
 {core_package} = {{ path = "{core_path}", version = "{version}", default-features = {default_features}, features = [{features}] }}
-"#,
+{extra}"#,
         version = api.version,
         alef_version = env!("CARGO_PKG_VERSION"),
         default_features = component.default_features,
-    )
+    ))
 }
 
 /// Emit the producer crate's `src/lib.rs`: shared buffer/panic helpers once,
@@ -783,6 +793,7 @@ mod tests {
                 default_features: false,
                 targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
                 bundled_on: Vec::new(),
+                extra_dependencies: Default::default(),
             }],
             ..ResolvedCrateConfig::default()
         };
@@ -824,6 +835,43 @@ mod tests {
         let manifest = files.iter().find(|file| file.path.ends_with("Cargo.toml")).unwrap();
         assert!(manifest.content.contains("features = [\"pdf\"]"));
         assert!(manifest.content.contains("crate-type = [\"cdylib\"]"));
+        assert!(
+            manifest
+                .content
+                .contains(&format!("alef-component-abi = \"={}\"", env!("CARGO_PKG_VERSION"))),
+            "{}",
+            manifest.content
+        );
+    }
+
+    #[test]
+    fn extra_dependencies_are_emitted_into_the_producer_manifest() {
+        let (api, mut config) = fixture();
+        config.components[0].extra_dependencies.insert(
+            "pdf-engine".into(),
+            serde_json::json!({ "version": "2", "features": ["fast"] }),
+        );
+        config.components[0]
+            .extra_dependencies
+            .insert("serde_json".into(), serde_json::json!("1"));
+        let files = generate_component_producers(&api, &config).unwrap();
+        let manifest = files.iter().find(|file| file.path.ends_with("Cargo.toml")).unwrap();
+        assert!(
+            manifest.content.contains("serde_json = \"1\"\n"),
+            "{}",
+            manifest.content
+        );
+        let line = manifest
+            .content
+            .lines()
+            .find(|line| line.starts_with("pdf-engine = "))
+            .unwrap();
+        assert!(
+            line.contains("\"version\" = \"2\"") && line.contains("\"features\" = [\"fast\"]"),
+            "{line}"
+        );
+        let parsed: toml::Table = toml::from_str(&manifest.content).expect("manifest must stay valid TOML");
+        assert!(parsed["dependencies"].as_table().unwrap().contains_key("pdf-engine"));
     }
 
     #[test]
@@ -877,6 +925,7 @@ mod tests {
                 default_features: false,
                 targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
                 bundled_on: Vec::new(),
+                extra_dependencies: Default::default(),
             }],
             ..ResolvedCrateConfig::default()
         };

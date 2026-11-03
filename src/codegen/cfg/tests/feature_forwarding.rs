@@ -103,6 +103,7 @@ fn component_implementation_features_are_not_forwarded_to_bindings() {
         default_features: false,
         targets: Some(vec!["aarch64-apple-darwin".to_string()]),
         bundled_on: Vec::new(),
+        extra_dependencies: Default::default(),
     });
 
     let unfiltered = native_wrapper_default_features(&api, &config.wrapper_default_features);

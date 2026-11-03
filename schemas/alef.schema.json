@@ -1268,7 +1268,7 @@
       "properties": {
         "bundled_on": {
           "default": [],
-          "description": "Targets/platforms for which downloading component code is unsupported\n(e.g. mobile/wasm hosts) and the component must instead be linked\ndirectly into the binding. Not implemented by any backend yet -- this\nonly shapes config, validation, and the lock file's per-target\n`mode` so backends have a typed switch to read later.",
+          "description": "Targets/platforms for which downloading component code is unsupported\n(e.g. mobile/wasm hosts) and the component must instead be linked\ndirectly into the binding. No backend generates the bundled delivery\nitself: this shapes config, validation, and the lock file's per-target\n`mode`. For Rust hosts the supported fallback is a manual static link\n(the host depends on the implementation crate behind a cargo feature\nand calls it directly, since musl targets cannot `dlopen`); see\n\"Bundled (static-link) fallback\" in `docs/design/components.md`.",
           "items": {
             "type": "string"
           },
@@ -1278,6 +1278,11 @@
           "default": false,
           "description": "Whether the core crate's default Cargo features are also enabled.",
           "type": "boolean"
+        },
+        "extra_dependencies": {
+          "additionalProperties": true,
+          "description": "Extra Cargo dependencies for this component's generated producer crate, keyed by crate name.\n\nEach value is a Cargo dependency spec: a version string (`\"1\"`) or an inline table\n(`{ version = \"1\", features = [\"x\"] }`, `{ path = \"../x\" }`, `{ git = \"...\" }`), emitted\nverbatim into the producer `Cargo.toml`. Lets an implementation type live in a crate other\nthan the core crate. Cannot override `alef-component-abi`, `futures` or the core crate.",
+          "type": "object"
         },
         "features": {
           "description": "Exact Cargo feature set enabled for this component.",

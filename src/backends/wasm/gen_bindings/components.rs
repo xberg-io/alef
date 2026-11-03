@@ -58,6 +58,7 @@ mod tests {
                 default_features: false,
                 targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
                 bundled_on: Vec::new(),
+                extra_dependencies: Default::default(),
             }],
             ..ResolvedCrateConfig::default()
         };

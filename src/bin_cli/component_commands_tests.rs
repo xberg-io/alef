@@ -21,6 +21,7 @@ fn target_filter_must_be_declared_by_profile() {
         default_features: false,
         targets: Some(vec!["aarch64-apple-darwin".into()]),
         bundled_on: Vec::new(),
+        extra_dependencies: Default::default(),
     };
     let requested = vec!["x86_64-unknown-linux-gnu".to_string()];
     assert!(select_targets(&config, &profile, &requested).is_err());
@@ -38,6 +39,7 @@ fn component_extraction_uses_feature_union_without_changing_binding_features() {
                 default_features: false,
                 targets: Some(vec!["aarch64-apple-darwin".into()]),
                 bundled_on: Vec::new(),
+                extra_dependencies: Default::default(),
             },
             ComponentConfig {
                 name: "gpu".into(),
@@ -46,6 +48,7 @@ fn component_extraction_uses_feature_union_without_changing_binding_features() {
                 default_features: false,
                 targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
                 bundled_on: Vec::new(),
+                extra_dependencies: Default::default(),
             },
         ],
         ..ResolvedCrateConfig::default()
@@ -163,6 +166,7 @@ fn one_component_config() -> ResolvedCrateConfig {
             default_features: false,
             targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
             bundled_on: Vec::new(),
+            extra_dependencies: Default::default(),
         }],
         ..ResolvedCrateConfig::default()
     }

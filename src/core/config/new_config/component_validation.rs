@@ -31,6 +31,11 @@ pub(super) fn validate_components(
         validate_component_provides(&krate.name, component, &contract_names)?;
         validate_nonempty_values(&krate.name, &component.name, "features", &component.features)?;
         validate_component_targets(&krate.name, component)?;
+        for (name, spec) in &component.extra_dependencies {
+            crate::core::config::component::validate_extra_dependency(&krate.name, name, spec).or_else(|reason| {
+                invalid_component_config(&krate.name, format!("component `{}`: {reason}", component.name))
+            })?;
+        }
     }
 
     validate_component_distribution(&krate.name, component_distribution)

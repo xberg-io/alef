@@ -54,6 +54,7 @@ fn components_only_crate_with_no_languages_scaffolds_only_producer_crates() {
             default_features: false,
             targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
             bundled_on: Vec::new(),
+            extra_dependencies: Default::default(),
         }],
         ..ResolvedCrateConfig::default()
     };
