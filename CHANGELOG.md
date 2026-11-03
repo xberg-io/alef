@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Derive R compiler requirements from the bound crate and inherited workspace MSRV while preserving the bridge minimum; report invalid manifests with context. (#846)
+
 ## [0.118.0] - 2026-11-03
 
 ### Added
