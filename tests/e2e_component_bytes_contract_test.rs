@@ -202,7 +202,7 @@ fn find_built_library(target_dir: &Path) -> PathBuf {
 /// core crate path dependency needs no patch: `component_crate_dir` and `core_crate_dir` already
 /// agree on `crates/{core}` and `crates/{core}-{component}-component` as siblings.
 fn patch_unpublished_deps(manifest: &str) -> String {
-    let unpatched = format!("alef-component-abi = \"{}\"", env!("CARGO_PKG_VERSION"));
+    let unpatched = format!("alef-component-abi = \"={}\"", env!("CARGO_PKG_VERSION"));
     let patched = format!(
         "alef-component-abi = {{ path = {:?} }}",
         repo_root().join("crates/alef-component-abi")
