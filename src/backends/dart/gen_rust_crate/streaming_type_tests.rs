@@ -59,6 +59,7 @@ fn usize_stream_codec_matches_public_nested_binding() {
         ("Option<usize>", "int?"),
         ("Vec<Option<usize>>", "List<int?>"),
         ("HashMap<usize, Option<usize>>", "Map<int, int?>"),
+        ("HashMap<usize, u64>", "Map<int, BigInt>"),
     ] {
         assert_stream_type_matches_public_binding(rust, dart);
     }
@@ -82,7 +83,7 @@ fn u64_stream_codec_preserves_public_bigint_binding() {
         ("Option<u64>", "BigInt?"),
         ("Vec<u64>", "Uint64List"),
         ("Vec<Option<u64>>", "List<BigInt?>"),
-        ("HashMap<usize, u64>", "Map<int, BigInt>"),
+        ("HashMap<String, u64>", "Map<String, BigInt>"),
     ] {
         assert_stream_type_matches_public_binding(rust, dart);
     }

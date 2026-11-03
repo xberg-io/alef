@@ -1,4 +1,4 @@
-use crate::backends::dart::type_map::DartMapper;
+use crate::backends::dart::type_map::{DartMapper, dart_primitive_is_bigint};
 use crate::codegen::naming::{PublicIdentifierKind, public_host_identifier};
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::config::Language;
@@ -128,7 +128,6 @@ fn dart_item_type(item_type: &str) -> String {
 
 fn native_dart_type(ty: &TypeRef) -> String {
     match ty {
-        TypeRef::Primitive(PrimitiveType::U64 | PrimitiveType::Usize) => "BigInt".into(),
         TypeRef::Primitive(PrimitiveType::I64 | PrimitiveType::Isize) => "PlatformInt64".into(),
         TypeRef::Optional(inner) => format!("{}?", native_dart_type(inner)),
         TypeRef::Vec(inner) => native_typed_list(inner)
@@ -147,8 +146,8 @@ fn native_typed_list(ty: &TypeRef) -> Option<&'static str> {
         TypeRef::Primitive(PrimitiveType::I16) => "Int16List",
         TypeRef::Primitive(PrimitiveType::U32) => "Uint32List",
         TypeRef::Primitive(PrimitiveType::I32) => "Int32List",
-        TypeRef::Primitive(PrimitiveType::U64 | PrimitiveType::Usize) => "Uint64List",
-        TypeRef::Primitive(PrimitiveType::I64 | PrimitiveType::Isize) => "Int64List",
+        TypeRef::Primitive(prim) if dart_primitive_is_bigint(prim) => "Uint64List",
+        TypeRef::Primitive(PrimitiveType::I64 | PrimitiveType::Isize | PrimitiveType::Usize) => "Int64List",
         TypeRef::Primitive(PrimitiveType::F32) => "Float32List",
         TypeRef::Primitive(PrimitiveType::F64) => "Float64List",
         _ => return None,
