@@ -1,13 +1,14 @@
 use crate::loader::{decode_hash, validate_manifest};
 use crate::manifest::COMPONENT_MANIFEST_SCHEMA;
 use crate::{
-    ArtifactCache, CachedArtifact, ComponentDeliveryMode, ComponentError, ComponentLock, ComponentLockEntry,
-    ComponentRequirements, LoadedComponent, TrustPolicy,
+    ArtifactCache, CachedArtifact, CachedObject, ComponentDeliveryMode, ComponentError, ComponentLock,
+    ComponentLockEntry, ComponentRequirements, DownloadOptions, LoadedComponent, RemovalReport, Retain, TrustPolicy,
 };
 use alef_component_abi::AlefHostApiV1;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::SystemTime;
 
 /// Where a configured component currently stands, independent of its on-disk location (see
 /// [`ComponentManager::cache_path`] for that). Generated bindings expose this as both a
@@ -53,6 +54,9 @@ pub struct ComponentManager {
     /// from "no artifact for this particular target", which is a normal, populated lock that
     /// simply was not built for the requested target.
     lock_is_empty: bool,
+    /// Archive digests of every artifact in the lock, across all targets; what
+    /// [`Retain::referenced_by_lock`] keeps.
+    locked_digests: HashSet<String>,
     host: AlefHostApiV1,
 }
 
@@ -73,6 +77,7 @@ impl ComponentManager {
             return Err(ComponentError::UnsupportedLockSchema(lock.schema_version));
         }
         let lock_is_empty = lock.artifacts.is_empty();
+        let locked_digests = lock.artifacts.iter().map(|artifact| artifact.sha256.clone()).collect();
         let target = target.into();
         let mut entries = HashMap::new();
         for artifact in lock
@@ -96,6 +101,7 @@ impl ComponentManager {
             key_locks: Mutex::new(HashMap::new()),
             verified_artifacts: Mutex::new(HashMap::new()),
             lock_is_empty,
+            locked_digests,
             host,
         })
     }
@@ -108,6 +114,117 @@ impl ComponentManager {
     pub fn offline(mut self, offline: bool) -> Self {
         self.cache = self.cache.offline(offline);
         self
+    }
+
+    /// Tune downloads: timeouts, retry policy, progress reporting and cancellation. Applies to
+    /// [`Self::ensure_contract`] and [`Self::prefetch`].
+    #[must_use]
+    pub fn with_download_options(mut self, options: DownloadOptions) -> Self {
+        self.cache = self.cache.with_download_options(options);
+        self
+    }
+
+    /// Download from `resolve(entry)` instead of the lock entry's `url`, for mirrors and
+    /// air-gapped hosts. The archive size, SHA-256 and signature are still checked against the
+    /// lock, so a mirror cannot substitute different content. A `file://` URL reads from disk.
+    ///
+    /// ```ignore
+    /// let manager = manager.with_url_override(|entry| {
+    ///     entry.url.replacen("https://github.com/", "https://mirror.corp.example/github/", 1)
+    /// });
+    /// ```
+    #[must_use]
+    pub fn with_url_override(
+        mut self,
+        resolve: impl Fn(&ComponentLockEntry) -> String + Send + Sync + 'static,
+    ) -> Self {
+        self.cache = self.cache.with_url_override(resolve);
+        self
+    }
+
+    /// Download every archive from `base` instead of the lock's URL, keeping only the archive
+    /// file name: `{base}/{file name}`. A trailing slash on `base` is ignored.
+    #[must_use]
+    pub fn with_mirror_base(self, base: impl Into<String>) -> Self {
+        let base = base.into();
+        self.with_url_override(move |entry| {
+            let name = entry.url.split(['?', '#']).next().unwrap_or_default();
+            let name = name.rsplit('/').next().unwrap_or_default();
+            format!("{}/{name}", base.trim_end_matches('/'))
+        })
+    }
+
+    /// Skip re-hashing installed libraries that match their verified stamp. See
+    /// [`ArtifactCache::with_verified_stamp`] for the threat model.
+    #[must_use]
+    pub fn with_verified_stamp(mut self, enabled: bool) -> Self {
+        self.cache = self.cache.with_verified_stamp(enabled);
+        self
+    }
+
+    /// The lock entry for `component_id` on this manager's target, whatever its delivery mode.
+    pub fn lock_entry(&self, component_id: &str) -> Result<&ComponentLockEntry, ComponentError> {
+        self.lookup(component_id)
+    }
+
+    /// Every lock entry for this manager's target, sorted by component id.
+    #[must_use]
+    pub fn lock_entries(&self) -> Vec<&ComponentLockEntry> {
+        let mut entries: Vec<_> = self.entries.values().collect();
+        entries.sort_by(|a, b| a.identity.component.cmp(&b.identity.component));
+        entries
+    }
+
+    /// Every object installed in the cache, including ones other host versions installed.
+    /// `component` names the lock entry referencing the object, when this lock has one.
+    pub fn list_cached(&self) -> Result<Vec<CachedObject>, ComponentError> {
+        let mut objects = self.cache.list_objects()?;
+        for object in &mut objects {
+            object.component = self
+                .entries
+                .values()
+                .find(|entry| entry.sha256 == object.sha256)
+                .map(|entry| entry.identity.component.clone());
+        }
+        Ok(objects)
+    }
+
+    /// Remove `component_id`'s cached object. It re-downloads on next use. On Windows an
+    /// object whose library is loaded cannot be deleted; it is reported under `skipped`.
+    pub fn remove(&self, component_id: &str) -> Result<RemovalReport, ComponentError> {
+        let entry = self.entry(component_id)?;
+        self.verified_artifacts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&entry.sha256);
+        self.cache.remove_object(&entry.sha256)
+    }
+
+    /// Remove cached objects `retain` does not keep, plus orphaned `.install-*` staging
+    /// directories and stale `.lock` files. Objects loaded in this process are skipped, as are
+    /// files Windows refuses to delete; both are listed in the report.
+    pub fn prune(&self, retain: &Retain) -> Result<RemovalReport, ComponentError> {
+        let loaded = self.loaded.lock().unwrap_or_else(PoisonError::into_inner);
+        let protected: HashSet<String> = self
+            .entries
+            .values()
+            .filter(|entry| {
+                let prefix = format!("{}::", entry.identity.component);
+                loaded.keys().any(|key| key.starts_with(&prefix))
+            })
+            .map(|entry| entry.sha256.clone())
+            .collect();
+        drop(loaded);
+        let report = self
+            .cache
+            .prune_objects(retain, &self.locked_digests, &protected, SystemTime::now())?;
+        let mut verified = self.verified_artifacts.lock().unwrap_or_else(PoisonError::into_inner);
+        for path in &report.removed {
+            if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
+                verified.remove(name);
+            }
+        }
+        Ok(report)
     }
 
     /// Load one contract a component provides.
@@ -524,6 +641,64 @@ mod tests {
         // succeeding proves it reused the in-process cache instead.
         let prefetched = manager.prefetch(&["demo"]).unwrap();
         assert_eq!(prefetched, vec![fake]);
+    }
+
+    #[test]
+    fn lock_entry_exposes_version_digest_and_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = ComponentManager::from_lock(lock("target-a"), dir.path(), "target-a", host()).unwrap();
+        let entry = manager.lock_entry("demo").unwrap();
+        assert_eq!(entry.identity.version, "1.0.0");
+        assert_eq!(entry.sha256, hex::encode([3; 32]));
+        assert_eq!(manager.lock_entries().len(), 1);
+        assert!(matches!(
+            manager.lock_entry("missing"),
+            Err(ComponentError::ArtifactNotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn list_remove_and_prune_operate_on_the_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = ComponentManager::from_lock(lock("target-a"), dir.path(), "target-a", host()).unwrap();
+        let ours = dir.path().join("sha256").join(hex::encode([3; 32]));
+        let foreign = dir.path().join("sha256").join(hex::encode([7; 32]));
+        for path in [&ours, &foreign] {
+            std::fs::create_dir_all(path).unwrap();
+            std::fs::write(path.join("component.json"), b"{}").unwrap();
+        }
+
+        let listed = manager.list_cached().unwrap();
+        assert_eq!(listed.len(), 2);
+        let named: Vec<_> = listed.iter().filter_map(|object| object.component.as_deref()).collect();
+        assert_eq!(named, vec!["demo"]);
+
+        let report = manager.prune(&Retain::new().referenced_by_lock()).unwrap();
+        assert_eq!(report.removed, vec![foreign.clone()]);
+        assert!(ours.exists() && !foreign.exists());
+
+        let report = manager.remove("demo").unwrap();
+        assert_eq!(report.removed, vec![ours.clone()]);
+        assert_eq!(manager.status("demo").unwrap(), ComponentStatus::NotDownloaded);
+    }
+
+    #[test]
+    fn mirror_base_keeps_only_the_archive_file_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut remote = lock("target-a");
+        remote.artifacts[0].url = "https://origin.example/dl/demo-1.0.0.tar.gz?token=1".into();
+        let manager = ComponentManager::from_lock(remote, dir.path(), "target-a", host())
+            .unwrap()
+            .offline(true)
+            .with_mirror_base("https://mirror.example/components/");
+
+        let error = manager.prefetch(&["demo"]).unwrap_err();
+
+        assert!(matches!(
+            error,
+            ComponentError::Offline { ref url, .. }
+                if url == "https://mirror.example/components/demo-1.0.0.tar.gz"
+        ));
     }
 
     #[test]

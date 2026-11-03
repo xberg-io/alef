@@ -54,6 +54,8 @@ pub enum ComponentError {
     Download { url: String, message: String },
     #[error("component `{component}` is not cached and network access is disabled (would fetch `{url}`)")]
     Offline { component: String, url: String },
+    #[error("component download was cancelled")]
+    Cancelled,
     #[error("failed to load component library `{path}`: {message}")]
     LibraryLoad { path: PathBuf, message: String },
     #[error("component library does not export the requested entry point: {0}")]
@@ -137,6 +139,7 @@ impl ComponentError {
             Self::MissingLibrary(_) => "missing_library",
             Self::Download { .. } => "download_failed",
             Self::Offline { .. } => "offline",
+            Self::Cancelled => "cancelled",
             Self::LibraryLoad { .. } => "library_load_failed",
             Self::MissingEntrypoint(_) => "missing_entrypoint",
             Self::EntrypointFailed(_) => "entrypoint_failed",
