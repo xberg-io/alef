@@ -132,3 +132,6 @@ sources = ["src/lib.rs"]
         );
     }
 }
+
+#[cfg(test)]
+mod runtime_minimum_tests;

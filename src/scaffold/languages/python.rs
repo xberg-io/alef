@@ -858,3 +858,6 @@ sources = []
         );
     }
 }
+
+#[cfg(test)]
+mod minimum_version_tests;

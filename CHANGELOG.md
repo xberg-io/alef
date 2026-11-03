@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Qualify managed Python runtime minimums through real scaffold and E2E outputs while preserving
+  the maintenance default and existing Rust configuration literals.
+
 ## [0.115.15] - 2026-11-02
 
 ### Changed

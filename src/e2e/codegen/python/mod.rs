@@ -1374,3 +1374,6 @@ result_var = "result"
         );
     }
 }
+
+#[cfg(test)]
+mod minimum_version_tests;
