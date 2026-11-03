@@ -7,7 +7,8 @@ use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::Assertion;
 use std::fmt::Write as FmtWrite;
 
-use super::{dart_format_value, field_to_dart_accessor};
+use super::super::values::{collection_element_type, render_expected_value};
+use super::field_to_dart_accessor;
 
 fn render_tagged_union_leaf_assertion(
     out: &mut String,
@@ -15,8 +16,18 @@ fn render_tagged_union_leaf_assertion(
     field_expr: &str,
     is_collection: bool,
     is_optional: bool,
+    declared: Option<&crate::core::ir::TypeRef>,
 ) {
-    let value = assertion.value.as_ref().map(dart_format_value);
+    let element = declared.and_then(collection_element_type);
+    let value_type = if assertion.assertion_type == "contains" {
+        element
+    } else {
+        declared
+    };
+    let value = assertion
+        .value
+        .as_ref()
+        .map(|value| render_expected_value(value, value_type));
     match assertion.assertion_type.as_str() {
         "equals" | "field_equals" if assertion.value.as_ref().is_some_and(serde_json::Value::is_string) => {
             if let Some(value) = value {
@@ -35,7 +46,11 @@ fn render_tagged_union_leaf_assertion(
         }
         "contains_all" => {
             for item in assertion.values.iter().flatten() {
-                let _ = writeln!(out, "    expect({field_expr}, contains({}));", dart_format_value(item));
+                let _ = writeln!(
+                    out,
+                    "    expect({field_expr}, contains({}));",
+                    render_expected_value(item, element)
+                );
             }
         }
         "not_empty" if is_collection => {
@@ -44,11 +59,17 @@ fn render_tagged_union_leaf_assertion(
         "not_empty" => {
             let _ = writeln!(out, "    expect({field_expr}.toString(), isNotEmpty);");
         }
-        _ => render_tagged_union_numeric_assertion(out, assertion, field_expr, is_optional),
+        _ => render_tagged_union_numeric_assertion(out, assertion, field_expr, is_optional, declared),
     }
 }
 
-fn render_tagged_union_numeric_assertion(out: &mut String, assertion: &Assertion, field_expr: &str, is_optional: bool) {
+fn render_tagged_union_numeric_assertion(
+    out: &mut String,
+    assertion: &Assertion,
+    field_expr: &str,
+    is_optional: bool,
+    declared: Option<&crate::core::ir::TypeRef>,
+) {
     let length = || {
         if is_optional {
             format!("{field_expr}?.length ?? 0")
@@ -68,7 +89,11 @@ fn render_tagged_union_numeric_assertion(out: &mut String, assertion: &Assertion
             }
         }
         "greater_than_or_equal" => {
-            if let Some(value) = assertion.value.as_ref().map(dart_format_value) {
+            if let Some(value) = assertion
+                .value
+                .as_ref()
+                .map(|value| render_expected_value(value, declared))
+            {
                 let _ = writeln!(out, "    expect({field_expr}, greaterThanOrEqualTo({value}));");
             }
         }
@@ -173,7 +198,14 @@ pub(super) fn try_render_tagged_union_assertion(
     let is_collection =
         field_resolver.union_variant_field_is_collection_by_type(&leaf_union, &leaf_variant, &leaf_suffix);
     let is_optional = field_resolver.union_variant_field_is_optional(&leaf_union, &leaf_variant, &leaf_suffix);
-    render_tagged_union_leaf_assertion(out, assertion, &field_expr, is_collection, is_optional);
+    render_tagged_union_leaf_assertion(
+        out,
+        assertion,
+        &field_expr,
+        is_collection,
+        is_optional,
+        field_resolver.target_value_type(field),
+    );
     true
 }
 

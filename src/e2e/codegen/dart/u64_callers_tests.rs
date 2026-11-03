@@ -144,3 +144,6 @@ fn should_keep_unresolved_integer_callers_unchanged_instead_of_guessing_u64() {
     assert!(!source.contains("BigInt."), "{source}");
     assert_plain_call(&source, "echo_u64", 17);
 }
+
+#[path = "u64_expectations_tests.rs"]
+mod u64_expectations_tests;

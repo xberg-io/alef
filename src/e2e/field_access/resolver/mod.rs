@@ -8,3 +8,4 @@ mod construct;
 mod display_safety;
 mod go_shape;
 mod tagged_union_crossing;
+mod value_type;

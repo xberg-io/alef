@@ -379,9 +379,23 @@ pub(super) fn map_value_is_scalar_at_path(map: &impl MetadataView<IrResultFieldM
 /// an indexed leaf (`items[0]`), or its value type for a keyed leaf (`map[key]`). `None` when the
 /// anchored IR cannot resolve the path, so callers keep their untyped rendering.
 pub(super) fn value_type_at_path<'a>(map: &'a impl MetadataView<IrResultFieldMap>, path: &str) -> Option<&'a TypeRef> {
-    let (owner, leaf) = walk_to_owner(map, path)?;
+    value_type_at_path_from(map, map.root()?, path)
+}
+
+/// Resolve a declared leaf type relative to a known struct payload owner.
+pub(super) fn value_type_at_path_from<'a>(
+    map: &'a impl MetadataView<IrResultFieldMap>,
+    root: &str,
+    path: &str,
+) -> Option<&'a TypeRef> {
+    let segments = parse_path(path);
+    let last = segments.last()?;
+    if matches!(last, PathSegment::Length) {
+        return declared_counter_field_type(map, root, path);
+    }
+    let (owner, leaf) = walk_to_owner_from(map, root, path)?;
     let declared = map.data().field_type_refs.get(owner)?.get(&leaf)?;
-    match parse_path(path).last()? {
+    match last {
         PathSegment::Field(_) => Some(declared),
         PathSegment::ArrayField { .. } => vec_element_type(declared),
         PathSegment::MapAccess { .. } => map_value_type(declared),
@@ -389,7 +403,28 @@ pub(super) fn value_type_at_path<'a>(map: &'a impl MetadataView<IrResultFieldMap
     }
 }
 
-fn vec_element_type(ty: &TypeRef) -> Option<&TypeRef> {
+fn declared_counter_field_type<'a>(
+    map: &'a impl MetadataView<IrResultFieldMap>,
+    root: &str,
+    path: &str,
+) -> Option<&'a TypeRef> {
+    let (parent, leaf) = path.rsplit_once('.').unwrap_or(("", path));
+    let owner = if parent.is_empty() {
+        root
+    } else {
+        let mut declared = value_type_at_path_from(map, root, parent)?;
+        while let TypeRef::Optional(inner) = declared {
+            declared = inner;
+        }
+        let TypeRef::Named(owner) = declared else {
+            return None;
+        };
+        owner
+    };
+    map.data().field_type_refs.get(owner)?.get(leaf)
+}
+
+pub(super) fn vec_element_type(ty: &TypeRef) -> Option<&TypeRef> {
     match ty {
         TypeRef::Vec(inner) => Some(inner),
         TypeRef::Optional(inner) => vec_element_type(inner),

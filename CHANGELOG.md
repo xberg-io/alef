@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Compare Dart u64 expectations in tagged-union payloads and whole function results as exact BigInt values,
+  including declared fields named `count` and indexed variant-list elements. (#857)
+
 - Preserve unchanged duration, path and character values when converting Dart stream maps with `usize` keys. (#856)
 - Keep Dart streaming `usize` scalars, nested types and vectors consistent with the public binding's
   `int`/`Int64List` mapping by widening wire payloads before FRB encoding. Exercise native scalar,

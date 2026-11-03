@@ -113,6 +113,7 @@ impl FieldResolver {
             ir_collection_map: AnchoredMap::default(),
             non_string_scalar_collection_fields: HashMap::new(),
             ir_result_field_map: AnchoredMap::default(),
+            declared_result_value_type: None,
             result_is_byte_payload: false,
             python_typeddict_map: PythonTypedDictMap::default(),
             python_map_value_edges: HashMap::new(),
@@ -163,6 +164,7 @@ impl FieldResolver {
             ir_collection_map: AnchoredMap::default(),
             non_string_scalar_collection_fields: HashMap::new(),
             ir_result_field_map: AnchoredMap::default(),
+            declared_result_value_type: None,
             result_is_byte_payload: false,
             python_typeddict_map: PythonTypedDictMap::default(),
             python_map_value_edges: HashMap::new(),
@@ -552,6 +554,12 @@ impl FieldResolver {
     /// before this map existed — so wiring it in can never, on its own, change a verdict. ~keep
     pub(crate) fn with_ir_result_fields(mut self, map: IrResultFieldMap, root_type: Option<String>) -> Self {
         self.ir_result_field_map = AnchoredMap::new(Arc::new(map), root_type);
+        self
+    }
+
+    /// Preserve unnamed return types for assertions against the entire call result.
+    pub(crate) fn with_declared_result_value_type(mut self, ty: Option<crate::core::ir::TypeRef>) -> Self {
+        self.declared_result_value_type = ty;
         self
     }
 

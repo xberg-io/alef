@@ -277,15 +277,12 @@ pub(super) fn render_assertion_dart(
 
     // A numeric fixture value compared against a `BigInt`-typed binding value must itself be a
     // `BigInt`: `BigInt == int` is never true and the ordering matchers throw on mixed operands.
-    let declared = if result_is_simple {
-        None
+    let value_path = if result_is_simple {
+        ""
     } else {
-        assertion
-            .field
-            .as_deref()
-            .filter(|f| !f.is_empty())
-            .and_then(|f| field_resolver.target_value_type(f))
+        assertion.field.as_deref().unwrap_or("")
     };
+    let declared = field_resolver.target_value_type(value_path);
     let element_declared = declared.and_then(super::values::collection_element_type);
     let format_value = |val: &serde_json::Value| -> String { super::values::render_expected_value(val, declared) };
     let format_element =

@@ -59,7 +59,12 @@ pub(super) fn build_call_field_resolver(inputs: CallFieldResolverInputs<'_>) -> 
     if let Some(overrides) = call_config.overrides.get(lang) {
         effective_enum_fields.extend(overrides.enum_fields.keys().cloned());
     }
-    let call_root_type = resolve_declared_result_type(call_config, lang, CallIr { functions, type_defs });
+    let ir = CallIr { functions, type_defs };
+    let call_root_type = resolve_declared_result_type(call_config, lang, ir);
+    let declared_result = call_config
+        .core_lookup_name(lang)
+        .and_then(|name| ir.signature(&name))
+        .map(|signature| signature.return_type.clone());
 
     let (ir_reachable_fields, ir_known_excluded_fields, ir_optional_fields) = FieldResolver::ir_field_sets(type_defs);
     FieldResolver::new_with_error_aliases(e2e_config.effective_fields(call_config), e2e_config.effective_fields_optional(call_config), e2e_config.effective_result_fields(call_config), e2e_config.effective_fields_array(call_config), e2e_config.effective_fields_method_calls(call_config), &HashMap::new()).with_dart_first_class_map(dart_first_class_map.clone())
@@ -74,6 +79,7 @@ pub(super) fn build_call_field_resolver(inputs: CallFieldResolverInputs<'_>) -> 
     // returned false regardless of what `assertions.rs` checks it for. ~keep
     .with_ir_collection_map(FieldResolver::ir_collection_fields(type_defs), call_root_type.clone())
     .with_ir_result_fields(FieldResolver::ir_result_field_facts(type_defs, lang), call_root_type)
+    .with_declared_result_value_type(declared_result)
     .with_ir_fields(ir_reachable_fields, ir_known_excluded_fields, ir_optional_fields)
     .with_anchored_optional_paths(fixture.assertions.iter().filter_map(|a| a.field.as_deref()))
 }

@@ -21,8 +21,16 @@ pub(super) fn render(assertion: &Assertion, resolver: &FieldResolver, result: &s
     } else {
         indexed_leaf(resolver, element_type, &suffix, &payload)?
     };
-    let expected = assertion.value.as_ref().map(super::super::dart_format_value)?;
     let kind = assertion.assertion_type.as_str();
+    let declared = if kind == "count_equals" {
+        None
+    } else {
+        resolver.target_value_type(field)
+    };
+    let expected = assertion
+        .value
+        .as_ref()
+        .map(|value| super::super::super::values::render_expected_value(value, declared))?;
     if !matches!(kind, "count_equals" | "equals" | "field_equals") {
         return None;
     }
