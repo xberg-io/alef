@@ -177,12 +177,14 @@ pub fn js_client_construction(
     }
 }
 
-fn option_language_alias(language: &str) -> &str {
+fn option_language_aliases(language: &str) -> [&str; 3] {
     match language {
-        "wasm" => "typescript",
-        "kotlin_android" => "kotlin",
-        "php_ext" => "php",
-        _ => language,
+        "wasm" => [language, "node", "typescript"],
+        "node" => [language, "typescript", "typescript"],
+        "typescript" => [language, "node", "node"],
+        "kotlin_android" => [language, "kotlin", "kotlin"],
+        "php_ext" => [language, "php", "php"],
+        _ => [language, language, language],
     }
 }
 
@@ -192,7 +194,7 @@ fn option_override<'a>(
     language: &str,
     pick: impl Fn(&'a CallOverride) -> Option<&'a str>,
 ) -> Option<&'a str> {
-    let languages = [language, option_language_alias(language)];
+    let languages = option_language_aliases(language);
     [&call_config.overrides, &e2e_config.call.overrides]
         .into_iter()
         .find_map(|overrides| languages.iter().find_map(|name| overrides.get(*name).and_then(&pick)))
@@ -227,10 +229,11 @@ pub fn client_option_value_is_supported(value: &serde_json::Value) -> bool {
     }
 }
 
-const CLIENT_OPTIONS_LANGUAGES: [&str; 19] = [
+const CLIENT_OPTIONS_LANGUAGES: [&str; 20] = [
     "rust",
     "python",
     "typescript",
+    "node",
     "go",
     "java",
     "kotlin",

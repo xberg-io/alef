@@ -377,3 +377,32 @@ fn python_prefers_the_configured_json_factory_for_option_lists() {
     assert!(content.contains("smoke_client_options"), "{content}");
     assert!(!content.contains("class=1"), "{content}");
 }
+
+#[test]
+fn every_registered_client_generator_admits_a_configured_json_factory() {
+    let cfg = build_config("rust", RUST_FACTORIES);
+    let fixture = build_group(options()).fixtures.remove(0);
+    let mut count = 0;
+    for generator in all_generators() {
+        let language = generator.language_name();
+        if matches!(language, "brew" | "homebrew") {
+            continue;
+        }
+        let mut e2e = cfg.crates[0].e2e.clone().expect("e2e config");
+        e2e.call.overrides.insert(
+            language.into(),
+            alef::e2e::config::CallOverride {
+                client_factory: Some("create_client".into()),
+                client_factory_from_json: Some("create_client_from_json".into()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            fixture_inclusion(&fixture, language, &e2e),
+            InclusionDecision::Include,
+            "{language}"
+        );
+        count += 1;
+    }
+    assert_eq!(count, 19, "every registered non-CLI generator was checked");
+}
