@@ -8,8 +8,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[cfg(test)]
 mod tests;
+mod workspace;
 
-/// Parsed configuration for `[extensions.python_host_aliases.traits.<trait>]`.
+pub(crate) use workspace::read_for_crate;
+
+/// Parsed callback aliases for one source crate or direct backend instance.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PythonHostAliases {
@@ -139,10 +142,7 @@ impl Extension for PythonHostAliasesExtension {
 
     fn parse_config(&self, raw: Option<&toml::Value>) -> Result<ExtensionConfig> {
         match raw {
-            Some(raw) => Ok(ExtensionConfig::with_typed(
-                PythonHostAliases::from_raw(raw)?,
-                raw.clone(),
-            )),
+            Some(raw) => Ok(ExtensionConfig::with_typed(workspace::parse(raw)?, raw.clone())),
             None => Ok(ExtensionConfig::empty()),
         }
     }

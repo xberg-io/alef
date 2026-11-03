@@ -9,11 +9,17 @@ pub(super) struct ConfiguredPyo3Backend {
 }
 
 impl Pyo3Backend {
-    /// Configure explicit Result callback aliases from the built-in extension table.
+    /// Configure explicit Result callback aliases for this backend instance.
     pub fn with_host_aliases(raw: &toml::Value) -> anyhow::Result<impl Backend + use<>> {
-        Ok(ConfiguredPyo3Backend {
-            host_aliases: crate::extensions::python_host_aliases::PythonHostAliases::from_raw(raw)?,
-        })
+        Ok(Self::with_parsed_host_aliases(
+            crate::extensions::python_host_aliases::PythonHostAliases::from_raw(raw)?,
+        ))
+    }
+
+    pub(crate) fn with_parsed_host_aliases(
+        host_aliases: crate::extensions::python_host_aliases::PythonHostAliases,
+    ) -> impl Backend + use<> {
+        ConfiguredPyo3Backend { host_aliases }
     }
 }
 

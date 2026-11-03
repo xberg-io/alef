@@ -105,6 +105,7 @@ pub fn generate(
     config_path: &Path,
     write_cache: bool,
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
+    let aliases_for_crate = crate::extensions::python_host_aliases::read_for_crate(config_path, &config.name)?;
     // Report against the extracted source surface, then project the documentation used by every
     // backend so it cannot advertise a foreign cfg-only variant that none of them emit. ~keep
     crate::codegen::foreign_cfg_variants::warn_foreign_cfg_gated_variants(api, config, languages);
@@ -179,16 +180,16 @@ pub fn generate(
             let validated_api = trait_bridge::validated_language_surface(&pruned, validated_api);
 
             let host_aliases = if *lang == Language::Python {
-                crate::core::extension::read_extension_config(config_path, "python_host_aliases")?
+                aliases_for_crate.clone()
             } else {
                 None
             };
-            let mut files = if let Some(raw) = host_aliases {
+            let mut files = if let Some(aliases) = host_aliases {
                 anyhow::ensure!(
                     backend.name() == "pyo3",
                     "python_host_aliases requires the PyO3 backend"
                 );
-                crate::backends::pyo3::Pyo3Backend::with_host_aliases(&raw)?
+                crate::backends::pyo3::Pyo3Backend::with_parsed_host_aliases(aliases)
                     .generate_bindings_checked(validated_api, config)
             } else {
                 backend.generate_bindings_checked(validated_api, config)

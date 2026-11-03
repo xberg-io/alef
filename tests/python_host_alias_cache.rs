@@ -3,7 +3,7 @@ use std::process::{Command, Output};
 
 fn configure(root: &Path, target: Option<&str>) {
     let aliases = target.map_or_else(String::new, |target| {
-        format!("\n[extensions.python_host_aliases.traits.Counter]\nchecked_count = '{target}'\n")
+        format!("\n[extensions.python_host_aliases.crates.sample.traits.Counter]\nchecked_count = '{target}'\n")
     });
     let config = format!(
         "[workspace]\nalef_version='{}'\nlanguages=['python']\n\
@@ -87,4 +87,104 @@ fn alias_changes_and_removal_invalidate_a_real_warm_generation_cache() {
         assert_ne!(after, before);
         assert_eq!(after.contains("match obj.getattr(\"checked_count\")"), target.is_some());
     }
+}
+
+fn workspace(root: &Path, alias_crate: &str) {
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[workspace]\nmembers=['a','b']\nresolver='3'\n",
+    )
+    .unwrap();
+    for (dir, name) in [("a", "sample-a"), ("b", "sample-b")] {
+        std::fs::create_dir_all(root.join(dir).join("src")).unwrap();
+        std::fs::write(
+            root.join(dir).join("Cargo.toml"),
+            format!("[package]\nname='{name}'\nversion='0.1.0'\nedition='2024'\n"),
+        )
+        .unwrap();
+    }
+    std::fs::write(
+        root.join("a/src/lib.rs"),
+        include_str!("fixtures/python_host_aliases/core.rs"),
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("b/src/lib.rs"),
+        "pub fn identity(value: u32) -> u32 { value }\n",
+    )
+    .unwrap();
+    let config = format!(
+        "[workspace]\nalef_version='{}'\nlanguages=['python']\n\
+         [[crates]]\nname='sample-a'\ncore_import='sample_a'\nsources=['a/src/lib.rs']\n\
+         version_from='a/Cargo.toml'\nerror_type='Error'\nerror_constructor='Error::from({{msg}})'\n\
+         [crates.output]\npython='bindings/a'\n\
+         [[crates.trait_bridges]]\ntrait_name='Counter'\n\
+         [crates.generate]\npublic_api=false\n\
+         [[crates]]\nname='sample-b'\ncore_import='sample_b'\nsources=['b/src/lib.rs']\n\
+         version_from='b/Cargo.toml'\n[crates.output]\npython='bindings/b'\n\
+         [crates.generate]\npublic_api=false\n\
+         [extensions.python_host_aliases.crates.{alias_crate}.traits.Counter]\nchecked_count='count'\n",
+        env!("CARGO_PKG_VERSION")
+    );
+    std::fs::write(root.join("alef.toml"), config).unwrap();
+}
+
+fn rust_snapshot(root: &Path) -> std::collections::BTreeMap<std::path::PathBuf, Vec<u8>> {
+    walkdir::WalkDir::new(root)
+        .into_iter()
+        .map(Result::unwrap)
+        .filter(|entry| entry.file_type().is_file() && entry.path().extension().is_some_and(|ext| ext == "rs"))
+        .map(|entry| {
+            (
+                entry.path().strip_prefix(root).unwrap().to_path_buf(),
+                std::fs::read(entry.path()).unwrap(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn crate_scoped_aliases_allow_unrelated_python_generation_and_readonly_verify() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path();
+    workspace(root, "sample-a");
+    success(run(root, &["generate", "--lang", "python"]));
+    assert!(binding(root).contains("match obj.getattr(\"checked_count\")"));
+    let before = rust_snapshot(root);
+    let unrelated: Vec<_> = before
+        .values()
+        .filter(|bytes| {
+            let source = String::from_utf8_lossy(bytes);
+            source.contains("#[pymodule]") && source.contains("identity")
+        })
+        .collect();
+    assert_eq!(unrelated.len(), 1, "the second Python crate must actually be emitted");
+    assert!(!String::from_utf8_lossy(unrelated[0]).contains("checked_count"));
+    success(run(root, &["verify"]));
+    assert_eq!(
+        rust_snapshot(root),
+        before,
+        "read-only verification must not rewrite Rust output"
+    );
+}
+
+#[test]
+fn misspelled_alias_crates_fail_before_binding_writes() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path();
+    workspace(root, "sample-typo");
+    let before = rust_snapshot(root);
+    let failed = run(root, &["generate", "--lang", "python"]);
+    assert!(!failed.status.success());
+    let report = format!(
+        "{}{}",
+        String::from_utf8_lossy(&failed.stdout),
+        String::from_utf8_lossy(&failed.stderr)
+    );
+    assert!(report.contains("unknown crate `sample-typo`"), "{report}");
+    assert_eq!(
+        rust_snapshot(root),
+        before,
+        "invalid scope must not emit bindings for any crate"
+    );
 }

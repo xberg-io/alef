@@ -4,9 +4,12 @@ A Rust trait can add a fallible callback while keeping an existing Python protoc
 Declare the host method explicitly; Alef does not infer aliases from names or default bodies.
 
 ```toml
-[extensions.python_host_aliases.traits.TokenizerBackend]
+[extensions.python_host_aliases.crates.xberg.traits.TokenizerBackend]
 try_count_tokens = "count_tokens"
 ```
+
+Aliases apply only to the named source crate; unknown crate keys are rejected against
+the entire workspace before emission. Other crates keep their own callback contracts.
 
 The configured Rust method must be a defaulted, synchronous `&self` method returning
 `Result<T, E>`. Its target must be a required, infallible method on the same trait with
@@ -23,7 +26,8 @@ required Python protocol method and changes no other language's callback behavio
 The built-in extension validates aliases before emitting bindings. Normal generation
 and read-only verification use the same configured emitter, and the raw extension
 configuration participates in existing generation/cache input hashes. Rust callers
-can opt in through `Pyo3Backend::with_host_aliases`; constructing the existing unit
+can opt in through `Pyo3Backend::with_host_aliases` using its already-scoped
+`[traits.TokenizerBackend]` table. Constructing the existing unit
 `Pyo3Backend` retains its behavior and public layout.
 
 An added Rust trait method can still affect C callback layouts. Configure the existing

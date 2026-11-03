@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Scope Python host callback aliases to explicit source crates, rejecting unknown workspace crate names.
 - Preserve fallible Python host aliases through unrelated Rust default callback delegates.
 
 ### Added
