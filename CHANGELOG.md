@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Configure explicit Python host callback aliases through `extensions.python_host_aliases`, preserving fallible callback errors and existing host overrides without changing public config or IR layouts.
+  See [ADR 0019](https://github.com/xberg-io/alef/blob/6ab050d4e911067fb3919371d2d04d61cdd6c8fb/adrs/0019-configure-python-callback-host-aliases-explicitly.md).
 
 ## [0.115.16] - 2026-11-03
 

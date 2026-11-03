@@ -142,7 +142,7 @@ impl Extension for PythonHostAliasesExtension {
 
     fn parse_config(&self, raw: Option<&toml::Value>) -> Result<ExtensionConfig> {
         match raw {
-            Some(raw) => Ok(ExtensionConfig::with_typed(workspace::parse(raw)?, raw.clone())),
+            Some(raw) => Ok(ExtensionConfig::with_typed(workspace::parse(raw)?, Some(raw.clone()))),
             None => Ok(ExtensionConfig::empty()),
         }
     }

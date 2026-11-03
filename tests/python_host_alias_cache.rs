@@ -63,12 +63,30 @@ fn alias_changes_and_removal_invalidate_a_real_warm_generation_cache() {
     )
     .unwrap();
     configure(root, Some("count"));
-    success(run(root, &["generate", "--lang", "python"]));
+    success(run(
+        root,
+        &[
+            "all",
+            "--clean",
+            "--strict",
+            "--skip-compile",
+            "--skip-snippet-validation",
+            "--skip-frb",
+            "--jobs",
+            "1",
+        ],
+    ));
     let before = binding(root);
     assert!(before.contains("match obj.getattr(\"checked_count\")"));
     success(run(root, &["generate", "--lang", "python"]));
     assert_eq!(binding(root), before);
-    success(run(root, &["verify"]));
+    let verify_before = rust_snapshot(root);
+    let verified = run(root, &["verify"]);
+    let coverage = String::from_utf8_lossy(&verified.stdout);
+    assert!(coverage.contains("managed surface: 13 path(s)"), "{coverage}");
+    assert!(coverage.contains("0 absent"), "{coverage}");
+    success(verified);
+    assert_eq!(rust_snapshot(root), verify_before, "verify must be read-only");
     for target in [Some("alternate"), None] {
         configure(root, target);
         let stale = run(root, &["verify"]);
@@ -81,7 +99,10 @@ fn alias_changes_and_removal_invalidate_a_real_warm_generation_cache() {
             String::from_utf8_lossy(&stale.stdout),
             String::from_utf8_lossy(&stale.stderr)
         );
-        assert!(report.contains("sample") && report.contains("stale"), "{report}");
+        assert!(
+            report.contains("sample") && report.contains("changed since their last successful"),
+            "{report}"
+        );
         success(run(root, &["generate", "--lang", "python"]));
         let after = binding(root);
         assert_ne!(after, before);
@@ -144,28 +165,48 @@ fn rust_snapshot(root: &Path) -> std::collections::BTreeMap<std::path::PathBuf, 
 }
 
 #[test]
-fn crate_scoped_aliases_allow_unrelated_python_generation_and_readonly_verify() {
+fn crate_scoped_aliases_preserve_unrelated_python_output_across_warm_generation() {
     let fixture = tempfile::tempdir().unwrap();
     let root = fixture.path();
     workspace(root, "sample-a");
     success(run(root, &["generate", "--lang", "python"]));
     assert!(binding(root).contains("match obj.getattr(\"checked_count\")"));
     let before = rust_snapshot(root);
-    let unrelated: Vec<_> = before
-        .values()
-        .filter(|bytes| {
-            let source = String::from_utf8_lossy(bytes);
-            source.contains("#[pymodule]") && source.contains("identity")
-        })
+    let generated: Vec<_> = before
+        .keys()
+        .filter(|path| path.starts_with("bindings"))
+        .map(std::path::PathBuf::as_path)
         .collect();
-    assert_eq!(unrelated.len(), 1, "the second Python crate must actually be emitted");
-    assert!(!String::from_utf8_lossy(unrelated[0]).contains("checked_count"));
-    success(run(root, &["verify"]));
+    assert_eq!(
+        generated,
+        [Path::new("bindings/a/lib.rs"), Path::new("bindings/b/lib.rs")]
+    );
+    let unrelated = &before[Path::new("bindings/b/lib.rs")];
+    let unrelated_source = String::from_utf8_lossy(unrelated);
+    assert!(unrelated_source.contains("#[pymodule]"));
+    assert!(unrelated_source.contains("pub fn identity("));
+    assert!(unrelated_source.contains("wrap_pyfunction!(identity,"));
+    assert!(!unrelated_source.contains("checked_count"));
+    success(run(root, &["generate", "--lang", "python"]));
     assert_eq!(
         rust_snapshot(root),
         before,
-        "read-only verification must not rewrite Rust output"
+        "warm generation must retain both configured Python outputs"
     );
+    let mut config: toml::Value = toml::from_str(&std::fs::read_to_string(root.join("alef.toml")).unwrap()).unwrap();
+    let target =
+        &mut config["extensions"]["python_host_aliases"]["crates"]["sample-a"]["traits"]["Counter"]["checked_count"];
+    assert_eq!(target.as_str(), Some("count"));
+    *target = toml::Value::String("alternate".to_owned());
+    std::fs::write(root.join("alef.toml"), toml::to_string(&config).unwrap()).unwrap();
+    success(run(root, &["generate", "--lang", "python"]));
+    let changed = rust_snapshot(root);
+    assert_eq!(&changed[Path::new("bindings/b/lib.rs")], unrelated);
+    assert_ne!(
+        changed[Path::new("bindings/a/lib.rs")],
+        before[Path::new("bindings/a/lib.rs")]
+    );
+    assert!(binding(root).contains("obj.getattr(\"alternate\")"));
 }
 
 #[test]
