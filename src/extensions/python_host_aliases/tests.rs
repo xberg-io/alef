@@ -193,3 +193,33 @@ fn aliases_do_not_add_required_protocol_methods() {
     };
     assert_eq!(bytes(aliased), bytes(original));
 }
+
+#[test]
+fn unrelated_default_delegate_forwards_the_aliased_fallible_callback() {
+    use crate::core::backend::Backend as _;
+    let mut api = surface();
+    let mut describe = api.types[0].methods[1].clone();
+    describe.name = "describe".into();
+    api.types[0].methods.push(describe);
+    let raw = toml::from_str("[traits.Counter]\nchecked_count = 'count'").unwrap();
+    let backend = crate::backends::pyo3::Pyo3Backend::with_host_aliases(&raw).unwrap();
+    let code: String = backend
+        .generate_bindings(&api, &config())
+        .unwrap()
+        .into_iter()
+        .map(|f| f.content)
+        .collect();
+    let delegate = code
+        .split("impl sample::Counter for PyCounterBridgeDefaultDescribe<'_> {")
+        .nth(1)
+        .expect("the unrelated default must have a Rust fallback delegate")
+        .split("\n}\n")
+        .next()
+        .unwrap();
+    assert!(delegate.contains("fn checked_count("), "{delegate}");
+    assert!(
+        delegate.contains("sample::Counter::checked_count(self.0, text)"),
+        "{delegate}"
+    );
+    assert!(!code.contains("struct PyCounterBridgeDefaultCheckedCount"));
+}

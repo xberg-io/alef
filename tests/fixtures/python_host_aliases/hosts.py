@@ -44,3 +44,19 @@ class AttributeDescriptorFailure(Legacy):
 
 class Missing:
     """Omit the required legacy host method."""
+
+
+class Negative(Legacy):
+    """Return an integer outside the Rust unsigned range."""
+
+    def count(self, _text: str) -> int:
+        """Exercise fallible unsigned conversion."""
+        return -1
+
+
+class NonInteger(Legacy):
+    """Return an incompatible host value."""
+
+    def count(self, _text: str) -> str:
+        """Exercise fallible result type conversion."""
+        return "not-an-integer"

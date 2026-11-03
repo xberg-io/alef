@@ -7,4 +7,8 @@ pub trait Counter {
     fn checked_count(&self, text: &str) -> Result<usize, Error> {
         Ok(self.count(text))
     }
+
+    fn describe(&self, text: &str) -> Result<usize, Error> {
+        self.checked_count(text)
+    }
 }

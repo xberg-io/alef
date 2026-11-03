@@ -54,8 +54,9 @@ pub fn gen_bridge_default_delegates(spec: &TraitBridgeSpec, generator: &dyn Trai
     if let Some(code) = super::generator::disabled_code(generator) {
         return code;
     }
-    let forwarded = guarded_defaulted_methods(spec, generator);
-    if forwarded.is_empty() {
+    let forwarded = forwarded_defaulted_methods(spec, generator);
+    let guarded = guarded_defaulted_methods(spec, generator);
+    if guarded.is_empty() {
         return String::new();
     }
 
@@ -78,7 +79,7 @@ pub fn gen_bridge_default_delegates(spec: &TraitBridgeSpec, generator: &dyn Trai
         .collect();
 
     let mut out = String::with_capacity(2048);
-    for (i, defaulted) in forwarded.iter().enumerate() {
+    for (i, defaulted) in guarded.iter().enumerate() {
         if i > 0 {
             out.push_str("\n\n");
         }
