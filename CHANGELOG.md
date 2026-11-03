@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve unchanged duration, path and character values when converting Dart stream maps with `usize` keys. (#856)
+- Keep Dart streaming `usize` scalars, nested types and vectors consistent with the public binding's
+  `int`/`Int64List` mapping by widening wire payloads before FRB encoding. Exercise native scalar,
+  container and named DTO streams while preserving full-width `u64` as `BigInt`/`Uint64List`. (#856)
 - Keep queued main CI commits in independent concurrency groups while cancelling superseded pull request runs. (#855)
 - Verify newly prepared release drafts by their created ID while GitHub tag and list discovery are stale. (#854)
 - Include source-bound draft discovery regressions in the native publication verification gate. (#854)

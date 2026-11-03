@@ -26,7 +26,7 @@ _rt.spawn(async move {
 {% else %}
                         let value: {{ item_type }} = chunk.into();
 {% if transport %}
-                        let value = {{ transport.carrier }}({{ transport.wire }}::Item { value: ::std::boxed::Box::new(value) });
+                        let value = {{ transport.carrier }}::item(value);
 {% endif %}
 {% endif %}
                         if sink.add(value).is_err() { break; }
