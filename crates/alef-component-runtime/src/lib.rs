@@ -35,17 +35,19 @@
 mod cache;
 mod download;
 mod error;
+mod host_services;
 mod keys;
 mod loader;
 mod maintenance;
 mod manager;
 mod manifest;
-pub mod target;
 mod stamp;
+pub mod target;
 
 pub use cache::{ArtifactCache, CachedArtifact, TrustPolicy};
 pub use download::{DownloadOptions, ProgressCallback};
 pub use error::ComponentError;
+pub use host_services::HostServices;
 pub use keys::decode_public_key;
 pub use loader::{
     ComponentInstance, ComponentRequirements, LoadedComponent, Runtime, take_owned_bytes, take_owned_text,

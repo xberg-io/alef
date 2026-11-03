@@ -685,6 +685,10 @@ pub(crate) enum ComponentAction {
         #[arg(long)]
         url_template: Option<String>,
     },
+    /// Print each component contract's hash, as recorded in the component lock.
+    ///
+    /// One `component contract hash` line per provided contract; select crates with `--crate`.
+    ContractHash,
     /// Verify artifact hashes, identities, library contents, and Ed25519 signatures.
     Verify {
         /// Artifact record file or directory containing `*.record.json` files.

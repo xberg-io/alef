@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Read the component signing key from an environment variable (`--signing-key-env`) or stdin (`--signing-key -`). (#834)
 - Make the component target list configurable and add runtime `host_target()` detection. (#840)
 - Pass the host API to producer constructors through a `FromHost` constructor, so implementations can use `HostApi` logging. (#837)
+- Add a versioned host service table (`service_call` / `service_notify`) to `AlefHostApiV1`, `HostApi::call_service` / `notify` on the producer side and a `HostServices` trait with `ComponentManager::with_host_services` on the host side. Hosts built before the table remain loadable and report `Unsupported`. (#838)
+- Add `[crates.component_host]` to generate a standalone Rust host module (contract tables, proxies, entry-symbol and contract-hash constants, `component_manager` constructor) for hosts without ffi/pyo3 bindings, and `alef component contract-hash` to print each contract's lock hash. (#825)
 
 ### Changed (BREAKING)
 
@@ -30,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Raise the emitted language floors ([ADR 0014](adrs/0014-raise-the-generated-minimums-for-the-other-host-languages.md)) to Node 22, Ruby 3.3, PHP 8.3, Elixir 1.17, Go 1.27, Java 25, R 4.4, macOS 26 (SwiftPM tools-version 6.2) and Rust 1.99; alef's own crates now declare `rust-version = "1.99"`.
 - Record the strict Swift consumer gate's compiler-matched LLVM reader decision in
   [ADR 0013](adrs/0013-inspect-swift-archives-with-the-selected-rust-toolchain-s-llvm.md).
+
+### Documentation
+
+- Record the component ABI, manifest/lock and contract-hash stability policy and consumer pinning guidance in
+  [ADR 0015](adrs/0015-abi-and-runtime-stability-policy-for-component-crates.md). (#845)
 
 ### Fixed
 

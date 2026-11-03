@@ -2,7 +2,8 @@ use crate::loader::{decode_hash, validate_manifest};
 use crate::manifest::COMPONENT_MANIFEST_SCHEMA;
 use crate::{
     ArtifactCache, CachedArtifact, CachedObject, ComponentDeliveryMode, ComponentError, ComponentLock,
-    ComponentLockEntry, ComponentRequirements, DownloadOptions, LoadedComponent, RemovalReport, Retain, TrustPolicy,
+    ComponentLockEntry, ComponentRequirements, DownloadOptions, HostServices, LoadedComponent, RemovalReport, Retain,
+    TrustPolicy,
 };
 use alef_component_abi::AlefHostApiV1;
 use std::collections::{HashMap, HashSet};
@@ -58,6 +59,7 @@ pub struct ComponentManager {
     /// [`Retain::referenced_by_lock`] keeps.
     locked_digests: HashSet<String>,
     host: AlefHostApiV1,
+    host_services: Option<Arc<dyn HostServices>>,
 }
 
 // SAFETY: `LoadedComponent` is thread-safe metadata and the host callback
@@ -103,7 +105,17 @@ impl ComponentManager {
             lock_is_empty,
             locked_digests,
             host,
+            host_services: None,
         })
+    }
+
+    /// Expose `services` to components loaded from now on, through the host table's
+    /// `service_call` / `service_notify` callbacks. Components already loaded keep the table
+    /// they were created with, so call this before [`Self::ensure_contract`].
+    #[must_use]
+    pub fn with_host_services(mut self, services: Arc<dyn HostServices>) -> Self {
+        self.host_services = Some(services);
+        self
     }
 
     /// Disable network downloads: [`Self::ensure_contract`] and [`Self::prefetch`] fail a
@@ -262,11 +274,12 @@ impl ComponentManager {
         let requirements = contract_requirements(entry, contract_name)?;
         let cached = self.cached_artifact(entry)?;
         validate_manifest(&cached.manifest, &requirements)?;
-        let component = Arc::new(LoadedComponent::load(
+        let component = Arc::new(LoadedComponent::load_with_services(
             cached.library,
             entry_symbol,
             &requirements,
             self.host,
+            self.host_services.clone(),
         )?);
         self.insert_loaded(cache_key, Arc::clone(&component));
         Ok(component)
@@ -435,15 +448,13 @@ mod tests {
     use super::*;
     use crate::ComponentIdentity;
     use std::collections::BTreeMap;
-    use std::ffi::c_void;
 
     fn host() -> AlefHostApiV1 {
         AlefHostApiV1 {
             struct_size: 0,
             abi_major: 0,
             abi_minor: 0,
-            context: core::ptr::null_mut::<c_void>(),
-            log: None,
+            ..AlefHostApiV1::EMPTY
         }
     }
 

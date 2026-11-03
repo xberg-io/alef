@@ -8,6 +8,7 @@ pub mod builder;
 pub mod c_consumer;
 pub mod cfg;
 pub mod component;
+pub mod component_host;
 pub mod component_producer;
 pub mod component_proxy;
 pub mod config_gen;

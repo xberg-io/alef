@@ -194,3 +194,19 @@ fn validate_component_distribution(
 fn invalid_component_config<T>(crate_name: &str, message: impl std::fmt::Display) -> Result<T, ResolveError> {
     Err(ResolveError::InvalidConfig(format!("crate `{crate_name}`: {message}")))
 }
+
+/// Validate `[crates.component_host]`: the paths are well formed and the crate has components.
+pub(super) fn validate_component_host(krate: &RawCrateConfig) -> Result<(), ResolveError> {
+    let Some(host) = &krate.component_host else {
+        return Ok(());
+    };
+    host.validate()
+        .or_else(|reason| invalid_component_config(&krate.name, reason))?;
+    if krate.components.is_empty() {
+        return invalid_component_config(
+            &krate.name,
+            "component_host requires at least one `[[crates.components]]` entry",
+        );
+    }
+    Ok(())
+}

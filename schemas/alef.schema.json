@@ -1369,6 +1369,27 @@
       },
       "type": "object"
     },
+    "ComponentHostConfig": {
+      "additionalProperties": false,
+      "description": "A standalone Rust host module for hosts that load components without an ffi/pyo3 binding.\n\n`alef generate` writes one Rust file at `output` holding the contract tables, proxies,\nentry-symbol constants and a `component_manager` constructor over the embedded lock.",
+      "properties": {
+        "lock_path": {
+          "description": "Path of `components.lock.json` as written in the module's `include_str!`, relative to the\ngenerated module's directory. Defaults to [`DEFAULT_COMPONENT_HOST_LOCK_PATH`] (next to\nthe module). `alef component lock` stages the lock at this location.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output": {
+          "description": "Path of the generated Rust module, relative to the project root. Must end in `.rs`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "output"
+      ],
+      "type": "object"
+    },
     "ComponentProvidesConfig": {
       "additionalProperties": false,
       "description": "One contract a component implements, and the Rust type that implements it.",
@@ -5697,6 +5718,18 @@
           ],
           "default": null,
           "description": "Download and signature-verification settings for this crate's components,\nmerged field by field over `[workspace] component_distribution` -- see\n[`ComponentDistributionConfig::merge`]."
+        },
+        "component_host": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComponentHostConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Standalone Rust host module for non-binding hosts that load this crate's components."
         },
         "components": {
           "default": [],

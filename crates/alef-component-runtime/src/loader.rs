@@ -1,6 +1,7 @@
+use crate::host_services::ServicesHandle;
 use crate::{
     ArtifactCache, COMPONENT_ABI_VERSION, COMPONENT_MANIFEST_SCHEMA, ComponentError, ComponentLockEntry,
-    ComponentManifest,
+    ComponentManifest, HostServices,
 };
 use alef_component_abi::{
     ABI_MAJOR_V1, ABI_MINOR_V1, AlefComponentEntryV1, AlefComponentV1, AlefContract, AlefHostApiV1, AlefOwnedBuffer,
@@ -56,6 +57,8 @@ pub struct LoadedComponent {
     library: Arc<Library>,
     descriptor: NonNull<AlefComponentV1>,
     host: Box<AlefHostApiV1>,
+    /// Keeps the context behind the host table's service callbacks alive with the component.
+    _services: Option<ServicesHandle>,
     component_id: String,
     component_version: String,
 }
@@ -99,12 +102,29 @@ impl LoadedComponent {
         path: impl Into<std::path::PathBuf>,
         entry_symbol: &[u8],
         requirements: &ComponentRequirements,
+        host: AlefHostApiV1,
+    ) -> Result<Self, ComponentError> {
+        Self::load_with_services(path, entry_symbol, requirements, host, None)
+    }
+
+    /// Like [`Self::load`], additionally publishing `services` through the host table's
+    /// `service_call` / `service_notify` callbacks. With `None` the service fields of `host`
+    /// are passed through unchanged (null by default, so components see no service table).
+    pub fn load_with_services(
+        path: impl Into<std::path::PathBuf>,
+        entry_symbol: &[u8],
+        requirements: &ComponentRequirements,
         mut host: AlefHostApiV1,
+        services: Option<Arc<dyn HostServices>>,
     ) -> Result<Self, ComponentError> {
         let path = path.into();
         host.struct_size = core::mem::size_of::<AlefHostApiV1>();
         host.abi_major = ABI_MAJOR_V1;
         host.abi_minor = ABI_MINOR_V1;
+        let services = services.map(ServicesHandle::new);
+        if let Some(handle) = &services {
+            handle.install(&mut host);
+        }
         let host = Box::new(host);
 
         let library = Arc::new(
@@ -136,6 +156,7 @@ impl LoadedComponent {
             library,
             descriptor,
             host,
+            _services: services,
             component_id: validated.0,
             component_version: validated.1,
         })

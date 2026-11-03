@@ -77,3 +77,13 @@ fn component_build_and_package_accept_a_shared_target_dir() {
     };
     assert_eq!(target_dir, Some(PathBuf::from("target/c")));
 }
+
+#[test]
+fn component_contract_hash_parses_with_a_crate_filter() {
+    assert!(matches!(
+        component_action(&["contract-hash"]).unwrap(),
+        ComponentAction::ContractHash
+    ));
+    let cli = Cli::try_parse_from(["alef", "component", "contract-hash", "--crate", "demo"]).unwrap();
+    assert_eq!(cli.crate_filter, vec!["demo".to_string()]);
+}

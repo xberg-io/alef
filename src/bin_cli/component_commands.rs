@@ -7,6 +7,7 @@ use anyhow::{Context, Result, anyhow, bail, ensure};
 
 use crate::cli::{dispatch, pipeline};
 use crate::codegen::component::{ResolvedComponent, resolve_component_targets, resolve_components};
+use crate::codegen::component_host::contract_hash_rows;
 use crate::component::artifact::{
     ComponentArtifactRecord, ComponentLock, PackageInput, ProvidedContractInput, SigningKeySource, build_lock,
     build_unsigned_lock, canonical_json, create_manifest, dynamic_library_name, feature_hash,
@@ -283,6 +284,23 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             }
             Ok(None)
         }
+        ComponentAction::ContractHash => {
+            for config in &crates {
+                let mut contracts = extract_contracts(config, &context.config_path)?;
+                let ordered = config
+                    .components
+                    .iter()
+                    .filter_map(|component| contracts.remove(component.name.as_str()))
+                    .collect::<Vec<_>>();
+                let mut stdout = std::io::stdout().lock();
+                for line in contract_hash_lines(&config.name, &ordered)? {
+                    // The hashes are the command's machine-readable result, so they go to stdout.
+                    std::io::Write::write_all(&mut stdout, format!("{line}\n").as_bytes())
+                        .context("failed to write the contract hashes")?;
+                }
+            }
+            Ok(None)
+        }
         ComponentAction::Verify { input } => {
             let records = records_in(&input)?;
             ensure!(
@@ -321,6 +339,16 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             Ok(None)
         }
     }
+}
+
+/// The `component contract hash` output lines for one crate's resolved components.
+fn contract_hash_lines(crate_name: &str, resolved: &[ResolvedComponent]) -> Result<Vec<String>> {
+    Ok(contract_hash_rows(resolved)?
+        .into_iter()
+        .map(|(component, contract, hash)| {
+            format!("component contract hash crate={crate_name} component={component} contract={contract} hash={hash}")
+        })
+        .collect())
 }
 
 /// Map the mutually exclusive `--signing-key` / `--signing-key-env` flags to a key source;
@@ -566,6 +594,9 @@ pub(crate) fn bootstrap_missing_component_locks(config: &ResolvedCrateConfig, ba
 
 pub(crate) fn binding_component_lock_paths(config: &ResolvedCrateConfig) -> BTreeSet<PathBuf> {
     let mut paths = BTreeSet::new();
+    if let Some(host) = &config.component_host {
+        paths.insert(host.lock_file_path());
+    }
     for language in &config.languages {
         match language {
             Language::Python => {

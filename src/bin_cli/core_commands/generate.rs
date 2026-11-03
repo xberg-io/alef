@@ -251,6 +251,17 @@ pub(crate) fn handle_generate(
             }
         }
 
+        if let Some(host_file) = crate::codegen::component_host::generate_component_host(&api, resolved_cfg)? {
+            let host_files = vec![(crate::core::config::Language::Rust, vec![host_file])];
+            current_gen_paths.extend(pipeline::stampable_output_paths(&host_files[0].1, &base_dir));
+            let report = pipeline::write_files_report(&host_files, &base_dir)?;
+            refusals.absorb_unwritten(&report);
+            let host_count = report.changed_count();
+            written_count += host_count;
+            any_written |= host_count > 0;
+            tracing::info!("Generated {host_count} component host files");
+        }
+
         if resolved_cfg.generate.public_api {
             let public_api_files = pipeline::generate_public_api(&api, resolved_cfg, &languages, config_path)?;
             if !public_api_files.is_empty() {

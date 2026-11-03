@@ -234,3 +234,116 @@ impl ComponentDistributionConfig {
         Ok(())
     }
 }
+
+/// Default `lock_path` of a [`ComponentHostConfig`]: the lock sits next to the generated module.
+pub const DEFAULT_COMPONENT_HOST_LOCK_PATH: &str = "components.lock.json";
+
+/// A standalone Rust host module for hosts that load components without an ffi/pyo3 binding.
+///
+/// `alef generate` writes one Rust file at `output` holding the contract tables, proxies,
+/// entry-symbol constants and a `component_manager` constructor over the embedded lock.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ComponentHostConfig {
+    /// Path of the generated Rust module, relative to the project root. Must end in `.rs`.
+    pub output: String,
+    /// Path of `components.lock.json` as written in the module's `include_str!`, relative to the
+    /// generated module's directory. Defaults to [`DEFAULT_COMPONENT_HOST_LOCK_PATH`] (next to
+    /// the module). `alef component lock` stages the lock at this location.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lock_path: Option<String>,
+}
+
+impl ComponentHostConfig {
+    /// The `lock_path` in effect, applying the default.
+    #[must_use]
+    pub fn effective_lock_path(&self) -> &str {
+        self.lock_path.as_deref().unwrap_or(DEFAULT_COMPONENT_HOST_LOCK_PATH)
+    }
+
+    /// Project-root-relative location of the lock file the generated module embeds.
+    #[must_use]
+    pub fn lock_file_path(&self) -> std::path::PathBuf {
+        std::path::Path::new(&self.output)
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new(""))
+            .join(self.effective_lock_path())
+    }
+
+    /// Check both paths: non-empty, relative, free of control characters and backslashes, and
+    /// `output` ending in `.rs`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a human-readable reason when a path is invalid.
+    pub fn validate(&self) -> Result<(), String> {
+        validate_host_path("component_host output", &self.output)?;
+        if !self.output.ends_with(".rs") {
+            return Err(format!("component_host output `{}` must end in `.rs`", self.output));
+        }
+        if let Some(lock_path) = &self.lock_path {
+            validate_host_path("component_host lock_path", lock_path)?;
+        }
+        Ok(())
+    }
+}
+
+fn validate_host_path(label: &str, value: &str) -> Result<(), String> {
+    if value.trim().is_empty() {
+        return Err(format!("{label} must not be empty"));
+    }
+    if value.starts_with('/') || value.contains('\\') || value.chars().any(char::is_control) || value.contains('"') {
+        return Err(format!(
+            "{label} `{value}` must be a relative path using `/` separators and no quotes"
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod host_tests {
+    use super::*;
+
+    fn host(output: &str, lock_path: Option<&str>) -> ComponentHostConfig {
+        ComponentHostConfig {
+            output: output.into(),
+            lock_path: lock_path.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn lock_path_defaults_next_to_the_module() {
+        let config = host("crates/x/src/components_gen.rs", None);
+        assert_eq!(config.effective_lock_path(), "components.lock.json");
+        assert_eq!(
+            config.lock_file_path(),
+            std::path::PathBuf::from("crates/x/src/components.lock.json")
+        );
+    }
+
+    #[test]
+    fn explicit_lock_path_is_relative_to_the_module_directory() {
+        let config = host("crates/x/src/gen.rs", Some("../components.lock.json"));
+        assert_eq!(
+            config.lock_file_path(),
+            std::path::PathBuf::from("crates/x/src/../components.lock.json")
+        );
+    }
+
+    #[test]
+    fn validation_rejects_bad_paths() {
+        assert!(host("a/b.rs", None).validate().is_ok());
+        assert!(host("", None).validate().is_err());
+        assert!(host("a/b.txt", None).validate().is_err());
+        assert!(host("/abs/b.rs", None).validate().is_err());
+        assert!(host("a/b.rs", Some("")).validate().is_err());
+        assert!(host("a/b.rs", Some("x\"y")).validate().is_err());
+    }
+
+    #[test]
+    fn parses_from_toml_and_rejects_unknown_keys() {
+        let parsed: ComponentHostConfig = toml::from_str("output = \"g.rs\"\nlock_path = \"l.json\"").unwrap();
+        assert_eq!(parsed, host("g.rs", Some("l.json")));
+        assert!(toml::from_str::<ComponentHostConfig>("output = \"g.rs\"\ncache_root = \"x\"").is_err());
+    }
+}

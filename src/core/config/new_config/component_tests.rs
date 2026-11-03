@@ -549,3 +549,40 @@ features = ["ocr-tesseract"]
     assert!(resolved.languages.is_empty());
     assert_eq!(resolved.components.len(), 1);
 }
+
+#[test]
+fn component_host_resolves_with_default_lock_path() {
+    let resolved = component_config("\n[crates.component_host]\noutput = \"crates/host/src/components_gen.rs\"\n")
+        .resolve()
+        .unwrap()
+        .remove(0);
+    let host = resolved.component_host.expect("component_host must resolve");
+    assert_eq!(host.output, "crates/host/src/components_gen.rs");
+    assert_eq!(host.effective_lock_path(), "components.lock.json");
+}
+
+#[test]
+fn component_host_rejects_invalid_output_and_missing_components() {
+    let error = component_config("\n[crates.component_host]\noutput = \"gen.txt\"\n")
+        .resolve()
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("must end in `.rs`"), "{error}");
+
+    let config: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+
+[[crates]]
+name = "sample"
+sources = ["src/lib.rs"]
+languages = ["ffi"]
+
+[crates.component_host]
+output = "gen.rs"
+"#,
+    )
+    .unwrap();
+    let error = config.resolve().unwrap_err().to_string();
+    assert!(error.contains("component_host requires"), "{error}");
+}

@@ -695,6 +695,7 @@ pub(crate) fn collect_managed_surface(
         for (_, produced) in crate::cli::pipeline::generate_service_api(api, config, languages)? {
             files.extend(produced);
         }
+        files.extend(crate::codegen::component_host::generate_component_host(api, config)?);
         Ok((files, Vec::new()))
     });
     let scaffold_stage: Stage<'_> = Box::new(|| {

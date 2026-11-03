@@ -251,7 +251,9 @@ impl ComponentContractIr {
         out.push_str("typedef struct { const uint8_t *ptr; size_t len; } AlefComponentSlice;\n");
         out.push_str("typedef void (*AlefComponentBufferFree)(void *, uint8_t *, size_t, size_t);\n");
         out.push_str("typedef struct { uint8_t *ptr; size_t len; size_t capacity; void *context; AlefComponentBufferFree free; } AlefComponentOwnedBuffer;\n");
-        out.push_str("typedef struct { size_t struct_size; uint32_t abi_major; uint32_t abi_minor; void *context; void (*log)(void *, uint32_t, AlefComponentStr); } AlefComponentHostApiV1;\n");
+        out.push_str("typedef AlefComponentStatus (*AlefComponentServiceCall)(void *, AlefComponentStr, AlefComponentSlice, AlefComponentOwnedBuffer *);\n");
+        out.push_str("typedef AlefComponentStatus (*AlefComponentServiceNotify)(void *, AlefComponentStr, AlefComponentSlice);\n");
+        out.push_str("typedef struct { size_t struct_size; uint32_t abi_major; uint32_t abi_minor; void *context; void (*log)(void *, uint32_t, AlefComponentStr); void *services_context; AlefComponentServiceCall service_call; AlefComponentServiceNotify service_notify; } AlefComponentHostApiV1;\n");
         out.push_str("typedef void (*AlefComponentTaskCallback)(void *, AlefComponentStatus, AlefComponentOwnedBuffer, AlefComponentOwnedBuffer);\n");
         out.push_str(
             "typedef AlefComponentStatus (*AlefComponentTaskStart)(void *, AlefComponentTaskCallback, void *);\n",
@@ -317,6 +319,13 @@ impl ComponentContractIr {
 #[must_use]
 pub fn entry_point_symbol(contract_name: &str) -> String {
     format!("alef_component_entry_v1_{}", contract_name.to_snake_case())
+}
+
+/// The entry symbol as a NUL-terminated Rust byte-string literal, ready to pass to
+/// `ComponentManager::ensure_contract` (e.g. `b"alef_component_entry_v1_codec\0"`).
+#[must_use]
+pub fn entry_point_symbol_literal(contract_name: &str) -> String {
+    format!("b\"{}\\0\"", entry_point_symbol(contract_name))
 }
 
 fn find_trait<'a>(api: &'a ApiSurface, trait_path: &str) -> Result<&'a TypeDef> {

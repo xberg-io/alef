@@ -119,3 +119,72 @@ members = ["crates/poly-ruff-component", "crates/poly-oxc-component"]
 lto = "thin"
 panic = "unwind"
 ```
+
+## Host services
+
+A component can call back into its host through an optional service table appended to
+`AlefHostApiV1`: `services_context`, `service_call` and `service_notify`. The table is
+bytes-only: the host defines which service names exist and how request and response bytes are
+encoded.
+
+```rust
+// Host: implement the trait, register it before loading components.
+struct Services;
+impl alef_component_runtime::HostServices for Services {
+    fn call(&self, service: &str, request: &[u8]) -> Result<Vec<u8>, String> { /* ... */ }
+    fn notify(&self, service: &str, payload: &[u8]) { /* ... */ }
+}
+let manager = manager.with_host_services(std::sync::Arc::new(Services));
+
+// Component: keep the HostApi from `FromHost::from_host` and use it later.
+let reply = host.call_service("lint.run", &request)?;
+host.notify("progress", b"3/10")?;
+```
+
+- **Versioning.** The fields before `services_context` are the original layout. `struct_size`
+  says whether a host has the service fields; `HostApi::from_raw` copies only the declared
+  bytes, so an older host still loads (logging works) and service calls return
+  `HostServiceError::Unsupported`, as they do when a callback pointer is null.
+- **Ownership.** A `call` response is an `AlefOwnedBuffer` allocated by the host. The component
+  copies it and releases it through the buffer's own `free` callback, which `call_service` does
+  before returning. On a non-`OK` status the host may put a UTF-8 error message in the same
+  buffer; it surfaces as `HostServiceError::Failed { status, message }`. `notify` has no
+  response buffer; the host copies the payload before returning.
+- **Threading.** `service_call` and `service_notify` may be invoked concurrently from any
+  thread until the instance is destroyed, so `HostServices` implementations must be
+  thread-safe. `HostApi` is `Copy` and may be stored in the implementation; a stored copy is
+  valid until the component's `destroy`.
+- **Panics.** The runtime's trampolines catch panics in `HostServices` and return
+  `INTERNAL_ERROR`; nothing unwinds across the FFI boundary.
+- **Registration scope.** `with_host_services` applies to components loaded afterwards.
+  Without it the table is present but empty, so components see `Unsupported`.
+
+## Pure-Rust hosts
+
+A host that links the core crate and loads components itself, with no ffi or pyo3 binding in
+between, can have alef emit its glue:
+
+```toml
+[crates.component_host]
+output = "crates/host/src/components_gen.rs"
+lock_path = "components.lock.json" # optional, relative to the module; this is the default
+```
+
+`alef generate` then writes one Rust module holding, for every contract the crate's components
+provide: the `#[repr(C)]` table with its `AlefContract::CONTRACT_HASH`, the `<Contract>Proxy`
+that implements the contract trait, `<CONTRACT>_ENTRY_SYMBOL` (NUL-terminated, for
+`ComponentManager::ensure_contract`) and `<CONTRACT>_CONTRACT_HASH_HEX`. It also holds
+`COMPONENT_IDS`, `host_target()` (alef-component-runtime's detection) and
+
+```rust
+pub fn component_manager(cache_root: PathBuf, offline: bool) -> Result<ComponentManager, ComponentError>
+```
+
+over the embedded lock. The cache root and offline flag come from the caller; the module reads
+no environment variables. The host crate depends on `alef-component-runtime`,
+`alef-component-abi` and `serde_json`. `alef component lock` stages the lock at the configured
+`lock_path`, and `alef generate` seeds an empty one when it is missing.
+
+To check a committed hash against the lock in CI, run `alef component contract-hash [--crate X]`;
+it prints one `component contract hash crate=… component=… contract=… hash=…` line per provided
+contract, computed the same way as the lock's contract hash.

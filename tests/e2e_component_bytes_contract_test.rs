@@ -373,6 +373,7 @@ fn host_api() -> alef_component_abi::AlefHostApiV1 {{
         abi_minor: 0,
         context: std::ptr::null_mut(),
         log: None,
+        ..alef_component_abi::AlefHostApiV1::EMPTY
     }}
 }}
 

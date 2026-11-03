@@ -333,6 +333,7 @@ impl NewAlefConfig {
             krate.component_distribution.as_ref(),
         );
         component_validation::validate_components(krate, component_distribution.as_ref())?;
+        component_validation::validate_component_host(krate)?;
 
         // Deliberately NOT resolved here: rebasing a `from_registry = true` entry shells out to
         // `cargo metadata`, and `resolve()` runs for every subcommand, including ones (e.g.
@@ -377,6 +378,7 @@ impl NewAlefConfig {
             component_contracts: krate.component_contracts.clone(),
             components: krate.components.clone(),
             component_distribution,
+            component_host: krate.component_host.clone(),
             path_mappings: krate.path_mappings.clone(),
             extra_dependencies: krate.extra_dependencies.clone(),
             auto_path_mappings: krate.auto_path_mappings.unwrap_or(true),
