@@ -106,3 +106,85 @@ fn generated_go_producer_passes_language_neutral_native_conformance_and_negative
     let (api, config) = fixture();
     native::qualify(&api, &config);
 }
+
+#[test]
+fn go_method_create_and_destroy_do_not_collide_with_lifecycle_callbacks() {
+    let (mut api, config) = fixture();
+    for name in ["create", "destroy"] {
+        api.types[0].methods.push(MethodDef {
+            name: name.into(),
+            receiver: Some(ReceiverKind::Ref),
+            return_type: TypeRef::Unit,
+            ..MethodDef::default()
+        });
+    }
+    let files = generate_component_producers(&api, &config).expect("generate lifecycle-named methods");
+    let go = files.iter().find(|file| file.path.ends_with("component.go")).unwrap();
+    let exports = go
+        .content
+        .lines()
+        .filter_map(|line| line.strip_prefix("//export "))
+        .collect::<Vec<_>>();
+    let unique = exports.iter().copied().collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        exports.len(),
+        5,
+        "all three methods and both lifecycle callbacks must export"
+    );
+    assert_eq!(unique.len(), exports.len(), "Go exports must be unique: {exports:?}");
+    let c = files.iter().find(|file| file.path.ends_with("component.c")).unwrap();
+    let declarations = c
+        .content
+        .lines()
+        .filter(|line| line.starts_with("extern "))
+        .filter_map(|line| {
+            line.split_once('(')
+                .map(|(prefix, _)| prefix.split_whitespace().last().unwrap())
+        })
+        .collect::<Vec<_>>();
+    let unique = declarations.iter().copied().collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(declarations.len(), 5, "C must declare the same five callbacks");
+    assert_eq!(
+        unique.len(),
+        declarations.len(),
+        "C callback declarations must be unique: {declarations:?}"
+    );
+}
+
+#[test]
+fn go_private_bridge_header_cannot_collide_with_contract_header_names() {
+    let (api, mut config) = fixture();
+    let contract = config.component_contracts[0].clone();
+    let provided = config.components[0].provides[0].clone();
+    config.component_contracts.clear();
+    config.components[0].provides.clear();
+    for name in ["component", "bridge", "alef_internal_bridge"] {
+        let mut entry = contract.clone();
+        entry.name = name.into();
+        config.component_contracts.push(entry);
+        let mut implementation = provided.clone();
+        implementation.contract = name.into();
+        implementation.implementation = format!("New{name}");
+        config.components[0].provides.push(implementation);
+    }
+    let files = generate_component_producers(&api, &config).expect("generate contract names resembling bridge files");
+    let paths = files
+        .iter()
+        .map(|file| &file.path)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        paths.len(),
+        files.len(),
+        "every generated output must have a distinct path"
+    );
+    assert!(
+        files.iter().any(|file| file.path.ends_with("alef_internal/bridge.h")),
+        "private header needs a directory namespace"
+    );
+    for name in ["component.h", "bridge.h", "alef_internal_bridge.h"] {
+        assert!(
+            files.iter().any(|file| file.path.file_name().unwrap() == name),
+            "missing contract header {name}"
+        );
+    }
+}
