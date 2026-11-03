@@ -301,3 +301,38 @@ fn omitted_and_explicit_310_registered_template_bytes_remain_identical() {
         json!({"kind": "registered_template", "body": omitted})
     );
 }
+
+fn legacy_template_context(python: Option<minijinja::Value>) -> String {
+    let mut context = std::collections::BTreeMap::from([
+        ("pkg_name", crate::template::to_value("sample-pkg")),
+        (
+            "deps_line",
+            crate::template::to_value("dependencies = [ \"sample-pkg\" ]"),
+        ),
+        ("uv_sources_block", crate::template::to_value("")),
+    ]);
+    if let Some(python) = python {
+        context.insert("python", python);
+    }
+    crate::e2e::template_env::render("python/pyproject.toml.jinja", crate::template::to_value(context))
+}
+
+#[test]
+fn registered_template_accepts_original_three_key_context() {
+    assert_eq!(legacy_template_context(None), template(None));
+}
+
+#[test]
+fn registered_template_accepts_null_python_context() {
+    let python = crate::template::to_value(None::<crate::core::config::PythonConfig>);
+    assert_eq!(legacy_template_context(Some(python)), template(None));
+}
+
+#[test]
+fn registered_template_accepts_empty_python_configuration() {
+    let python: crate::core::config::PythonConfig = toml::from_str("").expect("existing empty Python configuration");
+    assert_eq!(
+        legacy_template_context(Some(crate::template::to_value(python))),
+        template(None)
+    );
+}
