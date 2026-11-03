@@ -317,6 +317,14 @@ pub(super) fn render_test_method(
     //   let client = try <FactoryType>(apiKey: "test-key", baseUrl: <mock_url>)
     //   try await client.<method>(args)
     // Otherwise fall back to free-function call (SampleCrate / non-client-factory libraries).
+    let configured_client =
+        crate::e2e::codegen::client_factory::client_options_json_call(fixture, e2e_config, call_config, lang);
+    let build_client = |factory: &str, api_key: &str, base_url: &str| match &configured_client {
+        Some((json_factory, json)) => {
+            super::values::swift_json_client_factory_call(json_factory, json, api_key, base_url, functions)
+        }
+        None => swift_client_factory_call(factory, api_key, base_url),
+    };
     let has_mock = fixture.mock_response.is_some();
     let (call_setup, call_expr) = if let Some(factory) = client_factory {
         let env_key = format!("MOCK_SERVER_{}", fixture.id.to_ascii_uppercase().replace('-', "_"));
@@ -329,7 +337,7 @@ pub(super) fn render_test_method(
             format!("AlefE2EMockServer.baseURL + \"/fixtures/{}\"", fixture.id)
         };
         let client_constructor = if has_mock {
-            swift_client_factory_call(factory, "\"test-key\"", &mock_url)
+            build_client(factory, "\"test-key\"", &mock_url)
         } else {
             // Live API: check for api_key_var; if not present use mock URL anyway.
             if let Some(env_var) = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref()) {
@@ -337,10 +345,10 @@ pub(super) fn render_test_method(
                     "let _apiKey = ProcessInfo.processInfo.environment[\"{env_var}\"]\n        \
                      let _baseUrl: String? = _apiKey != nil ? nil : {mock_url}\n        \
                      {}",
-                    swift_client_factory_call(factory, "_apiKey ?? \"test-key\"", "_baseUrl")
+                    build_client(factory, "_apiKey ?? \"test-key\"", "_baseUrl")
                 )
             } else {
-                swift_client_factory_call(factory, "\"test-key\"", &mock_url)
+                build_client(factory, "\"test-key\"", &mock_url)
             }
         };
         let expr = if is_async {

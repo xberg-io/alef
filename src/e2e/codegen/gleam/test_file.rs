@@ -51,7 +51,9 @@ pub(super) fn render_test_file(
                     &f.tags,
                     &f.input,
                 );
-                cc.args.iter().any(|a| a.arg_type == "mock_url")
+                (f.client_options.is_some()
+                    && (f.needs_mock_server() || f.env.as_ref().and_then(|env| env.api_key_var.as_ref()).is_some()))
+                    || cc.args.iter().any(|a| a.arg_type == "mock_url")
                     || f.assertions.iter().any(|a| {
                         a.field
                             .as_deref()
@@ -86,6 +88,9 @@ pub(super) fn render_test_file(
             e2e_config.effective_fields_method_calls(call_config),
         );
         let field_resolver = &call_field_resolver;
+        if fixture.client_options.is_some() {
+            needed_modules.insert("json");
+        }
         let has_bytes_arg = fixture.resolved_args(call_config).iter().any(|a| a.arg_type == "bytes");
         let has_optional_string_arg = fixture
             .resolved_args(call_config)

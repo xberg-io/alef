@@ -1,0 +1,7 @@
+{:ok, client} = {{ module }}.{{ factory }}(
+        "{{ prefix }}" <> Jason.encode!({{ api_key }}) <>
+          (case {{ base_url }} do
+             nil -> ""
+             url -> ",\"base_url\":" <> Jason.encode!(url)
+           end) <> "}"
+      )

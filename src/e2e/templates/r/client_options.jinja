@@ -1,0 +1,26 @@
+{% if has_mock %}
+  options_mock_url <- paste0(Sys.getenv("MOCK_SERVER_URL"), "/fixtures/{{ fixture_id }}")
+{% if host_root %}
+  options_mock_url <- Sys.getenv("{{ env_key }}", unset = options_mock_url)
+{% endif %}
+{% endif %}
+{% if api_key_var %}
+  options_api_key <- Sys.getenv("{{ api_key_var }}", unset = "")
+{% if has_mock %}
+  options_base_url <- if (nzchar(options_api_key)) NULL else options_mock_url
+  if (!nzchar(options_api_key)) options_api_key <- "test-key"
+{% else %}
+  skip_if(!nzchar(options_api_key), "{{ api_key_var }} not set")
+  options_base_url <- NULL
+{% endif %}
+{% else %}
+  options_api_key <- "test-key"
+{% if has_mock %}
+  options_base_url <- options_mock_url
+{% else %}
+  options_base_url <- NULL
+{% endif %}
+{% endif %}
+  options_json <- paste0("{{ prefix }}", jsonlite::toJSON(options_api_key, auto_unbox = TRUE))
+  if (!is.null(options_base_url)) options_json <- paste0(options_json, ',"base_url":', jsonlite::toJSON(options_base_url, auto_unbox = TRUE))
+  client <- {{ factory }}(paste0(options_json, "}"))

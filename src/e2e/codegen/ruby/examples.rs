@@ -117,7 +117,9 @@ pub(super) fn render_chat_stream_example(
     // Client construction.
     let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
     let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
-    if let Some(cf) = client_factory {
+    if let Some(setup) = client_options_setup(fixture, e2e_config, call_receiver) {
+        out.push_str(&setup);
+    } else if let Some(cf) = client_factory {
         if has_mock && let Some(key_var) = api_key_var {
             let mock_url_expr = format!("\"#{{ENV['MOCK_SERVER_URL']}}/fixtures/{fixture_id}\"");
             out.push_str(&format!("    api_key = ENV['{key_var}']\n"));
@@ -552,6 +554,7 @@ pub(super) fn render_example(
             has_usable => has_usable,
             returns_void => returns_void,
             client_factory => client_factory,
+            client_options_setup => client_options_setup(fixture, e2e_config, call_receiver),
             fixture_id => fixture_id,
             call_receiver => call_receiver,
             has_mock => has_mock,
@@ -946,4 +949,34 @@ mod inert_example_refusal_tests {
             "a fixture with no assertions must never be recorded as refused"
         );
     }
+}
+
+fn client_options_setup(fixture: &Fixture, e2e_config: &E2eConfig, receiver: &str) -> Option<String> {
+    let call = e2e_config.resolve_call_for_fixture(
+        fixture.call.as_deref(),
+        &fixture.id,
+        &fixture.resolved_category(),
+        &fixture.tags,
+        &fixture.input,
+    );
+    let (factory, json) =
+        crate::e2e::codegen::client_factory::client_options_json_call(fixture, e2e_config, call, "ruby")?;
+    let prefix = crate::e2e::codegen::client_factory::client_options_json_prefix(&json);
+    let mock_url = if fixture.has_host_root_route() {
+        format!(
+            "(ENV['MOCK_SERVER_{}'] || ENV.fetch('MOCK_SERVER_URL') + '/fixtures/{}')",
+            fixture.id.to_ascii_uppercase().replace('-', "_"),
+            fixture.id
+        )
+    } else {
+        format!("ENV.fetch('MOCK_SERVER_URL') + '/fixtures/{}'", fixture.id)
+    };
+    Some(crate::e2e::template_env::render(
+        "ruby/client_options.jinja",
+        crate::alef_context! {
+            receiver => receiver, factory => factory, prefix => ruby_string_literal(&prefix),
+            mock_url => mock_url, has_mock => fixture.needs_mock_server(),
+            api_key_var => fixture.env.as_ref().and_then(|env| env.api_key_var.as_deref()),
+        },
+    ))
 }

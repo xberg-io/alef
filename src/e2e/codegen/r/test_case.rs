@@ -1,3 +1,6 @@
+#[path = "test_case/client_options.rs"]
+mod client_options;
+
 //! R e2e individual test case rendering.
 
 use crate::core::config::ResolvedCrateConfig;
@@ -165,6 +168,11 @@ pub(super) fn render_test_case(
     } else {
         args_with_extra
     };
+
+    let final_args = if let Some(setup) = client_options::render(fixture, e2e_config, call_config) {
+        setup_lines.push(setup);
+        if final_args.is_empty() { "client".to_string() } else { format!("client, {final_args}") }
+    } else { final_args };
 
     if expects_error {
         let _ = writeln!(out, "test_that(\"{test_name}: {description}\", {{");

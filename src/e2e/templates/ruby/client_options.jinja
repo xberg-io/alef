@@ -1,0 +1,21 @@
+{% if api_key_var %}
+    api_key = ENV['{{ api_key_var }}']
+{% if has_mock %}
+    use_real_api = api_key && !api_key.empty?
+    base_url = use_real_api ? nil : {{ mock_url }}
+    api_key = use_real_api ? api_key : 'test-key'
+{% else %}
+    skip '{{ api_key_var }} not set' unless api_key && !api_key.empty?
+    base_url = nil
+{% endif %}
+{% else %}
+    api_key = 'test-key'
+{% if has_mock %}
+    base_url = {{ mock_url }}
+{% else %}
+    base_url = nil
+{% endif %}
+{% endif %}
+    client_config_json = {{ prefix }} + JSON.generate(api_key)
+    client_config_json += ',"base_url":' + JSON.generate(base_url) unless base_url.nil?
+    client = {{ receiver }}.{{ factory }}(client_config_json + '}')

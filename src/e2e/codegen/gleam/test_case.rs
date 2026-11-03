@@ -181,7 +181,23 @@ pub(super) fn render_test_case(
         } else {
             format!(", {}", client_factory_trailing_args.join(", "))
         };
-        let base_url_expr = args
+        if let Some((json_factory, json)) =
+            crate::e2e::codegen::client_factory::client_options_json_call(fixture, e2e_config, call_config, lang)
+        {
+            let prefix = crate::e2e::codegen::client_factory::client_options_json_prefix(&json);
+            let env_key = format!("MOCK_SERVER_{}", fixture.id.to_ascii_uppercase().replace('-', "_"));
+            let setup = crate::e2e::template_env::render(
+                "gleam/client_options.jinja",
+                crate::alef_context! {
+                    prefix => escape_gleam(&prefix), factory => json_factory, module => module_path,
+                    fixture_id => fixture.id, has_mock => fixture.needs_mock_server(),
+                    host_root => fixture.has_host_root_route(), env_key => env_key,
+                    api_key_var => fixture.env.as_ref().and_then(|env|env.api_key_var.as_deref()),
+                },
+            );
+            out.push_str(&setup);
+        } else {
+            let base_url_expr = args
             .iter()
             .find(|a| a.arg_type == "mock_url")
             .map(|_a| {
@@ -190,8 +206,9 @@ pub(super) fn render_test_case(
             .unwrap_or_else(|| {
                 format!("let assert Ok(client) = {module_path}.{factory_snake}(\"test-key\", option.None{trailing})\n  let _ = client")
             });
-        for l in base_url_expr.lines() {
-            let _ = writeln!(out, "  {l}");
+            for l in base_url_expr.lines() {
+                let _ = writeln!(out, "  {l}");
+            }
         }
         let full_args = if args_str.is_empty() {
             "client".to_string()

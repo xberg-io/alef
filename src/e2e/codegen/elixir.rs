@@ -132,6 +132,10 @@ impl E2eCodegen for ElixirCodegen {
                 &pkg_dep_ref,
                 e2e_config.dep_mode,
                 project::MixTestSurface {
+                    has_json_clients: groups
+                        .iter()
+                        .flat_map(|group| &group.fixtures)
+                        .any(|fixture| fixture.client_options.is_some()),
                     has_http_tests,
                     has_mock_server_tests,
                     has_nif_tests,
@@ -258,6 +262,7 @@ impl E2eCodegen for ElixirCodegen {
 mod args;
 mod assertion_mock_capture;
 mod assertions;
+mod client_options;
 mod http;
 mod project;
 mod snippet;
@@ -289,3 +294,6 @@ mod rename_all_wire_value_tests;
 mod streaming_pipe_precedence_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod client_options_tests;

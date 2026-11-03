@@ -1097,6 +1097,7 @@ use streaming::{
     render_c_diagnostic_skip, render_streaming_test_function, resolve_c_client_owner_type, resolve_c_streaming_adapter,
     validate_c_snippet_metadata,
 };
+mod client_options;
 use test_function::render_test_function_impl;
 use visitor::render_visitor_test_file;
 
@@ -1261,6 +1262,13 @@ fn render_test_file(
             &config_sources,
             target_params,
         )?;
+        if let Some((factory, json)) =
+            crate::e2e::codegen::client_factory::client_options_json_call(fixture, e2e_config, fixture_call, lang)
+        {
+            let rewritten = client_options::apply(&out[fixture_start..], fixture, &prefix, factory, &json)?;
+            out.truncate(fixture_start);
+            out.push_str(&rewritten);
+        }
         crate::e2e::codegen::fail_on_unavailable_field_markers(
             &out[fixture_start..],
             "c",
@@ -1278,6 +1286,9 @@ fn render_test_file(
     // rendered test functions actually call it -- see `assertion_mock_capture::
     // append_helper_if_referenced` for why C also needs extra `#include`s injected here, unlike
     // every other wired backend.
+    if out.contains("alef_e2e_client_json(") {
+        out.insert_str(includes_offset, &client_options::helpers());
+    }
     assertion_mock_capture::append_helper_if_referenced(&mut out, includes_offset);
 
     Ok(out)
