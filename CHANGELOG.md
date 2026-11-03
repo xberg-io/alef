@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Apply scalar and array-valued E2E client options through configured JSON factories, preserving exact numeric values and runtime credentials and routing. (#822)
 - Preserve configured Swift macOS minimum overrides in local and registry E2E manifests.
 - Preserve imports for named free-function calls that share an export with an E2E client factory.
+- Derive R compiler requirements from the bound crate and inherited workspace MSRV while preserving the bridge minimum; report invalid manifests with context. (#846)
 
 ## [0.118.0] - 2026-11-03
 

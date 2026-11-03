@@ -14,6 +14,7 @@ pub(crate) mod languages;
 mod manifest_header;
 pub(crate) mod naming;
 mod repair;
+mod rust_msrv;
 mod template_env;
 mod text_helpers;
 pub(crate) mod version_floor;

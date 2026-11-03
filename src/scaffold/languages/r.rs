@@ -70,7 +70,7 @@ Config/testthat/edition: 3
         license = license,
         rextendr = versions.get("cran:rextendr"),
         r_min = crate::core::template_versions::toolchain::R_MIN_VERSION,
-        rust_min = crate::core::template_versions::toolchain::RUST_MIN_VERSION,
+        rust_min = crate::scaffold::rust_msrv::r_rust_min_version(config)?,
     );
 
     Ok(vec![GeneratedFile {

@@ -139,6 +139,7 @@ mod poly;
 mod poly_migrations;
 mod poly_schema_exclude;
 mod python_node;
+mod r_rust_msrv;
 mod repair;
 mod unstamped_cache_miss;
 mod workspace_inheritance;
