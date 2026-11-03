@@ -65,3 +65,8 @@ blake3 = "e85c0e4d4ff648bfb59d01e18efc3fbf633f4e15cd5a52a8f6e8bc796d0f61d1"
 number = 15
 status = "accepted"
 blake3 = "dd36fe5d374244454c39ecfdface529956a41a53dc372e4d0bbbad23c3e0bf62"
+
+[adrs."adrs/0016-apply-fixture-client-options-through-configured-json-factories.md"]
+number = 16
+status = "accepted"
+blake3 = "65317e6688110e71dbb7ceef98bf49b0fc67d58fdb336de4a3d4a5bef39f4a5c"

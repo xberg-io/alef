@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Document E2E JSON factory transport and native encoding guarantees in [ADR 0016](adrs/0016-apply-fixture-client-options-through-configured-json-factories.md).
+
 ### Fixed
 
 - Apply scalar and array-valued E2E client options through configured JSON factories, preserving exact numeric values and runtime credentials and routing. (#822)
