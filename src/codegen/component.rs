@@ -103,6 +103,7 @@ pub struct ResolvedProvidedContract {
 /// A configured component after feature-gated extraction and ABI-drift checks.
 #[derive(Debug, Clone)]
 pub struct ResolvedComponent {
+    pub producer_language: crate::core::config::ComponentProducerLanguage,
     pub component_name: String,
     pub features: Vec<String>,
     pub default_features: bool,
@@ -196,6 +197,7 @@ pub fn resolve_components(api: &ApiSurface, config: &ResolvedCrateConfig) -> Res
             });
         }
         resolved.push(ResolvedComponent {
+            producer_language: component.producer_language,
             component_name: component.name.clone(),
             features: component.features.clone(),
             default_features: component.default_features,
@@ -743,6 +745,7 @@ mod tests {
         };
         for (name, feature) in [("pdf", "pdf"), ("office", "office")] {
             config.components.push(ComponentConfig {
+                producer_language: Default::default(),
                 name: name.into(),
                 provides: vec![ComponentProvidesConfig {
                     contract: "extractor".into(),
@@ -795,6 +798,7 @@ mod tests {
             ..TypeDef::default()
         });
         config.components.push(ComponentConfig {
+            producer_language: Default::default(),
             name: "bundle".into(),
             provides: vec![
                 ComponentProvidesConfig {
@@ -830,6 +834,7 @@ mod tests {
     fn default_targets_come_from_supported_targets_minus_bundled_on() {
         let config = ResolvedCrateConfig::default();
         let component = ComponentConfig {
+            producer_language: Default::default(),
             name: "fast".into(),
             provides: vec![ComponentProvidesConfig {
                 contract: "extractor".into(),

@@ -94,6 +94,7 @@ fn component_implementation_features_are_not_forwarded_to_bindings() {
         ..Default::default()
     };
     config.components.push(ComponentConfig {
+        producer_language: Default::default(),
         name: "openapi".to_string(),
         provides: vec![ComponentProvidesConfig {
             contract: "spec".to_string(),

@@ -39,6 +39,7 @@ mod tests {
         ResolvedCrateConfig {
             name: "demo-core".into(),
             components: vec![ComponentConfig {
+                producer_language: Default::default(),
                 name: "fast".into(),
                 provides: vec![ComponentProvidesConfig {
                     contract: "engine".into(),

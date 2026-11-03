@@ -61,8 +61,66 @@ pub struct ComponentContractConfig {
 pub struct ComponentProvidesConfig {
     /// Name of an entry in `component_contracts`.
     pub contract: String,
-    /// Fully-qualified Rust path to the type implementing the contract trait.
+    /// Fully-qualified Rust implementation type, or plain Go constructor identifier.
     pub implementation: String,
+}
+
+/// Language used to build a component producer.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ComponentProducerLanguage {
+    /// Rust cdylib producer.
+    #[default]
+    Rust,
+    /// Go executable producer using the byte protocol.
+    Go,
+}
+
+impl ComponentProducerLanguage {
+    fn is_rust(&self) -> bool {
+        *self == Self::Rust
+    }
+}
+
+/// Whether a constructor can be emitted as a Go function name without an expression.
+#[must_use]
+pub fn is_valid_go_constructor_identifier(name: &str) -> bool {
+    const RESERVED: &[&str] = &[
+        "_",
+        "init",
+        "main",
+        "break",
+        "default",
+        "func",
+        "interface",
+        "select",
+        "case",
+        "defer",
+        "go",
+        "map",
+        "struct",
+        "chan",
+        "else",
+        "goto",
+        "package",
+        "switch",
+        "const",
+        "fallthrough",
+        "if",
+        "range",
+        "type",
+        "continue",
+        "for",
+        "import",
+        "return",
+        "var",
+    ];
+    let mut bytes = name.bytes();
+    !RESERVED.contains(&name)
+        && bytes
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic() || first == b'_')
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
 /// One deployable unit: a fixed Cargo feature set built into a single signed
@@ -73,6 +131,9 @@ pub struct ComponentProvidesConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ComponentConfig {
+    /// Language used by the generated component producer; defaults to Rust.
+    #[serde(default, skip_serializing_if = "ComponentProducerLanguage::is_rust")]
+    pub producer_language: ComponentProducerLanguage,
     /// Stable component name used in manifests and release assets.
     pub name: String,
     /// Contracts this component implements. Must declare at least one entry;
@@ -331,6 +392,9 @@ pub const DEFAULT_COMPONENT_HOST_LOCK_PATH: &str = "components.lock.json";
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ComponentHostConfig {
+    /// Component IDs loaded as child processes by this standalone Rust host.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stdio_components: Vec<String>,
     /// Path of the generated Rust module, relative to the project root. Must end in `.rs`.
     pub output: String,
     /// Path of `components.lock.json` as written in the module's `include_str!`, relative to the
@@ -392,6 +456,7 @@ mod host_tests {
 
     fn host(output: &str, lock_path: Option<&str>) -> ComponentHostConfig {
         ComponentHostConfig {
+            stdio_components: Vec::new(),
             output: output.into(),
             lock_path: lock_path.map(str::to_string),
         }
@@ -473,5 +538,39 @@ mod extra_dependency_tests {
         ] {
             assert!(rendered.contains(part), "{rendered} missing {part}");
         }
+    }
+}
+
+#[cfg(test)]
+mod producer_language_tests {
+    use super::*;
+
+    #[test]
+    fn producer_language_defaults_to_rust_without_changing_legacy_serialization() {
+        let mut value = serde_json::json!({ "name": "codec", "provides": [], "features": [] });
+        let config: ComponentConfig = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(config.producer_language, ComponentProducerLanguage::Rust);
+        assert!(
+            serde_json::to_value(&config)
+                .unwrap()
+                .get("producer_language")
+                .is_none()
+        );
+        value["producer_language"] = serde_json::json!("rust");
+        assert_eq!(serde_json::from_value::<ComponentConfig>(value).unwrap(), config);
+    }
+
+    #[test]
+    fn producer_language_accepts_go_and_rejects_unknown_values() {
+        let mut value =
+            serde_json::json!({ "name": "codec", "provides": [], "features": [], "producer_language": "go" });
+        let config: ComponentConfig = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(config.producer_language, ComponentProducerLanguage::Go);
+        assert_eq!(serde_json::to_value(config).unwrap()["producer_language"], "go");
+        value["producer_language"] = serde_json::json!("python");
+        let error = serde_json::from_value::<ComponentConfig>(value)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("unknown variant `python`"), "{error}");
     }
 }

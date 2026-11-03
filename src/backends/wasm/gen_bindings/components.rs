@@ -49,6 +49,7 @@ mod tests {
     fn emits_explicit_unsupported_component_surface() {
         let config = ResolvedCrateConfig {
             components: vec![ComponentConfig {
+                producer_language: Default::default(),
                 name: "fast".into(),
                 provides: vec![ComponentProvidesConfig {
                     contract: "engine".into(),

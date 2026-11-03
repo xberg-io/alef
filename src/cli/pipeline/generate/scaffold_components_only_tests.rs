@@ -45,6 +45,7 @@ fn components_only_crate_with_no_languages_scaffolds_only_producer_crates() {
             interface_version: 1,
         }],
         components: vec![ComponentConfig {
+            producer_language: Default::default(),
             name: "pdf".into(),
             provides: vec![ComponentProvidesConfig {
                 contract: "extractor".into(),

@@ -31,14 +31,30 @@ pub(super) fn validate_components(
         validate_component_provides(&krate.name, component, &contract_names)?;
         validate_nonempty_values(&krate.name, &component.name, "features", &component.features)?;
         validate_component_targets(&krate.name, component)?;
-        for (name, spec) in &component.extra_dependencies {
-            crate::core::config::component::validate_extra_dependency(&krate.name, name, spec).or_else(|reason| {
-                invalid_component_config(&krate.name, format!("component `{}`: {reason}", component.name))
-            })?;
-        }
+        validate_component_dependencies(&krate.name, component)?;
     }
 
     validate_component_distribution(&krate.name, component_distribution)
+}
+
+fn validate_component_dependencies(crate_name: &str, component: &ComponentConfig) -> Result<(), ResolveError> {
+    if component.producer_language == crate::core::config::ComponentProducerLanguage::Go
+        && !component.extra_dependencies.is_empty()
+    {
+        return invalid_component_config(
+            crate_name,
+            format!(
+                "Go component `{}` cannot declare Rust extra_dependencies",
+                component.name
+            ),
+        );
+    }
+    for (name, spec) in &component.extra_dependencies {
+        crate::core::config::component::validate_extra_dependency(crate_name, name, spec).or_else(|reason| {
+            invalid_component_config(crate_name, format!("component `{}`: {reason}", component.name))
+        })?;
+    }
+    Ok(())
 }
 
 fn validate_component_provides(
@@ -75,9 +91,29 @@ fn validate_component_provides(
                 ),
             );
         }
-        validate_rust_item_path(crate_name, "component implementation", &entry.implementation)?;
+        validate_component_implementation(crate_name, component, &entry.implementation)?;
     }
     Ok(())
+}
+
+fn validate_component_implementation(
+    crate_name: &str,
+    component: &ComponentConfig,
+    implementation: &str,
+) -> Result<(), ResolveError> {
+    if component.producer_language == crate::core::config::ComponentProducerLanguage::Rust {
+        return validate_rust_item_path(crate_name, "component implementation", implementation);
+    }
+    if crate::core::config::component::is_valid_go_constructor_identifier(implementation) {
+        return Ok(());
+    }
+    invalid_component_config(
+        crate_name,
+        format!(
+            "component `{}` implementation `{implementation}` must be a Go constructor identifier",
+            component.name
+        ),
+    )
 }
 
 fn validate_component_targets(crate_name: &str, component: &ComponentConfig) -> Result<(), ResolveError> {
@@ -212,6 +248,21 @@ pub(super) fn validate_component_host(krate: &RawCrateConfig) -> Result<(), Reso
             &krate.name,
             "component_host requires at least one `[[crates.components]]` entry",
         );
+    }
+    let mut selected = std::collections::HashSet::new();
+    for id in &host.stdio_components {
+        if !krate.components.iter().any(|component| &component.name == id) {
+            return invalid_component_config(
+                &krate.name,
+                format!("component_host references unknown component `{id}`"),
+            );
+        }
+        if !selected.insert(id) {
+            return invalid_component_config(
+                &krate.name,
+                format!("component_host has duplicate stdio component `{id}`"),
+            );
+        }
     }
     Ok(())
 }
