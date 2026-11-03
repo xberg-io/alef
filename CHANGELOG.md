@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Test CI concurrency against distinct main commits and superseded pull request updates. (#855)
 - Add a release preparation regression for drafts absent from stale tag and list discovery. (#854)
 - Rust reference docs sample a borrowed struct or enum param (`&T`, `&mut T`, `Option<&T>`) with its
   `T::default()` or variant again instead of `todo!()`, a regression since 0.116.0.
