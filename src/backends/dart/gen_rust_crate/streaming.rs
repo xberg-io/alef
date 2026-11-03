@@ -4,6 +4,7 @@ use crate::codegen::type_mapper::TypeMapper;
 use crate::core::config::Language;
 use crate::core::config::{AdapterConfig, ResolvedCrateConfig};
 use crate::core::ir::{ErrorDef, PrimitiveType, TypeDef, TypeRef};
+use quote::ToTokens;
 use std::collections::HashMap;
 
 pub(super) fn emit_streaming_sink_method(
@@ -87,6 +88,8 @@ fn emit_transport(
     owner_cfg: &str,
 ) {
     let transport = crate::adapters::streaming::dart_transport_names(adapter);
+    let item_type = adapter.item_type.as_deref().unwrap_or("()");
+    let (wire_item_type, item_conversion) = stream_wire_item(item_type);
     let dart_wire = public_host_identifier(Language::Dart, PublicIdentifierKind::Type, &transport.wire);
     let arms = [
         if transport.unit_item {
@@ -109,7 +112,9 @@ fn emit_transport(
         crate::alef_context! {
             transport => &transport,
             source_cfg => super::helpers::widen_opaque_wrapper_cfg(owner_cfg),
-            item_type => adapter.item_type.as_deref().unwrap_or("()"),
+            item_type => item_type,
+            wire_item_type => wire_item_type,
+            item_conversion => item_conversion,
             error_type => &error.name,
             core_error_type => super::error_bridge::core_error_path(error, &config.core_import_name()),
             dart_type => dart_item_type(adapter.item_type.as_deref().unwrap_or("()")),
@@ -117,6 +122,49 @@ fn emit_transport(
             encode_code => format!("{encode:?}"),
         },
     ));
+}
+
+fn stream_wire_item(item_type: &str) -> (String, String) {
+    let Ok(mut ty) = syn::parse_str::<syn::Type>(item_type) else {
+        return (item_type.into(), "value".into());
+    };
+    let resolved = crate::extract::type_resolver::resolve_type(&ty);
+    if !widen_stream_usize(&mut ty) {
+        return (item_type.into(), "value".into());
+    }
+    (
+        ty.to_token_stream().to_string(),
+        super::newtype_conversions::from_core_value("value", &resolved),
+    )
+}
+
+fn widen_stream_usize(ty: &mut syn::Type) -> bool {
+    let syn::Type::Path(path) = ty else { return false };
+    if path.path.is_ident("usize") {
+        let wire = super::conversions::frb_rust_type_inner(&TypeRef::Primitive(PrimitiveType::Usize));
+        let ident = &mut path.path.segments[0].ident;
+        *ident = syn::Ident::new(&wire, ident.span());
+        return true;
+    }
+    let Some(segment) = path.path.segments.last_mut() else {
+        return false;
+    };
+    if !matches!(
+        segment.ident.to_string().as_str(),
+        "Option" | "Vec" | "HashMap" | "BTreeMap"
+    ) {
+        return false;
+    }
+    let syn::PathArguments::AngleBracketed(arguments) = &mut segment.arguments else {
+        return false;
+    };
+    let mut changed = false;
+    for argument in &mut arguments.args {
+        if let syn::GenericArgument::Type(inner) = argument {
+            changed |= widen_stream_usize(inner);
+        }
+    }
+    changed
 }
 
 fn dart_item_type(item_type: &str) -> String {

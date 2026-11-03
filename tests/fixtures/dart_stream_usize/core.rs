@@ -3,6 +3,11 @@ use std::collections::HashMap;
 #[derive(Clone)]
 pub struct Client;
 
+#[derive(Clone)]
+pub struct UsizeRecord {
+    pub count: usize,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum StreamError {
     #[error("stream failed")]
@@ -14,6 +19,12 @@ pub fn create_client() -> Client {
 }
 
 impl Client {
+    pub async fn usize_record(
+        &self,
+    ) -> Result<impl futures_util::Stream<Item = Result<UsizeRecord, StreamError>>, StreamError> {
+        Ok(futures_util::stream::iter([Ok(UsizeRecord { count: 42 })]))
+    }
+
     pub async fn usize_scalar(
         &self,
     ) -> Result<impl futures_util::Stream<Item = Result<usize, StreamError>>, StreamError> {

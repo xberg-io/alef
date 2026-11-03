@@ -11,6 +11,10 @@ Future<void> main(List<String> args) async {
   final int scalar = await client.usizeScalar().single.timeout(deadline);
   if (scalar != 42) throw StateError('usize scalar lost its int representation: $scalar');
   checked++;
+  final UsizeRecord record = await client.usizeRecord().single.timeout(deadline);
+  final int count = record.count;
+  if (count != 42) throw StateError('named usize record changed: $count');
+  checked++;
   final List<int?> optional = await client.usizeOptional().toList().timeout(deadline);
   if (optional.length != 2 || optional.first != 42 || optional.last != null) {
     throw StateError('optional usize changed: $optional');
@@ -36,6 +40,6 @@ Future<void> main(List<String> args) async {
     throw StateError('u64 vector lost full range: $unsignedVector');
   }
   checked++;
-  if (checked != 7) throw StateError('expected seven usize/u64 stream cases: $checked');
+  if (checked != 8) throw StateError('expected eight usize/u64 stream cases: $checked');
   print('usize_stream_cases=$checked');
 }

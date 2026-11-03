@@ -19,7 +19,7 @@ fn generate(root: &Path) -> String {
     let client = api.types.iter_mut().find(|ty| ty.name == "Client").unwrap();
     client.is_opaque = true;
     client.is_clone = true;
-    assert_eq!(client.methods.len(), 7);
+    assert_eq!(client.methods.len(), 8);
     for method in &mut client.methods {
         method.sanitized = true;
     }
@@ -29,6 +29,7 @@ fn generate(root: &Path) -> String {
     };
     for (name, item) in [
         ("usize_scalar", "usize"),
+        ("usize_record", "UsizeRecord"),
         ("usize_optional", "Option<usize>"),
         ("usize_vector", "Vec<usize>"),
         ("usize_nested", "Vec<Option<usize>>"),
@@ -59,6 +60,7 @@ fn stream_wire_payloads_use_the_public_usize_representation() {
     let parsed = syn::parse_file(&source).unwrap();
     let expected = [
         ("AlefStreamClientUsizeScalarWire", "i64"),
+        ("AlefStreamClientUsizeRecordWire", "UsizeRecord"),
         ("AlefStreamClientUsizeOptionalWire", "Option<i64>"),
         ("AlefStreamClientUsizeVectorWire", "Vec<i64>"),
         ("AlefStreamClientUsizeNestedWire", "Vec<Option<i64>>"),
@@ -66,7 +68,7 @@ fn stream_wire_payloads_use_the_public_usize_representation() {
         ("AlefStreamClientU64ScalarWire", "u64"),
         ("AlefStreamClientU64VectorWire", "Vec<u64>"),
     ];
-    assert_eq!(expected.len(), 7);
+    assert_eq!(expected.len(), 8);
     for (name, payload) in expected {
         let wire = parsed.items.iter().find_map(|item| match item {
             syn::Item::Enum(wire) if wire.ident == name => Some(wire),
@@ -82,6 +84,25 @@ fn stream_wire_payloads_use_the_public_usize_representation() {
         let actual = value.ty.to_token_stream().to_string().replace(' ', "");
         assert_eq!(actual, format!("::std::boxed::Box<{payload}>"), "{name}");
     }
+}
+
+#[test]
+fn named_stream_payload_reuses_the_public_usize_mirror() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = generate(directory.path());
+    let parsed = syn::parse_file(&source).unwrap();
+    let record = parsed.items.iter().find_map(|item| match item {
+        syn::Item::Struct(record) if record.ident == "UsizeRecord" => Some(record),
+        _ => None,
+    });
+    let record = record.expect("public FRB mirror for UsizeRecord");
+    let count = record
+        .fields
+        .iter()
+        .find(|field| field.ident.as_ref().unwrap() == "count")
+        .unwrap();
+    assert_eq!(count.ty.to_token_stream().to_string(), "i64");
+    assert!(source.contains("let value: UsizeRecord = chunk.into();"));
 }
 
 fn write_fixture(root: &Path) {
@@ -150,5 +171,5 @@ fn usize_stream_payloads_compile_and_run_through_actual_frb() {
     ));
     assert!(native.is_file() && native.metadata().unwrap().len() > 0);
     let output = successful(&root, "test", &["--", native.to_str().unwrap()]);
-    assert_eq!(output.stdout.matches("usize_stream_cases=7").count(), 1);
+    assert_eq!(output.stdout.matches("usize_stream_cases=8").count(), 1);
 }
