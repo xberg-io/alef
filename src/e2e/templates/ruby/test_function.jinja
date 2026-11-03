@@ -27,7 +27,9 @@
    - teardown_lines: list of teardown statements emitted after assertions (e.g. trait-bridge unregister calls)
 #}
   it {{ description }} do
-{% if client_factory %}
+{% if client_options_setup %}
+{{ client_options_setup }}
+{% elif client_factory %}
 {% if has_mock_and_key %}
     api_key = ENV['{{ api_key_var }}']
     if api_key && !api_key.empty?

@@ -1,0 +1,38 @@
+{% if has_mock %}
+    const _options_mock_base = if (std.c.getenv("MOCK_SERVER_URL")) |value| std.mem.span(value) else return error.MissingMockServer;
+    const _options_mock_default = try std.mem.concat(allocator, u8, &.{_options_mock_base, "/fixtures/{{ fixture_id }}"});
+    defer allocator.free(_options_mock_default);
+{% if host_root %}
+    const _options_mock_url = if (std.c.getenv("{{ env_key }}")) |value| std.mem.span(value) else _options_mock_default;
+{% else %}
+    const _options_mock_url = _options_mock_default;
+{% endif %}
+{% endif %}
+{% if api_key_var %}
+    const _options_key_env = std.c.getenv("{{ api_key_var }}");
+{% if has_mock %}
+    const _options_use_real = if (_options_key_env) |value| std.mem.span(value).len > 0 else false;
+    const _options_key: []const u8 = if (_options_use_real) std.mem.span(_options_key_env.?) else "test-key";
+    const _options_url: ?[]const u8 = if (_options_use_real) null else _options_mock_url;
+{% else %}
+    const _options_key = std.mem.span(_options_key_env orelse return error.MissingApiKey);
+    const _options_url: ?[]const u8 = null;
+{% endif %}
+{% else %}
+    const _options_key: []const u8 = "test-key";
+{% if has_mock %}
+    const _options_url: ?[]const u8 = _options_mock_url;
+{% else %}
+    const _options_url: ?[]const u8 = null;
+{% endif %}
+{% endif %}
+    const _options_key_json = try std.json.Stringify.valueAlloc(allocator, _options_key, .{});
+    defer allocator.free(_options_key_json);
+    const _options_url_json = if (_options_url) |url| try std.json.Stringify.valueAlloc(allocator, url, .{}) else null;
+    defer if (_options_url_json) |url| allocator.free(url);
+    const _options_json = if (_options_url_json) |url|
+        try std.mem.concat(allocator, u8, &.{"{{ prefix }}", _options_key_json, ",\"base_url\":", url, "}"})
+    else
+        try std.mem.concat(allocator, u8, &.{"{{ prefix }}", _options_key_json, "}"});
+    defer allocator.free(_options_json);
+    var _client = try {{ module }}.{{ factory }}(_options_json);

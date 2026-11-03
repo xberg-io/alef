@@ -51,7 +51,9 @@ pub(super) fn render_test_file(
                     &f.tags,
                     &f.input,
                 );
-                cc.args.iter().any(|a| a.arg_type == "mock_url")
+                (f.client_options.is_some()
+                    && (f.needs_mock_server() || f.env.as_ref().and_then(|env| env.api_key_var.as_ref()).is_some()))
+                    || cc.args.iter().any(|a| a.arg_type == "mock_url")
                     || f.assertions.iter().any(|a| {
                         a.field
                             .as_deref()
@@ -86,6 +88,9 @@ pub(super) fn render_test_file(
             e2e_config.effective_fields_method_calls(call_config),
         );
         let field_resolver = &call_field_resolver;
+        if fixture.client_options.is_some() {
+            needed_modules.insert("json");
+        }
         let has_bytes_arg = fixture.resolved_args(call_config).iter().any(|a| a.arg_type == "bytes");
         let has_optional_string_arg = fixture
             .resolved_args(call_config)
@@ -110,7 +115,14 @@ pub(super) fn render_test_file(
                 .get("gleam")
                 .and_then(|o| o.client_factory.as_deref())
                 .is_some();
-        if has_bytes_arg || has_optional_string_arg || has_json_object_arg || has_handle_arg || has_client_factory {
+        let json_client =
+            crate::e2e::codegen::client_factory::client_options_json_call(fixture, e2e_config, call_config, "gleam")
+                .is_some();
+        let client_needs_option = has_client_factory
+            && (!json_client
+                || (fixture.needs_mock_server()
+                    && fixture.env.as_ref().and_then(|env| env.api_key_var.as_ref()).is_some()));
+        if has_bytes_arg || has_optional_string_arg || has_json_object_arg || has_handle_arg || client_needs_option {
             needed_modules.insert("option");
         }
         for assertion in &fixture.assertions {

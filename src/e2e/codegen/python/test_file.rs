@@ -624,7 +624,10 @@ fn build_thirdparty_imports(context: ThirdpartyImportContext<'_>, thirdparty_fro
             &fixture.tags,
             &fixture.input,
         );
-        let name = resolve_call_client_factory(e2e_config, cc).unwrap_or_else(|| resolve_function_name_for_call(cc));
+        let name = super::super::client_factory::client_options_json_call(fixture, e2e_config, cc, "python")
+            .map(|(factory, _)| factory.to_string())
+            .or_else(|| resolve_call_client_factory(e2e_config, cc))
+            .unwrap_or_else(|| resolve_function_name_for_call(cc));
         if !import_names.contains(&name) {
             import_names.push(name);
         }

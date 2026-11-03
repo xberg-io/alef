@@ -1,0 +1,6 @@
+var _clientConfig = "{{ prefix }}" + String(decoding: try JSONEncoder().encode({{ api_key }}), as: UTF8.self)
+        let _clientBaseURL: String? = {{ base_url }}
+        if let _clientBaseURL {
+            _clientConfig += ",\"base_url\":" + String(decoding: try JSONEncoder().encode(_clientBaseURL), as: UTF8.self)
+        }
+        let _client = try {{ factory }}({{ label }}: _clientConfig + "}")

@@ -1,3 +1,6 @@
+#[path = "test_method/client_options.rs"]
+mod client_options;
+
 use crate::core::config::ResolvedCrateConfig;
 use crate::e2e::config::E2eConfig;
 use crate::e2e::escape::{escape_php_single, php_pcre_literal};
@@ -381,7 +384,11 @@ pub(super) fn render_test_method(
 
     let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
     let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
-    let client_factory = if let Some(factory) = php_client_factory {
+    let client_factory = if let Some(configured) =
+        client_options::render(fixture, e2e_config, call_config, lang, namespace, class_name)
+    {
+        configured
+    } else if let Some(factory) = php_client_factory {
         let fixture_id = &fixture.id;
         if let Some(var) = api_key_var.filter(|_| has_mock) {
             format!(

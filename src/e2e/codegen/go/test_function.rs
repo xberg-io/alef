@@ -6,6 +6,8 @@ use crate::e2e::fixture::Fixture;
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::fmt::Write as FmtWrite;
 
+mod client_options;
+
 use super::assertions::render_assertion;
 use super::client;
 use super::setup::{GoArgsContext, build_args_and_setup};
@@ -308,10 +310,16 @@ pub(super) fn render_test_function_with_facts(
             );
             ("\"test-key\"".to_string(), "&mockURL".to_string())
         };
-        let _ = writeln!(
+        let client_call = client_options::expression(
             out,
-            "\tclient, clientErr := {import_alias}.{factory_name}({api_key_expr}, {base_url_expr}, nil, nil, nil)"
-        );
+            fixture,
+            e2e_config,
+            call_config,
+            import_alias,
+            (&api_key_expr, &base_url_expr),
+        )
+        .unwrap_or_else(|| format!("{import_alias}.{factory_name}({api_key_expr}, {base_url_expr}, nil, nil, nil)"));
+        let _ = writeln!(out, "\tclient, clientErr := {client_call}");
         let _ = writeln!(out, "\tif clientErr != nil {{");
         let _ = writeln!(out, "\t\tt.Fatalf(\"create client failed: %v\", clientErr)");
         let _ = writeln!(out, "\t}}");

@@ -2,7 +2,7 @@ use crate::backends::swift::gen_rust_crate::type_bridge::field_needs_json_bridge
 use crate::core::config::{AdapterPattern, ResolvedCrateConfig};
 use crate::e2e::escape::escape_swift as escape_swift_str;
 use crate::e2e::field_access::SwiftFirstClassMap;
-use heck::ToLowerCamelCase;
+use heck::{ToLowerCamelCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
 
 /// Returns true when `element_type` names a scalar Rust/Swift element type.
@@ -422,6 +422,29 @@ pub(super) fn build_swift_first_class_map(
         root_type,
         stringy_fields_by_type,
     }
+}
+
+pub(super) fn swift_json_client_factory_call(
+    factory: &str,
+    json: &str,
+    api_key: &str,
+    base_url: &str,
+    functions: &[crate::core::ir::FunctionDef],
+) -> String {
+    let snake = factory.to_snake_case();
+    let label = functions
+        .iter()
+        .find(|function| function.name == snake)
+        .and_then(|function| function.params.first())
+        .map_or_else(|| "json".to_string(), |param| param.name.to_lower_camel_case());
+    let prefix = crate::e2e::codegen::client_factory::client_options_json_prefix(json);
+    crate::e2e::template_env::render(
+        "swift/client_options.jinja",
+        crate::alef_context! {
+            factory => factory, label => label, prefix => escape_swift(&prefix),
+            api_key => api_key, base_url => base_url,
+        },
+    )
 }
 
 #[cfg(test)]

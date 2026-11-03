@@ -19,6 +19,7 @@ mod bytes;
 mod cache;
 #[cfg(test)]
 mod call_arity_tests;
+mod client_options;
 #[cfg(test)]
 mod handle_config_typing_tests;
 mod handle_values;

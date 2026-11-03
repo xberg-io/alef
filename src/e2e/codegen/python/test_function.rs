@@ -303,15 +303,27 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
     // Fixtures with mock_response point the client at the mock server via base_url so
     // the fixture response is served via prefix routing.
     // Fixtures without mock_response (real-API smoke tests) use no base_url override.
-    let client_factory = resolve_call_client_factory(e2e_config, call_config);
-    // The fixture's `client_options` become keyword arguments of the client factory, named as the
-    // fixture names them (`timeout_secs=1`). Every branch below passes them, with or without a
-    // mock server, so the client the fixture builds matches the one the Rust suite builds.
-    // `client_options_exclusion` keeps a fixture with options on a client factory. ~keep
+    let json_client =
+        super::super::client_factory::client_options_json_call(fixture, e2e_config, call_config, "python");
+    let client_factory = resolve_call_client_factory(e2e_config, call_config).map(|factory| {
+        if let Some((json_factory, options)) = &json_client {
+            format!(
+                "(lambda **_options: {json_factory}(json.dumps({{**json.loads({}), **_options}})))",
+                super::json::json_to_python_literal(&serde_json::Value::String(options.clone()))
+            )
+        } else {
+            factory
+        }
+    });
     let client_option_kwargs: String = fixture
         .client_options
         .iter()
         .flatten()
+        .filter(|(name, _)| {
+            json_client.is_none()
+                && name.as_str() != "api_key"
+                && !(name.as_str() == "base_url" && (fixture.mock_response.is_some() || fixture.http.is_some()))
+        })
         .map(|(name, value)| format!(", {name}={}", super::json::json_to_python_literal(value)))
         .collect();
     let mut client_setup = String::new();

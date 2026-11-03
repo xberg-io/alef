@@ -1,5 +1,8 @@
 //! R e2e individual test case rendering.
 
+#[path = "test_case/client_options.rs"]
+mod client_options;
+
 use crate::core::config::ResolvedCrateConfig;
 use crate::e2e::codegen::declared_error_variant::{DeclaredErrorAssertion, classify, skip_line};
 use crate::e2e::config::E2eConfig;
@@ -164,6 +167,17 @@ pub(super) fn render_test_case(
         }
     } else {
         args_with_extra
+    };
+
+    let final_args = if let Some(setup) = client_options::render(fixture, e2e_config, call_config) {
+        setup_lines.push(setup);
+        if final_args.is_empty() {
+            "client".to_string()
+        } else {
+            format!("client, {final_args}")
+        }
+    } else {
+        final_args
     };
 
     if expects_error {

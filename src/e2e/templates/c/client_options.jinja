@@ -1,0 +1,4 @@
+    char* _client_options_json = alef_e2e_client_json("{{ json_prefix }}", {{ api_key }}, {{ base_url }});
+    assert(_client_options_json != NULL && "failed to serialize client options");
+    {{ type_prefix }}AlefHandle client = {{ prefix }}_{{ factory }}(_client_options_json);
+    free(_client_options_json);

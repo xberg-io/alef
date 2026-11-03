@@ -2,6 +2,7 @@ pub(super) fn render_gleam_toml(
     pkg_path: &str,
     pkg_name: &str,
     dep_mode: crate::e2e::config::DependencyMode,
+    has_json_clients: bool,
 ) -> String {
     use crate::core::template_versions::hex;
     let stdlib = hex::GLEAM_STDLIB_VERSION_RANGE;
@@ -32,6 +33,11 @@ envoy = "{envoy}""#
         }
     };
 
+    let deps = if has_json_clients {
+        format!("{deps}\ngleam_json = \"{}\"", hex::GLEAM_JSON_VERSION_RANGE)
+    } else {
+        deps
+    };
     let marker = crate::core::hash::SELF_MARKING_HEADER_LINE_HASH;
     format!(
         r#"{marker}

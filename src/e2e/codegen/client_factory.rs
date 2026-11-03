@@ -124,7 +124,7 @@ pub fn from_json_factory<'a>(
     call_config: &'a CallConfig,
     language: &str,
 ) -> Option<&'a str> {
-    call_or_default_override(e2e_config, call_config, language, |overrides| {
+    option_override(e2e_config, call_config, language, |overrides| {
         overrides.client_factory_from_json.as_deref()
     })
 }
@@ -177,14 +177,89 @@ pub fn js_client_construction(
     }
 }
 
-/// The languages whose executable generator applies a fixture's `client_options`.
-///
-/// ~keep Every other language excludes such a fixture ([`client_options_exclusion`]); listing a
-/// language here means its test function reads `Fixture::client_options` and passes them to the
-/// client it builds. `rust` builds the client through the call's `client_factory_from_json`
-/// with the options in the JSON; `python` passes each option as a keyword argument of the
-/// `client_factory`.
-const CLIENT_OPTIONS_LANGUAGES: [&str; 2] = ["rust", "python"];
+fn option_language_aliases(language: &str) -> [&str; 3] {
+    match language {
+        "wasm" => [language, "node", "typescript"],
+        "node" => [language, "typescript", "typescript"],
+        "typescript" => [language, "node", "node"],
+        "kotlin_android" => [language, "kotlin", "java"],
+        "php_ext" => [language, "php", "php"],
+        _ => [language, language, language],
+    }
+}
+
+fn option_override<'a>(
+    e2e_config: &'a E2eConfig,
+    call_config: &'a CallConfig,
+    language: &str,
+    pick: impl Fn(&'a CallOverride) -> Option<&'a str>,
+) -> Option<&'a str> {
+    let languages = option_language_aliases(language);
+    [&call_config.overrides, &e2e_config.call.overrides]
+        .into_iter()
+        .find_map(|overrides| languages.iter().find_map(|name| overrides.get(*name).and_then(&pick)))
+}
+
+/// The configured JSON factory and exact static option JSON; credentials and routing are emitter-owned.
+/// Emitters preserve this text and append JSON-encoded runtime values, avoiding numeric precision loss.
+pub fn client_options_json_call<'a>(
+    fixture: &Fixture,
+    e2e_config: &'a E2eConfig,
+    call_config: &'a CallConfig,
+    language: &str,
+) -> Option<(&'a str, String)> {
+    let options = fixture.client_options.as_ref()?;
+    let factory = from_json_factory(e2e_config, call_config, language).filter(|factory| !factory.is_empty())?;
+    let options: serde_json::Map<String, serde_json::Value> = options
+        .iter()
+        .filter(|(name, _)| !matches!(name.as_str(), "api_key" | "base_url"))
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect();
+    Some((factory, serde_json::Value::Object(options).to_string()))
+}
+
+/// Prefix for appending a JSON-encoded runtime credential to the object returned by [`client_options_json_call`].
+/// Static numeric text stays opaque so target-language JSON parsers cannot round large integers.
+pub fn client_options_json_prefix(json: &str) -> String {
+    let object = json
+        .strip_suffix('}')
+        .expect("client options are a serialized JSON object");
+    let separator = if object == "{" { "" } else { "," };
+    format!("{object}{separator}\"api_key\":")
+}
+
+/// Values accepted by the fixture schema, including empty homogeneous arrays.
+pub fn client_option_value_is_supported(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::String(_) | serde_json::Value::Number(_) | serde_json::Value::Bool(_) => true,
+        serde_json::Value::Array(values) => {
+            values.iter().all(serde_json::Value::is_string) || values.iter().all(serde_json::Value::is_number)
+        }
+        _ => false,
+    }
+}
+
+const CLIENT_OPTIONS_LANGUAGES: [&str; 19] = [
+    "rust",
+    "python",
+    "typescript",
+    "node",
+    "go",
+    "java",
+    "kotlin",
+    "kotlin_android",
+    "csharp",
+    "php",
+    "ruby",
+    "elixir",
+    "gleam",
+    "r",
+    "wasm",
+    "c",
+    "zig",
+    "dart",
+    "swift",
+];
 
 /// Python's reserved words. A keyword argument cannot carry one of these names.
 const PYTHON_KEYWORDS: [&str; 35] = [
@@ -209,11 +284,8 @@ pub fn client_options_exclusion(fixture: &Fixture, e2e_config: &E2eConfig, langu
     if !options.keys().all(|name| is_identifier(name)) {
         return Some("client option names must be plain identifiers");
     }
-    // ~keep Python passes each option as a keyword argument, so a name that is a Python keyword
-    // (`class`) would make the generated module a syntax error. Rust writes the names as JSON
-    // keys, where no keyword is reserved, and every other language is excluded below.
-    if language == "python" && options.keys().any(|name| PYTHON_KEYWORDS.contains(&name.as_str())) {
-        return Some("client option names must not be Python keywords");
+    if !options.values().all(client_option_value_is_supported) {
+        return Some("client options must be scalars or homogeneous string or number arrays");
     }
     if !CLIENT_OPTIONS_LANGUAGES.contains(&language) {
         return Some("client options are not applied by this language's e2e generator");
@@ -225,11 +297,27 @@ pub fn client_options_exclusion(fixture: &Fixture, e2e_config: &E2eConfig, langu
         &fixture.tags,
         &fixture.input,
     );
-    if call_client_factory(e2e_config, call_config, language).is_none() {
+    let factory = option_override(e2e_config, call_config, language, |overrides| {
+        if matches!(language, "php" | "php_ext") {
+            overrides
+                .php_client_factory
+                .as_deref()
+                .or(overrides.client_factory.as_deref())
+        } else {
+            overrides.client_factory.as_deref()
+        }
+    });
+    if factory.is_none_or(str::is_empty) {
         return Some("client options need a client_factory for this call");
     }
-    if language == "rust" && from_json_factory(e2e_config, call_config, language).is_none() {
-        return Some("client options need client_factory_from_json for rust");
+    if from_json_factory(e2e_config, call_config, language).is_some_and(|factory| !factory.is_empty()) {
+        return None;
+    }
+    if language != "python" {
+        return Some("client options need client_factory_from_json for this language");
+    }
+    if options.keys().any(|name| PYTHON_KEYWORDS.contains(&name.as_str())) {
+        return Some("client option names must not be Python keywords");
     }
     None
 }
@@ -607,10 +695,12 @@ mod tests {
     }
 
     #[test]
-    fn a_language_that_cannot_apply_client_options_excludes_the_fixture_with_a_reason() {
-        let config = config_with_factory_for("go", Some("CreateClient"), Some("CreateClientFromJSON"));
-        let reason = client_options_exclusion(&options_fixture(), &config, "go").expect("go is excluded");
-        assert!(reason.contains("client options"), "{reason}");
+    fn a_native_language_needs_the_json_factory_to_apply_client_options() {
+        let plain = config_with_factory_for("go", Some("CreateClient"), None);
+        let reason = client_options_exclusion(&options_fixture(), &plain, "go").expect("JSON factory missing");
+        assert!(reason.contains("client_factory_from_json"), "{reason}");
+        let json = config_with_factory_for("go", Some("CreateClient"), Some("CreateClientFromJSON"));
+        assert_eq!(client_options_exclusion(&options_fixture(), &json, "go"), None);
     }
 
     #[test]
@@ -672,5 +762,111 @@ mod tests {
             .insert("timeout secs".to_string(), serde_json::json!(1));
         let config = config_with_factory_for("python", Some("create_client"), None);
         assert!(client_options_exclusion(&fixture, &config, "python").is_some());
+    }
+
+    #[test]
+    fn every_client_language_accepts_a_configured_json_factory() {
+        for language in CLIENT_OPTIONS_LANGUAGES {
+            let config = config_with_factory_for(language, Some("create_client"), Some("create_client_from_json"));
+            assert_eq!(
+                client_options_exclusion(&options_fixture(), &config, language),
+                None,
+                "{language}"
+            );
+        }
+    }
+
+    #[test]
+    fn json_factory_preserves_large_numbers_and_removes_reserved_routing_options() {
+        let mut fixture = options_fixture();
+        fixture.client_options = Some(std::collections::BTreeMap::from([
+            ("limit".into(), serde_json::json!(u64::MAX)),
+            ("empty".into(), serde_json::json!([])),
+            ("blocked_networks".into(), serde_json::json!(["quote\"slash\\"])),
+            ("api_key".into(), serde_json::json!("fixture-key")),
+            ("base_url".into(), serde_json::json!("https://fixture.invalid")),
+        ]));
+        let config = config_with_factory_for("go", Some("CreateClient"), Some("CreateClientFromJSON"));
+        let (factory, json) = client_options_json_call(&fixture, &config, &config.call, "go").unwrap();
+        assert_eq!(factory, "CreateClientFromJSON");
+        assert!(json.contains("18446744073709551615"), "{json}");
+        let options: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(options["limit"].as_u64(), Some(u64::MAX));
+        assert_eq!(options["empty"], serde_json::json!([]));
+        assert_eq!(options["blocked_networks"], serde_json::json!(["quote\"slash\\"]));
+        assert!(options.get("api_key").is_none());
+        assert!(options.get("base_url").is_none());
+    }
+
+    #[test]
+    fn variant_json_factories_inherit_aliases_but_named_calls_take_precedence() {
+        for (language, alias) in [
+            ("wasm", "typescript"),
+            ("kotlin_android", "kotlin"),
+            ("kotlin_android", "java"),
+            ("php_ext", "php"),
+        ] {
+            let config = config_with_factory_for(alias, Some("create_client"), Some("default_json"));
+            assert_eq!(
+                from_json_factory(&config, &CallConfig::default(), language),
+                Some("default_json")
+            );
+            let mut named = CallConfig::default();
+            named.overrides.insert(
+                alias.into(),
+                CallOverride {
+                    client_factory_from_json: Some("named_json".into()),
+                    ..CallOverride::default()
+                },
+            );
+            assert_eq!(from_json_factory(&config, &named, language), Some("named_json"));
+            named.overrides.insert(
+                language.into(),
+                CallOverride {
+                    client_factory_from_json: Some("variant_json".into()),
+                    ..CallOverride::default()
+                },
+            );
+            assert_eq!(from_json_factory(&config, &named, language), Some("variant_json"));
+        }
+    }
+
+    #[test]
+    fn direct_fixture_values_obey_the_schema_even_without_loader_validation() {
+        let config = config_with_factory_for("rust", Some("create_client"), Some("create_client_from_json"));
+        for invalid in [
+            serde_json::json!(null),
+            serde_json::json!([true]),
+            serde_json::json!([1, "mixed"]),
+        ] {
+            let mut fixture = options_fixture();
+            fixture
+                .client_options
+                .as_mut()
+                .unwrap()
+                .insert("invalid".into(), invalid);
+            let reason = client_options_exclusion(&fixture, &config, "rust").expect("invalid values excluded");
+            assert!(reason.contains("homogeneous"), "{reason}");
+        }
+    }
+
+    #[test]
+    fn json_option_prefix_appends_credentials_to_an_empty_object() {
+        assert_eq!(client_options_json_prefix("{}"), "{\"api_key\":");
+    }
+
+    #[test]
+    fn json_option_prefix_preserves_large_integer_text_and_encoded_runtime_values() {
+        let json = "{\"limit\":18446744073709551615,\"empty\":[]}";
+        let prefix = client_options_json_prefix(json);
+        assert_eq!(prefix, "{\"limit\":18446744073709551615,\"empty\":[],\"api_key\":");
+        let api_key = serde_json::json!("quote\"slash\\");
+        let base_url = serde_json::json!("http://127.0.0.1/fixtures/example");
+        let complete = format!("{prefix}{api_key},\"base_url\":{base_url}}}");
+        let parsed: serde_json::Value = serde_json::from_str(&complete).expect("complete object");
+        assert_eq!(parsed["limit"].as_u64(), Some(u64::MAX));
+        assert_eq!(parsed["empty"], serde_json::json!([]));
+        assert_eq!(parsed["api_key"], api_key);
+        assert_eq!(parsed["base_url"], base_url);
     }
 }

@@ -782,6 +782,9 @@ fn render_test_method(
     let mut client_factory_setup = String::new();
     if let Some(factory) = client_factory {
         let factory_name = factory.to_upper_camel_case();
+        let construct = |key, url| {
+            client_options::expression(fixture, e2e_config, call_config, class_name, &factory_name, (key, url))
+        };
         let fixture_id = &fixture.id;
         let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
         let api_key_var_opt = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
@@ -796,31 +799,27 @@ fn render_test_method(
             client_factory_setup.push_str(&format!(
                 "        Console.WriteLine($\"{fixture_id}: \" + (baseUrl == null ? \"using real API ({api_key_var} is set)\" : \"using mock server ({api_key_var} not set)\"));\n"
             ));
-            client_factory_setup.push_str(&format!(
-                "        var client = {class_name}.{factory_name}(string.IsNullOrEmpty(apiKey) ? \"test-key\" : apiKey, baseUrl, null, null, null);\n"
-            ));
+            let client_call = construct("string.IsNullOrEmpty(apiKey) ? \"test-key\" : apiKey", "baseUrl");
+            client_factory_setup.push_str(&format!("        var client = {client_call};\n"));
         } else if let Some(api_key_var) = api_key_var_opt.filter(|_| is_live_smoke) {
             client_factory_setup.push_str(&format!(
                 "        var apiKey = System.Environment.GetEnvironmentVariable(\"{api_key_var}\");\n"
             ));
             client_factory_setup.push_str("        if (string.IsNullOrEmpty(apiKey)) { return; }\n");
-            client_factory_setup.push_str(&format!(
-                "        var client = {class_name}.{factory_name}(apiKey, null, null, null, null);\n"
-            ));
+            let client_call = construct("apiKey", "null");
+            client_factory_setup.push_str(&format!("        var client = {client_call};\n"));
         } else if fixture.has_host_root_route() {
             let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
             client_factory_setup.push_str(&format!(
                 "        var _perFixtureUrl = System.Environment.GetEnvironmentVariable(\"{env_key}\");\n"
             ));
             client_factory_setup.push_str(&format!("        var baseUrl = !string.IsNullOrEmpty(_perFixtureUrl) ? _perFixtureUrl : (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\";\n"));
-            client_factory_setup.push_str(&format!(
-                "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl, null, null, null);\n"
-            ));
+            let client_call = construct("\"test-key\"", "baseUrl");
+            client_factory_setup.push_str(&format!("        var client = {client_call};\n"));
         } else {
             client_factory_setup.push_str(&format!("        var baseUrl = (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\";\n"));
-            client_factory_setup.push_str(&format!(
-                "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl, null, null, null);\n"
-            ));
+            let client_call = construct("\"test-key\"", "baseUrl");
+            client_factory_setup.push_str(&format!("        var client = {client_call};\n"));
         }
     }
 
@@ -994,6 +993,7 @@ fn render_test_method(
 mod assertion_mock_capture;
 mod assertions;
 mod call_field_resolver;
+mod client_options;
 mod declared_error_value;
 mod discriminated;
 mod error_field_checks;

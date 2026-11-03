@@ -117,7 +117,7 @@
       "description": "Widen deliberately multi-clause constraints. Under the default replace strategy Renovate rewrites an OR/AND chain to its LAST clause alone, silently dropping the older majors and the lower bound these ranges exist to keep",
       "matchManagers": ["custom.regex"],
       "matchDatasources": ["packagist", "hex"],
-      "matchPackageNames": ["phpunit/phpunit", "guzzlehttp/guzzle", "gleam_stdlib", "gleeunit", "envoy"],
+      "matchPackageNames": ["phpunit/phpunit", "guzzlehttp/guzzle", "gleam_stdlib", "gleam_json", "gleeunit", "envoy"],
       "rangeStrategy": "widen"
     }
   ]
