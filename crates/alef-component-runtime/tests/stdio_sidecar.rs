@@ -135,6 +135,8 @@ fn should_return_status_error_without_losing_process() {
         "sidecar_protocol"
     );
     assert_eq!(engine.invoke_bytes("echo", b"still alive").unwrap(), b"still alive");
+    assert_eq!(manager.status("demo").unwrap(), ComponentStatus::Ready);
+    assert!(manager.ensure_contract("demo", "engine", b"unused\0").is_ok());
 }
 
 #[test]
@@ -146,6 +148,14 @@ fn should_bound_hanging_calls_and_reject_broken_frames() {
         assert!(engine.invoke_bytes(method, b"").is_err(), "{method}");
         assert!(start.elapsed() < Duration::from_secs(3), "{method}");
         assert!(engine.invoke_bytes("echo", b"after failure").is_err(), "{method}");
+        assert_eq!(manager.status("demo").unwrap(), ComponentStatus::Cached, "{method}");
+        for contract in ["engine", "second"] {
+            let error = manager
+                .ensure_contract("demo", contract, b"unused\0")
+                .err()
+                .expect("a stopped process must not activate any contract");
+            assert_eq!(error.code(), "sidecar_stopped", "{method}: {contract}");
+        }
     }
 }
 
