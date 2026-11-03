@@ -176,6 +176,50 @@ class DraftDiscoveryTest(unittest.TestCase):
         )
         assert len(self.api.current["assets"]) == 5
 
+    def test_created_release_identity_must_be_a_positive_integer_and_match_the_refetch(self):
+        original = self.api.request
+        for identity in (None, True, 0, -1, "23", 24):
+            with self.subTest(identity=identity):
+                self.api.current = None
+                self.api.release_pages = {}
+                state = self.module.ReleaseState(SPEC, self.api)
+
+                def changed_identity(method, endpoint, payload=None, content=None, identity=identity):
+                    if method == "GET" and endpoint == "/releases/24":
+                        return self.api.current.copy()
+                    response = original(method, endpoint, payload, content)
+                    return dict(response, id=identity) if method == "POST" else response
+
+                self.api.request = changed_identity
+                with rejected(self.module.ReleaseError):
+                    state.prepare()
+        assert len(self.api.writes) == 6
+
+    def test_created_draft_refetch_still_checks_binding_draft_and_assets(self):
+        original = self.api.request
+        for key, value in (
+            ("body", "unbound"),
+            ("tag_name", "v0.0.0"),
+            ("draft", False),
+            ("prerelease", True),
+            ("assets", None),
+        ):
+            with self.subTest(field=key):
+                self.api.current = None
+                self.api.release_pages = {}
+                state = self.module.ReleaseState(SPEC, self.api)
+
+                def changed_draft(method, endpoint, payload=None, content=None, key=key, value=value):
+                    response = original(method, endpoint, payload, content)
+                    if method == "GET" and endpoint == "/releases/23":
+                        response[key] = value
+                    return response
+
+                self.api.request = changed_draft
+                with rejected(self.module.ReleaseError):
+                    state.prepare()
+        assert len(self.api.writes) == 5
+
     def test_admitted_release_is_refetched_by_id_and_all_binding_checks_remain_live(self):
         original = self.api.current.copy()
         for key, value in (
