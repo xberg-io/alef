@@ -76,7 +76,7 @@ fn emit_json_object_arg_enum_field_emits_constructor_call() {
     };
     let done = emit_json_object_arg(&mut sink, &value, "opts", &spec, &mock, context);
     assert!(done);
-    // Constructor-call form works for both (str, Enum) subclasses and #[pyclass] tagged-union
+    // Constructor-call form works for both `StrEnum` subclasses and #[pyclass] tagged-union
     // structs. Attribute access (OutputFormat.MARKDOWN) fails for the latter because they have
     // no class-level variant constants.
     assert!(

@@ -50,7 +50,7 @@ fn output_only_adjacent_enum_without_default_compiles_its_emitted_conversions() 
     );
     let generated = rust_bindings(&api);
     let driver = r#"fn main() {
-        let original = test_lib::Choice::Right("kept".into());
+        let original = test_lib::Choice::Right(7);
         let binding: JsChoice = original.clone().into();
         let restored: test_lib::Choice = binding.try_into().unwrap();
         assert_eq!(restored, original);
@@ -233,7 +233,7 @@ fn fallible_enum_inputs_preserve_arc_field_and_vector_ownership() {
     let source = r#"
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", content = "data")]
-pub enum Choice { Left(String), Right(String) }
+pub enum Choice { Left(String), Right(u32) }
 #[derive(Clone, Debug, PartialEq)]
 pub struct Owner {
     pub value: std::sync::Arc<Choice>,
@@ -243,7 +243,7 @@ impl Default for Owner {
     fn default() -> Self {
         Self {
             value: std::sync::Arc::new(Choice::Left("default scalar".into())),
-            values: vec![std::sync::Arc::new(Choice::Right("default vector".into()))],
+            values: vec![std::sync::Arc::new(Choice::Right(1))],
         }
     }
 }
@@ -264,7 +264,7 @@ pub fn echo(owner: Owner) -> Owner { owner }
     let driver = r#"fn main() {
         let original = test_lib::Owner {
             value: std::sync::Arc::new(test_lib::Choice::Left("one".into())),
-            values: vec![std::sync::Arc::new(test_lib::Choice::Right("two".into()))],
+            values: vec![std::sync::Arc::new(test_lib::Choice::Right(2))],
         };
         let binding: JsOwner = original.clone().into();
         let restored = test_lib::Owner::try_from(binding).unwrap();

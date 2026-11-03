@@ -11,17 +11,25 @@ use std::borrow::Cow;
 /// the sealed-class result type that lands in Phase 2B.
 pub struct DartMapper;
 
+/// Whether the Dart binding surfaces `prim` as `BigInt` rather than `int`: FRB keeps a full-width
+/// `u64` lossless as `BigInt` and widens every other integer to a signed 64-bit `int`. The binding
+/// types, the FRB Rust signature and the e2e literals must all agree on this one answer.
+pub(crate) fn dart_primitive_is_bigint(prim: &PrimitiveType) -> bool {
+    matches!(prim, PrimitiveType::U64)
+}
+
 impl TypeMapper for DartMapper {
     fn primitive(&self, prim: &PrimitiveType) -> Cow<'static, str> {
         match prim {
             PrimitiveType::Bool => Cow::Borrowed("bool"),
-            PrimitiveType::U64 => Cow::Borrowed("BigInt"),
+            prim if dart_primitive_is_bigint(prim) => Cow::Borrowed("BigInt"),
             PrimitiveType::U8
             | PrimitiveType::I8
             | PrimitiveType::U16
             | PrimitiveType::I16
             | PrimitiveType::U32
             | PrimitiveType::I32
+            | PrimitiveType::U64
             | PrimitiveType::I64
             | PrimitiveType::Usize
             | PrimitiveType::Isize => Cow::Borrowed("int"),

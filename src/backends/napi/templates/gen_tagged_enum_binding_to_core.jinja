@@ -1,7 +1,7 @@
 {% if fallible -%}
 impl TryFrom<{{ binding_name }}> for {{ core_path }} {
     type Error = serde_json::Error;
-    fn try_from(val: {{ binding_name }}) -> std::result::Result<Self, Self::Error> {
+    fn try_from(val: {{ binding_name }}) -> std::result::Result<Self, serde_json::Error> {
         Ok(match val.{{ tag_field }}_tag.as_str() {
 {% else -%}
 impl From<{{ binding_name }}> for {{ core_path }} {

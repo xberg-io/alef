@@ -1,0 +1,197 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use anyhow::{Context, Result, bail, ensure};
+
+use crate::component::artifact::dynamic_library_name;
+use crate::core::config::{ComponentConfig, ComponentProducerLanguage, ResolvedCrateConfig};
+
+pub(super) fn build_component(
+    config: &ResolvedCrateConfig,
+    profile: &ComponentConfig,
+    rust_target: &str,
+    debug: bool,
+    dry_run: bool,
+    shared_target_dir: Option<&Path>,
+) -> Result<()> {
+    let mut producer_manifest = producer_manifest_path(config, &profile.name);
+    if profile.producer_language == ComponentProducerLanguage::Go {
+        producer_manifest.set_file_name("go.mod");
+    }
+    let mut command = component_build_command(
+        config,
+        profile,
+        rust_target,
+        debug,
+        shared_target_dir,
+        &producer_manifest,
+    )?;
+    tracing::info!(
+        "Building component `{}` for `{}` (features: {})",
+        profile.name,
+        rust_target,
+        if profile.features.is_empty() {
+            "<none>".to_string()
+        } else {
+            profile.features.join(",")
+        }
+    );
+    tracing::debug!("component build command: {command:?}");
+    if dry_run {
+        return Ok(());
+    }
+    let library = built_library_path(config, &profile.name, rust_target, debug, shared_target_dir);
+    execute_component_build(&mut command, profile, rust_target, &library)?;
+    ensure!(
+        library.is_file(),
+        "component build succeeded but did not produce {}",
+        library.display()
+    );
+    Ok(())
+}
+
+pub(super) fn component_build_command(
+    config: &ResolvedCrateConfig,
+    profile: &ComponentConfig,
+    rust_target: &str,
+    debug: bool,
+    shared_target_dir: Option<&Path>,
+    producer_manifest: &Path,
+) -> Result<Command> {
+    ensure!(
+        producer_manifest.is_file(),
+        "component producer manifest does not exist: {}; run `alef scaffold` first",
+        producer_manifest.display()
+    );
+    if profile.producer_language == ComponentProducerLanguage::Go {
+        let library = built_library_path(config, &profile.name, rust_target, debug, shared_target_dir);
+        return go_build_command(rust_target, producer_manifest, &library);
+    }
+    let mut command = Command::new("cargo");
+    command
+        .arg("build")
+        .arg("--manifest-path")
+        .arg(producer_manifest)
+        .args(["--target", rust_target, "--target-dir"])
+        .arg(component_target_dir(config, &profile.name, shared_target_dir));
+    if !debug {
+        command.arg("--release");
+    }
+    Ok(command)
+}
+
+fn go_build_command(rust_target: &str, producer_manifest: &Path, library: &Path) -> Result<Command> {
+    let (os, arch) = go_target(rust_target)?;
+    ensure_native_go_target(os, arch, std::env::consts::OS, std::env::consts::ARCH)?;
+    let producer_dir = producer_manifest
+        .parent()
+        .context("Go component manifest has no parent directory")?;
+    let output = std::path::absolute(library)
+        .with_context(|| format!("could not resolve Go component output {}", library.display()))?;
+    let mut command = Command::new("go");
+    command
+        .current_dir(producer_dir)
+        .env("CGO_ENABLED", "1")
+        .env("GOOS", os)
+        .env("GOARCH", arch)
+        .args(["build", "-buildmode=c-shared", "-o"])
+        .arg(output)
+        .arg(".");
+    Ok(command)
+}
+
+pub(super) fn go_target(rust_target: &str) -> Result<(&'static str, &'static str)> {
+    match rust_target {
+        "x86_64-unknown-linux-gnu" => Ok(("linux", "amd64")),
+        "aarch64-unknown-linux-gnu" => Ok(("linux", "arm64")),
+        "x86_64-apple-darwin" => Ok(("darwin", "amd64")),
+        "aarch64-apple-darwin" => Ok(("darwin", "arm64")),
+        "x86_64-pc-windows-gnu" | "x86_64-pc-windows-msvc" => Ok(("windows", "amd64")),
+        "aarch64-pc-windows-gnullvm" | "aarch64-pc-windows-msvc" => Ok(("windows", "arm64")),
+        _ => bail!("unsupported Go component target `{rust_target}`; use a native Linux GNU, macOS or Windows target"),
+    }
+}
+
+pub(super) fn ensure_native_go_target(os: &str, arch: &str, host_os: &str, host_arch: &str) -> Result<()> {
+    let host_os = if host_os == "macos" { "darwin" } else { host_os };
+    let host_arch = match host_arch {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        other => other,
+    };
+    ensure!(
+        (os, arch) == (host_os, host_arch),
+        "Go component cross-compilation from {host_os}/{host_arch} to {os}/{arch} is unsupported; \
+         build on the target platform with Go and a CGO-compatible C compiler installed"
+    );
+    Ok(())
+}
+
+fn execute_component_build(
+    command: &mut Command,
+    profile: &ComponentConfig,
+    rust_target: &str,
+    library: &Path,
+) -> Result<()> {
+    let tool = match profile.producer_language {
+        ComponentProducerLanguage::Rust => "cargo",
+        ComponentProducerLanguage::Go => "Go (CGO_ENABLED=1; requires a CGO-compatible C compiler)",
+    };
+    if profile.producer_language == ComponentProducerLanguage::Go {
+        let output_dir = library
+            .parent()
+            .context("Go component output has no parent directory")?;
+        fs::create_dir_all(output_dir).with_context(|| {
+            format!(
+                "could not create Go component output directory {}",
+                output_dir.display()
+            )
+        })?;
+    }
+    let status = command
+        .status()
+        .with_context(|| format!("failed to execute {tool} for component build"))?;
+    ensure!(
+        status.success(),
+        "component `{}` build failed for target `{rust_target}` using {tool}",
+        profile.name
+    );
+    Ok(())
+}
+
+/// Cargo target directory for one component build: the shared `--target-dir` when given, else a
+/// private `.alef/components/build/<crate>/<component>` directory.
+pub(super) fn component_target_dir(config: &ResolvedCrateConfig, component: &str, shared: Option<&Path>) -> PathBuf {
+    if let Some(shared) = shared {
+        return shared.to_path_buf();
+    }
+    Path::new(".alef")
+        .join("components")
+        .join("build")
+        .join(&config.name)
+        .join(component)
+}
+
+pub(super) fn built_library_path(
+    config: &ResolvedCrateConfig,
+    component: &str,
+    target: &str,
+    debug: bool,
+    shared_target_dir: Option<&Path>,
+) -> PathBuf {
+    component_target_dir(config, component, shared_target_dir)
+        .join(target)
+        .join(if debug { "debug" } else { "release" })
+        .join(dynamic_library_name(&producer_package_name(config, component), target))
+}
+
+fn producer_package_name(config: &ResolvedCrateConfig, component: &str) -> String {
+    format!("{}-{}-component", config.core_crate_dir(), component.replace('_', "-"))
+}
+
+fn producer_manifest_path(config: &ResolvedCrateConfig, component: &str) -> PathBuf {
+    Path::new("crates")
+        .join(producer_package_name(config, component))
+        .join("Cargo.toml")
+}

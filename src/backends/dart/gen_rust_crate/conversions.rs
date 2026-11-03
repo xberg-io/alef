@@ -50,7 +50,7 @@ pub(crate) fn frb_rust_type_inner_excluded_aware(
     match ty {
         TypeRef::Primitive(p) => match p {
             PrimitiveType::Bool => "bool".to_string(),
-            PrimitiveType::U64 => "u64".to_string(),
+            prim if crate::backends::dart::type_map::dart_primitive_is_bigint(prim) => "u64".to_string(),
             PrimitiveType::F32 | PrimitiveType::F64 => "f64".to_string(),
             _ => "i64".to_string(),
         },

@@ -49,6 +49,7 @@ mod maintenance;
 mod manager;
 mod manifest;
 mod stamp;
+pub mod stdio;
 pub mod target;
 
 pub use cache::{ArtifactCache, CachedArtifact, TrustPolicy};

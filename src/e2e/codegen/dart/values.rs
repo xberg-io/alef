@@ -2,11 +2,37 @@
 
 use crate::core::ir::TypeRef;
 
+/// Render a fixture number as a Dart literal of the type the binding declares: `BigInt.parse`
+/// (exact at any width) where [`dart_primitive_is_bigint`] says the binding exposes a `BigInt`,
+/// the plain decimal otherwise.
+///
+/// [`dart_primitive_is_bigint`]: crate::backends::dart::type_map::dart_primitive_is_bigint
 pub(super) fn render_numeric_value(value: &serde_json::Number, declared: Option<&TypeRef>) -> String {
     match declared {
         Some(TypeRef::Optional(inner)) => render_numeric_value(value, Some(inner)),
-        Some(TypeRef::Primitive(crate::core::ir::PrimitiveType::U64)) => format!("BigInt.parse('{value}')"),
+        Some(TypeRef::Primitive(prim)) if crate::backends::dart::type_map::dart_primitive_is_bigint(prim) => {
+            format!("BigInt.parse('{value}')")
+        }
         _ => value.to_string(),
+    }
+}
+
+/// Render a fixture value compared against a binding value of type `declared`. Only a number
+/// reaching a `BigInt`-typed value changes; every other value keeps [`super::assertions::dart_format_value`].
+pub(super) fn render_expected_value(value: &serde_json::Value, declared: Option<&TypeRef>) -> String {
+    match value {
+        serde_json::Value::Number(number) => render_numeric_value(number, declared),
+        other => super::assertions::dart_format_value(other),
+    }
+}
+
+/// The element type of a collection-typed `declared`, peeling `Option` first, for membership
+/// assertions (`contains`) whose expected value is one element.
+pub(super) fn collection_element_type(declared: &TypeRef) -> Option<&TypeRef> {
+    match declared {
+        TypeRef::Optional(inner) => collection_element_type(inner),
+        TypeRef::Vec(inner) => Some(inner),
+        _ => None,
     }
 }
 

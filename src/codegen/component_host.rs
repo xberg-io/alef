@@ -44,7 +44,17 @@ pub(crate) fn render_host_module(
     resolved: &[ResolvedComponent],
     lock_path: &str,
 ) -> Result<String> {
-    let proxies = generate_component_proxies(config, resolved)?.replace(PROXY_HEADER_LINE, "");
+    let stdio_components = config
+        .component_host
+        .as_ref()
+        .map(|host| host.stdio_components.as_slice())
+        .unwrap_or_default();
+    let native_components = resolved
+        .iter()
+        .filter(|component| !stdio_components.contains(&component.component_name))
+        .cloned()
+        .collect::<Vec<_>>();
+    let proxies = generate_component_proxies(config, &native_components)?.replace(PROXY_HEADER_LINE, "");
     let mut out = String::new();
     out.push_str("//! Standalone host for this crate's downloadable components.\n\n");
     out.push_str("#![allow(dead_code)]\n\n");
@@ -87,11 +97,15 @@ pub(crate) fn render_host_module(
         "/// The host's target triple, when components are published for it.\npub fn host_target() -> Option<&'static str> {\n    alef_component_runtime::target::host_target()\n}\n\n",
     );
     out.push_str(&proxies);
-    write!(out, "{}", manager_constructor(lock_path))?;
+    write!(out, "{}", manager_constructor(lock_path, stdio_components))?;
     Ok(out)
 }
 
-fn manager_constructor(lock_path: &str) -> String {
+fn manager_constructor(lock_path: &str, stdio_components: &[String]) -> String {
+    let selection = stdio_components
+        .iter()
+        .map(|id| format!(".with_stdio_component({id:?})"))
+        .collect::<String>();
     format!(
         r#"/// Build a manager over the embedded `components.lock.json`.
 ///
@@ -102,7 +116,7 @@ pub fn component_manager(cache_root: PathBuf, offline: bool) -> Result<Component
     let lock = serde_json::from_str(include_str!({lock_path:?}))?;
     let target = host_target().unwrap_or("unsupported-host");
     ComponentManager::from_lock(lock, cache_root, target, alef_component_abi::AlefHostApiV1::EMPTY)
-        .map(|manager| manager.offline(offline))
+        .map(|manager| manager.offline(offline){selection})
 }}
 "#
     )
@@ -164,6 +178,7 @@ mod tests {
                 interface_version: 1,
             }],
             components: vec![ComponentConfig {
+                producer_language: Default::default(),
                 name: "reverse".into(),
                 provides: vec![ComponentProvidesConfig {
                     contract: "codec".into(),
@@ -176,6 +191,7 @@ mod tests {
                 extra_dependencies: Default::default(),
             }],
             component_host: Some(ComponentHostConfig {
+                stdio_components: Vec::new(),
                 output: "crates/host/src/components_gen.rs".into(),
                 lock_path: Some("../components.lock.json".into()),
             }),
@@ -242,5 +258,58 @@ mod tests {
         let (api, mut config) = fixture();
         config.component_host = None;
         assert!(generate_component_host(&api, &config).unwrap().is_none());
+    }
+
+    fn select_stdio(config: &mut ResolvedCrateConfig, ids: &[&str]) {
+        let host = config.component_host.as_ref().unwrap();
+        let mut value = serde_json::to_value(host).unwrap();
+        value["stdio_components"] = serde_json::json!(ids);
+        config.component_host = Some(serde_json::from_value(value).expect("stdio host configuration"));
+    }
+
+    #[test]
+    fn stdio_host_omits_typed_proxy_and_preserves_raw_contract_metadata() {
+        let (api, mut config) = fixture();
+        select_stdio(&mut config, &["reverse"]);
+        let mut component = serde_json::to_value(&config.components[0]).unwrap();
+        component["producer_language"] = serde_json::json!("go");
+        config.components[0] = serde_json::from_value(component).unwrap();
+        let resolved = resolve_components(&api, &config).unwrap();
+        assert_eq!(
+            resolved[0].producer_language,
+            crate::core::config::ComponentProducerLanguage::Go
+        );
+        let rows = contract_hash_rows(&resolve_components(&api, &config).unwrap()).unwrap();
+        assert_eq!(rows.len(), 1);
+        let generated = generate_component_host(&api, &config).unwrap().unwrap().content;
+        assert!(generated.contains(".with_stdio_component(\"reverse\")"), "{generated}");
+        assert!(!generated.contains("pub struct CodecProxy"), "{generated}");
+        assert!(!generated.contains("ComponentInstance<"), "{generated}");
+        assert!(generated.contains("pub const COMPONENT_IDS: &[&str] = &[\"reverse\"];"));
+        assert!(generated.contains(&rows[0].2), "{generated}");
+        syn::parse_file(&generated).expect("stdio host must be valid Rust syntax");
+    }
+
+    #[test]
+    fn stdio_host_retains_proxy_when_a_native_component_provides_the_same_contract() {
+        let (api, mut config) = fixture();
+        let mut native = config.components[0].clone();
+        native.name = "native-codec".into();
+        config.components.push(native);
+        select_stdio(&mut config, &["reverse"]);
+        let generated = generate_component_host(&api, &config).unwrap().unwrap().content;
+        assert!(generated.contains(".with_stdio_component(\"reverse\")"), "{generated}");
+        assert!(!generated.contains(".with_stdio_component(\"native-codec\")"));
+        assert_eq!(generated.matches("pub struct CodecProxy").count(), 1);
+        assert!(generated.contains("&[\"reverse\", \"native-codec\"]"), "{generated}");
+    }
+
+    #[test]
+    fn native_host_does_not_select_stdio_components() {
+        let (api, config) = fixture();
+        let generated = generate_component_host(&api, &config).unwrap().unwrap().content;
+        assert!(generated.contains("pub struct CodecProxy"));
+        assert!(!generated.contains("with_stdio_component"));
+        assert!(generated.contains(".map(|manager| manager.offline(offline))"));
     }
 }

@@ -3,7 +3,7 @@
 pub(super) const NO_DEFAULT: &str = r#"
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", content = "payload")]
-pub enum Choice { Left(String), Right(String) }
+pub enum Choice { Left(String), Right(u32) }
 pub fn output_only() -> Choice { Choice::Left("kept".into()) }
 "#;
 

@@ -168,7 +168,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
         .iter()
         .any(|e| !needed_enums.contains(&e.name) && !data_enum_names.contains(e.name.as_str()));
     if has_non_needed_str_enums {
-        out.push_str("from enum import Enum\n");
+        out.push_str("from enum import StrEnum\n");
     }
     let needs_type_checking = !type_checking_only_imports.is_empty();
     // `options.py` never renders a literal `TypedDict` class anymore (see `gen_options_py`'s doc),

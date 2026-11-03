@@ -21,6 +21,7 @@ mod tests {
     fn emits_public_swift_api_with_explicit_mobile_exclusion() {
         let config = ResolvedCrateConfig {
             components: vec![ComponentConfig {
+                producer_language: Default::default(),
                 name: "fast".into(),
                 provides: vec![ComponentProvidesConfig {
                     contract: "engine".into(),

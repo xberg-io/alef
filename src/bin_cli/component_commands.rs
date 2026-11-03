@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 
@@ -10,15 +9,19 @@ use crate::codegen::component::{ResolvedComponent, resolve_component_targets, re
 use crate::codegen::component_host::contract_hash_rows;
 use crate::component::artifact::{
     ComponentArtifactRecord, ComponentLock, PackageInput, ProvidedContractInput, SigningKeySource, build_lock,
-    build_unsigned_lock, canonical_json, create_manifest, dynamic_library_name, feature_hash,
-    load_signing_key_from_source, read_record, sign_manifest_with_key, verify_record_with, write_lock,
-    write_package_named,
+    build_unsigned_lock, canonical_json, create_manifest, feature_hash, load_signing_key_from_source, read_record,
+    sign_manifest_with_key, verify_record_with, write_lock, write_package_named,
 };
 use crate::core::config::{ComponentConfig, ComponentDistributionConfig, Language, ResolvedCrateConfig};
 
 use super::args::{Commands, ComponentAction};
 use super::dispatch::DispatchContext;
 use super::helpers::load_config;
+
+#[path = "component_build.rs"]
+mod build;
+
+use build::{build_component, built_library_path};
 
 pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Option<Commands>> {
     let Commands::Component { action } = command else {
@@ -66,6 +69,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             key_id,
             unsigned,
             library,
+            debug,
             target_dir,
         } => {
             let mut package_count = 0_usize;
@@ -145,7 +149,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     let profile_feature_hash = feature_hash(&profile.features, profile.default_features);
                     for rust_target in select_targets(config, profile, &target)? {
                         let library_path = library.clone().unwrap_or_else(|| {
-                            built_library_path(config, &profile.name, &rust_target, false, target_dir.as_deref())
+                            built_library_path(config, &profile.name, &rust_target, debug, target_dir.as_deref())
                         });
                         let manifest = create_manifest(
                             &library_path,
@@ -184,7 +188,11 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             output,
             unsigned,
             url_template,
+            target,
         } => {
+            validate_lock_targets(&crates, &target)?;
+            let stage_bindings = !unsigned || output.is_none();
+            let output = output.unwrap_or_else(|| PathBuf::from("components.lock.json"));
             if let Some(template) = url_template.as_deref() {
                 ComponentDistributionConfig::validate_url_template(template).map_err(|message| anyhow!(message))?;
             }
@@ -197,6 +205,15 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             let mut public_keys = BTreeMap::new();
             let mut artifacts = Vec::new();
             for config in &crates {
+                if !target.is_empty()
+                    && !config.components.iter().any(|profile| {
+                        resolve_component_targets(config, profile)
+                            .iter()
+                            .any(|item| target.contains(item))
+                    })
+                {
+                    continue;
+                }
                 let distribution = config.component_distribution.as_ref();
                 let signed_keys = if unsigned {
                     None
@@ -224,17 +241,20 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     distribution.and_then(|distribution| distribution.artifact_name_template.as_deref());
                 let crate_records = records
                     .iter()
-                    .filter(|(_, record)| record.manifest.identity.crate_name == config.name)
+                    .filter(|(_, record)| {
+                        record.manifest.identity.crate_name == config.name
+                            && (target.is_empty() || target.contains(&record.manifest.identity.target))
+                    })
                     .collect::<Vec<_>>();
+                for (path, _) in &crate_records {
+                    verify_record_with(path, signed_keys, name_template)?;
+                }
+                ensure_configured_matrix_present(config, &crate_records, &target)?;
                 ensure!(
                     !crate_records.is_empty(),
                     "no artifact records found for crate `{}`",
                     config.name
                 );
-                for (path, _) in &crate_records {
-                    verify_record_with(path, signed_keys, name_template)?;
-                }
-                ensure_configured_matrix_present(config, &crate_records)?;
                 let owned = crate_records
                     .iter()
                     .map(|(_, record)| (*record).clone())
@@ -245,6 +265,10 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 };
                 artifacts.extend(lock.artifacts);
             }
+            ensure!(
+                !artifacts.is_empty(),
+                "no artifact records matched the selected targets"
+            );
             artifacts.sort_by(|left, right| {
                 (
                     &left.identity.crate_name,
@@ -269,7 +293,14 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             };
             write_lock(&output, &lock)?;
             tracing::info!("Wrote component lock {}", output.display());
-            for config in crates {
+            for config in crates.into_iter().filter(|config| {
+                stage_bindings
+                    && (target.is_empty()
+                        || lock
+                            .artifacts
+                            .iter()
+                            .any(|artifact| artifact.identity.crate_name == config.name))
+            }) {
                 let binding_lock = binding_lock_for_crate(&lock, &config.name);
                 let lock_bytes = canonical_json(&binding_lock)?;
                 for embedded_path in binding_component_lock_paths(config) {
@@ -438,98 +469,6 @@ fn select_targets(
         missing.join(", ")
     );
     Ok(selected)
-}
-
-fn build_component(
-    config: &ResolvedCrateConfig,
-    profile: &ComponentConfig,
-    rust_target: &str,
-    debug: bool,
-    dry_run: bool,
-    shared_target_dir: Option<&Path>,
-) -> Result<()> {
-    let target_dir = component_target_dir(config, &profile.name, shared_target_dir);
-    let producer_manifest = producer_manifest_path(config, &profile.name);
-    ensure!(
-        producer_manifest.is_file(),
-        "component producer manifest does not exist: {}; run `alef scaffold` first",
-        producer_manifest.display()
-    );
-    let mut command = Command::new("cargo");
-    command
-        .arg("build")
-        .arg("--manifest-path")
-        .arg(&producer_manifest)
-        .args(["--target", rust_target, "--target-dir"])
-        .arg(&target_dir);
-    if !debug {
-        command.arg("--release");
-    }
-    tracing::info!(
-        "Building component `{}` for `{}` (features: {})",
-        profile.name,
-        rust_target,
-        if profile.features.is_empty() {
-            "<none>".to_string()
-        } else {
-            profile.features.join(",")
-        }
-    );
-    tracing::debug!("component build command: {command:?}");
-    if dry_run {
-        return Ok(());
-    }
-    let status = command
-        .status()
-        .context("failed to execute cargo for component build")?;
-    ensure!(
-        status.success(),
-        "component `{}` build failed for target `{rust_target}`",
-        profile.name
-    );
-    let library = built_library_path(config, &profile.name, rust_target, debug, shared_target_dir);
-    ensure!(
-        library.is_file(),
-        "component build succeeded but did not produce {}",
-        library.display()
-    );
-    Ok(())
-}
-
-/// Cargo target directory for one component build: the shared `--target-dir` when given, else a
-/// private `.alef/components/build/<crate>/<component>` directory.
-fn component_target_dir(config: &ResolvedCrateConfig, component: &str, shared: Option<&Path>) -> PathBuf {
-    if let Some(shared) = shared {
-        return shared.to_path_buf();
-    }
-    Path::new(".alef")
-        .join("components")
-        .join("build")
-        .join(&config.name)
-        .join(component)
-}
-
-fn built_library_path(
-    config: &ResolvedCrateConfig,
-    component: &str,
-    target: &str,
-    debug: bool,
-    shared_target_dir: Option<&Path>,
-) -> PathBuf {
-    component_target_dir(config, component, shared_target_dir)
-        .join(target)
-        .join(if debug { "debug" } else { "release" })
-        .join(dynamic_library_name(&producer_package_name(config, component), target))
-}
-
-fn producer_package_name(config: &ResolvedCrateConfig, component: &str) -> String {
-    format!("{}-{}-component", config.core_crate_dir(), component.replace('_', "-"))
-}
-
-fn producer_manifest_path(config: &ResolvedCrateConfig, component: &str) -> PathBuf {
-    Path::new("crates")
-        .join(producer_package_name(config, component))
-        .join("Cargo.toml")
 }
 
 fn python_component_lock_path(config: &ResolvedCrateConfig) -> PathBuf {
@@ -762,12 +701,39 @@ fn merge_public_keys(destination: &mut BTreeMap<String, String>, source: &BTreeM
     Ok(())
 }
 
+fn validate_lock_targets(configs: &[&ResolvedCrateConfig], requested: &[String]) -> Result<()> {
+    let configured = configs
+        .iter()
+        .flat_map(|config| {
+            config
+                .components
+                .iter()
+                .flat_map(|profile| resolve_component_targets(config, profile))
+        })
+        .collect::<HashSet<_>>();
+    let missing = requested
+        .iter()
+        .filter(|target| !configured.contains(*target))
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    ensure!(
+        missing.is_empty(),
+        "component lock target(s) not configured: {}",
+        missing.join(", ")
+    );
+    Ok(())
+}
+
 fn ensure_configured_matrix_present(
     config: &ResolvedCrateConfig,
     records: &[&(PathBuf, ComponentArtifactRecord)],
+    requested: &[String],
 ) -> Result<()> {
     for profile in &config.components {
         for target in resolve_component_targets(config, profile) {
+            if !requested.is_empty() && !requested.contains(&target) {
+                continue;
+            }
             ensure!(
                 records.iter().any(|(_, record)| {
                     record.manifest.identity.component == profile.name && record.manifest.identity.target == target

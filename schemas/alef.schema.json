@@ -1295,6 +1295,10 @@
           "description": "Stable component name used in manifests and release assets.",
           "type": "string"
         },
+        "producer_language": {
+          "$ref": "#/$defs/ComponentProducerLanguage",
+          "description": "Language used by the generated component producer; defaults to Rust."
+        },
         "provides": {
           "description": "Contracts this component implements. Must declare at least one entry;\na component provides each contract at most once, though the same\ncontract may be provided by more than one component under different\nfeature sets.",
           "items": {
@@ -1388,12 +1392,34 @@
         "output": {
           "description": "Path of the generated Rust module, relative to the project root. Must end in `.rs`.",
           "type": "string"
+        },
+        "stdio_components": {
+          "description": "Component IDs loaded as child processes by this standalone Rust host.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "required": [
         "output"
       ],
       "type": "object"
+    },
+    "ComponentProducerLanguage": {
+      "description": "Language used to build a component producer.",
+      "oneOf": [
+        {
+          "const": "rust",
+          "description": "Rust cdylib producer.",
+          "type": "string"
+        },
+        {
+          "const": "go",
+          "description": "Go c-shared producer using the native C ABI.",
+          "type": "string"
+        }
+      ]
     },
     "ComponentProvidesConfig": {
       "additionalProperties": false,
@@ -1404,7 +1430,7 @@
           "type": "string"
         },
         "implementation": {
-          "description": "Fully-qualified Rust path to the type implementing the contract trait.",
+          "description": "Fully-qualified Rust implementation type, or plain Go constructor identifier.",
           "type": "string"
         }
       },

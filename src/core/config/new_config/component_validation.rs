@@ -29,16 +29,36 @@ pub(super) fn validate_components(
             return invalid_component_config(&krate.name, format!("duplicate component `{}`", component.name));
         }
         validate_component_provides(&krate.name, component, &contract_names)?;
-        validate_nonempty_values(&krate.name, &component.name, "features", &component.features)?;
-        validate_component_targets(&krate.name, component)?;
-        for (name, spec) in &component.extra_dependencies {
-            crate::core::config::component::validate_extra_dependency(&krate.name, name, spec).or_else(|reason| {
-                invalid_component_config(&krate.name, format!("component `{}`: {reason}", component.name))
-            })?;
+        if component.producer_language != crate::core::config::ComponentProducerLanguage::Go
+            || !component.features.is_empty()
+        {
+            validate_nonempty_values(&krate.name, &component.name, "features", &component.features)?;
         }
+        validate_component_targets(&krate.name, component)?;
+        validate_component_dependencies(&krate.name, component)?;
     }
 
     validate_component_distribution(&krate.name, component_distribution)
+}
+
+fn validate_component_dependencies(crate_name: &str, component: &ComponentConfig) -> Result<(), ResolveError> {
+    if component.producer_language == crate::core::config::ComponentProducerLanguage::Go
+        && !component.extra_dependencies.is_empty()
+    {
+        return invalid_component_config(
+            crate_name,
+            format!(
+                "Go component `{}` cannot declare Rust extra_dependencies",
+                component.name
+            ),
+        );
+    }
+    for (name, spec) in &component.extra_dependencies {
+        crate::core::config::component::validate_extra_dependency(crate_name, name, spec).or_else(|reason| {
+            invalid_component_config(crate_name, format!("component `{}`: {reason}", component.name))
+        })?;
+    }
+    Ok(())
 }
 
 fn validate_component_provides(
@@ -75,9 +95,29 @@ fn validate_component_provides(
                 ),
             );
         }
-        validate_rust_item_path(crate_name, "component implementation", &entry.implementation)?;
+        validate_component_implementation(crate_name, component, &entry.implementation)?;
     }
     Ok(())
+}
+
+fn validate_component_implementation(
+    crate_name: &str,
+    component: &ComponentConfig,
+    implementation: &str,
+) -> Result<(), ResolveError> {
+    if component.producer_language == crate::core::config::ComponentProducerLanguage::Rust {
+        return validate_rust_item_path(crate_name, "component implementation", implementation);
+    }
+    if crate::core::config::component::is_valid_go_constructor_identifier(implementation) {
+        return Ok(());
+    }
+    invalid_component_config(
+        crate_name,
+        format!(
+            "component `{}` implementation `{implementation}` must be a Go constructor identifier",
+            component.name
+        ),
+    )
 }
 
 fn validate_component_targets(crate_name: &str, component: &ComponentConfig) -> Result<(), ResolveError> {
@@ -171,13 +211,6 @@ fn validate_component_distribution(
     {
         return invalid_component_config(crate_name, message);
     }
-    if distribution.public_keys.is_empty() {
-        return invalid_component_config(
-            crate_name,
-            "component distribution must declare at least one public key",
-        );
-    }
-
     for (key_id, encoded_key) in &distribution.public_keys {
         validate_component_name(crate_name, "component distribution public key", key_id)?;
         // Shared with `alef-component-runtime`'s loader and `alef`'s artifact verification
@@ -213,5 +246,102 @@ pub(super) fn validate_component_host(krate: &RawCrateConfig) -> Result<(), Reso
             "component_host requires at least one `[[crates.components]]` entry",
         );
     }
+    let mut selected = std::collections::HashSet::new();
+    for id in &host.stdio_components {
+        if !krate.components.iter().any(|component| &component.name == id) {
+            return invalid_component_config(
+                &krate.name,
+                format!("component_host references unknown component `{id}`"),
+            );
+        }
+        if !selected.insert(id) {
+            return invalid_component_config(
+                &krate.name,
+                format!("component_host has duplicate stdio component `{id}`"),
+            );
+        }
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod transport_tests {
+    use crate::core::config::NewAlefConfig;
+
+    fn configuration(producer: &str, implementation: &str, stdio: &[&str]) -> NewAlefConfig {
+        serde_json::from_value(serde_json::json!({
+            "workspace": { "languages": ["ffi"] },
+            "crates": [{
+                "name": "sample", "sources": ["src/lib.rs"],
+                "component_contracts": [{ "name": "codec", "trait_path": "sample::Codec" }],
+                "components": [{
+                    "name": "reverse", "producer_language": producer,
+                    "provides": [{ "contract": "codec", "implementation": implementation }],
+                    "features": ["reverse"]
+                }],
+                "component_host": { "output": "host.rs", "stdio_components": stdio }
+            }]
+        }))
+        .expect("component transport configuration must deserialize")
+    }
+
+    #[test]
+    fn component_transport_accepts_go_constructor_and_known_stdio_id() {
+        let resolved = configuration("go", "NewCodec", &["reverse"]).resolve().unwrap();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].components[0].provides[0].implementation, "NewCodec");
+    }
+
+    #[test]
+    fn component_transport_rejects_go_expressions_keywords_and_injection() {
+        for implementation in [
+            "NewCodec()",
+            "codec.NewCodec",
+            "sample::Codec",
+            "func",
+            "_",
+            "9Codec",
+            "NewCodec;panic()",
+        ] {
+            let error = configuration("go", implementation, &[])
+                .resolve()
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("Go constructor identifier"), "{implementation}: {error}");
+        }
+    }
+
+    #[test]
+    fn component_transport_rejects_rust_dependencies_for_go_producer() {
+        let mut config = configuration("go", "NewCodec", &[]);
+        config.crates[0].components[0]
+            .extra_dependencies
+            .insert("serde".into(), serde_json::json!("1"));
+        let error = config.resolve().unwrap_err().to_string();
+        assert!(error.contains("extra_dependencies") && error.contains("Go"), "{error}");
+    }
+
+    #[test]
+    fn component_transport_retains_rust_item_path_validation() {
+        let error = configuration("rust", "NewCodec", &[])
+            .resolve()
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("fully-qualified Rust item path"), "{error}");
+        assert!(configuration("rust", "sample::Codec", &[]).resolve().is_ok());
+    }
+
+    #[test]
+    fn component_transport_rejects_unknown_or_duplicate_stdio_ids() {
+        for (ids, expected) in [
+            (vec!["missing"], "unknown component `missing`"),
+            (vec!["reverse", "reverse"], "duplicate stdio component `reverse`"),
+        ] {
+            let error = configuration("rust", "sample::Codec", &ids)
+                .resolve()
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(expected), "{error}");
+        }
+    }
 }

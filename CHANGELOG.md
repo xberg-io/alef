@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Load signed component executables through bounded framed stdio, with shared processes, lifecycle checks and
+  standalone Rust host selection. (#842)
+- Generate Go c-shared component producers, native CLI builds and a reusable ABI conformance suite; preserve user-owned
+  Go module and implementation seeds. (#843)
+
+### Changed (BREAKING)
+
+- Extend component configuration and resolved Rust structs with producer-language and stdio-selection fields. Rust
+  callers constructing these structs must initialize the new fields; existing configuration files keep Rust defaults.
+- Add sidecar cases to the public component runtime error enum; exhaustive Rust matches must handle the new cases.
+
+### Fixed
+
+- Preserve snippet skip and side-effect safeguards when YAML list metadata is null while upgrading the YAML parser.
+  (#852)
+- Emit `futures` only for async Rust component producers, inherit declared licenses and document generated crates and
+  entrypoints. (#851)
+- Support debug component packaging and target-filtered locks. Keep explicit unsigned lock output isolated from binding
+  locks, and permit keyless distribution settings for explicit unsigned development flows. (#851)
+- Limit workspace version synchronization to the selected core and its generated package family, preserving unrelated
+  package versions and dependency pins. (#851)
+
 ## [0.119.0] - 2026-11-03
 
 ### Changed
@@ -23,6 +47,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pass the fallibly converted request to Node adapter-backed methods, so a DTO converted with `TryFrom` no longer fails to compile on the adapter's `req.into()` (E0277).
 - Import `alef_napi_err` into the generated Node `service.rs`, whose error-mapping call sites could not resolve the crate-root helper (E0425).
 - Declare the source crates of error types defined outside the umbrella crate in the generated JNI `Cargo.toml`, which the shim's `jni_error_parts_*` functions name directly (E0433).
+- Render Dart e2e expectations on `u64` fields as `BigInt` literals, matching the binding's `BigInt` mapping.
+- Emit `StrEnum` for generated Python string enums, which ruff UP042 requires now that generated packages declare Python 3.11.
+- Name `serde_json::Error` in generated Node `TryFrom` conversions instead of `Self::Error`, which is ambiguous when the core enum has a variant called `Error`.
+- Keep an adjacently tagged Node enum whose data variants share one payload type (`Custom(String)`, `Error(String)`) as a tagged object, restoring its namespace constructors and its value export from `index.d.ts` and `index.mjs` (TS2693).
 
 ## [0.118.0] - 2026-11-03
 

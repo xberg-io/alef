@@ -812,3 +812,120 @@ mod tagged_union_assertion_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod bigint_expectation_tests {
+    use super::render_assertion_dart;
+    use crate::core::ir::{FieldDef, PrimitiveType, TypeDef, TypeRef};
+    use crate::e2e::field_access::FieldResolver;
+    use crate::e2e::fixture::Assertion;
+    use std::collections::{HashMap, HashSet};
+
+    fn field(name: &str, ty: TypeRef) -> FieldDef {
+        let optional = matches!(ty, TypeRef::Optional(_));
+        FieldDef {
+            name: name.to_string(),
+            ty,
+            optional,
+            ..FieldDef::default()
+        }
+    }
+
+    fn u64_ty() -> TypeRef {
+        TypeRef::Primitive(PrimitiveType::U64)
+    }
+
+    /// Mirrors crawlberg's `ScrapeResult.crawl_delay: Option<u64>`, reached through the
+    /// `robots.crawl_delay` alias the fixtures use.
+    fn resolver() -> FieldResolver {
+        let types = vec![
+            TypeDef {
+                name: "ScrapeResult".to_string(),
+                fields: vec![
+                    field("crawl_delay", TypeRef::Optional(Box::new(u64_ty()))),
+                    field("max_redirects", TypeRef::Primitive(PrimitiveType::U32)),
+                    field("byte_counts", TypeRef::Vec(Box::new(u64_ty()))),
+                    field("stats", TypeRef::Named("Stats".to_string())),
+                ],
+                ..TypeDef::default()
+            },
+            TypeDef {
+                name: "Stats".to_string(),
+                fields: vec![field("total_bytes", u64_ty())],
+                ..TypeDef::default()
+            },
+        ];
+        let aliases: HashMap<String, String> = [("robots.crawl_delay".to_string(), "crawl_delay".to_string())].into();
+        let (reachable, excluded, optional) = FieldResolver::ir_field_sets(&types);
+        FieldResolver::new(
+            &aliases,
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        )
+        .with_ir_result_fields(
+            FieldResolver::ir_result_field_facts(&types, "dart"),
+            Some("ScrapeResult".to_string()),
+        )
+        .with_ir_collection_map(
+            FieldResolver::ir_collection_fields(&types),
+            Some("ScrapeResult".to_string()),
+        )
+        .with_ir_fields(reachable, excluded, optional)
+    }
+
+    fn render(assertion_type: &str, field: &str, value: serde_json::Value) -> String {
+        let assertion = Assertion {
+            assertion_type: assertion_type.to_string(),
+            field: Some(field.to_string()),
+            value: Some(value),
+            ..Assertion::default()
+        };
+        let mut out = String::new();
+        render_assertion_dart(&mut out, &assertion, "result", false, &resolver());
+        out
+    }
+
+    #[test]
+    fn equals_on_an_optional_u64_field_compares_against_a_bigint() {
+        let out = render("equals", "robots.crawl_delay", serde_json::json!(2));
+        assert_eq!(out, "    expect(result.crawlDelay, equals(BigInt.parse('2')));\n");
+    }
+
+    #[test]
+    fn ordering_matchers_on_a_nested_u64_field_compare_against_a_bigint() {
+        for (assertion_type, matcher) in [
+            ("greater_than", "greaterThan"),
+            ("less_than", "lessThan"),
+            ("greater_than_or_equal", "greaterThanOrEqualTo"),
+            ("less_than_or_equal", "lessThanOrEqualTo"),
+            ("not_equals", "isNot(equals"),
+        ] {
+            let out = render(assertion_type, "stats.total_bytes", serde_json::json!(5));
+            assert!(
+                out.contains(&format!("{matcher}(BigInt.parse('5'))")),
+                "{assertion_type}: {out}"
+            );
+        }
+    }
+
+    #[test]
+    fn values_beyond_the_dart_int_range_stay_exact() {
+        let out = render("equals", "stats.total_bytes", serde_json::json!(u64::MAX));
+        assert!(out.contains(&format!("equals(BigInt.parse('{}'))", u64::MAX)), "{out}");
+    }
+
+    #[test]
+    fn contains_on_a_u64_list_compares_against_a_bigint_element() {
+        let out = render("contains", "byte_counts", serde_json::json!(7));
+        // List `contains` compares element text, so the expected element renders as the BigInt it is.
+        assert!(out.contains("contains((BigInt.parse('7')).toString()"), "{out}");
+    }
+
+    #[test]
+    fn non_bigint_integer_fields_keep_plain_int_literals() {
+        let out = render("equals", "max_redirects", serde_json::json!(3));
+        assert_eq!(out, "    expect(result.maxRedirects, equals(3));\n");
+    }
+}

@@ -309,6 +309,12 @@ impl FieldResolver {
         super::super::ir_result_fields::pointer_at_path(&self.ir_result_field_map, &self.result_relative_path(field))
     }
 
+    /// The declared IR type of the value `field` reads from the anchored result type, when the IR
+    /// resolves the path. Backends map it through their own binding type decision.
+    pub fn target_value_type(&self, field: &str) -> Option<&crate::core::ir::TypeRef> {
+        super::super::ir_result_fields::value_type_at_path(&self.ir_result_field_map, &self.result_relative_path(field))
+    }
+
     pub fn target_field_is_data_interface(&self, field: &str) -> bool {
         super::super::ir_result_fields::data_interface_at_path(&self.ir_result_field_map, self.resolve(field))
             .unwrap_or(false)

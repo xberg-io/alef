@@ -297,7 +297,7 @@ fn sync_rust_and_python(
     state: &mut SyncState,
 ) -> anyhow::Result<()> {
     sync_workspace_cargo_toml_versions(
-        &config.name,
+        config,
         version,
         writable,
         &mut state.updated,
