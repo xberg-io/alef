@@ -171,8 +171,14 @@ pub(super) fn render_test_case(
 
     let final_args = if let Some(setup) = client_options::render(fixture, e2e_config, call_config) {
         setup_lines.push(setup);
-        if final_args.is_empty() { "client".to_string() } else { format!("client, {final_args}") }
-    } else { final_args };
+        if final_args.is_empty() {
+            "client".to_string()
+        } else {
+            format!("client, {final_args}")
+        }
+    } else {
+        final_args
+    };
 
     if expects_error {
         let _ = writeln!(out, "test_that(\"{test_name}: {description}\", {{");
