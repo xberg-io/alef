@@ -1,0 +1,110 @@
+package main
+
+// #include "component.h"
+import "C"
+
+import (
+    "fmt"
+    "runtime/cgo"
+{% if has_utf8 %}
+    "unicode/utf8"
+{% endif %}
+    "unsafe"
+)
+
+func main() {}
+
+func alefBuffer(data []byte) C.AlefComponentOwnedBuffer {
+    if len(data) == 0 { return C.AlefComponentOwnedBuffer{} }
+    return C.alef_go_buffer(C.CBytes(data), C.size_t(len(data)))
+}
+
+func alefRecover(status *C.AlefComponentStatus, outError *C.AlefComponentOwnedBuffer) {
+    if cause := recover(); cause != nil {
+        *status = 3
+        *outError = alefBuffer([]byte(fmt.Sprintf("component panicked: %v", cause)))
+    }
+}
+
+func alefInput(ptr unsafe.Pointer, length C.size_t) ([]byte, bool) {
+    if uint64(length) > uint64(^uint(0) >> 1) || (length != 0 && ptr == nil) { return nil, false }
+    return append([]byte(nil), unsafe.Slice((*byte)(ptr), int(length))...), true
+}
+
+{% for contract in contracts %}
+type {{ contract.name }} interface {
+{% for method in contract.methods %}
+    {{ method.name }}({% for param in method.params %}{{ param.name }} {{ param.go }}{% if not loop.last %}, {% endif %}{% endfor %}){% if method.kind != "unit" and method.fallible %} ({{ method.go }}, error){% elif method.kind != "unit" %} {{ method.go }}{% elif method.fallible %} error{% endif %};
+{% endfor %}
+}
+
+//export AlefGo{{ contract.name }}Create
+func AlefGo{{ contract.name }}Create(outInstance *unsafe.Pointer, outError *C.AlefComponentOwnedBuffer) (status C.AlefComponentStatus) {
+    if outInstance == nil || outError == nil { return 1 }
+    *outInstance = nil
+    *outError = C.AlefComponentOwnedBuffer{}
+    defer alefRecover(&status, outError)
+    implementation := {{ contract.constructor }}()
+    if implementation == nil { *outError = alefBuffer([]byte("component constructor returned nil")); return 3 }
+    handle := cgo.NewHandle(implementation)
+    context := C.alef_go_context(C.uintptr_t(handle))
+    if context == nil { handle.Delete(); *outError = alefBuffer([]byte("allocating component context failed")); return 3 }
+    *outInstance = context
+    return 0
+}
+
+//export AlefGo{{ contract.name }}Destroy
+func AlefGo{{ contract.name }}Destroy(instance unsafe.Pointer) {
+    if instance == nil { return }
+    cgo.Handle(C.alef_go_handle(instance)).Delete()
+    C.free(instance)
+}
+{% for method in contract.methods %}
+
+//export AlefGo{{ contract.name }}{{ method.name }}
+func AlefGo{{ contract.name }}{{ method.name }}(instance unsafe.Pointer{% for param in method.params %}, {{ param.name }} C.{{ param.c }}{% endfor %}{% if method.kind != "unit" %}, outResult *C.{{ method.c }}{% endif %}, outError *C.AlefComponentOwnedBuffer) (status C.AlefComponentStatus) {
+    if outError == nil { return 1 }
+    *outError = C.AlefComponentOwnedBuffer{}
+{% if method.kind != "unit" %}
+    if outResult == nil { return 1 }
+    *outResult = *new(C.{{ method.c }})
+{% endif %}
+    if instance == nil { return 1 }
+    defer alefRecover(&status, outError)
+{% for param in method.params %}
+{% if param.kind == "bytes" or param.kind == "string" %}
+    {{ param.name }}Bytes, valid{{ loop.index }} := alefInput(unsafe.Pointer({{ param.name }}.ptr), {{ param.name }}.len)
+    if !valid{{ loop.index }} { return 1 }
+{% if param.kind == "string" %}
+    if !utf8.Valid({{ param.name }}Bytes) { return 1 }
+    {{ param.name }}Value := string({{ param.name }}Bytes)
+{% else %}
+    {{ param.name }}Value := {{ param.name }}Bytes
+{% endif %}
+{% elif param.kind == "bool" %}
+    if {{ param.name }} > 1 { return 1 }
+    {{ param.name }}Value := {{ param.name }} != 0
+{% else %}
+    {{ param.name }}Value := {{ param.go }}({{ param.name }})
+{% endif %}
+{% endfor %}
+    implementation := cgo.Handle(C.alef_go_handle(instance)).Value().({{ contract.name }})
+    {% if method.kind != "unit" %}result{% if method.fallible %}, err{% endif %} := {% elif method.fallible %}err := {% endif %}implementation.{{ method.name }}({% for param in method.params %}{{ param.name }}Value{% if not loop.last %}, {% endif %}{% endfor %})
+{% if method.fallible %}
+    if err != nil { *outError = alefBuffer([]byte(err.Error())); return 3 }
+{% endif %}
+{% if method.kind == "bytes" %}
+    *outResult = alefBuffer(result)
+{% elif method.kind == "string" %}
+    if !utf8.ValidString(result) { *outError = alefBuffer([]byte("component returned invalid UTF-8")); return 3 }
+    *outResult = alefBuffer([]byte(result))
+{% elif method.kind == "bool" %}
+    if result { *outResult = 1 }
+{% elif method.kind != "unit" %}
+    *outResult = C.{{ method.c }}(result)
+{% endif %}
+    return 0
+}
+{% endfor %}
+{% endfor %}
+

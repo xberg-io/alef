@@ -1,0 +1,10 @@
+#ifndef ALEF_GO_COMPONENT_BRIDGE_H
+#define ALEF_GO_COMPONENT_BRIDGE_H
+#include <stdlib.h>
+{% for contract in contracts %}
+#include "{{ contract.snake }}.h"
+{% endfor %}
+AlefComponentOwnedBuffer alef_go_buffer(void *, size_t);
+void *alef_go_context(uintptr_t);
+uintptr_t alef_go_handle(void *);
+#endif

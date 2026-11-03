@@ -18,6 +18,10 @@ pub fn generate_component_producers(api: &ApiSurface, config: &ResolvedCrateConf
     let components = crate::codegen::component::resolve_components(api, config)?;
     let mut files = Vec::with_capacity(components.len() * 3);
     for component in components {
+        if component.producer_language == crate::core::config::ComponentProducerLanguage::Go {
+            files.extend(super::component_go::generate(api, config, &component)?);
+            continue;
+        }
         for provided in &component.provides {
             validate_producer_types(&provided.contract)?;
         }
@@ -715,7 +719,7 @@ fn zero_value(ty: &WireType) -> String {
     }
 }
 
-fn feature_set_hash(features: &[String], default_features: bool) -> [u8; 32] {
+pub(super) fn feature_set_hash(features: &[String], default_features: bool) -> [u8; 32] {
     let mut normalized = features.to_vec();
     normalized.sort();
     normalized.dedup();

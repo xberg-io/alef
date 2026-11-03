@@ -72,7 +72,7 @@ fn main() {
         let result = unsafe { release(result) };
         let error = unsafe { release(error) };
         if status.is_ok() {
-            assert_eq!(result, expected);
+            assert_eq!(result, expected, "conformance result bytes");
             assert!(error.is_empty());
         } else {
             assert!(result.is_empty());

@@ -1,0 +1,48 @@
+#include "component.h"
+
+static void alef_go_free(void *context, uint8_t *ptr, size_t len, size_t capacity) {
+    (void)context; (void)len; (void)capacity;
+    free(ptr);
+}
+AlefComponentOwnedBuffer alef_go_buffer(void *ptr, size_t len) {
+    return (AlefComponentOwnedBuffer){ptr, len, len, NULL, alef_go_free};
+}
+void *alef_go_context(uintptr_t handle) {
+    uintptr_t *context = malloc(sizeof(uintptr_t));
+    if (context) *context = handle;
+    return context;
+}
+uintptr_t alef_go_handle(void *context) { return *(uintptr_t *)context; }
+
+{% for contract in contracts %}
+extern AlefComponentStatus AlefGo{{ contract.name }}Create(void **, AlefComponentOwnedBuffer *);
+extern void AlefGo{{ contract.name }}Destroy(void *);
+{% for method in contract.methods %}
+extern AlefComponentStatus AlefGo{{ contract.name }}{{ method.name }}(void *{% for param in method.params %}, {{ param.c }}{% endfor %}{% if method.kind != "unit" %}, {{ method.c }} *{% endif %}, AlefComponentOwnedBuffer *);
+{% endfor %}
+static AlefComponentStatus {{ contract.snake }}_create(const AlefComponentHostApiV1 *host, void **instance, AlefComponentOwnedBuffer *error) {
+    if (!host || host->struct_size < offsetof(AlefComponentHostApiV1, services_context) || host->abi_major != 1) return 2;
+    return AlefGo{{ contract.name }}Create(instance, error);
+}
+static const {{ contract.name }}ApiV{{ contract.version }} {{ contract.snake }}_table = {
+    sizeof({{ contract.name }}ApiV{{ contract.version }}){% for method in contract.methods %}, AlefGo{{ contract.name }}{{ method.name }}{% endfor %}
+};
+static const AlefComponentV1 {{ contract.snake }}_descriptor = {
+    sizeof(AlefComponentV1), 1, 0,
+    { "{{ component }}", sizeof("{{ component }}") - 1 },
+    { "{{ version }}", sizeof("{{ version }}") - 1 },
+    { {{ contract.hash }} }, { {{ feature_hash }} },
+    &{{ contract.snake }}_table, sizeof({{ contract.snake }}_table), {{ contract.snake }}_create, AlefGo{{ contract.name }}Destroy
+};
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+AlefComponentStatus {{ contract.entry }}(uint32_t major, const AlefComponentHostApiV1 *host, const AlefComponentV1 **out) {
+    (void)host;
+    if (!out) return 1;
+    *out = NULL;
+    if (major != 1) return 2;
+    *out = &{{ contract.snake }}_descriptor;
+    return 0;
+}
+{% endfor %}

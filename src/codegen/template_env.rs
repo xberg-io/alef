@@ -2,6 +2,26 @@ use minijinja::Environment;
 
 static TEMPLATES: &[(&str, &str)] = &[
     (
+        "component_go/module.jinja",
+        include_str!("templates/component_go/module.jinja"),
+    ),
+    (
+        "component_go/bridge.go.jinja",
+        include_str!("templates/component_go/bridge.go.jinja"),
+    ),
+    (
+        "component_go/bridge.c.jinja",
+        include_str!("templates/component_go/bridge.c.jinja"),
+    ),
+    (
+        "component_go/bridge.h.jinja",
+        include_str!("templates/component_go/bridge.h.jinja"),
+    ),
+    (
+        "component_go/implementation.go.jinja",
+        include_str!("templates/component_go/implementation.go.jinja"),
+    ),
+    (
         "adapters/async_r_body.rs.jinja",
         include_str!("templates/adapters/async_r_body.rs.jinja"),
     ),
