@@ -1,0 +1,18 @@
+package main
+
+{% for contract in contracts %}
+type {{ contract.name }}Implementation struct{}
+
+func {{ contract.constructor }}() {{ contract.name }} { return &{{ contract.name }}Implementation{} }
+{% for method in contract.methods %}
+
+func (implementation *{{ contract.name }}Implementation) {{ method.name }}({% for param in method.params %}{{ param.name }} {{ param.go }}{% if not loop.last %}, {% endif %}{% endfor %}){% if method.kind != "unit" and method.fallible %} ({{ method.go }}, error){% elif method.kind != "unit" %} {{ method.go }}{% elif method.fallible %} error{% endif %} {
+{% if method.kind != "unit" %}
+    var result {{ method.go }}
+    return result{% if method.fallible %}, nil{% endif %}
+{% elif method.fallible %}
+    return nil
+{% endif %}
+}
+{% endfor %}
+{% endfor %}

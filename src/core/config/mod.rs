@@ -41,7 +41,8 @@ pub mod workspace;
 
 pub use cargo_lints::CargoLintsConfig;
 pub use component::{
-    ComponentConfig, ComponentContractConfig, ComponentDistributionConfig, ComponentHostConfig, ComponentProvidesConfig,
+    ComponentConfig, ComponentContractConfig, ComponentDistributionConfig, ComponentHostConfig,
+    ComponentProducerLanguage, ComponentProvidesConfig,
 };
 pub use derive::{derive_go_module_from_repo, derive_repo_org, derive_reverse_dns_package};
 pub use dto::{

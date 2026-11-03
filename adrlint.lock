@@ -70,3 +70,13 @@ blake3 = "dd36fe5d374244454c39ecfdface529956a41a53dc372e4d0bbbad23c3e0bf62"
 number = 16
 status = "accepted"
 blake3 = "65317e6688110e71dbb7ceef98bf49b0fc67d58fdb336de4a3d4a5bef39f4a5c"
+
+[adrs."adrs/0017-framed-stdio-transport-for-component-sidecars.md"]
+number = 17
+status = "accepted"
+blake3 = "cf77672a8688d919bdddb54296a7cfb682a547d480ccea9f5f50c657473285a9"
+
+[adrs."adrs/0018-go-c-shared-component-producers.md"]
+number = 18
+status = "accepted"
+blake3 = "f90f1d89af81198cddae1a1503d6e57abede23a062fd40dc2679fb33bdef79ee"

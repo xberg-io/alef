@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Load signed component executables through bounded framed stdio, with shared processes, lifecycle checks and
+  standalone Rust host selection. (#842)
+- Generate Go c-shared component producers, native CLI builds and a reusable ABI conformance suite; preserve user-owned
+  Go module and implementation seeds. (#843)
+
+### Changed (BREAKING)
+
+- Extend component configuration and resolved Rust structs with producer-language and stdio-selection fields. Rust
+  callers constructing these structs must initialize the new fields; existing configuration files keep Rust defaults.
+- Add sidecar cases to the public component runtime error enum; exhaustive Rust matches must handle the new cases.
+
+### Fixed
+
+- Emit `futures` only for async Rust component producers, inherit declared licenses and document generated crates and
+  entrypoints. (#851)
+- Support debug component packaging and target-filtered locks. Keep explicit unsigned lock output isolated from binding
+  locks, and permit keyless distribution settings for explicit unsigned development flows. (#851)
+- Limit workspace version synchronization to the selected core and its generated package family, preserving unrelated
+  package versions and dependency pins. (#851)
+
 ## [0.119.0] - 2026-11-03
 
 ### Changed

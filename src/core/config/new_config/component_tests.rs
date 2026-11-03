@@ -279,7 +279,7 @@ fn resolve_rejects_invalid_component_distribution_url_template() {
 }
 
 #[test]
-fn resolve_rejects_invalid_component_public_keys() {
+fn resolve_preserves_keyless_component_distribution() {
     let mut empty_keys = component_config("");
     empty_keys.crates[0]
         .component_distribution
@@ -287,9 +287,22 @@ fn resolve_rejects_invalid_component_public_keys() {
         .unwrap()
         .public_keys
         .clear();
-    let error = empty_keys.resolve().unwrap_err().to_string();
-    assert!(error.contains("at least one public key"), "{error}");
+    empty_keys.crates[0]
+        .component_distribution
+        .as_mut()
+        .unwrap()
+        .artifact_name_template = Some("dev-{component}-{target}.tar.gz".into());
+    let resolved = empty_keys.resolve().unwrap();
+    let distribution = resolved[0].component_distribution.as_ref().unwrap();
+    assert!(distribution.public_keys.is_empty());
+    assert_eq!(
+        distribution.artifact_name_template.as_deref(),
+        Some("dev-{component}-{target}.tar.gz")
+    );
+}
 
+#[test]
+fn resolve_rejects_invalid_component_public_keys() {
     let mut invalid_key = component_config("");
     invalid_key.crates[0]
         .component_distribution

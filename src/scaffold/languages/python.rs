@@ -582,6 +582,7 @@ mod tests {
         let config = crate::core::config::ResolvedCrateConfig {
             name: "demo".into(),
             components: vec![ComponentConfig {
+                producer_language: Default::default(),
                 name: "fast".into(),
                 provides: vec![ComponentProvidesConfig {
                     contract: "engine".into(),
@@ -607,6 +608,7 @@ mod tests {
         let config = crate::core::config::ResolvedCrateConfig {
             name: "demo".into(),
             components: vec![ComponentConfig {
+                producer_language: Default::default(),
                 name: "fast".into(),
                 provides: vec![ComponentProvidesConfig {
                     contract: "engine".into(),
