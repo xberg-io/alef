@@ -511,8 +511,9 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
 
     if has(Language::Php) {
         out.push_str(&format!(
-            "[lint.php.mago]\nselect = [\"correctness\", \"security\"]\nignore = {ignore}\nphp_version = \"8.2\"\n\n",
-            ignore = toml_array(MAGO_IGNORE)
+            "[lint.php.mago]\nselect = [\"correctness\", \"security\"]\nignore = {ignore}\nphp_version = \"{php_min}\"\n\n",
+            ignore = toml_array(MAGO_IGNORE),
+            php_min = crate::core::template_versions::toolchain::PHP_MIN_VERSION,
         ));
     }
 

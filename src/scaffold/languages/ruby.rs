@@ -249,7 +249,7 @@ pub(crate) fn scaffold_ruby(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         .ruby
         .as_ref()
         .and_then(|c| c.required_ruby_version.clone())
-        .unwrap_or_else(|| ">= 3.2.0".to_string());
+        .unwrap_or_else(|| format!(">= {}.0", tv::toolchain::RUBY_MIN_VERSION));
 
     let content = ruby_gemspec_content(RubyGemspecParams {
         meta: &meta,
@@ -261,12 +261,13 @@ pub(crate) fn scaffold_ruby(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         versions: &versions,
     });
 
-    let rubocop_content = r#"plugins:
+    let rubocop_content = format!(
+        r#"plugins:
   - rubocop-performance
   - rubocop-rspec
 
 AllCops:
-  TargetRubyVersion: 3.2
+  TargetRubyVersion: {target_ruby}
   NewCops: enable
   SuggestExtensions: false
   Exclude:
@@ -326,8 +327,9 @@ RSpec/MultipleExpectations:
 
 RSpec/NestedGroups:
   Max: 6
-"#
-    .to_string();
+"#,
+        target_ruby = tv::toolchain::RUBY_MIN_VERSION,
+    );
 
     // Ruby cross-compile platforms, each paired with the Rust target triple that ~keep
     // backs it. A platform whose triple is disabled via the workspace `[targets]` ~keep

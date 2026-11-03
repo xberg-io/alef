@@ -515,8 +515,8 @@ mod composer_json_tests {
         );
         // Must declare the php platform require.
         assert!(
-            content.contains(r#""php": ">=8.2""#),
-            "registry composer.json must require php >=8.2, got:\n{content}"
+            content.contains(r#""php": ">=8.3""#),
+            "registry composer.json must require php >=8.3, got:\n{content}"
         );
         // Must NOT contain a direct package require (composer can't resolve it
         // before PIE has installed the .so).

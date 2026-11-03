@@ -312,7 +312,7 @@ pub(super) fn render_package_swift(
     // SwiftPM will resolve the release/swift/<version> branch which contains the correct
     // XCFramework checksum. SemVer-based resolution (from:) would fail because the actual
     // package artifact lives on the release/swift/ branch, not a SemVer tag.
-    // Use explicit .product(name:package:) to avoid ambiguity under tools-version 6.0.
+    // Use explicit .product(name:package:) to avoid ambiguity under the emitted tools-version.
     let (mut dependencies_block, mut test_target_dep) = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
             // Registry mode: fetch the full Swift package from GitHub at the release/swift/<version> branch.
@@ -367,6 +367,7 @@ pub(super) fn render_package_swift(
     let min_macos_major = min_macos.split('.').next().unwrap_or(min_macos);
     let min_ios = toolchain::SWIFT_MIN_IOS;
     let min_ios_major = min_ios.split('.').next().unwrap_or(min_ios);
+    let swift_tools_version = toolchain::SWIFT_TOOLS_VERSION;
     // The consumer's minimum iOS must be >= the dep's minimum iOS or SwiftPM hides
     // the product as platform-incompatible. Use the same constant the swift backend
     // emits into the dep's Package.swift.
@@ -390,7 +391,7 @@ pub(super) fn render_package_swift(
 "#
     );
     format!(
-        r#"// swift-tools-version: 6.0
+        r#"// swift-tools-version: {swift_tools_version}
 import PackageDescription
 
 let package = Package(

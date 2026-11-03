@@ -126,6 +126,7 @@ pub(super) fn render_pom_xml(
             java_group_id => java_group_id,
             dep_block => dep_block,
             extras_block => extras_block,
+            java_release => tv::toolchain::JAVA_JVM_TARGET,
             junit_version => tv::maven::JUNIT,
             jackson_version => tv::maven::JACKSON_E2E,
             build_helper_version => tv::maven::BUILD_HELPER_MAVEN_PLUGIN,

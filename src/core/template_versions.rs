@@ -319,8 +319,8 @@ pub mod gem {
 
 pub mod packagist {
 
-    // Span every PHPUnit major that supports the generated `"php": ">=8.2"` floor: 11.x needs
-    // >=8.2, 12.x needs >=8.3, 13.x needs >=8.4.1. A 13-only constraint is unsatisfiable on 8.2/8.3,
+    // Span every PHPUnit major that supports the generated `"php": ">=8.3"` floor: 11.x needs
+    // >=8.2, 12.x needs >=8.3, 13.x needs >=8.4.1. A 13-only constraint is unsatisfiable on 8.3,
     // so `composer install` hard-fails there, and Dependabot — which resolves Composer against the
     // declared platform floor rather than the runtime PHP — reported "requirements could not be
     // resolved" on every run. Composer picks the highest major the actual PHP supports.
@@ -623,9 +623,34 @@ pub mod toolchain {
     #[deprecated(since = "0.16.4", note = "use JAVA_JVM_TARGET or KOTLIN_JVM_TARGET")]
     pub const JVM_TARGET: &str = "25";
 
-    pub const SWIFT_MIN_MACOS: &str = "13.0";
+    /// Minimum macOS deployment target for every emitted `Package.swift`. SwiftPM platform
+    /// enums take the major only, so `"26.0"` renders as `.macOS(.v26)`.
+    pub const SWIFT_MIN_MACOS: &str = "26.0";
 
     pub const SWIFT_MIN_IOS: &str = "16.0";
+
+    /// `// swift-tools-version:` of every emitted `Package.swift`. `.macOS(.v26)` (see
+    /// [`SWIFT_MIN_MACOS`]) only exists in PackageDescription 6.2 and later.
+    pub const SWIFT_TOOLS_VERSION: &str = "6.2";
+
+    /// `go` directive of every emitted `go.mod`.
+    pub const GO_VERSION: &str = "1.27";
+
+    /// Minimum Ruby for emitted gemspecs (`required_ruby_version`) and RuboCop
+    /// `TargetRubyVersion`.
+    pub const RUBY_MIN_VERSION: &str = "3.3";
+
+    /// Minimum PHP for emitted `composer.json` `require.php` and mago `php_version`.
+    pub const PHP_MIN_VERSION: &str = "8.3";
+
+    /// `elixir:` requirement of every emitted `mix.exs`.
+    pub const ELIXIR_REQUIREMENT: &str = "~> 1.17";
+
+    /// Minimum R in emitted `DESCRIPTION` `Depends: R (>= ...)`.
+    pub const R_MIN_VERSION: &str = "4.4";
+
+    /// Minimum rustc emitted into generated package manifests (R `SystemRequirements`).
+    pub const RUST_MIN_VERSION: &str = "1.99";
 
     // renovate: datasource=gradle-version depName=gradle
     pub const GRADLE_VERSION: &str = "9.8.2";

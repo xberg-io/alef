@@ -389,7 +389,7 @@ fn render_go_mod(
     };
     let _ = writeln!(out, "module {main_module}");
     let _ = writeln!(out);
-    let _ = writeln!(out, "go 1.26");
+    let _ = writeln!(out, "go {}", crate::core::template_versions::toolchain::GO_VERSION);
     let _ = writeln!(out);
 
     // Build the full direct-require set and sort it alphabetically by module path -- `gofmt`/`go

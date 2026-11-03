@@ -21,7 +21,7 @@
     <img src="https://img.shields.io/badge/License-MIT-007ec6" alt="License">
   </a>
   <a href="https://www.rust-lang.org">
-    <img src="https://img.shields.io/badge/Rust-1.89%2B-007ec6?logo=rust&logoColor=white" alt="Rust 1.89+">
+    <img src="https://img.shields.io/badge/Rust-1.99%2B-007ec6?logo=rust&logoColor=white" alt="Rust 1.99+">
   </a>
   <a href="#supported-targets">
     <img src="https://img.shields.io/badge/Targets-18-007ec6" alt="18 targets">
@@ -62,7 +62,7 @@ tests, and release metadata from one `alef.toml`.
 
 ## Installation
 
-Alef requires Rust 1.89 or newer. To build from source:
+Alef requires Rust 1.99 or newer. To build from source:
 
 ```bash
 cargo install alef --locked

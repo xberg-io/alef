@@ -322,6 +322,41 @@ const KNOWN_UNMARKED_VERSION_CONSTS: &[UnmarkedVersionConst] = &[
         detail: "Swift minimum iOS target, human-reviewed rather than auto-bumped",
     },
     UnmarkedVersionConst {
+        name: "SWIFT_TOOLS_VERSION",
+        reason: UnmarkedReason::ToolchainFloor,
+        detail: "SwiftPM tools-version of emitted manifests, tied to SWIFT_MIN_MACOS's platform enum",
+    },
+    UnmarkedVersionConst {
+        name: "GO_VERSION",
+        reason: UnmarkedReason::ToolchainFloor,
+        detail: "`go` directive of emitted go.mod files, human-reviewed rather than auto-bumped",
+    },
+    UnmarkedVersionConst {
+        name: "RUBY_MIN_VERSION",
+        reason: UnmarkedReason::ToolchainFloor,
+        detail: "minimum Ruby for emitted gemspecs and RuboCop, human-reviewed rather than auto-bumped",
+    },
+    UnmarkedVersionConst {
+        name: "PHP_MIN_VERSION",
+        reason: UnmarkedReason::ToolchainFloor,
+        detail: "minimum PHP for emitted composer.json and mago, human-reviewed rather than auto-bumped",
+    },
+    UnmarkedVersionConst {
+        name: "ELIXIR_REQUIREMENT",
+        reason: UnmarkedReason::ToolchainFloor,
+        detail: "`elixir:` requirement of emitted mix.exs files, human-reviewed rather than auto-bumped",
+    },
+    UnmarkedVersionConst {
+        name: "R_MIN_VERSION",
+        reason: UnmarkedReason::ToolchainFloor,
+        detail: "minimum R in the emitted DESCRIPTION, human-reviewed rather than auto-bumped",
+    },
+    UnmarkedVersionConst {
+        name: "RUST_MIN_VERSION",
+        reason: UnmarkedReason::ToolchainFloor,
+        detail: "minimum rustc declared in emitted package manifests, human-reviewed rather than auto-bumped",
+    },
+    UnmarkedVersionConst {
         name: "ANDROID_COMPILE_SDK",
         reason: UnmarkedReason::ToolchainFloor,
         detail: "Android compileSdk level, human-reviewed rather than auto-bumped",

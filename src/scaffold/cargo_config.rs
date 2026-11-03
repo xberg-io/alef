@@ -18,7 +18,8 @@ pub(crate) fn rust_toolchain_file(languages: &[Language]) -> GeneratedFile {
     GeneratedFile {
         path: std::path::PathBuf::from("rust-toolchain.toml"),
         content: format!(
-            "[toolchain]\nchannel = \"1.95\"\ncomponents = [\"rust-src\", \"rustfmt\", \"clippy\"]\n{targets}"
+            "[toolchain]\nchannel = \"{channel}\"\ncomponents = [\"rust-src\", \"rustfmt\", \"clippy\"]\n{targets}",
+            channel = crate::core::template_versions::toolchain::RUST_MIN_VERSION
         ),
         // Was `false`, which meant `ensure_generated_header` never ran and the file reached disk
         // with no marker: alef wrote every byte of it, `finalize_hashes` skipped it for want of a

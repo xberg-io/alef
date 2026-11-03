@@ -358,7 +358,12 @@ end
 }
 
 pub(super) fn render_rubocop_yaml() -> String {
-    crate::e2e::template_env::render("ruby/rubocop.yml.jinja", crate::alef_context! {})
+    crate::e2e::template_env::render(
+        "ruby/rubocop.yml.jinja",
+        crate::alef_context! {
+            target_ruby_version => crate::core::template_versions::toolchain::RUBY_MIN_VERSION,
+        },
+    )
 }
 
 #[cfg(test)]

@@ -444,7 +444,7 @@ defmodule {module}.MixProject do
     [
       app: :{app_name},
       version: "{version}",
-      elixir: "~> 1.14",{elixirc_paths}
+      elixir: "{elixir_requirement}",{elixirc_paths}
       {rustler_crates_block}
       description: "{description}",
       package: package(),
@@ -475,6 +475,7 @@ end
         app_name = app_name,
         version = version,
         elixirc_paths = elixirc_paths_line,
+        elixir_requirement = crate::core::template_versions::toolchain::ELIXIR_REQUIREMENT,
         rustler_crates_block = rustler_crates_block,
         files_keyword = files_keyword,
         jason_dep = jason_dep,

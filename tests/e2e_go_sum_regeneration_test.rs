@@ -109,7 +109,7 @@ fn test_go_e2e_generation_includes_go_mod() {
         "go.mod must require the parent module"
     );
     assert!(
-        go_mod_file.content.contains("go 1.26"),
+        go_mod_file.content.contains("go 1.27"),
         "go.mod must specify Go version"
     );
 }

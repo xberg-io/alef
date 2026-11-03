@@ -75,12 +75,12 @@ pub(super) fn render_composer_json(
             // 3. The extension is guaranteed to be loaded before tests run
             //    (install.sh ensures this).
             //
-            // `php: ">=8.2"` is sufficient — Composer verifies the PHP version at
+            // `php: ">=8.3"` is sufficient — Composer verifies the PHP version at
             // runtime (always satisfied on CI runners) and development dependencies
             // (phpunit, guzzle) are the only packages Composer needs to manage.
             let require = format!(
                 r#"  "require": {{
-    "php": ">=8.2"
+    "php": ">={php_min}"
   }},
   "require-dev": {{
     "phpunit/phpunit": "{phpunit}",
@@ -88,6 +88,7 @@ pub(super) fn render_composer_json(
   }},"#,
                 phpunit = tv::packagist::PHPUNIT,
                 guzzle = tv::packagist::GUZZLE,
+                php_min = tv::toolchain::PHP_MIN_VERSION,
             );
             // The userland PHP classes (layered over the PIE-installed native
             // extension) are autoloaded from the local package source, since the

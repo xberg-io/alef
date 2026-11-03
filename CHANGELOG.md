@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Raise the emitted language floors ([ADR 0014](adrs/0014-raise-the-generated-minimums-for-the-other-host-languages.md)) to Node 22, Ruby 3.3, PHP 8.3, Elixir 1.17, Go 1.27, Java 25, R 4.4, macOS 26 (SwiftPM tools-version 6.2) and Rust 1.99; alef's own crates now declare `rust-version = "1.99"`.
 - Record the strict Swift consumer gate's compiler-matched LLVM reader decision in
   [ADR 0013](adrs/0013-inspect-swift-archives-with-the-selected-rust-toolchain-s-llvm.md).
 

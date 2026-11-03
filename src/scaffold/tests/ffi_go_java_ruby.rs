@@ -458,7 +458,7 @@ fn test_scaffold_go_production_format() {
     let files = language_files(&all_files);
     assert_eq!(files.len(), 3);
     let content = &files[0].content;
-    assert!(content.contains("go 1.26"));
+    assert!(content.contains("go 1.27"));
     assert!(!content.contains("require ("));
 }
 
@@ -571,7 +571,7 @@ fn test_scaffold_ruby_production_features() {
     // it is unchanged. ~keep
     assert_eq!(files.len(), 8);
     let content = &files[0].content;
-    assert!(content.contains(r#"spec.required_ruby_version = ">= 3.2.0""#));
+    assert!(content.contains(r#"spec.required_ruby_version = ">= 3.3.0""#));
     assert!(!content.contains("< 4.0"));
     assert!(content.contains("spec.extensions"));
     assert!(content.contains("README*"));

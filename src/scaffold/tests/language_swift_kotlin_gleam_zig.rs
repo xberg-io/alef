@@ -22,7 +22,7 @@ fn test_scaffold_swift() {
         package_swift.content
     );
     assert!(
-        package_swift.content.contains(".macOS(.v13)"),
+        package_swift.content.contains(".macOS(.v26)"),
         "got: {}",
         package_swift.content
     );
@@ -32,7 +32,7 @@ fn test_scaffold_swift() {
         package_swift.content
     );
     assert!(
-        package_swift.content.contains("swift-tools-version: 6.0"),
+        package_swift.content.contains("swift-tools-version: 6.2"),
         "got: {}",
         package_swift.content
     );

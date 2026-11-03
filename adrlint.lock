@@ -55,3 +55,8 @@ blake3 = "615a7b5c894dffe3f3106ab4b3564a30cde3ffd42a8fd1c795a8d7220d87824d"
 number = 13
 status = "accepted"
 blake3 = "dd27a67be4b7081b19a67a501d15d5ec6aed2cbbd53ca036aaef0683a9a53ecd"
+
+[adrs."adrs/0014-raise-the-generated-minimums-for-the-other-host-languages.md"]
+number = 14
+status = "accepted"
+blake3 = "e85c0e4d4ff648bfb59d01e18efc3fbf633f4e15cd5a52a8f6e8bc796d0f61d1"

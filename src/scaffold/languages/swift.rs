@@ -29,8 +29,11 @@ const RUST_BRIDGE_SWIFT_SETTINGS: &str =
 pub(crate) fn scaffold_swift(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let (module, package_name) = (config.swift_module(), config.swift_package_name());
-    let min_macos_major = swift_min_macos(config).split('.').next().unwrap_or("13").to_string();
-    let min_ios_major = swift_min_ios(config).split('.').next().unwrap_or("16").to_string();
+    // SwiftPM platform enums take the major only: "26.0" renders as `.macOS(.v26)`.
+    let min_macos = swift_min_macos(config);
+    let min_macos_major = min_macos.split('.').next().unwrap_or(&min_macos).to_string();
+    let min_ios = swift_min_ios(config);
+    let min_ios_major = min_ios.split('.').next().unwrap_or(&min_ios).to_string();
 
     let crate_name = &config.name;
     let binding_crate_name = format!("{crate_name}-swift");
@@ -100,7 +103,7 @@ pub(crate) fn scaffold_swift(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     };
 
     let package_swift = format!(
-        r#"// swift-tools-version: 6.0
+        r#"// swift-tools-version: {swift_tools_version}
 import PackageDescription
 // `resolvedStaticLib` below needs one file-existence check and nothing else. Foundation would
 // supply `FileManager`, but importing it makes a standalone Swift toolchain (swiftly 6.3.1,
@@ -224,6 +227,7 @@ let package = Package(
         rust_bridge_swift_settings = RUST_BRIDGE_SWIFT_SETTINGS,
         min_macos = min_macos_major,
         min_ios = min_ios_major,
+        swift_tools_version = crate::core::template_versions::toolchain::SWIFT_TOOLS_VERSION,
         binding_crate = binding_crate_name,
         binding_underscore = binding_crate_underscore,
         ffi_lib_name = ffi_lib_name,
@@ -318,7 +322,7 @@ struct Demo {{
 
     let root_package_swift = meta.repository.as_deref().map(|repository| {
         format!(
-            r#"// swift-tools-version: 6.0
+            r#"// swift-tools-version: {swift_tools_version}
 // Root-level Package.swift — alef-generated for published distributions.
 //
 // This manifest uses `.binaryTarget` for pre-built XCFramework/artifact bundles.
@@ -403,6 +407,7 @@ let package = Package(
             rust_bridge_swift_settings = RUST_BRIDGE_SWIFT_SETTINGS,
             min_macos = min_macos_major,
             min_ios = min_ios_major,
+            swift_tools_version = crate::core::template_versions::toolchain::SWIFT_TOOLS_VERSION,
             repository = repository.trim_end_matches('/'),
             package_dependencies = package_dependencies,
             module_target_capsule_deps = module_target_capsule_deps,

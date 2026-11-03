@@ -6558,7 +6558,7 @@
         },
         "required_ruby_version": {
           "default": null,
-          "description": "Override the `required_ruby_version` constraint emitted into the gemspec. A single\nRubyGems requirement string (e.g. `\">= 3.2.0\"`). When unset, defaults to `\">= 3.2.0\"`\n(no upper bound, so the gem installs on Ruby 4.x). ~keep",
+          "description": "Override the `required_ruby_version` constraint emitted into the gemspec. A single\nRubyGems requirement string (e.g. `\">= 3.3.0\"`). When unset, defaults to `\">= 3.3.0\"`\n(no upper bound, so the gem installs on Ruby 4.x). ~keep",
           "type": [
             "string",
             "null"

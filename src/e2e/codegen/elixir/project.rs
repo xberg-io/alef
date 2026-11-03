@@ -111,7 +111,7 @@ pub(super) fn render_mix_exs(
     let _ = writeln!(out, "    [");
     let _ = writeln!(out, "      app: :e2e_elixir,");
     let _ = writeln!(out, "      version: \"0.1.0\",");
-    let _ = writeln!(out, "      elixir: \"~> 1.14\",");
+    let _ = writeln!(out, "      elixir: \"{}\",", tv::toolchain::ELIXIR_REQUIREMENT);
     let _ = writeln!(out, "      deps: deps()");
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out, "  end");

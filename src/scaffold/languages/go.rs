@@ -40,7 +40,11 @@ pub(crate) fn scaffold_go(api: &ApiSurface, config: &ResolvedCrateConfig) -> any
         format!("\nrequire (\n\t{}\n)\n", require_lines.join("\n\t"))
     };
 
-    let content = format!("module {module}\n\ngo 1.26\n{require_block}", module = go_module,);
+    let content = format!(
+        "module {module}\n\ngo {go_version}\n{require_block}",
+        module = go_module,
+        go_version = crate::core::template_versions::toolchain::GO_VERSION,
+    );
 
     let mut files = vec![
         GeneratedFile {

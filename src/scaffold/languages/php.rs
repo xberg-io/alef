@@ -411,7 +411,7 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
   "description": "{description}",
 {license_json}  "type": "php-ext",
   "require": {{
-    "php": ">=8.2"
+    "php": ">={php_min}"
   }},
   "require-dev": {{
     "phpunit/phpunit": "{phpunit}"
@@ -446,6 +446,7 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
             keywords = keywords_json,
             pie_binary = pie_binary_block,
             phpunit = tv::packagist::PHPUNIT,
+            php_min = tv::toolchain::PHP_MIN_VERSION,
         )
     };
 

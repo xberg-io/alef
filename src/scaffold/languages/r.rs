@@ -48,13 +48,13 @@ Description: {description}
     Rust bindings generated with extendr.
 {repository_lines}
 License: {license}
-Depends: R (>= 4.2)
+Depends: R (>= {r_min})
 Imports: jsonlite
 Suggests:
     testthat (>= 3.0.0),
     withr,
     roxygen2
-SystemRequirements: Cargo (Rust's package manager), rustc (>= 1.91)
+SystemRequirements: Cargo (Rust's package manager), rustc (>= {rust_min})
 Config/rextendr/version: {rextendr}
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
@@ -69,6 +69,8 @@ Config/testthat/edition: 3
         repository_lines = repository_lines,
         license = license,
         rextendr = versions.get("cran:rextendr"),
+        r_min = crate::core::template_versions::toolchain::R_MIN_VERSION,
+        rust_min = crate::core::template_versions::toolchain::RUST_MIN_VERSION,
     );
 
     Ok(vec![GeneratedFile {
