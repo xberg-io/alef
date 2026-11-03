@@ -31,6 +31,16 @@ pub fn forwarded_defaulted_methods<'a>(
         .collect()
 }
 
+fn guarded_defaulted_methods<'a>(
+    spec: &TraitBridgeSpec<'a>,
+    generator: &dyn TraitBridgeGenerator,
+) -> Vec<&'a MethodDef> {
+    forwarded_defaulted_methods(spec, generator)
+        .into_iter()
+        .filter(|method| generator.gen_method_absence_check(method, spec).is_some())
+        .collect()
+}
+
 /// Generate the per-method default delegates for every forwarded defaulted method.
 ///
 /// For a defaulted method `x`, `WrapperDefaultX` implements the trait by forwarding
@@ -45,7 +55,8 @@ pub fn gen_bridge_default_delegates(spec: &TraitBridgeSpec, generator: &dyn Trai
         return code;
     }
     let forwarded = forwarded_defaulted_methods(spec, generator);
-    if forwarded.is_empty() {
+    let guarded = guarded_defaulted_methods(spec, generator);
+    if guarded.is_empty() {
         return String::new();
     }
 
@@ -68,7 +79,7 @@ pub fn gen_bridge_default_delegates(spec: &TraitBridgeSpec, generator: &dyn Trai
         .collect();
 
     let mut out = String::with_capacity(2048);
-    for (i, defaulted) in forwarded.iter().enumerate() {
+    for (i, defaulted) in guarded.iter().enumerate() {
         if i > 0 {
             out.push_str("\n\n");
         }

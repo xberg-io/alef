@@ -9,6 +9,8 @@ mod cfg_fields;
 mod cfg_variant_e2e_tests;
 mod components;
 mod config;
+mod configured;
+use configured::ConfiguredPyo3Backend;
 mod config_opaque;
 pub(in crate::backends::pyo3) mod constructors;
 #[cfg(test)]
@@ -61,7 +63,7 @@ use std::path::PathBuf;
 
 pub struct Pyo3Backend;
 
-impl Backend for Pyo3Backend {
+impl Backend for ConfiguredPyo3Backend {
     fn name(&self) -> &str {
         "pyo3"
     }
@@ -85,6 +87,7 @@ impl Backend for Pyo3Backend {
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         // to the core crate — which resolves the cfg itself — and emits no `#[cfg]` gate on the
         // wrapper, so two same-named entries would otherwise produce duplicate `#[pyfunction]`
+        self.validate_host_aliases(api, config)?;
         let deduped_api = crate::backends::ir_order::with_sorted_items(api).with_deduped_functions();
         let api = &deduped_api;
         let active_trait_bridges: Vec<crate::core::config::TraitBridgeConfig> = config
@@ -729,7 +732,7 @@ impl Backend for Pyo3Backend {
             ));
             for bridge_cfg in &active_trait_bridges {
                 if let Some(trait_type) = crate::backends::pyo3::trait_bridge::active_bridge_trait(bridge_cfg, api) {
-                    let bridge = crate::backends::pyo3::trait_bridge::gen_trait_bridge_with_absent_types(
+                    let bridge = crate::backends::pyo3::trait_bridge::gen_trait_bridge_with_host_aliases(
                         trait_type,
                         bridge_cfg,
                         &core_import,
@@ -739,6 +742,7 @@ impl Backend for Pyo3Backend {
                         &reexported_types,
                         &bridge_pyclass_absent_types,
                         &bridge_core_to_binding_convertible_types,
+                        &self.host_aliases.for_trait(trait_type),
                     )?;
                     for imp in &bridge.imports {
                         builder.add_import(imp);

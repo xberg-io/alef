@@ -4,6 +4,7 @@ use crate::codegen::generators::trait_bridge;
 use crate::core::backend::GeneratedFile;
 use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::ApiSurface;
+use crate::extensions::python_host_aliases as aliases;
 use anyhow::Context as _;
 use rayon::prelude::*;
 use std::path::Path;
@@ -104,6 +105,7 @@ pub fn generate(
     config_path: &Path,
     write_cache: bool,
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
+    let host_aliases = aliases::read_for_crate(config_path, &config.name)?;
     // Report against the extracted source surface, then project the documentation used by every
     // backend so it cannot advertise a foreign cfg-only variant that none of them emit. ~keep
     crate::codegen::foreign_cfg_variants::warn_foreign_cfg_gated_variants(api, config, languages);
@@ -176,9 +178,7 @@ pub fn generate(
             // surface, with an excluded bridge's carrier field pruned (alef #480). ~keep
             let pruned = config.trait_bridge_language_surface(validated_api.api(), *lang);
             let validated_api = trait_bridge::validated_language_surface(&pruned, validated_api);
-
-            let mut files = backend
-                .generate_bindings_checked(validated_api, config)
+            let mut files = aliases::generate_bindings(&*backend, validated_api, config, host_aliases.as_ref())
                 .with_context(|| format!("failed to generate bindings for {lang_str}"))?;
 
             crate::with_extensions(|exts| {

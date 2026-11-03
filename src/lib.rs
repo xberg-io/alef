@@ -69,6 +69,7 @@ pub fn run_with_extensions(mut extensions: Vec<Box<dyn Extension>>) -> std::proc
     use clap::Parser;
 
     extensions.insert(0, Box::new(TemplateExtension));
+    extensions.insert(0, Box::new(extensions::python_host_aliases::PythonHostAliasesExtension));
 
     let cli = bin_cli::args::Cli::parse();
     bin_cli::helpers::init_tracing(cli.verbose, cli.quiet, cli.no_color);
