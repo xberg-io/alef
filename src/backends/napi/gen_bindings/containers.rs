@@ -143,6 +143,20 @@ impl ContainerContext {
         )
     }
 
+    /// The core type a converted input has, when it can be named: an adapter body reads the
+    /// converted value through `.into()`, which gives `try_into()` no target type to infer. ~keep
+    pub(in crate::backends::napi) fn core_input_type(&self, parameter: &ParamDef) -> Option<String> {
+        let path = match &parameter.ty {
+            TypeRef::Named(name) => self.type_paths.get(name)?.clone(),
+            _ => return None,
+        };
+        Some(if parameter.optional {
+            format!("Option<{path}>")
+        } else {
+            path
+        })
+    }
+
     fn input_error_context(&self, ty: &TypeRef) -> String {
         match ty {
             TypeRef::Named(name) => self.type_paths.get(name).unwrap_or(name).clone(),

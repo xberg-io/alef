@@ -107,7 +107,14 @@ fn adapter_body_consumes_the_fallibly_converted_input() {
     let syn::Stmt::Local(converted) = &statements[0] else {
         panic!("the fallible conversion must come first, got:\n{code}")
     };
-    let syn::Pat::Ident(converted_name) = &converted.pat else {
+    // `try_into()` has no target type to infer from the adapter's `req.into()`, so the
+    // binding must name the core type. ~keep
+    let syn::Pat::Type(annotated) = &converted.pat else {
+        panic!("conversion must annotate its core type, got:\n{code}")
+    };
+    let annotation = annotated.ty.to_token_stream().to_string();
+    assert!(annotation.starts_with("sample_core ::"), "{annotation}\n{code}");
+    let syn::Pat::Ident(converted_name) = annotated.pat.as_ref() else {
         panic!("conversion must bind a plain identifier, got:\n{code}")
     };
     assert_eq!(

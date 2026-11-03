@@ -56,6 +56,7 @@ pub(in crate::backends::napi) fn prepare_bindings(
         signature,
         required_unwrapped,
         input_binding_name,
+        false,
     )
 }
 
@@ -67,9 +68,15 @@ pub(in crate::backends::napi) fn prepare_adapter_bindings(
     context: Option<&ContainerContext>,
     params: &[ParamDef],
 ) -> String {
-    bind_inputs(generated, context, params, params, true, |_, parameter| {
-        parameter.name.clone()
-    })
+    bind_inputs(
+        generated,
+        context,
+        params,
+        params,
+        true,
+        |_, parameter| parameter.name.clone(),
+        true,
+    )
 }
 
 fn bind_inputs(
@@ -79,6 +86,7 @@ fn bind_inputs(
     signature: &[ParamDef],
     required_unwrapped: bool,
     binding_name: impl Fn(&syn::Block, &ParamDef) -> String,
+    annotate_core_type: bool,
 ) -> String {
     let Some(context) = context.filter(|context| has_inputs(Some(context), params)) else {
         return generated;
@@ -106,7 +114,12 @@ fn bind_inputs(
         }
         if !found {
             let mutable = if parameter.is_mut { "mut " } else { "" };
-            let added: syn::Block = syn::parse_str(&format!("{{let {mutable}{name} = {expression};}}"))
+            let annotation = annotate_core_type
+                .then(|| context.core_input_type(parameter))
+                .flatten()
+                .map(|ty| format!(": {ty}"))
+                .unwrap_or_default();
+            let added: syn::Block = syn::parse_str(&format!("{{let {mutable}{name}{annotation} = {expression};}}"))
                 .expect("fallible input binding must parse");
             block.stmts.splice(0..0, added.stmts);
         }
