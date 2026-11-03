@@ -22,6 +22,7 @@ fn target_filter_must_be_declared_by_profile() {
         targets: Some(vec!["aarch64-apple-darwin".into()]),
         bundled_on: Vec::new(),
         extra_dependencies: Default::default(),
+        producer_language: Default::default(),
     };
     let requested = vec!["x86_64-unknown-linux-gnu".to_string()];
     assert!(select_targets(&config, &profile, &requested).is_err());
@@ -40,6 +41,7 @@ fn component_extraction_uses_feature_union_without_changing_binding_features() {
                 targets: Some(vec!["aarch64-apple-darwin".into()]),
                 bundled_on: Vec::new(),
                 extra_dependencies: Default::default(),
+                producer_language: Default::default(),
             },
             ComponentConfig {
                 name: "gpu".into(),
@@ -49,6 +51,7 @@ fn component_extraction_uses_feature_union_without_changing_binding_features() {
                 targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
                 bundled_on: Vec::new(),
                 extra_dependencies: Default::default(),
+                producer_language: Default::default(),
             },
         ],
         ..ResolvedCrateConfig::default()
@@ -167,6 +170,7 @@ fn one_component_config() -> ResolvedCrateConfig {
             targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
             bundled_on: Vec::new(),
             extra_dependencies: Default::default(),
+            producer_language: Default::default(),
         }],
         ..ResolvedCrateConfig::default()
     }
@@ -274,4 +278,146 @@ fn bootstrap_writes_nothing_for_a_components_only_crate() {
     bootstrap_missing_component_locks(&config, base_dir.path()).unwrap();
 
     assert!(fs::read_dir(base_dir.path()).unwrap().next().is_none());
+}
+
+#[test]
+fn rust_component_command_preserves_cargo_arguments() {
+    let config = one_component_config();
+    let directory = tempfile::tempdir().unwrap();
+    let manifest = directory.path().join("Cargo.toml");
+    fs::write(&manifest, "[package]\n").unwrap();
+    for debug in [false, true] {
+        let command = component_build_command(
+            &config,
+            &config.components[0],
+            "x86_64-unknown-linux-gnu",
+            debug,
+            Some(Path::new("shared")),
+            &manifest,
+        )
+        .unwrap();
+        assert_eq!(command.get_program(), "cargo");
+        let mut expected = vec![
+            "build".into(),
+            "--manifest-path".into(),
+            manifest.clone().into_os_string(),
+            "--target".into(),
+            "x86_64-unknown-linux-gnu".into(),
+            "--target-dir".into(),
+            "shared".into(),
+        ];
+        if !debug {
+            expected.push("--release".into());
+        }
+        assert_eq!(command.get_args().collect::<Vec<_>>(), expected);
+        assert_eq!(command.get_current_dir(), None);
+        assert_eq!(command.get_envs().count(), 0);
+    }
+}
+
+#[test]
+fn go_component_command_uses_c_shared_and_the_packaged_output_path() {
+    let mut config = one_component_config();
+    config.components[0].producer_language = crate::core::config::ComponentProducerLanguage::Go;
+    let directory = tempfile::tempdir().unwrap();
+    let manifest = directory.path().join("go.mod");
+    fs::write(&manifest, "module producer\n").unwrap();
+    let target = match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("macos", "aarch64") => "aarch64-apple-darwin",
+        ("macos", "x86_64") => "x86_64-apple-darwin",
+        ("windows", "x86_64") => "x86_64-pc-windows-gnu",
+        ("linux", "aarch64") => "aarch64-unknown-linux-gnu",
+        ("linux", "x86_64") => "x86_64-unknown-linux-gnu",
+        platform => panic!("unsupported test host: {platform:?}"),
+    };
+    for debug in [false, true] {
+        let command = component_build_command(
+            &config,
+            &config.components[0],
+            target,
+            debug,
+            Some(directory.path()),
+            &manifest,
+        )
+        .unwrap();
+        let library = built_library_path(&config, "fast", target, debug, Some(directory.path()));
+        assert_eq!(command.get_program(), "go");
+        assert_eq!(command.get_current_dir(), Some(directory.path()));
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            vec![
+                std::ffi::OsStr::new("build"),
+                std::ffi::OsStr::new("-buildmode=c-shared"),
+                std::ffi::OsStr::new("-o"),
+                library.as_os_str(),
+                std::ffi::OsStr::new("."),
+            ]
+        );
+        let environment = command.get_envs().collect::<BTreeMap<_, _>>();
+        assert_eq!(
+            environment[std::ffi::OsStr::new("CGO_ENABLED")],
+            Some(std::ffi::OsStr::new("1"))
+        );
+        let (os, arch) = go_target(target).unwrap();
+        assert_eq!(
+            environment[std::ffi::OsStr::new("GOOS")],
+            Some(std::ffi::OsStr::new(os))
+        );
+        assert_eq!(
+            environment[std::ffi::OsStr::new("GOARCH")],
+            Some(std::ffi::OsStr::new(arch))
+        );
+    }
+}
+
+#[test]
+fn go_component_targets_map_only_supported_native_abis() {
+    for (target, expected) in [
+        ("x86_64-unknown-linux-gnu", ("linux", "amd64")),
+        ("aarch64-unknown-linux-gnu", ("linux", "arm64")),
+        ("x86_64-apple-darwin", ("darwin", "amd64")),
+        ("aarch64-apple-darwin", ("darwin", "arm64")),
+        ("x86_64-pc-windows-gnu", ("windows", "amd64")),
+    ] {
+        assert_eq!(go_target(target).unwrap(), expected);
+    }
+    for target in [
+        "wasm32-unknown-unknown",
+        "x86_64-unknown-linux-musl",
+        "x86_64-pc-windows-msvc",
+    ] {
+        assert!(
+            go_target(target)
+                .unwrap_err()
+                .to_string()
+                .contains("unsupported Go component target")
+        );
+    }
+    assert!(
+        ensure_native_go_target("linux", "amd64", "macos", "x86_64")
+            .unwrap_err()
+            .to_string()
+            .contains("cross-compilation")
+    );
+    assert!(ensure_native_go_target("linux", "arm64", "linux", "x86_64").is_err());
+    ensure_native_go_target("darwin", "arm64", "macos", "aarch64").unwrap();
+}
+
+#[test]
+fn go_component_build_requires_go_module_before_dry_run() {
+    let mut config = one_component_config();
+    config.components[0].producer_language = crate::core::config::ComponentProducerLanguage::Go;
+    let directory = tempfile::tempdir().unwrap();
+    let manifest = directory.path().join("go.mod");
+    let error = component_build_command(
+        &config,
+        &config.components[0],
+        "x86_64-unknown-linux-gnu",
+        false,
+        None,
+        &manifest,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("go.mod"));
+    assert!(error.to_string().contains("alef scaffold"));
 }
