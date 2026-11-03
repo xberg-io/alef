@@ -98,3 +98,31 @@ class ActualNegativeControls(unittest.TestCase):
                 archive.write_bytes(b"!<arch>\n")
                 with raises(RuntimeError, message):
                     negative.qualify(gate, archive, gate.package)
+
+
+class SwiftNegativeCommands(unittest.TestCase):
+    def test_both_real_negative_callers_prevent_private_sdk_autolink_and_keep_strict_flags(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            gate = NegativeGate(root, FATAL)
+            archive = root / "actual.a"
+            archive.write_bytes(b"!<arch>\n")
+            result = negative.qualify(gate, archive, gate.package)
+            assert result["missing_archive_references"] == ["_callback"]
+            commands = {row[0]: row[1] for row in gate.calls if row[0] != "archive-undefined"}
+            assert set(commands) == {"missing-callback-link", "fatal-warning-link"}
+            for name, argv in commands.items():
+                with self.subTest(command=name):
+                    assert argv[:10] == [
+                        gate.real_swift,
+                        "test",
+                        "-Xswiftc",
+                        "-Xfrontend",
+                        "-Xswiftc",
+                        "-disable-autolink-framework",
+                        "-Xswiftc",
+                        "-Xfrontend",
+                        "-Xswiftc",
+                        "SwiftUICore",
+                    ]
+                    assert argv[10:15] == ["-v", "-Xswiftc", "-warnings-as-errors", "-Xlinker", "-fatal_warnings"]
