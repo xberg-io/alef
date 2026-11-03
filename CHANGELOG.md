@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Configure explicit crate-scoped Python callback host aliases through `extensions.python_host_aliases`, preserving host overrides, descriptor and conversion errors, unrelated Rust defaults, and existing public Rust layouts.
+  See [ADR 0019](https://github.com/xberg-io/alef/blob/6ab050d4e911067fb3919371d2d04d61cdd6c8fb/adrs/0019-configure-python-callback-host-aliases-explicitly.md).
+
 ## [0.120.1] - 2026-11-03
 
 ### Fixed
