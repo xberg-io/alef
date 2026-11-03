@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.120.1] - 2026-11-03
+
 ### Fixed
 
 - Compare Dart u64 expectations in tagged-union payloads and whole function results as exact BigInt values,
