@@ -5,10 +5,17 @@ pub(crate) fn rust_original_param_sample(param: &ParamDef, lang: Language, api: 
     if lang != Language::Rust {
         return None;
     }
-    let original = param.original_type.as_deref().or(match &param.ty {
+    let named = match &param.ty {
         TypeRef::Named(name) => Some(name.as_str()),
         _ => None,
-    })?;
+    };
+    // `original_type` keeps the source borrow shape (`&T`, `&mut T`, `Option<&T>`); the caller
+    // re-applies the borrow, so resolve the path behind it.
+    let original = param
+        .original_type
+        .as_deref()
+        .map(|original| borrowed_path(original).unwrap_or(original))
+        .or(named)?;
     let short_name = original.rsplit("::").next().unwrap_or(original);
 
     if let Some(enum_def) = uniquely_qualified_match(&api.enums, original, &api.crate_name, |item| &item.rust_path) {
@@ -37,6 +44,22 @@ pub(crate) fn rust_original_param_sample(param: &ParamDef, lang: Language, api: 
         return Some(default_or_placeholder(original, type_def.has_default));
     }
     Some("todo!()".to_string())
+}
+
+fn borrowed_path(original: &str) -> Option<&str> {
+    let mut path = original.trim();
+    if let Some(inner) = path.strip_prefix("Option<").and_then(|rest| rest.strip_suffix('>')) {
+        path = inner.trim();
+    }
+    if let Some(rest) = path.strip_prefix('&') {
+        path = rest.trim_start();
+        if path.starts_with('\'') {
+            path = path.split_once(char::is_whitespace)?.1.trim_start();
+        }
+        path = path.strip_prefix("mut ").unwrap_or(path).trim_start();
+    }
+    let is_plain_path = !path.is_empty() && path.chars().all(|c| c.is_alphanumeric() || c == '_' || c == ':');
+    is_plain_path.then_some(path)
 }
 
 fn uniquely_qualified_match<'a, T>(
