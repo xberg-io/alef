@@ -15,6 +15,7 @@ import tarfile
 import tomllib
 import zipfile
 import zlib
+from http.client import HTTPException
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
@@ -184,7 +185,7 @@ def http_error_details(error, token):
         with error:
             body = error.read(MAX_ERROR_JSON_BYTES + 1)
         value = json.loads(body) if len(body) <= MAX_ERROR_JSON_BYTES else None
-    except (ValueError, UnicodeError, OSError, RecursionError):
+    except (ValueError, UnicodeError, OSError, RecursionError, HTTPException):
         value = None
     details = []
     if isinstance(value, dict) and isinstance(value.get("message"), str):
