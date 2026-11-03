@@ -373,18 +373,19 @@ fn draft_flow_and_offline_state_controls_are_part_of_the_native_gate() {
     );
     let summary = String::from_utf8_lossy(&controls.stderr);
     assert!(
-        offline_state_controls_passed(&summary),
+        offline_state_controls_passed(&summary, 49),
         "complete successful 49-test census: {summary}"
     );
 }
 
-fn offline_state_controls_passed(summary: &str) -> bool {
+fn offline_state_controls_passed(summary: &str, expected_count: usize) -> bool {
     let census: Vec<_> = summary
         .lines()
         .filter(|line| line.starts_with("Ran ") && line.contains(" tests in "))
         .collect();
-    census.len() == 1
-        && census[0].starts_with("Ran 49 tests in ")
+    expected_count > 0
+        && census.len() == 1
+        && census[0].starts_with(&format!("Ran {expected_count} tests in "))
         && summary.lines().filter(|line| *line == "OK").count() == 1
 }
 
@@ -392,8 +393,11 @@ fn offline_state_controls_passed(summary: &str) -> bool {
 fn offline_state_summary_accepts_lf_and_crlf_but_rejects_failed_or_vacuous_controls() {
     let lf = ".................................................\n----------------------------------------------------------------------\nRan 49 tests in 0.071s\n\nOK\n";
     let crlf = lf.replace('\n', "\r\n");
-    assert!(offline_state_controls_passed(lf));
-    assert!(offline_state_controls_passed(&crlf));
+    assert!(offline_state_controls_passed(lf, 49));
+    assert!(offline_state_controls_passed(&crlf, 49));
+    assert!(offline_state_controls_passed("Ran 10 tests in 0.1s\n\nOK\n", 10));
+    assert!(!offline_state_controls_passed("Ran 10 tests in 0.1s\n\nOK\n", 49));
+    assert!(!offline_state_controls_passed("Ran 0 tests in 0.1s\n\nOK\n", 0));
     for summary in [
         "Ran 0 tests in 0.000s\n\nOK\n",
         "Ran 48 tests in 0.001s\n\nOK\n",
@@ -406,10 +410,29 @@ fn offline_state_summary_accepts_lf_and_crlf_but_rejects_failed_or_vacuous_contr
         "Ran 49 tests in 0.001s\nRan 0 tests in 0.000s\n\nOK\n",
         "Ran 49 tests in 0.001s\n\nOK\nOK\n",
     ] {
-        assert!(!offline_state_controls_passed(summary), "{summary:?}");
+        assert!(!offline_state_controls_passed(summary, 49), "{summary:?}");
         assert!(
-            !offline_state_controls_passed(&summary.replace('\n', "\r\n")),
+            !offline_state_controls_passed(&summary.replace('\n', "\r\n"), 49),
             "{summary:?}"
         );
     }
+}
+
+#[test]
+fn maintenance_latest_policy_controls_are_part_of_the_native_gate() {
+    let controls = std::process::Command::new(managed_tool::executable("python"))
+        .args([
+            "-W",
+            "error::ResourceWarning",
+            "scripts/tests/test_github_release_latest_policy.py",
+        ])
+        .current_dir(repo_root())
+        .output()
+        .expect("run source-bound maintenance Latest controls");
+    let summary = String::from_utf8_lossy(&controls.stderr);
+    assert!(controls.status.success(), "{summary}");
+    assert!(
+        offline_state_controls_passed(&summary, 10),
+        "complete successful 10-test maintenance-policy census: {summary}"
+    );
 }

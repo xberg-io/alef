@@ -35,10 +35,14 @@ each native matrix leg separately smokes the binary's version, full source SHA a
 Requested ABI, runtime and CLI crates are verified at the release version before public promotion.
 Optional taps run only after public-ready verification and cannot re-draft a complete public release.
 
-Stable promotion explicitly uses GitHub's server-side `make_latest: legacy`; prereleases and drafts
-use `false`. This delegates creation-date/semantic-version selection to GitHub, not a strict maximum
-SemVer policy. Per-tag concurrency does not serialize different tags, so no client-side Latest snapshot
-controls promotion. Already-complete public retries do not PATCH release state.
+Stable promotion defaults to GitHub's server-side `make_latest: legacy`; prereleases and drafts
+use `false`. Maintenance sources may set the boolean `make_latest = false` under
+`[package.metadata.alef.release]` to exclude their promotion from Latest. Read and validate this policy
+from the immutable tagged Cargo manifest, never the controller checkout or a dispatch override.
+An absent or true setting retains server-side selection; malformed values fail before publication writes.
+This delegates normal creation-date/semantic-version selection to GitHub, not a strict maximum SemVer
+policy. Per-tag concurrency does not serialize different tags, so no client-side Latest snapshot controls
+promotion. Already-complete public retries do not PATCH release state.
 
 ### Consequences
 
