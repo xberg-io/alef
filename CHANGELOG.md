@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Resolve Python runtime-minimum E2E test calls through the language-aware function resolver.
 - Respect the configured schema build target and retain registry dependency selections when setting workspace versions.
 - Keep maintenance releases out of GitHub Latest when their immutable tagged Cargo manifest opts out.
 - Create existing-tag release drafts without an unused target commitish, retaining canonical tagged-source verification.

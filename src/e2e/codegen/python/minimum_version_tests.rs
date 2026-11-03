@@ -51,7 +51,7 @@ version = "1.2.3"
         serde_json::to_value(e2e.dep_mode).expect("dependency mode"),
         json!(mode)
     );
-    assert_eq!(e2e.call.function, "ping");
+    assert_eq!(e2e.call.effective_function("python"), Some("ping"));
     config
 }
 
