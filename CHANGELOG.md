@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.118.0] - 2026-11-03
+
 ### Added
 
 - Allow components-only crates: `[[crates.components]]` with an empty `languages` list scaffolds only the producer crates. (#824)
