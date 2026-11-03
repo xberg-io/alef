@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Create existing-tag release drafts without an unused target commitish, retaining canonical tagged-source verification.
 - Preserve registered Python E2E template callers that omit Python context or supply null or
   empty configuration when resolving managed runtime minimums.
 

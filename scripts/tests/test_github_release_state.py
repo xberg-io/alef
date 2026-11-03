@@ -402,7 +402,7 @@ class RecordingApi:
         if method == "GET" and endpoint == "/releases/23":
             return json.loads(json.dumps(self.current))
         if method == "POST" and endpoint == "/releases":
-            self.current = dict(payload, id=23, assets=[])
+            self.current = dict(payload, id=23, assets=[], target_commitish=payload.get("target_commitish", "main"))
             return self.current
         if method == "POST" and endpoint.startswith("/releases/23/assets?"):
             query = parse_qs(urlsplit(endpoint).query)
@@ -555,7 +555,7 @@ class SourceAndRegistryTest(unittest.TestCase):
     def test_annotated_tag_is_peeled_and_cycles_do_not_create_releases(self):
         self.api.annotated = True
         self.state.prepare()
-        assert self.api.current["target_commitish"] == SPEC["source_sha"]
+        assert self.api.current["body"] == self.state.binding()
         prior = len(self.api.writes)
         self.api.tag_cycle = True
         with rejected(self.module.ReleaseError):
@@ -760,7 +760,7 @@ class ReleaseStateTest(unittest.TestCase):
         assert prepared["release"] is not None, "prepare must return the source-bound draft, not false absence"
         assert prepared["release"]["id"] == 23
         assert self.api.current["draft"]
-        assert self.api.current["target_commitish"] == SPEC["source_sha"]
+        assert self.api.current["body"] == self.state.binding()
         assert len(self.api.writes) == 1
         assert self.state.prepare()["build_needed"] is True
         assert len(self.api.writes) == 1
@@ -845,7 +845,7 @@ class ReleaseStateTest(unittest.TestCase):
                 if mutation == "legacy":
                     self.api.current["body"] = "legacy notes"
                 elif mutation == "source":
-                    self.api.current["target_commitish"] = "b" * 40
+                    self.api.current["body"] = self.state.binding().replace(SPEC["source_sha"], "b" * 40)
                 elif mutation == "asset_label":
                     self.api.current["assets"][0]["label"] = "unbound"
                 elif mutation == "digest":

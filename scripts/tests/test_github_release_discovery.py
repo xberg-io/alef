@@ -99,7 +99,7 @@ class DraftDiscoveryTest(unittest.TestCase):
 
     def test_wrong_source_marker_or_id_is_rejected_before_any_mutation(self):
         for key, value in (
-            ("target_commitish", "b" * 40),
+            ("body", self.state.binding().replace(SPEC["source_sha"], "b" * 40)),
             ("body", "legacy release"),
             ("id", 24),
             ("tag_name", "v0.0.0"),
@@ -174,7 +174,7 @@ class DraftDiscoveryTest(unittest.TestCase):
         for key, value in (
             ("id", 24),
             ("tag_name", "v0.0.0"),
-            ("target_commitish", "b" * 40),
+            ("body", self.state.binding().replace(SPEC["source_sha"], "b" * 40)),
             ("body", "legacy release"),
             ("draft", 1),
             ("prerelease", True),
