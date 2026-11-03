@@ -1,7 +1,7 @@
+//! R e2e individual test case rendering.
+
 #[path = "test_case/client_options.rs"]
 mod client_options;
-
-//! R e2e individual test case rendering.
 
 use crate::core::config::ResolvedCrateConfig;
 use crate::e2e::codegen::declared_error_variant::{DeclaredErrorAssertion, classify, skip_line};
