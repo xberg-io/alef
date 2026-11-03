@@ -1,5 +1,6 @@
 use crate::loader::{decode_hash, validate_manifest};
 use crate::manifest::COMPONENT_MANIFEST_SCHEMA;
+use crate::stdio::SidecarProcess;
 use crate::{
     ArtifactCache, CachedArtifact, CachedObject, ComponentDeliveryMode, ComponentError, ComponentLock,
     ComponentLockEntry, ComponentRequirements, DownloadOptions, HostServices, LoadedComponent, RemovalReport, Retain,
@@ -9,7 +10,7 @@ use alef_component_abi::AlefHostApiV1;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 /// Where a configured component currently stands, independent of its on-disk location (see
 /// [`ComponentManager::cache_path`] for that). Generated bindings expose this as both a
@@ -36,6 +37,9 @@ pub struct ComponentManager {
     target: String,
     entries: HashMap<String, ComponentLockEntry>,
     loaded: Mutex<HashMap<String, Arc<LoadedComponent>>>,
+    stdio_components: HashSet<String>,
+    sidecar_processes: Mutex<HashMap<String, Arc<SidecarProcess>>>,
+    sidecar_timeout: Duration,
     /// One lock per (component, contract) key, used to coalesce concurrent `ensure_contract`
     /// calls for the same key onto a single download-and-load instead of racing duplicates;
     /// a call for a different key gets its own lock and proceeds independently. See
@@ -100,6 +104,9 @@ impl ComponentManager {
             target,
             entries,
             loaded: Mutex::new(HashMap::new()),
+            stdio_components: HashSet::new(),
+            sidecar_processes: Mutex::new(HashMap::new()),
+            sidecar_timeout: Duration::from_secs(30),
             key_locks: Mutex::new(HashMap::new()),
             verified_artifacts: Mutex::new(HashMap::new()),
             lock_is_empty,
@@ -107,6 +114,25 @@ impl ComponentManager {
             host,
             host_services: None,
         })
+    }
+
+    /// Select the framed stdio transport for an executable component before first use.
+    ///
+    /// The artifact, signature, lock and cache contract are identical to native components.
+    /// All contracts of this component share one long-lived process. Only bytes invocation
+    /// is supported; generated typed C tables and host callback services are unavailable.
+    #[must_use]
+    pub fn with_stdio_component(mut self, component_id: impl Into<String>) -> Self {
+        self.stdio_components.insert(component_id.into());
+        self
+    }
+
+    /// Set the response deadline for stdio handshakes and calls (default: 30 seconds).
+    /// A timeout terminates the child and permanently invalidates that connection.
+    #[must_use]
+    pub fn with_sidecar_timeout(mut self, timeout: Duration) -> Self {
+        self.sidecar_timeout = timeout;
+        self
     }
 
     /// Expose `services` to components loaded from now on, through the host table's
@@ -274,15 +300,47 @@ impl ComponentManager {
         let requirements = contract_requirements(entry, contract_name)?;
         let cached = self.cached_artifact(entry)?;
         validate_manifest(&cached.manifest, &requirements)?;
-        let component = Arc::new(LoadedComponent::load_with_services(
-            cached.library,
-            entry_symbol,
-            &requirements,
-            self.host,
-            self.host_services.clone(),
-        )?);
+        let component = Arc::new(if self.stdio_components.contains(component_id) {
+            let process = self.sidecar_process(component_id, &cached)?;
+            LoadedComponent::from_sidecar(process, &cached.manifest, &requirements, self.host)?
+        } else {
+            LoadedComponent::load_with_services(
+                cached.library,
+                entry_symbol,
+                &requirements,
+                self.host,
+                self.host_services.clone(),
+            )?
+        });
         self.insert_loaded(cache_key, Arc::clone(&component));
         Ok(component)
+    }
+
+    fn sidecar_process(
+        &self,
+        component_id: &str,
+        cached: &CachedArtifact,
+    ) -> Result<Arc<SidecarProcess>, ComponentError> {
+        let process_lock = self.contract_lock(format!("stdio:{component_id}"));
+        let _guard = process_lock.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(process) = self
+            .sidecar_processes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(component_id)
+        {
+            return Ok(Arc::clone(process));
+        }
+        let process = Arc::new(SidecarProcess::spawn(
+            &cached.library,
+            &cached.manifest,
+            self.sidecar_timeout,
+        )?);
+        self.sidecar_processes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(component_id.to_owned(), Arc::clone(&process));
+        Ok(process)
     }
 
     pub fn prefetch(&self, component_ids: &[&str]) -> Result<Vec<CachedArtifact>, ComponentError> {

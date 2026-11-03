@@ -1,4 +1,5 @@
 use crate::host_services::ServicesHandle;
+use crate::stdio::SidecarProcess;
 use crate::{
     ArtifactCache, COMPONENT_ABI_VERSION, COMPONENT_MANIFEST_SCHEMA, ComponentError, ComponentLockEntry,
     ComponentManifest, HostServices,
@@ -54,7 +55,9 @@ impl Runtime {
 }
 
 pub struct LoadedComponent {
-    library: Arc<Library>,
+    library: Option<Arc<Library>>,
+    sidecar: Option<(Arc<SidecarProcess>, String)>,
+    _sidecar_descriptor: Option<Box<AlefComponentV1>>,
     descriptor: NonNull<AlefComponentV1>,
     host: Box<AlefHostApiV1>,
     /// Keeps the context behind the host table's service callbacks alive with the component.
@@ -73,8 +76,8 @@ pub struct ComponentInstance<T: AlefContract> {
     _contract: PhantomData<T>,
 }
 
-// SAFETY: the descriptor is static component metadata and the library is pinned
-// for the process lifetime. Host callback context thread-safety is part of the
+// SAFETY: native metadata is static and pinned; sidecar metadata is owned and immutable,
+// and its process serializes calls. Host callback context thread-safety is part of the
 // `AlefHostApiV1` contract supplied by the caller. ~keep
 unsafe impl Send for LoadedComponent {}
 unsafe impl Sync for LoadedComponent {}
@@ -153,13 +156,65 @@ impl LoadedComponent {
         let validated = unsafe { validate_descriptor(descriptor.as_ref(), requirements)? };
         pin_for_process(Arc::clone(&library));
         Ok(Self {
-            library,
+            library: Some(library),
+            sidecar: None,
+            _sidecar_descriptor: None,
             descriptor,
             host,
             _services: services,
             component_id: validated.0,
             component_version: validated.1,
         })
+    }
+
+    pub(crate) fn from_sidecar(
+        process: Arc<SidecarProcess>,
+        manifest: &ComponentManifest,
+        requirements: &ComponentRequirements,
+        host: AlefHostApiV1,
+    ) -> Result<Self, ComponentError> {
+        let component_id = manifest.identity.component.clone();
+        let component_version = manifest.identity.version.clone();
+        let mut descriptor = Box::new(AlefComponentV1 {
+            struct_size: core::mem::size_of::<AlefComponentV1>(),
+            abi_major: ABI_MAJOR_V1,
+            abi_minor: ABI_MINOR_V1,
+            component_id: alef_component_abi::AlefStr {
+                ptr: component_id.as_ptr().cast(),
+                len: component_id.len(),
+            },
+            component_version: alef_component_abi::AlefStr {
+                ptr: component_version.as_ptr().cast(),
+                len: component_version.len(),
+            },
+            contract_hash: requirements.contract_hash,
+            feature_set_hash: decode_hash(&manifest.identity.feature_hash)?,
+            contract: core::ptr::null(),
+            contract_size: 0,
+            create: None,
+            destroy: None,
+        });
+        Ok(Self {
+            library: None,
+            sidecar: Some((process, requirements.contract_name.clone())),
+            descriptor: NonNull::from(descriptor.as_mut()),
+            _sidecar_descriptor: Some(descriptor),
+            host: Box::new(host),
+            _services: None,
+            component_id,
+            component_version,
+        })
+    }
+
+    /// Invoke a named bytes-only method on this contract's stdio component.
+    ///
+    /// Native typed function tables require their generated bindings and do not implement
+    /// this operation. Stdio components likewise cannot expose typed C function tables.
+    pub fn invoke_bytes(&self, method: &str, payload: &[u8]) -> Result<Vec<u8>, ComponentError> {
+        let (process, contract) = self.sidecar.as_ref().ok_or(ComponentError::UnsupportedTransport(
+            "bytes invocation requires a stdio component",
+        ))?;
+        process.invoke(contract, method, payload)
     }
 
     #[must_use]
@@ -188,6 +243,11 @@ impl LoadedComponent {
     }
 
     pub fn contract_table<T: AlefContract>(&self) -> Result<&T, ComponentError> {
+        if self.sidecar.is_some() {
+            return Err(ComponentError::UnsupportedTransport(
+                "stdio components support bytes invocation, not typed C function tables",
+            ));
+        }
         contract_table_from_descriptor(self.descriptor())
     }
 
@@ -222,7 +282,7 @@ impl LoadedComponent {
 
     #[must_use]
     pub fn strong_library_references(&self) -> usize {
-        Arc::strong_count(&self.library)
+        self.library.as_ref().map_or(0, Arc::strong_count)
     }
 }
 

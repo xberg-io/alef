@@ -1,6 +1,6 @@
 #![cfg(unix)]
 
-use alef_component_abi::AlefHostApiV1;
+use alef_component_abi::{AlefContract, AlefHostApiV1};
 use alef_component_runtime::{ComponentLock, ComponentManager, ComponentManifest, ComponentStatus};
 use base64::Engine as _;
 use ed25519_dalek::{Signer as _, SigningKey};
@@ -9,6 +9,17 @@ use sha2::{Digest as _, Sha256};
 use std::io::Cursor;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+#[repr(C)]
+#[derive(Debug)]
+struct TypedTable {
+    method: unsafe extern "C" fn(),
+}
+
+// SAFETY: a repr(C) function table has a stable plain C layout for this test hash. ~keep
+unsafe impl AlefContract for TypedTable {
+    const CONTRACT_HASH: [u8; 32] = [0x11; 32];
+}
 
 fn digest(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
@@ -80,6 +91,16 @@ fn should_load_signed_sidecar_and_reuse_one_process_across_contracts() {
     assert_eq!(manager.status("demo").unwrap(), ComponentStatus::Cached);
     let engine = manager.ensure_contract("demo", "engine", b"unused\0").unwrap();
     let second = manager.ensure_contract("demo", "second", b"unused\0").unwrap();
+    assert_eq!(
+        engine.contract_table::<TypedTable>().unwrap_err().code(),
+        "unsupported_transport"
+    );
+    assert_eq!(
+        engine.instantiate::<TypedTable>().err().unwrap().code(),
+        "unsupported_transport"
+    );
+    assert!(engine.contract().is_null());
+    assert_eq!(engine.contract_size(), 0);
     assert_eq!(engine.component_id(), "demo");
     assert_eq!(engine.component_version(), "1.0.0");
     assert_eq!(engine.descriptor().contract_hash, [0x11; 32]);
@@ -108,6 +129,11 @@ fn should_return_status_error_without_losing_process() {
     let error = engine.invoke_bytes("failure", b"").unwrap_err().to_string();
     assert!(error.contains("3"), "{error}");
     assert!(error.contains("producer failed"), "{error}");
+    let oversized = vec![0; alef_component_runtime::stdio::MAX_FRAME_SIZE + 1];
+    assert_eq!(
+        engine.invoke_bytes("echo", &oversized).unwrap_err().code(),
+        "sidecar_protocol"
+    );
     assert_eq!(engine.invoke_bytes("echo", b"still alive").unwrap(), b"still alive");
 }
 
