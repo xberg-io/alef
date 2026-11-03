@@ -31,7 +31,7 @@ use crate::e2e::escape::sanitize_filename;
 use crate::e2e::fixture::{Fixture, FixtureGroup};
 use anyhow::Result;
 
-use self::config::{render_conftest, render_pyproject};
+use self::config::{render_conftest, render_pyproject_with_policy};
 use self::test_file::render_test_file;
 
 pub use stubs::emit_test_backend;
@@ -110,9 +110,12 @@ impl super::E2eCodegen for PythonE2eCodegen {
             .and_then(|p| p.version.clone())
             .or_else(|| resolved.as_ref().map(|v| v.to_string()))
             .unwrap_or_else(|| "0.1.0".to_string());
+        let minimum = crate::core::config::python_build::python_version_policy(
+            config.managed_version(crate::core::config::Language::Python, "runtime:python"),
+        )?;
         files.push(GeneratedFile {
             path: output_base.join("pyproject.toml"),
-            content: render_pyproject(pkg_name, pkg_path, &owned_version, e2e_config.dep_mode),
+            content: render_pyproject_with_policy(pkg_name, pkg_path, &owned_version, e2e_config.dep_mode, &minimum),
             generated_header: true,
         });
 

@@ -4,11 +4,12 @@
 //! Renovate markers keeping them current. This module is how a *consumer* raises one of them
 //! for their own tree without opening a PR against alef.
 //!
-//! ~keep Every `default` here **references** the `template_versions` const rather than
+//! ~keep Package defaults **reference** the `template_versions` const rather than
 //! repeating its literal. `tests/template_versions_renovate_coverage.rs` reads
 //! `src/core/template_versions.rs` by literal path, so the consts must stay where they are;
 //! copying a literal into this file would give Renovate one value to bump and the emitters
-//! another to read.
+//! another to read. Runtime floors reference their compatibility policy instead; unlike package
+//! pins, raising a runtime floor changes consumer compatibility.
 //!
 //! ~keep Keys are ecosystem-qualified (`cargo:rustler` vs `hex:rustler`) because the same
 //! package name means two different dependencies in two different ecosystems, and the Elixir
@@ -19,9 +20,11 @@
 //! ~keep A `default` is a raw literal fragment emitted verbatim, not a semver to parse.
 //! `gem:rb_sys`'s value is `"\">= 0.9.130\", \"< 0.10\""` — two Ruby requirement arguments,
 //! because the gemspec DSL rejects a comma-joined single string. An override replaces the
-//! fragment; alef performs no comparison against it.
+//! fragment; alef performs no comparison against it. `runtime:python` is the supported interpreter
+//! minimum instead: its major/minor value is validated against the release line's supported floors.
 
 use crate::core::config::extras::Language;
+use crate::core::config::python_build;
 use crate::core::template_versions as tv;
 
 /// One overridable dependency version.
@@ -32,7 +35,7 @@ pub struct ManagedDependency {
     pub key: &'static str,
     /// The language whose `dependency_versions` table this key belongs to.
     pub language: Language,
-    /// The `template_versions` path this entry's default comes from, for error and report
+    /// The constant path this entry's default comes from, for error and report
     /// output.
     pub const_name: &'static str,
     /// The literal alef emits when the consumer declares no override.
@@ -126,6 +129,7 @@ pub static MANAGED_DEPENDENCIES: &[ManagedDependency] = &[
     // name is part of the string. An override must include the name too.
     managed!(Language::Python, "pypi:maturin", tv::pypi::MATURIN_BUILD_REQUIRES),
     managed!(Language::Python, "pypi:pyrefly", tv::pypi::PYREFLY),
+    managed!(Language::Python, "runtime:python", python_build::PYTHON_MINIMUM_VERSION),
     managed!(Language::Java, "maven:assertj", tv::maven::ASSERTJ),
     managed!(
         Language::Java,

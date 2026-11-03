@@ -166,6 +166,10 @@ fn configured_312_sets_both_abi_surfaces_without_hardcoding_311() {
     assert_eq!(strings(&project["tool"]["maturin"]["features"]), expected);
 }
 
+#[expect(
+    clippy::print_stdout,
+    reason = "Qualification captures complete generated output bodies."
+)]
 #[test]
 fn omitted_and_explicit_310_preserve_complete_default_output_bytes() {
     let omitted = outputs(None);

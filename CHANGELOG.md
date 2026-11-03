@@ -9,8 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Qualify managed Python runtime minimums through real scaffold and E2E outputs while preserving
-  the maintenance default and existing Rust configuration literals.
+- Configure a supported Python runtime minimum through `crates.python.dependency_versions` using
+  `"runtime:python" = "3.11"`; synchronize package metadata, classifiers, type checking, PyO3 and
+  maturin ABI flags, and E2E manifests while preserving the maintenance default and public Rust API.
 
 ## [0.115.15] - 2026-11-02
 

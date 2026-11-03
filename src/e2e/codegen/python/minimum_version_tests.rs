@@ -223,6 +223,10 @@ fn registry_312_e2e_does_not_hardcode_311() {
     );
 }
 
+#[expect(
+    clippy::print_stdout,
+    reason = "Qualification captures complete generated output bodies."
+)]
 #[test]
 fn omitted_and_explicit_310_e2e_files_remain_byte_identical_in_both_modes() {
     let mut captures = Vec::new();
@@ -282,6 +286,10 @@ fn registered_template_312_does_not_hardcode_311() {
     );
 }
 
+#[expect(
+    clippy::print_stdout,
+    reason = "Qualification captures complete generated output bodies."
+)]
 #[test]
 fn omitted_and_explicit_310_registered_template_bytes_remain_identical() {
     let omitted = template(None);
