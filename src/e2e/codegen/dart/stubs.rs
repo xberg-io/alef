@@ -309,7 +309,7 @@ pub(super) fn emit_dart_default_for_type(
         use crate::core::ir::PrimitiveType;
         match p {
             PrimitiveType::Bool | PrimitiveType::F32 | PrimitiveType::F64 => {}
-            _ => return "1".to_string(),
+            _ => return super::values::render_numeric_value(&serde_json::Number::from(1), Some(&effective_ty)),
         }
     }
     defaults.emit_default(&effective_ty).to_string()

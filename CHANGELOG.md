@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Generate Dart trait stub defaults as BigInt for u64 callback returns.
+
 ## [0.122.1] - 2026-11-04
 
 ### Fixed
