@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Emit fallible Node conversions directly at Result tails while preserving InvalidArg error details.
+
 - Generate Dart trait stub defaults as BigInt for u64 callback returns.
 
 ## [0.122.1] - 2026-11-04

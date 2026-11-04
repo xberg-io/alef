@@ -269,8 +269,41 @@ pub(super) fn convert_with_enum_keys(
     direction: Direction,
     policy: Option<&ContainerPolicy<'_>>,
 ) -> String {
+    convert_expression(expression, ty, paths, direction, policy).into_value()
+}
+
+pub(super) enum ConversionExpression {
+    Value(String),
+    SerdeResult(String),
+}
+
+impl ConversionExpression {
+    pub(super) fn into_value(self) -> String {
+        match self {
+            Self::Value(expression) => expression,
+            Self::SerdeResult(expression) => format!("{expression}?"),
+        }
+    }
+
+    pub(super) fn into_result(self) -> String {
+        match self {
+            Self::Value(expression) => format!("Ok({expression})"),
+            Self::SerdeResult(expression) => expression,
+        }
+    }
+}
+
+pub(super) fn convert_expression(
+    expression: &str,
+    ty: &TypeRef,
+    paths: &[NewtypeWrapperMetadata],
+    direction: Direction,
+    policy: Option<&ContainerPolicy<'_>>,
+) -> ConversionExpression {
+    use ConversionExpression::{SerdeResult, Value};
+
     if let Some(path) = paths.iter().find(|path| path.containers.is_empty()) {
-        return convert_wrapper_leaf(expression, path, direction);
+        return Value(convert_wrapper_leaf(expression, path, direction));
     }
 
     let fallible = matches!(direction, Direction::ToCore) && policy.is_some_and(|policy| policy.is_fallible(ty));
@@ -279,56 +312,60 @@ pub(super) fn convert_with_enum_keys(
             if matches!(direction, Direction::ToCore)
                 && let Some(constructor) = optional_leaf_constructor(paths)
             {
-                return format!("({expression}).map({constructor})");
+                return Value(format!("({expression}).map({constructor})"));
             }
             let nested = advance(paths, NewtypeContainer::Optional);
-            let converted = convert_with_enum_keys("value", inner, &nested, direction, policy);
-            optional_expression(expression, &converted, fallible)
+            let converted = convert_expression("value", inner, &nested, direction, policy);
+            optional_expression(expression, converted, fallible)
         }
         TypeRef::Vec(inner) => {
             let nested = advance(paths, NewtypeContainer::Vec);
-            let converted = convert_with_enum_keys("value", inner, &nested, direction, policy);
-            collect_expression(expression, "value", &converted, fallible)
+            let converted = convert_expression("value", inner, &nested, direction, policy);
+            collect_expression(expression, "value", converted, fallible)
         }
         TypeRef::Map(key, value) => {
             let key_paths = advance(paths, NewtypeContainer::MapKey);
             let value_paths = advance(paths, NewtypeContainer::MapValue);
             let key = convert_map_key(key, &key_paths, direction, policy);
             let value = convert_with_enum_keys("value", value, &value_paths, direction, policy);
-            collect_expression(expression, "(key, value)", &format!("({key}, {value})"), fallible)
+            collect_expression(expression, "(key, value)", Value(format!("({key}, {value})")), fallible)
         }
-        _ => convert_leaf(expression, ty, direction, policy),
+        _ if fallible => SerdeResult(format!("({expression}).try_into()")),
+        _ => Value(convert_leaf(expression, ty, direction)),
     }
 }
 
-fn optional_expression(expression: &str, converted: &str, fallible: bool) -> String {
+fn optional_expression(expression: &str, converted: ConversionExpression, fallible: bool) -> ConversionExpression {
     if fallible {
-        format!(
-            "({expression}).map(|value| -> std::result::Result<_, serde_json::Error> {{ Ok({converted}) }}).transpose()?"
-        )
+        let result = converted.into_result();
+        ConversionExpression::SerdeResult(format!(
+            "({expression}).map(|value| -> std::result::Result<_, serde_json::Error> {{ {result} }}).transpose()"
+        ))
     } else {
-        format!("({expression}).map(|value| {converted})")
+        let value = converted.into_value();
+        ConversionExpression::Value(format!("({expression}).map(|value| {value})"))
     }
 }
 
-fn collect_expression(expression: &str, binding: &str, converted: &str, fallible: bool) -> String {
+fn collect_expression(
+    expression: &str,
+    binding: &str,
+    converted: ConversionExpression,
+    fallible: bool,
+) -> ConversionExpression {
     if fallible {
-        format!(
-            "({expression}).into_iter().map(|{binding}| -> std::result::Result<_, serde_json::Error> {{ Ok({converted}) }}).collect::<std::result::Result<_, _>>()?"
-        )
+        let result = converted.into_result();
+        ConversionExpression::SerdeResult(format!(
+            "({expression}).into_iter().map(|{binding}| -> std::result::Result<_, serde_json::Error> {{ {result} }}).collect::<std::result::Result<_, _>>()"
+        ))
     } else {
-        format!("({expression}).into_iter().map(|{binding}| {converted}).collect()")
+        let value = converted.into_value();
+        ConversionExpression::Value(format!("({expression}).into_iter().map(|{binding}| {value}).collect()"))
     }
 }
 
-fn convert_leaf(expression: &str, ty: &TypeRef, direction: Direction, policy: Option<&ContainerPolicy<'_>>) -> String {
+fn convert_leaf(expression: &str, ty: &TypeRef, direction: Direction) -> String {
     match ty {
-        TypeRef::Named(name)
-            if matches!(direction, Direction::ToCore)
-                && policy.is_some_and(|policy| policy.fallible_types.contains(name)) =>
-        {
-            format!("({expression}).try_into()?")
-        }
         TypeRef::Named(_) | TypeRef::Bytes => format!("({expression}).into()"),
         TypeRef::Path => match direction {
             Direction::ToCore => format!("std::path::PathBuf::from({expression})"),

@@ -817,7 +817,11 @@ fn generate_bindings_passthrough_enum_direct_param_forces_fallible_signature() {
         lib.content
     );
     assert!(
-        lib.content.contains("(policy) . try_into () ?"),
+        lib.content.contains(concat!(
+            "(policy) . try_into () . map_err (| error : serde_json :: Error | ",
+            "napi :: Error :: new (napi :: Status :: InvalidArg , ",
+            "format ! (\"invalid JSON for test_lib::Policy: {error}\"))) ?"
+        )),
         "the param conversion must propagate the InvalidArg error via `?`:\n{}",
         lib.content
     );
