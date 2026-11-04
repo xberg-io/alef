@@ -175,9 +175,9 @@ options_via = "from_json"
 }
 
 /// Package.swift must always include both `.macOS(...)` and `.iOS(...)` platforms,
-/// regardless of whether `client_factory` is configured. The iOS minimum tracks
-/// `toolchain::SWIFT_MIN_IOS` so the e2e consumer's deployment target is >= the
-/// dep's deployment target (SwiftPM hides products otherwise).
+/// regardless of whether `client_factory` is configured. The iOS minimum is the library's
+/// own (`[crates.swift] min_ios_version`, default `toolchain::SWIFT_MIN_IOS`) so the e2e
+/// consumer's deployment target matches the dep's (SwiftPM hides products otherwise).
 #[test]
 fn package_swift_always_includes_ios_platform() {
     let toml_no_cf = format!(

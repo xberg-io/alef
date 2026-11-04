@@ -69,3 +69,31 @@ fn swift_e2e_default_minimum_is_the_declared_language_floor() {
         .unwrap();
     assert!(manifest.content.contains(".macOS(.v26)"), "{}", manifest.content);
 }
+
+#[test]
+fn swift_e2e_preserves_configured_ios_minimum_in_local_and_registry_modes() {
+    for mode in [
+        alef::e2e::config::DependencyMode::Local,
+        alef::e2e::config::DependencyMode::Registry,
+    ] {
+        let mut cfg = configuration("swift");
+        cfg.crates[0].e2e.as_mut().unwrap().dep_mode = mode;
+        let mut source = toml::to_string(&cfg).unwrap();
+        source.push_str("\n[crates.swift]\nmin_ios_version = \"17.0\"\n");
+        let cfg: NewAlefConfig = toml::from_str(&source).unwrap();
+        let e2e = cfg.crates[0].e2e.clone().unwrap();
+        let resolved = cfg.resolve().unwrap().remove(0);
+        let files = alef::e2e::codegen::swift::SwiftE2eCodegen
+            .generate(&[], &e2e, &resolved, &[], &[], &[], &[])
+            .unwrap();
+        let manifest = files
+            .iter()
+            .find(|f| f.path.file_name().is_some_and(|name| name == "Package.swift"))
+            .unwrap();
+        assert!(
+            manifest.content.contains(".iOS(.v17)"),
+            "{mode:?}: the e2e package must declare the library's iOS minimum:\n{}",
+            manifest.content
+        );
+    }
+}

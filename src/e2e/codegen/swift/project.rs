@@ -299,6 +299,7 @@ fn inject_package_swift_extras(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn render_package_swift(
     min_macos: &str,
+    min_ios: &str,
     module_name: &str,
     registry_url: &str,
     pkg_path: &str,
@@ -362,15 +363,13 @@ pub(super) fn render_package_swift(
     {
         inject_package_swift_extras(&mut dependencies_block, &mut test_target_dep, extra);
     }
+    // The consumer takes the library's own minimums: SwiftPM refuses a test target whose
+    // minimum is lower than its product's, and hides a product above the consumer's.
     // SwiftPM platform enums use the major version only (.v13, .v14, ...);
     // strip patch components to match the scaffold's `Package.swift`.
     let min_macos_major = min_macos.split('.').next().unwrap_or(min_macos);
-    let min_ios = toolchain::SWIFT_MIN_IOS;
     let min_ios_major = min_ios.split('.').next().unwrap_or(min_ios);
     let swift_tools_version = toolchain::SWIFT_TOOLS_VERSION;
-    // The consumer's minimum iOS must be >= the dep's minimum iOS or SwiftPM hides
-    // the product as platform-incompatible. Use the same constant the swift backend
-    // emits into the dep's Package.swift.
     let harness_target = if include_harness_target {
         format!(
             r#"        .executableTarget(
@@ -416,6 +415,7 @@ mod tests {
     fn render_package_swift_local_mode_baseline() {
         let out = render_package_swift(
             toolchain::SWIFT_MIN_MACOS,
+            toolchain::SWIFT_MIN_IOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -439,6 +439,7 @@ mod tests {
     fn render_package_swift_registry_mode_baseline() {
         let out = render_package_swift(
             toolchain::SWIFT_MIN_MACOS,
+            toolchain::SWIFT_MIN_IOS,
             "TreeSitter",
             "https://github.com/tree-sitter/tree-sitter-swift.git",
             "",
@@ -476,6 +477,7 @@ mod tests {
         );
         let out = render_package_swift(
             toolchain::SWIFT_MIN_MACOS,
+            toolchain::SWIFT_MIN_IOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -514,6 +516,7 @@ mod tests {
         );
         let out = render_package_swift(
             toolchain::SWIFT_MIN_MACOS,
+            toolchain::SWIFT_MIN_IOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -537,6 +540,7 @@ mod tests {
         );
         let out = render_package_swift(
             toolchain::SWIFT_MIN_MACOS,
+            toolchain::SWIFT_MIN_IOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -573,6 +577,7 @@ mod tests {
         );
         let out = render_package_swift(
             toolchain::SWIFT_MIN_MACOS,
+            toolchain::SWIFT_MIN_IOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -605,6 +610,7 @@ mod tests {
         let extras = ManifestExtras::default();
         let with_empty = render_package_swift(
             toolchain::SWIFT_MIN_MACOS,
+            toolchain::SWIFT_MIN_IOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -615,6 +621,7 @@ mod tests {
         );
         let without = render_package_swift(
             toolchain::SWIFT_MIN_MACOS,
+            toolchain::SWIFT_MIN_IOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -638,6 +645,7 @@ mod tests {
         );
         let first = render_package_swift(
             toolchain::SWIFT_MIN_MACOS,
+            toolchain::SWIFT_MIN_IOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -648,6 +656,7 @@ mod tests {
         );
         let second = render_package_swift(
             toolchain::SWIFT_MIN_MACOS,
+            toolchain::SWIFT_MIN_IOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -663,6 +672,7 @@ mod tests {
     fn render_package_swift_includes_harness_target_when_needed() {
         let out = render_package_swift(
             toolchain::SWIFT_MIN_MACOS,
+            toolchain::SWIFT_MIN_IOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -682,6 +692,7 @@ mod tests {
     fn render_package_swift_omits_harness_target_when_not_needed() {
         let out = render_package_swift(
             toolchain::SWIFT_MIN_MACOS,
+            toolchain::SWIFT_MIN_IOS,
             "TreeSitter",
             "https://example.com/tree-sitter.git",
             "../../packages/swift",
@@ -703,6 +714,7 @@ mod tests {
         // the publish workflow. This test ensures we always use .branch() for registry mode.
         let out = render_package_swift(
             toolchain::SWIFT_MIN_MACOS,
+            toolchain::SWIFT_MIN_IOS,
             "MyLib",
             "https://example.com/my-lib.git",
             "",
