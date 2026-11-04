@@ -61,14 +61,27 @@ fn context_field_line(
             type_ref_label(&field.ty)
         )
     })?;
-    Ok(match backend {
+    let line = match backend {
         VisitorContextBackend::Napi => napi_field_line(field, shape),
         VisitorContextBackend::Wasm => wasm_field_line(field, shape),
         VisitorContextBackend::Pyo3 => pyo3_field_line(field, shape),
         VisitorContextBackend::Magnus => magnus_field_line(field, shape),
         VisitorContextBackend::Extendr => extendr_field_line(field, shape),
         VisitorContextBackend::Rustler => rustler_field_line(field, shape),
-    })
+    };
+    // A carried private-field value is read in place through the core's public accessor.
+    Ok(
+        if crate::codegen::private_accessors::is_private_accessor_field(context_def, field) {
+            crate::codegen::private_accessors::borrow_through_accessor(
+                &line,
+                "ctx",
+                &field.name,
+                crate::codegen::private_accessors::accessor_returns_ref(context_def, &field.name),
+            )
+        } else {
+            line
+        },
+    )
 }
 
 #[derive(Clone, Copy)]

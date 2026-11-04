@@ -146,6 +146,31 @@ fn napi_exposes_the_accessor_value_as_an_object_property() {
 }
 
 #[test]
+fn php_serde_constructor_defaults_the_carried_value() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("test-lib-php/src");
+    std::fs::create_dir_all(&source).unwrap();
+    std::fs::write(
+        directory.path().join("test-lib-php/Cargo.toml"),
+        "[dependencies]\nserde = { version = \"1\", features = [\"derive\"] }\nserde_json = \"1\"\n",
+    )
+    .unwrap();
+    let mut php = config("php");
+    php.output_paths.insert("php".to_string(), source);
+    let content = &PhpBackend.generate_bindings(&node_context_api(), &php).unwrap()[0].content;
+    assert!(
+        content.contains("pub fn from_json(json: String)"),
+        "fixture takes the serde branch:\n{content}"
+    );
+    let constructor = impl_block(content, "    #[php(constructor)]");
+    assert!(
+        constructor.contains("attributes: Option<HashMap<String, String>>")
+            && constructor.contains("attributes: attributes.unwrap_or_default()"),
+        "{constructor}"
+    );
+}
+
+#[test]
 fn php_carries_the_accessor_value_into_the_method_round_trip() {
     let files = PhpBackend
         .generate_bindings(&node_context_api(), &config("php"))
@@ -321,6 +346,11 @@ fn dart_mirror_reads_the_accessor_value() {
         "impl From<test_lib::NodeContext<'_>> for NodeContext",
         "v.attributes()",
     );
+    let from_core = impl_block(&content, "impl From<test_lib::NodeContext<'_>> for NodeContext");
+    assert!(
+        from_core.find("v.attributes()") < from_core.find("v.tag_name"),
+        "the accessor borrows `v` before any field moves out of it:\n{from_core}"
+    );
     assert!(
         content.contains("pub attributes: std::collections::HashMap<String, String>"),
         "{content}"
@@ -347,4 +377,59 @@ fn json_dto_backends_carry_the_accessor_value_on_the_wire() {
         "the bridge getter reads through the accessor:\n{swift}"
     );
     assert!(swift.contains("attributes: [String: String] = [:]"), "{swift}");
+}
+
+#[test]
+fn visitor_callback_contexts_read_the_accessor_in_place() {
+    use crate::codegen::visitor_context::{VisitorContextBackend, visitor_context_helper};
+    let api = node_context_api().with_private_accessor_fields();
+    let bridge = crate::core::config::TraitBridgeConfig {
+        trait_name: "HtmlVisitor".to_string(),
+        context_type: Some("NodeContext".to_string()),
+        ..crate::core::config::TraitBridgeConfig::default()
+    };
+    let direct_read = regex::Regex::new(r"ctx\.attributes\b[^(]").unwrap();
+    for backend in [
+        VisitorContextBackend::Napi,
+        VisitorContextBackend::Wasm,
+        VisitorContextBackend::Pyo3,
+        VisitorContextBackend::Magnus,
+        VisitorContextBackend::Extendr,
+        VisitorContextBackend::Rustler,
+    ] {
+        let lines = visitor_context_helper(&api, &bridge, "test_lib", backend)
+            .unwrap()
+            .field_lines;
+        assert!(lines.contains("ctx.attributes()"), "{lines}");
+        assert!(
+            !lines.contains("&(*ctx.attributes())"),
+            "clippy::borrow_deref_ref:\n{lines}"
+        );
+        assert!(
+            !direct_read.is_match(&lines),
+            "every read goes through the accessor:\n{lines}"
+        );
+    }
+}
+
+#[test]
+fn borrowing_reads_keep_their_meaning_through_a_reference_accessor() {
+    assert_eq!(
+        borrow_through_accessor("for (k, v) in &ctx.attributes {", "ctx", "attributes", true),
+        "for (k, v) in ctx.attributes() {"
+    );
+    assert_eq!(
+        borrow_through_accessor("x(ctx.depth as f64, &ctx.depth_map)", "ctx", "depth", true),
+        "x((*ctx.depth()) as f64, &ctx.depth_map)"
+    );
+    assert_eq!(
+        borrow_through_accessor(
+            "map(env, &ctx.attributes\n    .iter()\n    .collect())",
+            "ctx",
+            "attributes",
+            true
+        ),
+        "map(env, &ctx.attributes()\n    .iter()\n    .collect())"
+    );
+    assert_eq!(borrow_through_accessor("&ctx.a", "ctx", "a", false), "&ctx.a()");
 }

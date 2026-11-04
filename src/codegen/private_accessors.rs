@@ -39,6 +39,40 @@ pub fn read_through_accessor(conversion: &str, receiver: &str, field_name: &str,
     pattern.replace_all(conversion, replacement.as_str()).into_owned()
 }
 
+/// Rewrite every `<receiver>.<field>` place expression into the field's accessor call, so
+/// borrowing reads keep their meaning. With a reference-returning accessor, a method chain
+/// (`ctx.field.iter()`) and a plain borrow (`&ctx.field`) take the accessor's reference as is,
+/// and any other read dereferences it back to the field's place (`(*ctx.field()) as f64`).
+#[must_use]
+pub fn borrow_through_accessor(code: &str, receiver: &str, field_name: &str, returns_ref: bool) -> String {
+    let pattern = regex::Regex::new(&format!(
+        r"\b{}\.{}\b(?:\(\))?",
+        regex::escape(receiver),
+        regex::escape(field_name)
+    ))
+    .expect("identifiers are valid regex literals once escaped");
+    let accessor = format!("{receiver}.{field_name}()");
+    let mut out = String::with_capacity(code.len());
+    let mut last = 0;
+    for found in pattern.find_iter(code) {
+        let mut prefix = &code[last..found.start()];
+        let chained = code[found.end()..].trim_start().starts_with('.');
+        let borrowed = returns_ref && prefix.ends_with('&') && !chained;
+        if borrowed {
+            prefix = &prefix[..prefix.len() - 1];
+        }
+        out.push_str(prefix);
+        if !returns_ref || chained || borrowed {
+            out.push_str(&accessor);
+        } else {
+            out.push_str(&format!("(*{accessor})"));
+        }
+        last = found.end();
+    }
+    out.push_str(&code[last..]);
+    out
+}
+
 /// Whether the accessor of `field_name` on `typ` returns a reference (and so needs a clone).
 #[must_use]
 pub fn accessor_returns_ref(typ: &TypeDef, field_name: &str) -> bool {

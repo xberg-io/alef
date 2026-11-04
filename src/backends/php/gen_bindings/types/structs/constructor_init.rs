@@ -308,6 +308,10 @@ pub(crate) fn gen_constructor_field_inits(
                 field_inits.push(init);
                 continue;
             }
+            if crate::codegen::private_accessors::is_private_accessor_field(typ, field) && !field.optional {
+                field_inits.push(format!("{}: {php_param_name}.unwrap_or_default()", field.name));
+                continue;
+            }
             field_inits.push(representable_field_init(
                 &typ.name,
                 field,

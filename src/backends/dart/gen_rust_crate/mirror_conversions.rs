@@ -183,7 +183,11 @@ pub(super) fn emit_from_impl_for_struct(out: &mut String, ty: &TypeDef, source_c
         },
     ));
 
-    for field in binding_fields(&ty.fields) {
+    // An accessor borrows the whole source value, so carried private-field values are read before
+    // any other field moves out of it.
+    let mut fields: Vec<&FieldDef> = binding_fields(&ty.fields).collect();
+    fields.sort_by_key(|field| !crate::codegen::private_accessors::is_private_accessor_field(ty, field));
+    for field in fields {
         if field.sanitized {
             let fallback = sanitized_field_from_expr(field);
             // at compile time. Emitting `#[cfg(...)]` here would gate on the dart
