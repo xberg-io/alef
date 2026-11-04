@@ -12,7 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Opt in to private Python host aliases for defaulted Rust callbacks while preserving the existing callback surface
   in other SDKs, reference pages, and generated fixtures.
 
+- Opt in to lazy Python visitor context string-map getters through
+  `[crates.python.visitor_context_accessors]`. Configured getters can read borrowed
+  core context data during the callback without copying it on entry.
+
+## [0.122.2] - 2026-11-04
+
 ### Fixed
+
+- Emit fallible Node conversions for serde-defaulted required DTO fields without the `Ok(..?)` wrapper that clippy rejects as `needless_question_mark`.
 
 - Emit fallible Node conversions directly at Result tails while preserving InvalidArg error details.
 

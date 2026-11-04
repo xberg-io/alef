@@ -826,3 +826,103 @@ fn generate_bindings_passthrough_enum_direct_param_forces_fallible_signature() {
         lib.content
     );
 }
+
+/// A lone fallible conversion must be returned as the closure's `Result` directly: wrapping it as
+/// `Ok((value).try_into()?)` trips `clippy::needless_question_mark` in every consumer that lints
+/// generated bindings with `-D warnings`. Covers direct, `Option` and `Vec` parameters and the
+/// matching DTO fields, including the defaulted (binding-optional) required field.
+#[test]
+fn generate_bindings_fallible_conversions_have_no_needless_question_mark() {
+    use crate::core::ir::{ApiSurface, FunctionDef, ParamDef, TypeDef};
+
+    let policy = || TypeRef::Named("Policy".to_string());
+    let field = |name: &str, ty: TypeRef, optional: bool| FieldDef {
+        name: name.to_string(),
+        ty,
+        optional,
+        ..Default::default()
+    };
+    let param = |name: &str, ty: TypeRef, optional: bool| ParamDef {
+        name: name.to_string(),
+        ty,
+        optional,
+        ..Default::default()
+    };
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "Holder".to_string(),
+                rust_path: "test_core::Holder".to_string(),
+                has_serde: true,
+                has_default: true,
+                fields: vec![
+                    field("required", policy(), false),
+                    field("maybe", policy(), true),
+                    field("list", TypeRef::Vec(Box::new(policy())), false),
+                ],
+                ..Default::default()
+            },
+            TypeDef {
+                name: "Defaulted".to_string(),
+                rust_path: "test_core::Defaulted".to_string(),
+                has_serde: true,
+                fields: vec![FieldDef {
+                    default: Some("/* serde(default) */".to_string()),
+                    typed_default: Some(crate::core::ir::DefaultValue::EnumVariant("Text".to_string())),
+                    ..field("policy", policy(), false)
+                }],
+                ..Default::default()
+            },
+        ],
+        enums: vec![EnumDef {
+            name: "Policy".to_string(),
+            rust_path: "test_core::Policy".to_string(),
+            serde_untagged: true,
+            variants: vec![EnumVariant {
+                name: "Text".to_string(),
+                fields: vec![field("_0", TypeRef::String, false)],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        functions: vec![FunctionDef {
+            name: "run_policies".to_string(),
+            params: vec![
+                param("policy", policy(), false),
+                param("maybe", policy(), true),
+                param("list", TypeRef::Vec(Box::new(policy())), false),
+                param("holder", TypeRef::Named("Holder".to_string()), false),
+                param("defaulted", TypeRef::Named("Defaulted".to_string()), false),
+            ],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let files = NapiBackend.generate_bindings(&api, &node_config()).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+    let compact: String = lib.content.chars().filter(|c| !c.is_whitespace()).collect();
+
+    for site in [
+        "(policy).try_into().map_err(",
+        "(maybe).map(|value|->std::result::Result<_,serde_json::Error>{(value).try_into()}).transpose()",
+        "(list).into_iter().map(|value|->std::result::Result<_,serde_json::Error>{(value).try_into()})",
+        "__result.maybe=(val.maybe).map(|value|->std::result::Result<_,serde_json::Error>{(value).try_into()})",
+        "val.policy.map(|value|->std::result::Result<_,serde_json::Error>{(value).try_into()}).transpose()?",
+    ] {
+        assert!(
+            compact.contains(site),
+            "missing direct fallible conversion `{site}`:\n{}",
+            lib.content
+        );
+    }
+    let needless = regex::Regex::new(r"Ok\(\([A-Za-z_][A-Za-z0-9_.]*\)\.try_into\(\)\?\)").unwrap();
+    let hits: Vec<&str> = needless.find_iter(&compact).map(|hit| hit.as_str()).collect();
+    assert!(
+        hits.is_empty(),
+        "a lone fallible conversion must not be wrapped in Ok(..?): {hits:?}\n{}",
+        lib.content
+    );
+}

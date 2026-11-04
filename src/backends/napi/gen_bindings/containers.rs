@@ -285,15 +285,38 @@ impl ContainerContext {
         } else {
             field.ty.clone()
         };
-        let converted =
-            transparent_newtypes::convert_with_enum_keys(&source, &ty, &[], direction, Some(&self.policy()));
-        let converted = finish_field_conversion(converted, field, nested_optional, binding_optional, direction);
+        let conversion = transparent_newtypes::convert_expression(&source, &ty, &[], direction, Some(&self.policy()));
         if missing_default {
+            let result = match conversion {
+                // Only core wrapping can apply here; when it leaves the value untouched, the
+                // fallible conversion is the closure's result (`Ok(x?)` is needless_question_mark).
+                transparent_newtypes::ConversionExpression::SerdeResult(result)
+                    if wrap_core_field(format!("{result}?"), field) == format!("{result}?") =>
+                {
+                    result
+                }
+                conversion => format!(
+                    "Ok({})",
+                    finish_field_conversion(
+                        conversion.into_value(),
+                        field,
+                        nested_optional,
+                        binding_optional,
+                        direction
+                    )
+                ),
+            };
             format!(
-                "val.{binding_name}.map(|value| -> std::result::Result<_, serde_json::Error> {{ Ok({converted}) }}).transpose()?.unwrap_or_default()"
+                "val.{binding_name}.map(|value| -> std::result::Result<_, serde_json::Error> {{ {result} }}).transpose()?.unwrap_or_default()"
             )
         } else {
-            converted
+            finish_field_conversion(
+                conversion.into_value(),
+                field,
+                nested_optional,
+                binding_optional,
+                direction,
+            )
         }
     }
 
