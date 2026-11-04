@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.123.0] - 2026-11-04
+
 ### Added
 
 - Publish statically linked `alef-x86_64-unknown-linux-musl` and `alef-aarch64-unknown-linux-musl` release archives,
