@@ -150,14 +150,19 @@ pairs; and the producer's dependency closure.
   their cc-rs spellings (`<NAME>`, `<NAME>_<target>`, `<NAME>_<target_with_underscores>`,
   `TARGET_<NAME>`, `HOST_<NAME>`). `--env NAME` (repeatable on `plan`, `build` and `package`) adds
   any other variable a build script reads.
-- *Native toolchain.* Only for `*-apple-*` targets: the SDK version and SDK build version from
-  `xcrun --sdk <macosx|iphoneos|iphonesimulator> --show-sdk-version` / `--show-sdk-build-version`
-  (`iphoneos` for device iOS targets, `iphonesimulator` for `-sim` and x86_64 iOS, `macosx`
-  otherwise) and the first line of `ld -v`. Only for `*-windows-msvc` targets: `VCToolsVersion` and
-  `WindowsSDKVersion` from the environment (set by the developer shell). A missing tool or variable
-  hashes the marker `absent` instead of failing, and other targets hash none of it, so a runner
-  image upgrade rebuilds Apple and MSVC artifacts. The C compiler version is not probed: put it in
-  `--extra`, for example `--extra cc=$(cc --version | head -1)`.
+- *Native toolchain.* Only when the host OS family matches the target's: for `*-apple-*` targets on
+  a macOS host, the SDK version and SDK build version from
+  `xcrun --sdk <sdk> --show-sdk-version` / `--show-sdk-build-version` and the first line of
+  `xcrun --sdk <sdk> clang --version` (Apple clang drives the link); `<sdk>` follows the target OS
+  (`macosx` for darwin and macabi, `iphoneos`, `iphonesimulator` for `-sim` and x86_64 iOS,
+  `appletvos`/`appletvsimulator`, `watchos`/`watchsimulator`, `xros`/`xrsimulator`). For
+  `*-windows-msvc` targets on a Windows host, `VCToolsVersion` and `WindowsSDKVersion` from the
+  environment (set by a developer shell) and the Visual Studio version from `vswhere` under
+  `%ProgramFiles(x86)%\Microsoft Visual Studio\Installer`. A missing tool or variable hashes the
+  marker `absent`. Like `rustc -vV`, this identity is the build machine's, so for Apple and MSVC
+  targets `plan` must run on the same OS family as the build; from another family it records
+  nothing, and a plan made there fails the build-time gate. The C compiler version is not probed:
+  put it in `--extra`, for example `--extra cc=$(cc --version | head -1)`.
 - *Configuration files.* The SHA-256 of every `.cargo/config.toml`, `.cargo/config`,
   `rust-toolchain.toml` and `rust-toolchain` found walking up from the working directory and from
   the producer directory all the way to the filesystem root (not stopping at `.git`), and of

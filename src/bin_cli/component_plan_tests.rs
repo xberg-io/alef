@@ -77,3 +77,26 @@ fn a_plan_without_explicit_selection_drives_profiles_and_targets() {
     assert_eq!(plan_profiles(&config, &[], None).unwrap().len(), 2);
     assert_eq!(plan_targets(&config, profiles[0], &[], None).unwrap().len(), 2);
 }
+
+#[test]
+fn fingerprinter_feeds_the_probed_toolchain_for_the_target_host_only() {
+    let probe = |program: &str, args: &[&str]| match (program, args.last().copied()) {
+        ("xcrun", Some("--show-sdk-version")) => Some("15.0".to_string()),
+        ("xcrun", Some(_)) => Some("other".to_string()),
+        _ => None,
+    };
+    let mut mac = Fingerprinter::new(&[], &[])
+        .unwrap()
+        .with_probe(HostFamily::Macos, Box::new(probe));
+    let records = mac.toolchain_for("aarch64-apple-darwin");
+    assert!(
+        records.contains(&("apple-sdk:macosx:version".to_string(), "15.0".to_string())),
+        "{records:?}"
+    );
+    assert!(mac.toolchain_for("x86_64-unknown-linux-gnu").is_empty());
+
+    let mut linux = Fingerprinter::new(&[], &[])
+        .unwrap()
+        .with_probe(HostFamily::Other, Box::new(probe));
+    assert!(linux.toolchain_for("aarch64-apple-darwin").is_empty());
+}

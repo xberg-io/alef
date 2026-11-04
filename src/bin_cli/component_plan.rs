@@ -8,8 +8,8 @@ use anyhow::{Context, Result, bail, ensure};
 use crate::codegen::component::{ResolvedComponent, resolve_component_targets};
 use crate::component::artifact::{ComponentArtifactRecord, ComponentLock, ComponentLockEntry};
 use crate::component::fingerprint::{
-    self, FingerprintInput, ProducerInputs, SystemProbe, build_env, compute, native_toolchain, parse_extras,
-    process_vars, rustc_version,
+    self, FingerprintInput, HostFamily, ProducerInputs, SystemProbe, ToolProbe, build_env, compute, native_toolchain,
+    parse_extras, process_vars, rustc_version,
 };
 use crate::component::plan::{ComponentPlan, PlanAction, PlanCandidate, decide, reused_entries};
 use crate::core::config::{ComponentConfig, ComponentProducerLanguage, ResolvedCrateConfig};
@@ -25,6 +25,8 @@ pub(super) struct Fingerprinter {
     cwd: PathBuf,
     rustc: Option<String>,
     toolchains: HashMap<String, Vec<(String, String)>>,
+    host: HostFamily,
+    probe: Box<dyn ToolProbe>,
     producers: HashMap<PathBuf, ProducerInputs>,
 }
 
@@ -47,8 +49,25 @@ impl Fingerprinter {
             cwd: std::env::current_dir().context("cannot determine the working directory")?,
             rustc: None,
             toolchains: HashMap::new(),
+            host: HostFamily::current(),
+            probe: Box::new(SystemProbe),
             producers: HashMap::new(),
         })
+    }
+
+    /// The native toolchain records for `target`, probed once per target.
+    fn toolchain_for(&mut self, target: &str) -> Vec<(String, String)> {
+        self.toolchains
+            .entry(target.to_string())
+            .or_insert_with(|| native_toolchain(target, self.host, &self.vars, self.probe.as_ref()))
+            .clone()
+    }
+
+    #[cfg(test)]
+    fn with_probe(mut self, host: HostFamily, probe: Box<dyn ToolProbe>) -> Self {
+        self.host = host;
+        self.probe = probe;
+        self
     }
 
     /// The fingerprint of `profile` built for `target`, or `None` for a Go producer, which is not
@@ -76,6 +95,7 @@ impl Fingerprinter {
                 rustc
             }
         };
+        let toolchain = self.toolchain_for(target);
         let manifest = super::build::producer_manifest_path(config, profile);
         if !self.producers.contains_key(&manifest) {
             let producer = fingerprint::producer_inputs(&manifest, &self.cwd)?;
@@ -84,11 +104,6 @@ impl Fingerprinter {
         let producer = &self.producers[&manifest];
         let contracts = contract_hashes(resolved)?;
         let env = build_env(self.vars.iter().cloned(), target, &self.env_names);
-        let toolchain = self
-            .toolchains
-            .entry(target.to_string())
-            .or_insert_with(|| native_toolchain(target, &self.vars, &SystemProbe))
-            .clone();
         Ok(Some(compute(
             &FingerprintInput {
                 crate_name: &config.name,
@@ -379,6 +394,12 @@ pub(super) fn lock_input_records(input: &Path, reusing: bool) -> Result<Vec<(Pat
 
 /// Every `build` row of the plan for `crate_name` that `--component` / `--target` select must have a
 /// fresh record: a build row without one would otherwise silently drop out of the lock.
+///
+/// Rows the filters do not select are skipped, because a filtered lock deliberately covers only part
+/// of the plan. A `reuse` row the filters do not select is an error instead (`check_reuse_rows`):
+/// the plan says to carry it over, and dropping it silently would ship a lock missing an artifact
+/// the operator asked to keep. The configured-matrix check requires a record or reuse entry for
+/// each selected configured pair, so any selected build row passing here also satisfies it.
 pub(super) fn check_build_rows_have_records(
     plan: &ComponentPlan,
     crate_name: &str,

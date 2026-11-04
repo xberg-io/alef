@@ -20,11 +20,11 @@
 //! 4. `rustc` (SHA-256 of the `release:`, `commit-hash:` and `LLVM version:` lines of `rustc -vV`,
 //!    never `host:`, so the same compiler on two build machines agrees) and `env:<NAME>` for the
 //!    build-affecting environment (see [`build_env`]), sorted by name; unset variables are absent.
-//!    `toolchain:<key>` follows, only for `*-apple-*` targets (`apple-sdk:<sdk>:version` and
-//!    `apple-sdk:<sdk>:build` from `xcrun --sdk <macosx|iphoneos|iphonesimulator>`, `apple-ld`, the
-//!    first line of `ld -v`) and `*-windows-msvc` targets (`msvc:VCToolsVersion` and
-//!    `msvc:WindowsSDKVersion` from the environment); a tool or variable that is missing hashes the
-//!    marker `absent`. See [`native_toolchain`].
+//!    `toolchain:<key>` follows, only when the host OS family matches the target's (like `rustc -vV`,
+//!    `plan` and `build` must run on the same family): for `*-apple-*` on macOS, `apple-sdk:<sdk>:version`,
+//!    `apple-sdk:<sdk>:build` and `apple-clang` from `xcrun`; for `*-windows-msvc` on Windows,
+//!    `msvc:VCToolsVersion`, `msvc:WindowsSDKVersion` and `msvc:vswhere`. A missing tool or variable
+//!    hashes the marker `absent`. See [`native_toolchain`].
 //! 5. `config:<scope>:<depth>:<file>`: SHA-256 of each `.cargo/config.toml`, `.cargo/config`,
 //!    `rust-toolchain.toml` and `rust-toolchain` found walking up from the working directory
 //!    (`cwd`) and from the producer directory (`producer`) to the filesystem root, plus
@@ -62,7 +62,7 @@ mod toolchain;
 mod tree;
 
 pub use env::{build_env, cargo_home, implicit_config, process_vars};
-pub use toolchain::{ABSENT, SystemProbe, ToolProbe, native_toolchain};
+pub use toolchain::{ABSENT, HostFamily, SystemProbe, ToolProbe, apple_sdk, native_toolchain};
 pub use tree::tree_digest;
 
 use anyhow::{Context, Result, bail, ensure};

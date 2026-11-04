@@ -705,3 +705,42 @@ fn lock_fails_when_a_build_row_has_no_record() {
     plan::reuse_for_crate(Some(&reuse), &config, &[&stamped], None, &[], &[]).unwrap();
     plan::reuse_for_crate(Some(&reuse), &config, &[], None, &["slow".into()], &[]).unwrap();
 }
+
+#[test]
+fn build_row_checks_honour_filters_and_cover_every_row() {
+    use crate::component::plan::{PlanAction, PlanRow};
+    let linux = "x86_64-unknown-linux-gnu";
+    let mac = "aarch64-apple-darwin";
+    let row = |component: &str, target: &str, action: PlanAction| PlanRow {
+        crate_name: "demo-core".into(),
+        component: component.into(),
+        target: target.into(),
+        input_hash: None,
+        action,
+        previous: None,
+    };
+    let plan = ComponentPlan::new(
+        false,
+        vec![
+            row("fast", linux, PlanAction::Build),
+            row("fast", mac, PlanAction::Build),
+            row("go", linux, PlanAction::Build),
+        ],
+    );
+    let (go_path, mut go) = record_for("go");
+    go.manifest.identity.target = linux.into();
+    let go = (go_path, go);
+    let fast_linux = record_for("fast");
+    let check = |records: &[&(PathBuf, ComponentArtifactRecord)], components: &[String], targets: &[String]| {
+        plan::check_build_rows_have_records(&plan, "demo-core", records, components, targets)
+    };
+
+    let error = check(&[&fast_linux, &go], &[], &[]).unwrap_err();
+    assert!(error.to_string().contains(&format!("fast for {mac}")), "{error}");
+    let error = check(&[&fast_linux], &[], &[linux.to_string()]).unwrap_err();
+    assert!(error.to_string().contains("go for"), "{error}");
+    check(&[&fast_linux], &["fast".to_string()], &[linux.to_string()]).unwrap();
+    check(&[&go], &["go".to_string()], &[]).unwrap();
+    check(&[&fast_linux, &go], &[], &[linux.to_string()]).unwrap();
+    plan::check_build_rows_have_records(&plan, "other-crate", &[], &[], &[]).unwrap();
+}

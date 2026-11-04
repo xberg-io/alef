@@ -24,10 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `input_hash` in the artifact record; `lock --reuse <lock> --plan <plan>` carries reused entries over verbatim after
   checking their signing key is still trusted. Go components are never reused. `lock` strips `input_hash` from the
   locks it stages into binding packages. (#869)
-- Hash the native toolchain in component fingerprints: for `*-apple-*` targets the `xcrun` SDK version and build
-  version and the `ld -v` identity, for `*-windows-msvc` targets `VCToolsVersion` and `WindowsSDKVersion`, with a
-  stable `absent` marker when a probe is unavailable, so a runner image upgrade no longer reuses artifacts built with
-  an older SDK or linker. (#873)
+- Hash the native toolchain in component fingerprints when the host OS family matches the target's: for
+  `*-apple-*` targets on macOS the `xcrun` SDK version, SDK build version and Apple clang version, for
+  `*-windows-msvc` targets on Windows `VCToolsVersion`, `WindowsSDKVersion` and the `vswhere` Visual Studio version, with
+  a stable `absent` marker when a probe is unavailable. A runner image upgrade no longer reuses artifacts built with an
+  older SDK or linker; for these targets `plan` must run on the same OS family as the build, like `rustc -vV`. (#873)
 - Accept an absent or empty `--input` for `alef component lock --reuse --plan` when every plan row is `reuse`, and
   fail when a `build` row has no record in the input. (#873)
 
