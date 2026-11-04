@@ -151,7 +151,7 @@ class DraftDiscoveryTest(unittest.TestCase):
         created = endpoints.index("/releases")
         assert endpoints[created + 1 :] == ["/git/ref/tags/" + SPEC["tag"], "/releases/23"]
 
-    def test_five_asset_upload_discovers_83_pages_once_and_fits_the_request_budget(self):
+    def test_asset_upload_discovers_83_pages_once_and_fits_the_request_budget(self):
         self.api.annotated = True
         self.api.release_pages = {
             page: [{"id": page * 100 + index, "tag_name": f"v0.{page}.{index}"} for index in range(10)]
@@ -161,20 +161,22 @@ class DraftDiscoveryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary) / "cli"
             archives(directory)
-            assert self.state.upload(directory, "success") == {"verified_remote": 5}
+            assets = len(list(directory.iterdir()))
+            assert self.state.upload(directory, "success") == {"verified_remote": assets}
         gets = [endpoint for method, endpoint, _ in self.api.calls if method == "GET"]
         pages = [endpoint for endpoint in gets if endpoint.startswith("/releases?")]
         counts = (len(gets), len(pages), len(self.api.writes))
-        assert counts == (122, 83, 5), counts
+        # Per asset: one upload, then the release, its tag ref and the tag object are each read twice.
+        assert counts == (92 + 6 * assets, 83, assets), counts
         assert pages == [f"/releases?per_page=10&page={page}" for page in range(1, 84)]
         assert gets.count("/releases/tags/" + SPEC["tag"]) == 1
-        assert gets.count("/releases/23") == 12
-        assert gets.count("/git/ref/tags/" + SPEC["tag"]) == 12
-        assert gets.count("/git/tags/" + "c" * 40) == 12
+        assert gets.count("/releases/23") == 2 + 2 * assets
+        assert gets.count("/git/ref/tags/" + SPEC["tag"]) == 2 + 2 * assets
+        assert gets.count("/git/tags/" + "c" * 40) == 2 + 2 * assets
         assert all(
             method == "POST" and endpoint.startswith("/releases/23/assets?") for method, endpoint, _ in self.api.writes
         )
-        assert len(self.api.current["assets"]) == 5
+        assert len(self.api.current["assets"]) == assets
 
     def test_created_release_identity_must_be_a_positive_integer_and_match_the_refetch(self):
         original = self.api.request
