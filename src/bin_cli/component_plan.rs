@@ -8,7 +8,8 @@ use anyhow::{Context, Result, bail, ensure};
 use crate::codegen::component::{ResolvedComponent, resolve_component_targets};
 use crate::component::artifact::{ComponentArtifactRecord, ComponentLock, ComponentLockEntry};
 use crate::component::fingerprint::{
-    self, FingerprintInput, ProducerInputs, build_env, compute, parse_extras, process_vars, rustc_version,
+    self, FingerprintInput, ProducerInputs, SystemProbe, build_env, compute, native_toolchain, parse_extras,
+    process_vars, rustc_version,
 };
 use crate::component::plan::{ComponentPlan, PlanAction, PlanCandidate, decide, reused_entries};
 use crate::core::config::{ComponentConfig, ComponentProducerLanguage, ResolvedCrateConfig};
@@ -23,6 +24,7 @@ pub(super) struct Fingerprinter {
     vars: Vec<(String, String)>,
     cwd: PathBuf,
     rustc: Option<String>,
+    toolchains: HashMap<String, Vec<(String, String)>>,
     producers: HashMap<PathBuf, ProducerInputs>,
 }
 
@@ -44,6 +46,7 @@ impl Fingerprinter {
             vars: process_vars(),
             cwd: std::env::current_dir().context("cannot determine the working directory")?,
             rustc: None,
+            toolchains: HashMap::new(),
             producers: HashMap::new(),
         })
     }
@@ -81,6 +84,11 @@ impl Fingerprinter {
         let producer = &self.producers[&manifest];
         let contracts = contract_hashes(resolved)?;
         let env = build_env(self.vars.iter().cloned(), target, &self.env_names);
+        let toolchain = self
+            .toolchains
+            .entry(target.to_string())
+            .or_insert_with(|| native_toolchain(target, &self.vars, &SystemProbe))
+            .clone();
         Ok(Some(compute(
             &FingerprintInput {
                 crate_name: &config.name,
@@ -94,6 +102,7 @@ impl Fingerprinter {
                 alef_version: env!("CARGO_PKG_VERSION"),
                 rustc: &rustc,
                 env: &env,
+                toolchain: &toolchain,
                 extras: &self.extras,
             },
             producer,
@@ -358,6 +367,44 @@ pub(super) fn check_records_against_plan(
     Ok(())
 }
 
+/// The artifact records under `--input` for `component lock`. When reusing, an absent `input` is an
+/// empty set: a release that reuses every component builds no archives, so nothing writes the
+/// directory. Without reuse a missing `input` is an error.
+pub(super) fn lock_input_records(input: &Path, reusing: bool) -> Result<Vec<(PathBuf, ComponentArtifactRecord)>> {
+    if reusing && !input.exists() {
+        return Ok(Vec::new());
+    }
+    super::records_in(input)
+}
+
+/// Every `build` row of the plan for `crate_name` that `--component` / `--target` select must have a
+/// fresh record: a build row without one would otherwise silently drop out of the lock.
+pub(super) fn check_build_rows_have_records(
+    plan: &ComponentPlan,
+    crate_name: &str,
+    records: &[&(PathBuf, ComponentArtifactRecord)],
+    components: &[String],
+    targets: &[String],
+) -> Result<()> {
+    for row in plan.rows.iter().filter(|row| {
+        row.action == PlanAction::Build
+            && row.crate_name == crate_name
+            && (components.is_empty() || components.contains(&row.component))
+            && (targets.is_empty() || targets.contains(&row.target))
+    }) {
+        ensure!(
+            records.iter().any(|(_, record)| {
+                record.manifest.identity.component == row.component && record.manifest.identity.target == row.target
+            }),
+            "plan builds {}/{} for {}, but the lock input has no record for it",
+            row.crate_name,
+            row.component,
+            row.target
+        );
+    }
+    Ok(())
+}
+
 /// Read the previous lock and the plan named by `lock --reuse --plan`.
 pub(super) fn load_reuse(reuse: Option<&Path>, plan: Option<&Path>) -> Result<Option<(ComponentLock, ComponentPlan)>> {
     match (reuse, plan) {
@@ -433,6 +480,7 @@ pub(super) fn reuse_for_crate(
         return Ok(Vec::new());
     };
     check_records_against_plan(plan, &config.name, records)?;
+    check_build_rows_have_records(plan, &config.name, records, components, targets)?;
     check_reuse_rows(plan, config, components, targets)?;
     reused_entries(plan, previous, &config.name, trusted)
 }

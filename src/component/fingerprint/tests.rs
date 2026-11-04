@@ -21,6 +21,7 @@ fn input<'a>(features: &'a [String], contracts: &'a [(String, String)]) -> Finge
         alef_version: "0.0.1",
         rustc: RUSTC,
         env: &[],
+        toolchain: &[],
         extras: &[],
     }
 }
@@ -623,4 +624,78 @@ fn implicit_config_walks_to_the_root_and_labels_without_absolute_paths() {
         found,
         implicit_config(&[("cwd", nested.as_path())], Some(home.path())).unwrap()
     );
+}
+
+fn xcode_probe(sdk_version: &'static str) -> impl Fn(&str, &[&str]) -> Option<String> {
+    move |program, args| match (program, args) {
+        ("xcrun", [_, _, "--show-sdk-version"]) => Some(sdk_version.to_string()),
+        ("xcrun", [_, _, "--show-sdk-build-version"]) => Some("24A100".to_string()),
+        ("ld", ["-v"]) => Some("@(#)PROGRAM:ld PROJECT:ld-1115.7.3\nBUILD 12:00".to_string()),
+        _ => None,
+    }
+}
+
+#[test]
+fn apple_targets_hash_the_sdk_and_linker_identity() {
+    let contracts = contracts();
+    let target = "aarch64-apple-darwin";
+    let old = native_toolchain(target, &[], &xcode_probe("15.0"));
+    let new = native_toolchain(target, &[], &xcode_probe("15.4"));
+    assert_eq!(
+        old,
+        vec![
+            ("apple-ld".to_string(), "@(#)PROGRAM:ld PROJECT:ld-1115.7.3".to_string()),
+            ("apple-sdk:macosx:build".to_string(), "24A100".to_string()),
+            ("apple-sdk:macosx:version".to_string(), "15.0".to_string()),
+        ]
+    );
+    let hash = |toolchain: &[(String, String)]| {
+        let mut one = input(&[], &contracts);
+        one.target = target;
+        one.toolchain = toolchain;
+        compute(&one, &producer())
+    };
+    assert_ne!(hash(&old), hash(&new), "an SDK upgrade must change the fingerprint");
+    assert_eq!(hash(&old), hash(&native_toolchain(target, &[], &xcode_probe("15.0"))));
+}
+
+#[test]
+fn missing_apple_probes_hash_a_stable_absent_marker() {
+    let nothing = |_: &str, _: &[&str]| None;
+    let records = native_toolchain("aarch64-apple-ios", &[], &nothing);
+    assert_eq!(records.len(), 3);
+    assert!(records.iter().all(|(_, value)| value == ABSENT), "{records:?}");
+    assert!(records.iter().any(|(key, _)| key == "apple-sdk:iphoneos:version"));
+    let sim = native_toolchain("aarch64-apple-ios-sim", &[], &nothing);
+    assert!(sim.iter().any(|(key, _)| key == "apple-sdk:iphonesimulator:version"));
+}
+
+#[test]
+fn non_apple_targets_ignore_the_apple_probes() {
+    let probe = xcode_probe("15.0");
+    assert!(native_toolchain("x86_64-unknown-linux-gnu", &[], &probe).is_empty());
+    assert!(native_toolchain("x86_64-pc-windows-gnu", &[], &probe).is_empty());
+    let contracts = contracts();
+    let linux = input(&[], &contracts);
+    let mut with_probe = input(&[], &contracts);
+    let records = native_toolchain(linux.target, &[], &probe);
+    with_probe.toolchain = &records;
+    assert_eq!(compute(&linux, &producer()), compute(&with_probe, &producer()));
+}
+
+#[test]
+fn msvc_targets_hash_the_dev_shell_versions_and_ignore_xcode() {
+    let target = "x86_64-pc-windows-msvc";
+    let vars = |tools: &str| {
+        vec![
+            ("VCToolsVersion".to_string(), tools.to_string()),
+            ("WindowsSDKVersion".to_string(), "10.0.22621.0\\".to_string()),
+        ]
+    };
+    let old = native_toolchain(target, &vars("14.40.33807"), &xcode_probe("15.0"));
+    let new = native_toolchain(target, &vars("14.41.34120"), &xcode_probe("15.0"));
+    assert_eq!(old.len(), 2);
+    assert_ne!(old, new);
+    let unset = native_toolchain(target, &[], &xcode_probe("15.0"));
+    assert!(unset.iter().all(|(_, value)| value == ABSENT), "{unset:?}");
 }

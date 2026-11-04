@@ -295,11 +295,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             if let Some(template) = url_template.as_deref() {
                 ComponentDistributionConfig::validate_url_template(template).map_err(|message| anyhow!(message))?;
             }
-            let records = if reuse.is_some() && !input.exists() {
-                Vec::new()
-            } else {
-                records_in(&input)?
-            };
+            let records = plan::lock_input_records(&input, reuse.is_some())?;
             ensure!(
                 reuse.is_some() || !records.is_empty(),
                 "no component artifact records found in {}",
@@ -778,7 +774,7 @@ fn node_component_lock_path(config: &ResolvedCrateConfig) -> PathBuf {
         .join("components.lock.json")
 }
 
-fn records_in(path: &Path) -> Result<Vec<(PathBuf, ComponentArtifactRecord)>> {
+pub(super) fn records_in(path: &Path) -> Result<Vec<(PathBuf, ComponentArtifactRecord)>> {
     if path.is_file() {
         return Ok(vec![(path.to_path_buf(), read_record(path)?)]);
     }

@@ -20,6 +20,11 @@
 //! 4. `rustc` (SHA-256 of the `release:`, `commit-hash:` and `LLVM version:` lines of `rustc -vV`,
 //!    never `host:`, so the same compiler on two build machines agrees) and `env:<NAME>` for the
 //!    build-affecting environment (see [`build_env`]), sorted by name; unset variables are absent.
+//!    `toolchain:<key>` follows, only for `*-apple-*` targets (`apple-sdk:<sdk>:version` and
+//!    `apple-sdk:<sdk>:build` from `xcrun --sdk <macosx|iphoneos|iphonesimulator>`, `apple-ld`, the
+//!    first line of `ld -v`) and `*-windows-msvc` targets (`msvc:VCToolsVersion` and
+//!    `msvc:WindowsSDKVersion` from the environment); a tool or variable that is missing hashes the
+//!    marker `absent`. See [`native_toolchain`].
 //! 5. `config:<scope>:<depth>:<file>`: SHA-256 of each `.cargo/config.toml`, `.cargo/config`,
 //!    `rust-toolchain.toml` and `rust-toolchain` found walking up from the working directory
 //!    (`cwd`) and from the producer directory (`producer`) to the filesystem root, plus
@@ -45,7 +50,7 @@
 //! Workspace members outside the producer's closure are not hashed, so editing an unrelated member
 //! does not change the fingerprint. Package versions are excluded on purpose so lock-step releases
 //! still reuse; `env!("CARGO_PKG_VERSION")` in a reused artifact reports the version it was built at.
-//! Non-rustc tool versions (C compiler, SDK) are not probed: pass them through `--extra`.
+//! The C compiler version is not probed: pass it through `--extra`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -53,9 +58,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 mod env;
+mod toolchain;
 mod tree;
 
 pub use env::{build_env, cargo_home, implicit_config, process_vars};
+pub use toolchain::{ABSENT, SystemProbe, ToolProbe, native_toolchain};
 pub use tree::tree_digest;
 
 use anyhow::{Context, Result, bail, ensure};
@@ -86,6 +93,8 @@ pub struct FingerprintInput<'a> {
     pub rustc: &'a str,
     /// Build-affecting environment, as filtered by [`build_env`].
     pub env: &'a [(String, String)],
+    /// Native toolchain identity from [`native_toolchain`]; empty for non-Apple, non-MSVC targets.
+    pub toolchain: &'a [(String, String)],
     /// User `--extra key=value` pairs, as parsed by [`parse_extras`].
     pub extras: &'a [(String, String)],
 }
@@ -142,6 +151,9 @@ pub fn compute(input: &FingerprintInput<'_>, producer: &ProducerInputs) -> Strin
     put("rustc", &sha256_bytes(rustc_identity(input.rustc).as_bytes()));
     for (name, value) in sorted(input.env) {
         put(&format!("env:{name}"), value);
+    }
+    for (name, value) in sorted(input.toolchain) {
+        put(&format!("toolchain:{name}"), value);
     }
     for (label, hash) in &producer.config_files {
         put(&format!("config:{label}"), hash);

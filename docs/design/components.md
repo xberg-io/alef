@@ -149,8 +149,15 @@ pairs; and the producer's dependency closure.
   `IPHONEOS_DEPLOYMENT_TARGET`, `SDKROOT`, and `CC`, `CXX`, `AR`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS` in
   their cc-rs spellings (`<NAME>`, `<NAME>_<target>`, `<NAME>_<target_with_underscores>`,
   `TARGET_<NAME>`, `HOST_<NAME>`). `--env NAME` (repeatable on `plan`, `build` and `package`) adds
-  any other variable a build script reads. alef does not probe non-rustc tools: put the C compiler
-  or SDK version in `--extra`, for example `--extra cc=$(cc --version | head -1)`.
+  any other variable a build script reads.
+- *Native toolchain.* Only for `*-apple-*` targets: the SDK version and SDK build version from
+  `xcrun --sdk <macosx|iphoneos|iphonesimulator> --show-sdk-version` / `--show-sdk-build-version`
+  (`iphoneos` for device iOS targets, `iphonesimulator` for `-sim` and x86_64 iOS, `macosx`
+  otherwise) and the first line of `ld -v`. Only for `*-windows-msvc` targets: `VCToolsVersion` and
+  `WindowsSDKVersion` from the environment (set by the developer shell). A missing tool or variable
+  hashes the marker `absent` instead of failing, and other targets hash none of it, so a runner
+  image upgrade rebuilds Apple and MSVC artifacts. The C compiler version is not probed: put it in
+  `--extra`, for example `--extra cc=$(cc --version | head -1)`.
 - *Configuration files.* The SHA-256 of every `.cargo/config.toml`, `.cargo/config`,
   `rust-toolchain.toml` and `rust-toolchain` found walking up from the working directory and from
   the producer directory all the way to the filesystem root (not stopping at `.git`), and of
@@ -221,7 +228,8 @@ differs from the one in the previous lock; an entry whose `key_id` is not in the
 `component_distribution.public_keys` (or whose key there differs from the previous lock's); a signed
 entry in an `--unsigned` lock; a fresh record with no row in the plan, with a fingerprint that
 differs from the plan, or for a pair the plan reuses. Reused entries count toward the
-configured-matrix completeness check.
+configured-matrix completeness check. When every row is `reuse` no archives are built, so `--input`
+may be absent or empty; a `build` row of the plan with no record in `--input` is an error.
 
 ## Host services
 

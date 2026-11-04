@@ -665,3 +665,43 @@ fn reuse_cannot_be_combined_with_a_url_template() {
     let error = plan::check_reuse_options(Some("https://x/{artifact}"), true).unwrap_err();
     assert!(error.to_string().contains("--url-template"), "{error}");
 }
+
+fn previous_lock() -> ComponentLock {
+    ComponentLock {
+        schema_version: 1,
+        public_keys: BTreeMap::new(),
+        artifacts: vec![record_lock_entry()],
+    }
+}
+
+#[test]
+fn all_reuse_lock_accepts_an_absent_or_empty_input_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let absent = dir.path().join("dist/components");
+    assert!(plan::lock_input_records(&absent, true).unwrap().is_empty());
+    let error = plan::lock_input_records(&absent, false).unwrap_err();
+    assert!(error.to_string().contains("does not exist"), "{error}");
+    fs::create_dir_all(&absent).unwrap();
+    assert!(plan::lock_input_records(&absent, true).unwrap().is_empty());
+
+    let config = one_component_config();
+    let reuse = (previous_lock(), reuse_plan(&[("fast", "x86_64-unknown-linux-gnu")]));
+    let reused = plan::reuse_for_crate(Some(&reuse), &config, &[], None, &[], &[]).unwrap();
+    assert_eq!(reused, vec![record_lock_entry()]);
+}
+
+#[test]
+fn lock_fails_when_a_build_row_has_no_record() {
+    let config = one_component_config();
+    let mut build = reuse_plan(&[("fast", "x86_64-unknown-linux-gnu")]);
+    build.rows[0].action = crate::component::plan::PlanAction::Build;
+    build.rows[0].previous = None;
+    let reuse = (previous_lock(), build);
+    let error = plan::reuse_for_crate(Some(&reuse), &config, &[], None, &[], &[]).unwrap_err();
+    assert!(error.to_string().contains("no record for it"), "{error}");
+
+    let mut stamped = record_for("fast");
+    stamped.1.input_hash = Some("h".into());
+    plan::reuse_for_crate(Some(&reuse), &config, &[&stamped], None, &[], &[]).unwrap();
+    plan::reuse_for_crate(Some(&reuse), &config, &[], None, &["slow".into()], &[]).unwrap();
+}
