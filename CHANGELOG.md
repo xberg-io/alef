@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Opt in to private Python host aliases for defaulted Rust callbacks while preserving the existing callback surface
+  in other SDKs, reference pages, and generated fixtures.
+
 ### Fixed
 
 - Emit fallible Node conversions directly at Result tails while preserving InvalidArg error details.
