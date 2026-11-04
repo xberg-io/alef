@@ -6,6 +6,7 @@ use super::build::{
 };
 use super::*;
 use crate::component::artifact::{ComponentDeliveryMode, ComponentIdentity, ComponentLockEntry};
+use crate::component::plan::ComponentPlan;
 use crate::core::config::{ComponentConfig, ComponentProvidesConfig};
 
 fn provides(contract: &str, implementation: &str) -> Vec<ComponentProvidesConfig> {
@@ -146,6 +147,7 @@ fn staged_binding_lock_is_scoped_to_one_crate_and_its_keys() {
         size: 10,
         manifest_sha256: "04".repeat(32),
         key_id: key_id.into(),
+        input_hash: Some("ab".repeat(32)),
     };
     let lock = ComponentLock {
         schema_version: 1,
@@ -161,6 +163,13 @@ fn staged_binding_lock_is_scoped_to_one_crate_and_its_keys() {
 
     let scoped = binding_lock_for_crate(&lock, "alpha-core");
     assert_eq!(scoped.artifacts.len(), 1);
+    assert_eq!(lock.artifacts[0].input_hash.as_deref(), Some("ab".repeat(32).as_str()));
+    assert!(
+        scoped.artifacts[0].input_hash.is_none(),
+        "staged locks carry no input_hash"
+    );
+    let staged = String::from_utf8(canonical_json(&scoped).unwrap()).unwrap();
+    assert!(!staged.contains("input_hash"), "{staged}");
     assert_eq!(scoped.artifacts[0].identity.crate_name, "alpha-core");
     assert_eq!(
         scoped.public_keys,
@@ -507,6 +516,7 @@ fn record_for(component: &str) -> (PathBuf, ComponentArtifactRecord) {
         archive_sha256: "e".repeat(64),
         archive_size: 2,
         signature: None,
+        input_hash: None,
     };
     (PathBuf::from(format!("{component}.record.json")), record)
 }
@@ -521,11 +531,13 @@ fn lock_matrix_check_covers_only_the_requested_components() {
     let fast = record_for("fast");
     let records = vec![&fast];
 
-    let error = ensure_configured_matrix_present(&config, &records, &[], &[]).unwrap_err();
+    let error = ensure_configured_matrix_present(&config, &records, &[], &[], &[]).unwrap_err();
     assert!(error.to_string().contains("missing `slow`"), "{error}");
-    ensure_configured_matrix_present(&config, &records, &[], &["fast".to_string()]).unwrap();
-    let error = ensure_configured_matrix_present(&config, &records, &[], &["slow".to_string()]).unwrap_err();
+    ensure_configured_matrix_present(&config, &records, &[], &["fast".to_string()], &[]).unwrap();
+    let error = ensure_configured_matrix_present(&config, &records, &[], &["slow".to_string()], &[]).unwrap_err();
     assert!(error.to_string().contains("missing `slow`"), "{error}");
+    let reused = [("slow".to_string(), "x86_64-unknown-linux-gnu".to_string())];
+    ensure_configured_matrix_present(&config, &records, &[], &[], &reused).unwrap();
 }
 
 #[test]
@@ -536,4 +548,214 @@ fn lock_component_filter_selects_named_profiles() {
     assert!(profile_selected(&["fast".to_string()], profile));
     assert!(!profile_selected(&["slow".to_string()], profile));
     assert!(select_profiles(&config, &["slow".to_string()]).is_err());
+}
+
+fn reuse_plan(rows: &[(&str, &str)]) -> ComponentPlan {
+    use crate::component::plan::{PlanAction, PlanRow};
+    let previous = record_lock_entry();
+    ComponentPlan::new(
+        false,
+        rows.iter()
+            .map(|(component, target)| PlanRow {
+                crate_name: "demo-core".into(),
+                component: (*component).into(),
+                target: (*target).into(),
+                input_hash: Some("h".into()),
+                action: PlanAction::Reuse,
+                version: Some("1.0.0".into()),
+                source_hash: None,
+                host_family: None,
+                previous: Some(previous.clone()),
+            })
+            .collect(),
+    )
+}
+
+fn record_lock_entry() -> ComponentLockEntry {
+    ComponentLockEntry {
+        identity: ComponentIdentity {
+            crate_name: "demo-core".into(),
+            component: "fast".into(),
+            version: "1.0.0".into(),
+            target: "x86_64-unknown-linux-gnu".into(),
+            feature_hash: "a".repeat(64),
+            contract_hash: "b".repeat(64),
+        },
+        provides: Vec::new(),
+        mode: ComponentDeliveryMode::Download,
+        url: "https://example.invalid/a.tar.gz".into(),
+        sha256: "c".repeat(64),
+        size: 1,
+        manifest_sha256: "d".repeat(64),
+        key_id: String::new(),
+        input_hash: Some("h".into()),
+    }
+}
+
+#[test]
+fn reuse_rows_must_be_configured_and_selected() {
+    let config = one_component_config();
+    let linux = "x86_64-unknown-linux-gnu";
+    plan::check_reuse_rows(&reuse_plan(&[("fast", linux)]), &config, &[], &[]).unwrap();
+    plan::check_reuse_rows(
+        &reuse_plan(&[("fast", linux)]),
+        &config,
+        &["fast".into()],
+        &[linux.into()],
+    )
+    .unwrap();
+
+    let unknown_component = plan::check_reuse_rows(&reuse_plan(&[("ghost", linux)]), &config, &[], &[]).unwrap_err();
+    assert!(
+        unknown_component.to_string().contains("no such component"),
+        "{unknown_component}"
+    );
+    let unknown_target =
+        plan::check_reuse_rows(&reuse_plan(&[("fast", "aarch64-apple-darwin")]), &config, &[], &[]).unwrap_err();
+    assert!(
+        unknown_target.to_string().contains("not configured"),
+        "{unknown_target}"
+    );
+    let unselected_component =
+        plan::check_reuse_rows(&reuse_plan(&[("fast", linux)]), &config, &["slow".into()], &[]).unwrap_err();
+    assert!(
+        unselected_component.to_string().contains("do not select"),
+        "{unselected_component}"
+    );
+    let unselected_target = plan::check_reuse_rows(
+        &reuse_plan(&[("fast", linux)]),
+        &config,
+        &[],
+        &["aarch64-apple-darwin".into()],
+    )
+    .unwrap_err();
+    assert!(
+        unselected_target.to_string().contains("do not select"),
+        "{unselected_target}"
+    );
+
+    let mut other_crate = reuse_plan(&[("ghost", linux)]);
+    other_crate.rows[0].crate_name = "other".into();
+    plan::check_reuse_rows(&other_crate, &config, &[], &[]).unwrap();
+}
+
+#[test]
+fn fresh_records_need_a_build_row_in_the_plan() {
+    let fast = record_for("fast");
+    let records = vec![&fast];
+    let empty = ComponentPlan::new(false, Vec::new());
+    let error = plan::check_records_against_plan(&empty, "demo-core", &records).unwrap_err();
+    assert!(error.to_string().contains("not in the plan"), "{error}");
+
+    let reused = reuse_plan(&[("fast", "x86_64-unknown-linux-gnu")]);
+    let error = plan::check_records_against_plan(&reused, "demo-core", &records).unwrap_err();
+    assert!(error.to_string().contains("plan reuses"), "{error}");
+
+    let mut build = reuse_plan(&[("fast", "x86_64-unknown-linux-gnu")]);
+    build.rows[0].action = crate::component::plan::PlanAction::Build;
+    build.rows[0].previous = None;
+    let error = plan::check_records_against_plan(&build, "demo-core", &records).unwrap_err();
+    assert!(error.to_string().contains("different inputs"), "{error}");
+    let mut stamped = record_for("fast");
+    stamped.1.input_hash = Some("h".into());
+    plan::check_records_against_plan(&build, "demo-core", &[&stamped]).unwrap();
+    let mut stale = stamped.clone();
+    stale.1.manifest.identity.version = "0.9.0".into();
+    let error = plan::check_records_against_plan(&build, "demo-core", &[&stale]).unwrap_err();
+    assert!(error.to_string().contains("planned version"), "{error}");
+
+    build.rows[0].input_hash = None;
+    stamped.1.input_hash = None;
+    let error = plan::check_records_against_plan(&build, "demo-core", &[&stamped]).unwrap_err();
+    assert!(error.to_string().contains("requires an input fingerprint"), "{error}");
+}
+
+#[test]
+fn reuse_cannot_be_combined_with_a_url_template() {
+    plan::check_reuse_options(None, true).unwrap();
+    plan::check_reuse_options(Some("https://x/{artifact}"), false).unwrap();
+    let error = plan::check_reuse_options(Some("https://x/{artifact}"), true).unwrap_err();
+    assert!(error.to_string().contains("--url-template"), "{error}");
+}
+
+fn previous_lock() -> ComponentLock {
+    ComponentLock {
+        schema_version: 1,
+        public_keys: BTreeMap::new(),
+        artifacts: vec![record_lock_entry()],
+    }
+}
+
+#[test]
+fn all_reuse_lock_accepts_an_absent_or_empty_input_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let absent = dir.path().join("dist/components");
+    assert!(plan::lock_input_records(&absent, true).unwrap().is_empty());
+    let error = plan::lock_input_records(&absent, false).unwrap_err();
+    assert!(error.to_string().contains("does not exist"), "{error}");
+    fs::create_dir_all(&absent).unwrap();
+    assert!(plan::lock_input_records(&absent, true).unwrap().is_empty());
+
+    let config = one_component_config();
+    let reuse = (previous_lock(), reuse_plan(&[("fast", "x86_64-unknown-linux-gnu")]));
+    let reused = plan::reuse_for_crate(Some(&reuse), &config, &[], None, &[], &[]).unwrap();
+    assert_eq!(reused, vec![record_lock_entry()]);
+}
+
+#[test]
+fn lock_fails_when_a_build_row_has_no_record() {
+    let config = one_component_config();
+    let mut build = reuse_plan(&[("fast", "x86_64-unknown-linux-gnu")]);
+    build.rows[0].action = crate::component::plan::PlanAction::Build;
+    build.rows[0].previous = None;
+    let reuse = (previous_lock(), build);
+    let error = plan::reuse_for_crate(Some(&reuse), &config, &[], None, &[], &[]).unwrap_err();
+    assert!(error.to_string().contains("no record for it"), "{error}");
+
+    let mut stamped = record_for("fast");
+    stamped.1.input_hash = Some("h".into());
+    plan::reuse_for_crate(Some(&reuse), &config, &[&stamped], None, &[], &[]).unwrap();
+    plan::reuse_for_crate(Some(&reuse), &config, &[], None, &["slow".into()], &[]).unwrap();
+}
+
+#[test]
+fn build_row_checks_honour_filters_and_cover_every_row() {
+    use crate::component::plan::{PlanAction, PlanRow};
+    let linux = "x86_64-unknown-linux-gnu";
+    let mac = "aarch64-apple-darwin";
+    let row = |component: &str, target: &str, action: PlanAction| PlanRow {
+        crate_name: "demo-core".into(),
+        component: component.into(),
+        target: target.into(),
+        input_hash: None,
+        action,
+        version: Some("1.0.0".into()),
+        source_hash: None,
+        host_family: None,
+        previous: None,
+    };
+    let plan = ComponentPlan::new(
+        false,
+        vec![
+            row("fast", linux, PlanAction::Build),
+            row("fast", mac, PlanAction::Build),
+            row("go", linux, PlanAction::Build),
+        ],
+    );
+    let (go_path, mut go) = record_for("go");
+    go.manifest.identity.target = linux.into();
+    let go = (go_path, go);
+    let fast_linux = record_for("fast");
+    let check = |records: &[&(PathBuf, ComponentArtifactRecord)], components: &[String], targets: &[String]| {
+        plan::check_build_rows_have_records(&plan, "demo-core", records, components, targets)
+    };
+
+    let error = check(&[&fast_linux, &go], &[], &[]).unwrap_err();
+    assert!(error.to_string().contains(&format!("fast for {mac}")), "{error}");
+    let error = check(&[&fast_linux], &[], &[linux.to_string()]).unwrap_err();
+    assert!(error.to_string().contains("go for"), "{error}");
+    check(&[&fast_linux], &["fast".to_string()], &[linux.to_string()]).unwrap();
+    check(&[&go], &["go".to_string()], &[]).unwrap();
+    check(&[&fast_linux, &go], &[], &[linux.to_string()]).unwrap();
+    plan::check_build_rows_have_records(&plan, "other-crate", &[], &[], &[]).unwrap();
 }

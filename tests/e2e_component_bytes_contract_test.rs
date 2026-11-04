@@ -306,6 +306,7 @@ fn package_and_seed_cache(
         size: record.archive_size,
         manifest_sha256: record.manifest_sha256.clone(),
         key_id: String::new(),
+        input_hash: None,
     };
     let cache =
         alef_component_runtime::ArtifactCache::new(&cache_root, alef_component_runtime::TrustPolicy::DigestOnly);

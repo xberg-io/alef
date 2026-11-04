@@ -548,6 +548,7 @@ mod tests {
                 size: 0,
                 manifest_sha256: hex::encode([4; 32]),
                 key_id: String::new(),
+                input_hash: None,
             }],
         }
     }

@@ -17,6 +17,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Let a component that names its own `source_manifest` crate omit `features` (it defaults to empty). (#866)
 - Add `--component` to `alef component lock` to lock a subset of the configured components, for example a
   development lock; a component-filtered lock is written to `--output` only and never staged into binding packages. (#866)
+- Add input fingerprints, release planning and lock reuse for components. `alef component plan
+  --previous-lock` prints `build` or `reuse` per component and target, each row carrying an `input_hash`
+  (SHA-256 over the producer's `cargo metadata` closure, path package files including untracked ones, compiler
+  identity, build environment, cargo and rustup configuration, workspace inheritance tables, contracts,
+  distribution settings, `--extra key=value` pairs and `--env NAME` variables). `build --plan` handles only `build`
+  rows and writes a `<library>.input-hash` sidecar; `package --plan` checks it and records the fingerprint as
+  `input_hash` in the artifact record; `lock --reuse <lock> --plan <plan>` carries reused entries over verbatim after
+  checking their signing key is still trusted. Lock assembly also checks current project inputs and the versions
+  of newly built artifacts. Release plans require fingerprints and currently support Rust producers.
+  `lock` strips `input_hash` from the locks it stages into binding packages. (#869)
+- Hash the native toolchain in component fingerprints when the host OS family matches the target's: for
+  `*-apple-*` targets on macOS the `xcrun` SDK version, SDK build version and Apple clang version, for
+  `*-windows-msvc` targets on Windows the `vswhere` Visual Studio product and installation versions, with
+  a stable `absent` marker when a probe is unavailable. A runner image upgrade no longer reuses artifacts built with an
+  older SDK or linker; for these targets `plan` must run on the same OS family as the build, like `rustc -vV`; plan rows record the planning `host_family` and `build`/`package` reject a mismatch with a clear error. (#873)
+- Accept an absent or empty `--input` for `alef component lock --reuse --plan` when every plan row is `reuse`, and
+  fail when a `build` row has no record in the input. (#873)
 
 - Opt in to private Python host aliases for defaulted Rust callbacks while preserving the existing callback surface
   in other SDKs, reference pages, and generated fixtures.
@@ -38,6 +55,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Extend `ComponentConfig` and `ResolvedComponent` with `source_manifest` and `producer_dir`. Rust callers
   constructing these structs must initialize the new fields; existing configuration files are unaffected. (#866)
+- Add `input_hash: Option<String>` to `ComponentArtifactRecord` and `ComponentLockEntry`. Rust callers constructing
+  these structs must initialize it. A lock at `--output` that carries it is rejected by older `alef-component-runtime` versions; staged binding locks never do. (#869)
 
 ## [0.122.2] - 2026-11-04
 

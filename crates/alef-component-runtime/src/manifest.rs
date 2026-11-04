@@ -91,6 +91,10 @@ pub struct ComponentArtifactRecord {
     pub archive_size: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signature: Option<ComponentSignature>,
+    /// Input fingerprint of the build (see `alef component plan`). Not covered by the signature:
+    /// it is a build-planning hint recorded next to the signed manifest, absent in older records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_hash: Option<String>,
 }
 
 impl ComponentArtifactRecord {
@@ -124,6 +128,11 @@ pub struct ComponentLockEntry {
     pub size: u64,
     pub manifest_sha256: String,
     pub key_id: String,
+    /// Input fingerprint of the build that produced this artifact, copied from its record. Used
+    /// by `alef component plan` to decide whether the artifact can be reused; absent in older
+    /// locks. Not read by the loader.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_hash: Option<String>,
 }
 
 pub fn canonical_json<T: Serialize>(value: &T) -> Result<Vec<u8>, serde_json::Error> {
@@ -149,6 +158,21 @@ mod tests {
         let bytes = canonical_json(&identity).unwrap();
         assert!(bytes.ends_with(b"\n"));
         assert!(!bytes.contains(&b' '));
+    }
+
+    #[test]
+    fn lock_entry_without_input_hash_still_parses_and_omits_it_when_absent() {
+        let json = r#"{"schema_version":2,"public_keys":{},"artifacts":[{"identity":{"crate_name":"c","component":"x","version":"1","target":"t","feature_hash":"f","contract_hash":"h"},"provides":[],"mode":"download","url":"u","sha256":"s","size":1,"manifest_sha256":"m","key_id":""}]}"#;
+        let lock: ComponentLock = serde_json::from_str(json).unwrap();
+        assert_eq!(lock.artifacts[0].input_hash, None);
+        assert!(
+            !String::from_utf8(canonical_json(&lock).unwrap())
+                .unwrap()
+                .contains("input_hash")
+        );
+        let with_hash = json.replace("\"key_id\":\"\"", "\"key_id\":\"\",\"input_hash\":\"abc\"");
+        let lock: ComponentLock = serde_json::from_str(&with_hash).unwrap();
+        assert_eq!(lock.artifacts[0].input_hash.as_deref(), Some("abc"));
     }
 
     #[test]

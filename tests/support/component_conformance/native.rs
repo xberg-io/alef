@@ -125,6 +125,7 @@ fn package(root: &Path, library: &Path, component: &ResolvedComponent) -> PathBu
         size: record.archive_size,
         manifest_sha256: record.manifest_sha256,
         key_id: String::new(),
+        input_hash: None,
     };
     let lock = alef_component_runtime::ComponentLock {
         schema_version: alef_component_runtime::COMPONENT_MANIFEST_SCHEMA,
