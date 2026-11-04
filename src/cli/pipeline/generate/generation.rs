@@ -1153,6 +1153,8 @@ module_name = "test_lib"
                 default_features: false,
                 targets: None,
                 bundled_on: Vec::new(),
+                source_manifest: None,
+                producer_dir: None,
                 extra_dependencies: Default::default(),
             }],
             ..Default::default()

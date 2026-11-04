@@ -112,6 +112,10 @@ pub struct ResolvedComponent {
     pub bundled_on: Vec<String>,
     /// Extra Cargo dependencies for the generated producer crate (crate name -> spec).
     pub extra_dependencies: BTreeMap<String, serde_json::Value>,
+    /// Manifest of the crate holding the implementation types; `None` means the core crate.
+    pub source_manifest: Option<String>,
+    /// Producer crate directory override; `None` means `crates/<core>-<name>-component`.
+    pub producer_dir: Option<String>,
     pub provides: Vec<ResolvedProvidedContract>,
 }
 
@@ -204,6 +208,8 @@ pub fn resolve_components(api: &ApiSurface, config: &ResolvedCrateConfig) -> Res
             targets: resolve_component_targets(config, component),
             bundled_on: component.bundled_on.clone(),
             extra_dependencies: component.extra_dependencies.clone(),
+            source_manifest: component.source_manifest.clone(),
+            producer_dir: component.producer_dir.clone(),
             provides,
         });
     }
@@ -755,6 +761,8 @@ mod tests {
                 default_features: false,
                 targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
                 bundled_on: Vec::new(),
+                source_manifest: None,
+                producer_dir: None,
                 extra_dependencies: Default::default(),
             });
         }
@@ -814,6 +822,8 @@ mod tests {
             default_features: false,
             targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
             bundled_on: vec!["wasm32-unknown-unknown".into()],
+            source_manifest: None,
+            producer_dir: None,
             extra_dependencies: Default::default(),
         });
 
@@ -844,6 +854,8 @@ mod tests {
             default_features: false,
             targets: None,
             bundled_on: vec!["aarch64-apple-darwin".into()],
+            source_manifest: None,
+            producer_dir: None,
             extra_dependencies: Default::default(),
         };
         let targets = resolve_component_targets(&config, &component);

@@ -141,7 +141,9 @@ pub struct ComponentConfig {
     /// contract may be provided by more than one component under different
     /// feature sets.
     pub provides: Vec<ComponentProvidesConfig>,
-    /// Exact Cargo feature set enabled for this component.
+    /// Exact Cargo feature set enabled for this component. Required and non-empty unless the
+    /// component is a Go producer or names its own `source_manifest` crate.
+    #[serde(default)]
     pub features: Vec<String>,
     /// Whether the core crate's default Cargo features are also enabled.
     #[serde(default)]
@@ -174,6 +176,154 @@ pub struct ComponentConfig {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(with = "BTreeMap<String, serde_json::Value>")]
     pub extra_dependencies: BTreeMap<String, serde_json::Value>,
+    /// Path to the `Cargo.toml` of the crate that holds this component's `implementation` types.
+    ///
+    /// Defaults to the `[[crates]]` core crate. When set, the generated producer keeps its path
+    /// dependency on the core crate (the contract trait home) and additionally depends on this
+    /// crate, named by its `[package] name`. The component's `features` go on this source crate
+    /// (so they must be defined there) and `default_features` applies to both dependencies; the
+    /// core crate gets no features. When the manifest resolves to the core crate itself, a single
+    /// dependency carrying the features is emitted as usual. Rust producers only. Relative to the
+    /// directory containing `alef.toml`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_manifest: Option<String>,
+    /// Directory where the producer crate is generated and built from
+    /// (`cargo build --manifest-path <producer_dir>/Cargo.toml`).
+    ///
+    /// Defaults to `crates/<core>-<name>-component`. Relative to the directory containing
+    /// `alef.toml`; must not contain `..`. For Go producers it is the Go module directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub producer_dir: Option<String>,
+}
+
+impl ComponentConfig {
+    /// Re-root `source_manifest` and `producer_dir` onto `config_dir`, the directory of the
+    /// `alef.toml` in use, so they do not depend on the process working directory.
+    ///
+    /// An empty `config_dir` (a bare `alef.toml` in the working directory) leaves both untouched.
+    pub fn rebase_paths(&mut self, config_dir: &std::path::Path) {
+        if config_dir.as_os_str().is_empty() {
+            return;
+        }
+        for path in [&mut self.source_manifest, &mut self.producer_dir]
+            .into_iter()
+            .flatten()
+        {
+            *path = config_dir.join(&*path).to_string_lossy().replace('\\', "/");
+        }
+    }
+}
+
+/// Directory of the `alef.toml` at `config_path` as a lexically clean path relative to `cwd`.
+///
+/// The result is the same whether `config_path` is spelled `alef.toml`, `./alef.toml`, an absolute
+/// path or `sub/alef.toml`: empty when the config sits in `cwd`, `sub` for a config in `cwd/sub`,
+/// `..` for one in the parent, and so on. A relative spelling is taken to be relative to `cwd`.
+#[must_use]
+pub fn config_dir_relative_to(config_path: &std::path::Path, cwd: &std::path::Path) -> std::path::PathBuf {
+    let parent = config_path.parent().unwrap_or(std::path::Path::new(""));
+    let cwd = lexically_clean(cwd);
+    let dir = lexically_clean(&cwd.join(parent));
+    match dir.strip_prefix(&cwd) {
+        Ok(relative) => relative.to_path_buf(),
+        Err(_) => match crate::core::config::resolve_helpers::relative_slash_path(&cwd, &dir).as_str() {
+            "." => std::path::PathBuf::new(),
+            relative => std::path::PathBuf::from(relative),
+        },
+    }
+}
+
+/// `path` with `.` segments dropped and `..` segments folded into the preceding segment.
+pub(crate) fn lexically_clean(path: &std::path::Path) -> std::path::PathBuf {
+    let mut out = std::path::PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if !out.pop() {
+                    out.push("..");
+                }
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// The non-empty, non-`.` segments of a `/`-separated config path, so `a/b`, `a/b/` and `a//b`
+/// compare equal.
+#[must_use]
+pub fn path_segments(value: &str) -> Vec<&str> {
+    value
+        .split('/')
+        .filter(|segment| !segment.is_empty() && *segment != ".")
+        .collect()
+}
+
+/// Cargo package name of a component's generated producer crate.
+#[must_use]
+pub fn component_producer_package(core_crate_dir: &str, component: &str) -> String {
+    format!("{core_crate_dir}-{}-component", component.replace('_', "-"))
+}
+
+/// Directory the producer crate of `component` is generated into and built from: the configured
+/// `producer_dir`, else `crates/<core>-<name>-component`.
+#[must_use]
+pub fn component_producer_dir(core_crate_dir: &str, component: &str, producer_dir: Option<&str>) -> std::path::PathBuf {
+    producer_dir.map_or_else(
+        || std::path::Path::new("crates").join(component_producer_package(core_crate_dir, component)),
+        std::path::PathBuf::from,
+    )
+}
+
+/// Check a component `source_manifest` value: a relative `/`-separated path ending in `Cargo.toml`.
+///
+/// # Errors
+///
+/// Returns a human-readable reason when the value is invalid.
+pub fn validate_source_manifest(value: &str) -> Result<(), String> {
+    validate_component_path("source_manifest", value)?;
+    if std::path::Path::new(value).file_name().and_then(|name| name.to_str()) != Some("Cargo.toml") {
+        return Err(format!("source_manifest `{value}` must point at a `Cargo.toml` file"));
+    }
+    Ok(())
+}
+
+/// Check a component `producer_dir` value: a relative `/`-separated path without `.` or `..`
+/// segments that does not normalise to nothing.
+///
+/// # Errors
+///
+/// Returns a human-readable reason when the value is invalid.
+pub fn validate_producer_dir(value: &str) -> Result<(), String> {
+    validate_component_path("producer_dir", value)?;
+    if value.split('/').any(|segment| segment == "..") {
+        return Err(format!("producer_dir `{value}` must not contain `..` segments"));
+    }
+    if value.split('/').any(|segment| segment == ".") {
+        return Err(format!("producer_dir `{value}` must not contain `.` segments"));
+    }
+    if path_segments(value).is_empty() {
+        return Err(format!("producer_dir `{value}` must name a directory"));
+    }
+    Ok(())
+}
+
+fn validate_component_path(label: &str, value: &str) -> Result<(), String> {
+    if value.trim().is_empty() {
+        return Err(format!("{label} must not be empty"));
+    }
+    if value.starts_with('/')
+        || value.contains('\\')
+        || value.contains('"')
+        || value.chars().any(char::is_control)
+        || value.as_bytes().get(1) == Some(&b':')
+    {
+        return Err(format!(
+            "{label} `{value}` must be a relative path using `/` separators and no quotes"
+        ));
+    }
+    Ok(())
 }
 
 /// Dependencies of the generated producer crate that `extra_dependencies` must not override.

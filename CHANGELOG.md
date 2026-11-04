@@ -9,12 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Publish statically linked `alef-x86_64-unknown-linux-musl` and `alef-aarch64-unknown-linux-musl` release archives,
+  smoke-tested inside a `manylinux_2_28` container, for builds that must run on an older glibc. (#870)
+- Add optional `source_manifest` and `producer_dir` fields to `[[crates.components]]`, so a component's
+  implementation crate and generated producer can live in a different Cargo workspace from the core crate.
+  Both resolve relative to the directory containing `alef.toml`. (#866)
+- Let a component that names its own `source_manifest` crate omit `features` (it defaults to empty). (#866)
+- Add `--component` to `alef component lock` to lock a subset of the configured components, for example a
+  development lock; a component-filtered lock is written to `--output` only and never staged into binding packages. (#866)
+
 - Opt in to private Python host aliases for defaulted Rust callbacks while preserving the existing callback surface
   in other SDKs, reference pages, and generated fixtures.
 
 - Opt in to lazy Python visitor context string-map getters through
   `[crates.python.visitor_context_accessors]`. Configured getters can read borrowed
   core context data during the callback without copying it on entry.
+
+### Changed (BREAKING)
+
+- Extend `ComponentConfig` and `ResolvedComponent` with `source_manifest` and `producer_dir`. Rust callers
+  constructing these structs must initialize the new fields; existing configuration files are unaffected. (#866)
 
 ## [0.122.2] - 2026-11-04
 

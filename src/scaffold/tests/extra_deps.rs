@@ -159,6 +159,8 @@ fn component_scaffolds_preserve_configured_dependency_overrides_without_duplicat
         default_features: false,
         targets: Some(vec!["x86_64-unknown-linux-gnu".to_string()]),
         bundled_on: Vec::new(),
+        source_manifest: None,
+        producer_dir: None,
         extra_dependencies: Default::default(),
     });
     config

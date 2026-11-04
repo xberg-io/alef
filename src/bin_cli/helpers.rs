@@ -175,8 +175,19 @@ pub(crate) fn load_config(
     crate::core::config::WorkspaceConfig,
     Vec<crate::core::config::ResolvedCrateConfig>,
 )> {
-    let content =
-        std::fs::read_to_string(path).with_context(|| format!("Failed to read config: {}", path.display()))?;
+    let cwd = std::env::current_dir().context("cannot determine working directory for alef.toml")?;
+    load_config_in(path, &cwd)
+}
+
+fn load_config_in(
+    path: &std::path::Path,
+    cwd: &std::path::Path,
+) -> Result<(
+    crate::core::config::WorkspaceConfig,
+    Vec<crate::core::config::ResolvedCrateConfig>,
+)> {
+    let content = std::fs::read_to_string(cwd.join(path))
+        .with_context(|| format!("Failed to read config: {}", path.display()))?;
     crate::core::config::detect_legacy_keys(&content).with_context(|| {
         format!(
             "legacy schema detected in {} — run `alef migrate` to update automatically",
@@ -192,14 +203,34 @@ pub(crate) fn load_config(
     let cfg: crate::core::config::NewAlefConfig = toml_value
         .try_into()
         .with_context(|| format!("Failed to deserialize alef.toml ({})", path.display()))?;
-    let resolved = cfg
-        .resolve()
+    let mut resolved = cfg
+        .resolve_crates()
         .with_context(|| format!("failed to resolve crates in {}", path.display()))?;
+    rebase_component_paths(&mut resolved, path, cwd);
+    let config_dir = crate::core::config::component::config_dir_relative_to(path, cwd);
+    crate::core::config::new_config::validate_physical_producer_paths(&resolved, cwd, &config_dir)
+        .with_context(|| format!("invalid component paths in {}", path.display()))?;
     for resolved_cfg in &resolved {
         crate::core::config::validation::validate_resolved(resolved_cfg)
             .with_context(|| format!("invalid resolved config for crate `{}`", resolved_cfg.name))?;
     }
     Ok((cfg.workspace, resolved))
+}
+
+/// Re-root every component's `source_manifest` / `producer_dir` onto the directory of the
+/// `alef.toml` at `config_path`, expressed relative to `cwd`. Every other path in the config stays
+/// relative to the working directory.
+pub(crate) fn rebase_component_paths(
+    resolved: &mut [crate::core::config::ResolvedCrateConfig],
+    config_path: &std::path::Path,
+    cwd: &std::path::Path,
+) {
+    let config_dir = crate::core::config::component::config_dir_relative_to(config_path, cwd);
+    for resolved_cfg in resolved {
+        for component in &mut resolved_cfg.components {
+            component.rebase_paths(&config_dir);
+        }
+    }
 }
 
 pub(crate) fn resolve_languages(
@@ -883,6 +914,8 @@ pub(crate) fn verify_walk(base_dir: &std::path::Path) -> anyhow::Result<Vec<Stal
 
 #[cfg(all(test, unix))]
 mod complete_generated_artifacts_staging_order_tests;
+#[cfg(test)]
+mod component_rebase_tests;
 #[cfg(test)]
 mod drift_tests;
 #[cfg(test)]

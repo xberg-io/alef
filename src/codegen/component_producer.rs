@@ -10,8 +10,9 @@ use anyhow::{Result, bail};
 use heck::{ToShoutySnakeCase, ToSnakeCase, ToUpperCamelCase};
 use sha2::{Digest as _, Sha256};
 use std::fmt::Write as _;
-use std::path::PathBuf;
 
+#[path = "component_producer_deps.rs"]
+mod deps;
 #[path = "component_producer_license.rs"]
 mod license;
 
@@ -28,7 +29,7 @@ pub fn generate_component_producers(api: &ApiSurface, config: &ResolvedCrateConf
         for provided in &component.provides {
             validate_producer_types(&provided.contract)?;
         }
-        let crate_dir = component_crate_dir(config, &component.component_name);
+        let crate_dir = deps::component_crate_dir(config, &component);
         files.push(GeneratedFile {
             path: crate_dir.join("Cargo.toml"),
             content: producer_manifest(api, config, &component)?,
@@ -50,14 +51,6 @@ pub fn generate_component_producers(api: &ApiSurface, config: &ResolvedCrateConf
     Ok(files)
 }
 
-fn component_crate_dir(config: &ResolvedCrateConfig, component: &str) -> PathBuf {
-    PathBuf::from(format!(
-        "crates/{}-{}-component",
-        config.core_crate_dir(),
-        component.replace('_', "-")
-    ))
-}
-
 fn component_has_async(component: &ResolvedComponent) -> bool {
     component
         .provides
@@ -71,14 +64,7 @@ fn producer_manifest(api: &ApiSurface, config: &ResolvedCrateConfig, component: 
         config.core_crate_dir(),
         component.component_name.replace('_', "-")
     );
-    let core_package = &config.name;
-    let core_path = format!("../{}", config.core_crate_dir());
-    let features = component
-        .features
-        .iter()
-        .map(|feature| format!("\"{feature}\""))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let dependencies = deps::producer_dependencies(config, component, &api.version, &std::env::current_dir()?)?;
     let mut extra = String::new();
     if component_has_async(component) {
         extra.push_str("futures = \"0.3\"\n");
@@ -107,11 +93,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 alef-component-abi = "={alef_version}"
-{core_package} = {{ path = "{core_path}", version = "{version}", default-features = {default_features}, features = [{features}] }}
-{extra}"#,
+{dependencies}{extra}"#,
         version = api.version,
         alef_version = env!("CARGO_PKG_VERSION"),
-        default_features = component.default_features,
     ))
 }
 
@@ -814,6 +798,8 @@ mod tests {
                 default_features: false,
                 targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
                 bundled_on: Vec::new(),
+                source_manifest: None,
+                producer_dir: None,
                 extra_dependencies: Default::default(),
             }],
             ..ResolvedCrateConfig::default()
@@ -947,6 +933,8 @@ mod tests {
                 default_features: false,
                 targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
                 bundled_on: Vec::new(),
+                source_manifest: None,
+                producer_dir: None,
                 extra_dependencies: Default::default(),
             }],
             ..ResolvedCrateConfig::default()
@@ -961,5 +949,46 @@ mod tests {
         assert!(source.content.contains("extractor_component_extract"));
         assert!(source.content.contains("coder_component_encode"));
         syn::parse_file(&source.content).expect("multi-contract component producer must be valid Rust syntax");
+    }
+
+    fn source_manifest_fixture(root: &std::path::Path, manifest: Option<&str>) -> (ApiSurface, ResolvedCrateConfig) {
+        let (api, mut config) = fixture();
+        let root = root.to_string_lossy().replace('\\', "/");
+        config.sources = vec![format!("{root}/core/src/lib.rs").into()];
+        config.components[0].source_manifest = manifest.map(|path| format!("{root}/{path}"));
+        config.components[0].producer_dir = Some(format!("{root}/out/demo-pdf-component"));
+        (api, config)
+    }
+
+    #[test]
+    fn source_manifest_adds_the_source_crate_dependency_to_the_producer_manifest() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("engine")).unwrap();
+        std::fs::write(
+            root.path().join("engine/Cargo.toml"),
+            "[package]\nname = \"demo-engine\"\nversion.workspace = true\n",
+        )
+        .unwrap();
+        let (api, config) = source_manifest_fixture(root.path(), Some("engine/Cargo.toml"));
+        let files = generate_component_producers(&api, &config).unwrap();
+        let manifest = files.iter().find(|file| file.path.ends_with("Cargo.toml")).unwrap();
+        let parsed: toml::Table = toml::from_str(&manifest.content).expect("manifest must stay valid TOML");
+        let dependencies = parsed["dependencies"].as_table().unwrap();
+        let core = dependencies["demo"].as_table().unwrap();
+        assert_eq!(core["path"].as_str(), Some("../../core"));
+        assert_eq!(core["default-features"].as_bool(), Some(false));
+        assert!(core.get("features").is_none(), "{}", manifest.content);
+        let source = dependencies["demo-engine"].as_table().unwrap();
+        assert_eq!(source["path"].as_str(), Some("../../engine"));
+        assert_eq!(source["features"].as_array().unwrap()[0].as_str(), Some("pdf"));
+    }
+
+    #[test]
+    fn missing_source_manifest_fails_generation_naming_the_likely_cause() {
+        let root = tempfile::tempdir().unwrap();
+        let (api, config) = source_manifest_fixture(root.path(), Some("absent/Cargo.toml"));
+        let error = format!("{:#}", generate_component_producers(&api, &config).unwrap_err());
+        assert!(error.contains("could not be read"), "{error}");
+        assert!(error.contains("not be checked out"), "{error}");
     }
 }

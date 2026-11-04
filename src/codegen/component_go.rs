@@ -10,7 +10,7 @@ use anyhow::{Result, bail};
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub fn generate(
     api: &ApiSurface,
@@ -24,11 +24,11 @@ pub fn generate(
         );
     }
     let contracts = prepare_contracts(component)?;
-    let dir = PathBuf::from(format!(
-        "crates/{}-{}-component",
-        config.core_crate_dir(),
-        component.component_name.replace('_', "-")
-    ));
+    let dir = crate::core::config::component::component_producer_dir(
+        &config.core_crate_dir(),
+        &component.component_name,
+        component.producer_dir.as_deref(),
+    );
     let ctx = template_context(api, config, component, contracts);
     let mut files = Vec::new();
     for (path, template, generated) in [

@@ -1,4 +1,6 @@
-use super::{ComponentConfig, ComponentDistributionConfig, RawCrateConfig, ResolveError};
+use std::path::{Path, PathBuf};
+
+use super::{ComponentConfig, ComponentDistributionConfig, RawCrateConfig, ResolveError, ResolvedCrateConfig};
 
 pub(super) fn validate_components(
     krate: &RawCrateConfig,
@@ -29,16 +31,201 @@ pub(super) fn validate_components(
             return invalid_component_config(&krate.name, format!("duplicate component `{}`", component.name));
         }
         validate_component_provides(&krate.name, component, &contract_names)?;
-        if component.producer_language != crate::core::config::ComponentProducerLanguage::Go
-            || !component.features.is_empty()
-        {
+        // A component built from the core crate is distinguished by its feature set, so it must name
+        // one; a Go producer, or one whose implementation lives in its own `source_manifest` crate,
+        // may enable none.
+        let may_omit_features = component.producer_language == crate::core::config::ComponentProducerLanguage::Go
+            || component.source_manifest.is_some();
+        if !may_omit_features || !component.features.is_empty() {
             validate_nonempty_values(&krate.name, &component.name, "features", &component.features)?;
         }
         validate_component_targets(&krate.name, component)?;
         validate_component_dependencies(&krate.name, component)?;
+        validate_component_locations(&krate.name, component)?;
     }
 
     validate_component_distribution(&krate.name, component_distribution)
+}
+
+fn validate_component_locations(crate_name: &str, component: &ComponentConfig) -> Result<(), ResolveError> {
+    if component.producer_language == crate::core::config::ComponentProducerLanguage::Go
+        && component.source_manifest.is_some()
+    {
+        return invalid_component_config(
+            crate_name,
+            format!(
+                "Go component `{}` cannot declare `source_manifest`; it names a Cargo manifest",
+                component.name
+            ),
+        );
+    }
+    if let Some(manifest) = &component.source_manifest {
+        crate::core::config::component::validate_source_manifest(manifest).or_else(|reason| {
+            invalid_component_config(crate_name, format!("component `{}`: {reason}", component.name))
+        })?;
+    }
+    if let Some(dir) = &component.producer_dir {
+        crate::core::config::component::validate_producer_dir(dir).or_else(|reason| {
+            invalid_component_config(crate_name, format!("component `{}`: {reason}", component.name))
+        })?;
+    }
+    Ok(())
+}
+
+/// Split paths into case-insensitive segments for portable overlap checks. Missing paths cannot
+/// be canonicalized, and differently cased suffixes can become aliases when first written.
+fn dir_segments(path: &str) -> Vec<String> {
+    path.split(['/', '\\'])
+        .filter(|segment| !segment.is_empty() && *segment != ".")
+        .map(str::to_lowercase)
+        .collect()
+}
+
+/// Reject collisions in the public path-independent configuration resolver.
+pub(super) fn validate_producer_dir_overlaps(configs: &[ResolvedCrateConfig]) -> Result<(), ResolveError> {
+    let lexical = |path: &Path| Ok(dir_segments(&path.to_string_lossy()));
+    validate_producer_dirs(configs, &[], &[], lexical)
+}
+
+/// Recheck physical directories after explicit component paths have been rebased onto the working directory.
+pub(crate) fn validate_physical_producer_paths(
+    configs: &[ResolvedCrateConfig],
+    cwd: &Path,
+    config_dir: &Path,
+) -> Result<(), ResolveError> {
+    if !configs.iter().any(|config| !config.components.is_empty()) {
+        return Ok(());
+    }
+    let physical = |path: &Path| {
+        let absolute = super::super::component::lexically_clean(&cwd.join(path));
+        physical_path(&absolute)
+            .map(|path| dir_segments(&path.to_string_lossy()))
+            .map_err(|error| {
+                ResolveError::InvalidConfig(format!(
+                    "cannot resolve component directory `{}`: {error}",
+                    absolute.display()
+                ))
+            })
+    };
+    let working_root = physical(Path::new(""))?;
+    let config_root = physical(config_dir)?;
+    validate_producer_dirs(configs, &working_root, &config_root, physical)
+}
+
+// Resolve existing ancestors and keep the suffix that generation would create. ~keep
+fn physical_path(path: &Path) -> std::io::Result<PathBuf> {
+    let mut current = path;
+    let mut suffix = Vec::new();
+    loop {
+        match current.canonicalize() {
+            Ok(mut resolved) => {
+                resolved.extend(suffix.into_iter().rev());
+                return Ok(resolved);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                match current.symlink_metadata() {
+                    Err(missing) if missing.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(other) => return Err(other),
+                    Ok(_) => return Err(error),
+                }
+                let (Some(parent), Some(name)) = (current.parent(), current.file_name()) else {
+                    return Err(error);
+                };
+                suffix.push(name);
+                current = parent;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn validate_producer_dirs(
+    configs: &[ResolvedCrateConfig],
+    working_root: &[String],
+    config_root: &[String],
+    resolve: impl Fn(&Path) -> Result<Vec<String>, ResolveError>,
+) -> Result<(), ResolveError> {
+    let mut inputs = Vec::new();
+    for config in configs {
+        inputs.extend(protected_component_inputs(config, working_root, config_root, &resolve)?);
+    }
+    let mut producers: Vec<(Vec<String>, &str)> = Vec::new();
+    for config in configs {
+        let core_dir = config.core_crate_dir();
+        for component in &config.components {
+            let dir = crate::core::config::component::component_producer_dir(
+                &core_dir,
+                &component.name,
+                component.producer_dir.as_deref(),
+            );
+            let path = resolve(&dir)?;
+            validate_producer_path(&config.name, &component.name, &path, &inputs, &producers)?;
+            producers.push((path, &component.name));
+        }
+    }
+    Ok(())
+}
+
+fn protected_component_inputs(
+    config: &ResolvedCrateConfig,
+    working_root: &[String],
+    config_root: &[String],
+    resolve: &impl Fn(&Path) -> Result<Vec<String>, ResolveError>,
+) -> Result<Vec<(Vec<String>, String)>, ResolveError> {
+    let core_dir = config.core_crate_root();
+    let mut core = resolve(&core_dir)?;
+    if core == working_root {
+        core = resolve(&core_dir.join("src"))?;
+    }
+    let core_label = format!("core crate directory `{}`", core.join("/"));
+    let mut inputs = vec![(core, core_label)];
+    for manifest in config
+        .components
+        .iter()
+        .filter_map(|component| component.source_manifest.as_deref())
+    {
+        let source = Path::new(manifest).parent().unwrap_or_else(|| Path::new(""));
+        let mut path = resolve(source)?;
+        if path == config_root || path == working_root {
+            path = resolve(&source.join("src"))?;
+        }
+        inputs.push((path, format!("source_manifest directory `{manifest}`")));
+    }
+    Ok(inputs)
+}
+
+fn validate_producer_path(
+    crate_name: &str,
+    component: &str,
+    path: &[String],
+    inputs: &[(Vec<String>, String)],
+    producers: &[(Vec<String>, &str)],
+) -> Result<(), ResolveError> {
+    let overlaps = |other: &[String]| path.starts_with(other) || other.starts_with(path);
+    if let Some((other, previous)) = producers.iter().find(|(other, _)| overlaps(other)) {
+        let relation = if other == path {
+            "resolve to the same"
+        } else {
+            "resolve to overlapping"
+        };
+        return invalid_component_config(
+            crate_name,
+            format!(
+                "components `{previous}` and `{component}` {relation} producer directory `{}`",
+                path.join("/")
+            ),
+        );
+    }
+    if let Some((_, input)) = inputs.iter().find(|(input, _)| overlaps(input)) {
+        return invalid_component_config(
+            crate_name,
+            format!(
+                "component `{component}` producer_dir `{}` must not overlap {input}",
+                path.join("/")
+            ),
+        );
+    }
+    Ok(())
 }
 
 fn validate_component_dependencies(crate_name: &str, component: &ComponentConfig) -> Result<(), ResolveError> {

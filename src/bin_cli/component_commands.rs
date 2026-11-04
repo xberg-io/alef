@@ -189,9 +189,15 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             unsigned,
             url_template,
             target,
+            component,
         } => {
             validate_lock_targets(&crates, &target)?;
-            let stage_bindings = !unsigned || output.is_none();
+            for config in &crates {
+                if !component.is_empty() {
+                    select_profiles(config, &component)?;
+                }
+            }
+            let stage_bindings = component.is_empty() && (!unsigned || output.is_none());
             let output = output.unwrap_or_else(|| PathBuf::from("components.lock.json"));
             if let Some(template) = url_template.as_deref() {
                 ComponentDistributionConfig::validate_url_template(template).map_err(|message| anyhow!(message))?;
@@ -205,13 +211,13 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             let mut public_keys = BTreeMap::new();
             let mut artifacts = Vec::new();
             for config in &crates {
-                if !target.is_empty()
-                    && !config.components.iter().any(|profile| {
-                        resolve_component_targets(config, profile)
-                            .iter()
-                            .any(|item| target.contains(item))
-                    })
-                {
+                if !config.components.iter().any(|profile| {
+                    profile_selected(&component, profile)
+                        && (target.is_empty()
+                            || resolve_component_targets(config, profile)
+                                .iter()
+                                .any(|item| target.contains(item)))
+                }) {
                     continue;
                 }
                 let distribution = config.component_distribution.as_ref();
@@ -244,12 +250,13 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     .filter(|(_, record)| {
                         record.manifest.identity.crate_name == config.name
                             && (target.is_empty() || target.contains(&record.manifest.identity.target))
+                            && (component.is_empty() || component.contains(&record.manifest.identity.component))
                     })
                     .collect::<Vec<_>>();
                 for (path, _) in &crate_records {
                     verify_record_with(path, signed_keys, name_template)?;
                 }
-                ensure_configured_matrix_present(config, &crate_records, &target)?;
+                ensure_configured_matrix_present(config, &crate_records, &target, &component)?;
                 ensure!(
                     !crate_records.is_empty(),
                     "no artifact records found for crate `{}`",
@@ -728,8 +735,13 @@ fn ensure_configured_matrix_present(
     config: &ResolvedCrateConfig,
     records: &[&(PathBuf, ComponentArtifactRecord)],
     requested: &[String],
+    components: &[String],
 ) -> Result<()> {
-    for profile in &config.components {
+    for profile in config
+        .components
+        .iter()
+        .filter(|profile| profile_selected(components, profile))
+    {
         for target in resolve_component_targets(config, profile) {
             if !requested.is_empty() && !requested.contains(&target) {
                 continue;
@@ -744,6 +756,11 @@ fn ensure_configured_matrix_present(
         }
     }
     Ok(())
+}
+
+/// Whether `profile` is one of the `requested` component names; an empty request selects every profile.
+fn profile_selected(requested: &[String], profile: &ComponentConfig) -> bool {
+    requested.is_empty() || requested.iter().any(|name| name == &profile.name)
 }
 
 fn ensure_unique_lock_entries(entries: &[crate::component::artifact::ComponentLockEntry]) -> Result<()> {

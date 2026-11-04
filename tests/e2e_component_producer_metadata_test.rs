@@ -47,6 +47,8 @@ fn fixture(is_async: bool) -> (ApiSurface, ResolvedCrateConfig) {
             default_features: true,
             targets: None,
             bundled_on: Vec::new(),
+            source_manifest: None,
+            producer_dir: None,
             extra_dependencies: Default::default(),
         }],
         ..ResolvedCrateConfig::default()

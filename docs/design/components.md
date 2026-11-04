@@ -237,6 +237,41 @@ the producer `Cargo.toml`. Names must be valid Cargo package names and cannot ov
 `alef-component-abi`, `futures` or the core crate. The producer pins `alef-component-abi` to the
 exact alef version (`=X.Y.Z`).
 
+## Source crate and producer location
+
+Two optional per-component fields place the implementation and the producer outside the core
+crate's workspace; both default to the layout above, so omitting them changes nothing:
+
+```toml
+[[crates.components]]
+name = "web"
+source_manifest = "components/crates/x-web/Cargo.toml"  # default: the [[crates]] core crate
+producer_dir = "components/crates/x-web-component"      # default: crates/<core>-<name>-component
+features = ["web"]
+```
+
+- `source_manifest` is the `Cargo.toml` of the crate holding the `implementation` types. The
+  producer keeps its path dependency on the core crate (the contract trait home, whose
+  `trait_path`s are emitted verbatim) and additionally depends on the source crate, named by that
+  manifest's `[package] name`; both paths are computed relative to `producer_dir`. The component's
+  `features` go on the source crate, `default_features` applies to both dependencies, and the core
+  dependency carries no features. If the manifest names the core crate itself, a single dependency
+  with the features is emitted as before. Not valid for Go producers.
+- `producer_dir` is where the producer crate is generated and built:
+  `alef component build` runs `cargo build --manifest-path <producer_dir>/Cargo.toml`, so cargo
+  resolves the workspace and `Cargo.lock` that own that directory (the build's `--target-dir` is
+  unchanged). The package name stays `<core>-<name>-component`. It must not contain `.` or `..`
+  segments and must not overlap another producer, a core crate directory, or a `source_manifest`
+  directory. These checks include default producer paths and compare directories without regard
+  to case, even on case-sensitive filesystems, so a configuration cannot introduce a collision
+  when used on a case-insensitive checkout. Changing or removing `producer_dir` leaves the
+  previously generated producer crate where it was; delete it by hand.
+
+Both are resolved relative to the directory containing `alef.toml`, not the working directory, so
+`alef --config ../alef.toml ...` finds the same files. Every other path in the config, including
+`sources` and the core crate location the producer depends on, remains relative to the working
+directory; run alef from the project root for a producer in a second workspace to be consistent.
+
 The contract hash no longer includes `trait_path`: it covers the contract name, interface version,
 method signatures and the record and enum shapes they reference. A contract trait re-exported
 through a different crate path therefore has the same hash, and one contract crate can be

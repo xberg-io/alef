@@ -2,6 +2,7 @@
 
 use super::build::{
     built_library_path, component_build_command, component_target_dir, ensure_native_go_target, go_target,
+    producer_manifest_path,
 };
 use super::*;
 use crate::component::artifact::{ComponentDeliveryMode, ComponentIdentity, ComponentLockEntry};
@@ -24,6 +25,8 @@ fn target_filter_must_be_declared_by_profile() {
         default_features: false,
         targets: Some(vec!["aarch64-apple-darwin".into()]),
         bundled_on: Vec::new(),
+        source_manifest: None,
+        producer_dir: None,
         extra_dependencies: Default::default(),
         producer_language: Default::default(),
     };
@@ -43,6 +46,8 @@ fn component_extraction_uses_feature_union_without_changing_binding_features() {
                 default_features: false,
                 targets: Some(vec!["aarch64-apple-darwin".into()]),
                 bundled_on: Vec::new(),
+                source_manifest: None,
+                producer_dir: None,
                 extra_dependencies: Default::default(),
                 producer_language: Default::default(),
             },
@@ -53,6 +58,8 @@ fn component_extraction_uses_feature_union_without_changing_binding_features() {
                 default_features: false,
                 targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
                 bundled_on: Vec::new(),
+                source_manifest: None,
+                producer_dir: None,
                 extra_dependencies: Default::default(),
                 producer_language: Default::default(),
             },
@@ -172,6 +179,8 @@ fn one_component_config() -> ResolvedCrateConfig {
             default_features: false,
             targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
             bundled_on: Vec::new(),
+            source_manifest: None,
+            producer_dir: None,
             extra_dependencies: Default::default(),
             producer_language: Default::default(),
         }],
@@ -420,4 +429,111 @@ fn go_component_build_requires_go_module_before_dry_run() {
     .unwrap_err();
     assert!(error.to_string().contains("go.mod"));
     assert!(error.to_string().contains("alef scaffold"));
+}
+
+#[test]
+fn producer_manifest_path_defaults_and_follows_producer_dir() {
+    let mut config = one_component_config();
+    config.name = "demo".into();
+    config.sources = vec![std::path::PathBuf::from("crates/demo/src/lib.rs")];
+    let profile = config.components[0].clone();
+    assert_eq!(
+        producer_manifest_path(&config, &profile),
+        Path::new("crates/demo-fast-component/Cargo.toml")
+    );
+
+    let mut relocated = profile;
+    relocated.producer_dir = Some("components/crates/demo-fast-component".into());
+    assert_eq!(
+        producer_manifest_path(&config, &relocated),
+        Path::new("components/crates/demo-fast-component/Cargo.toml")
+    );
+}
+
+#[test]
+fn rust_component_build_uses_the_relocated_producer_manifest() {
+    let mut config = one_component_config();
+    let directory = tempfile::tempdir().unwrap();
+    let producer_dir = directory.path().join("components/crates/demo-fast-component");
+    fs::create_dir_all(&producer_dir).unwrap();
+    fs::write(producer_dir.join("Cargo.toml"), "[package]\n").unwrap();
+    config.components[0].producer_dir = Some(producer_dir.to_string_lossy().into_owned());
+
+    let manifest = producer_manifest_path(&config, &config.components[0]);
+    let command = component_build_command(
+        &config,
+        &config.components[0],
+        "x86_64-unknown-linux-gnu",
+        false,
+        Some(Path::new("shared")),
+        &manifest,
+    )
+    .unwrap();
+    let args = command.get_args().collect::<Vec<_>>();
+    assert_eq!(args[1], "--manifest-path");
+    assert_eq!(args[2], producer_dir.join("Cargo.toml").as_os_str());
+}
+
+fn record_for(component: &str) -> (PathBuf, ComponentArtifactRecord) {
+    use crate::component::artifact::{ComponentLibrary, ComponentManifest, ComponentProvidedContract};
+    let record = ComponentArtifactRecord {
+        manifest: ComponentManifest {
+            schema_version: 1,
+            abi_version: 1,
+            identity: ComponentIdentity {
+                crate_name: "demo-core".into(),
+                component: component.into(),
+                version: "1.0.0".into(),
+                target: "x86_64-unknown-linux-gnu".into(),
+                feature_hash: "a".repeat(64),
+                contract_hash: "b".repeat(64),
+            },
+            provides: vec![ComponentProvidedContract {
+                contract: "engine".into(),
+                interface_version: 1,
+                contract_hash: "b".repeat(64),
+                implementation: "demo::Fast".into(),
+            }],
+            features: vec![],
+            default_features: false,
+            library: ComponentLibrary {
+                file: "libdemo.so".into(),
+                sha256: "c".repeat(64),
+                size: 1,
+            },
+        },
+        manifest_sha256: "d".repeat(64),
+        archive: format!("{component}.tar.gz"),
+        archive_sha256: "e".repeat(64),
+        archive_size: 2,
+        signature: None,
+    };
+    (PathBuf::from(format!("{component}.record.json")), record)
+}
+
+#[test]
+fn lock_matrix_check_covers_only_the_requested_components() {
+    let mut config = one_component_config();
+    let mut slow = config.components[0].clone();
+    slow.name = "slow".into();
+    slow.features = vec!["slow".into()];
+    config.components.push(slow);
+    let fast = record_for("fast");
+    let records = vec![&fast];
+
+    let error = ensure_configured_matrix_present(&config, &records, &[], &[]).unwrap_err();
+    assert!(error.to_string().contains("missing `slow`"), "{error}");
+    ensure_configured_matrix_present(&config, &records, &[], &["fast".to_string()]).unwrap();
+    let error = ensure_configured_matrix_present(&config, &records, &[], &["slow".to_string()]).unwrap_err();
+    assert!(error.to_string().contains("missing `slow`"), "{error}");
+}
+
+#[test]
+fn lock_component_filter_selects_named_profiles() {
+    let config = one_component_config();
+    let profile = &config.components[0];
+    assert!(profile_selected(&[], profile));
+    assert!(profile_selected(&["fast".to_string()], profile));
+    assert!(!profile_selected(&["slow".to_string()], profile));
+    assert!(select_profiles(&config, &["slow".to_string()]).is_err());
 }
