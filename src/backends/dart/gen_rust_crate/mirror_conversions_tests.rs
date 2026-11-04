@@ -330,3 +330,47 @@ fn transparent_string_wrappers_use_explicit_operations_in_both_directions() {
         "partial nested conversion must reconstruct the outer Option in one traversal:\n{to_core}"
     );
 }
+
+fn vec_field(name: &str, inner: TypeRef, optional: bool) -> FieldDef {
+    FieldDef {
+        name: name.to_string(),
+        ty: TypeRef::Vec(Box::new(inner)),
+        optional,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn mirror_to_core_vec_of_unwidened_primitives_moves_without_element_cast() {
+    use crate::core::ir::PrimitiveType;
+    let ty = typ(
+        "Usage",
+        false,
+        false,
+        vec![
+            vec_field("ids", TypeRef::Primitive(PrimitiveType::U64), false),
+            vec_field("maybe_ids", TypeRef::Primitive(PrimitiveType::U64), true),
+            vec_field("scores", TypeRef::Primitive(PrimitiveType::F64), false),
+            vec_field(
+                "grid",
+                TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::I64))),
+                false,
+            ),
+            vec_field("counts", TypeRef::Primitive(PrimitiveType::U32), false),
+        ],
+    );
+    let mut out = String::new();
+    emit_from_mirror_to_core_struct(&mut out, &ty, "source");
+
+    assert!(out.contains("ids: v.ids,"), "got:\n{out}");
+    assert!(out.contains("maybe_ids: v.maybe_ids,"), "got:\n{out}");
+    assert!(out.contains("scores: v.scores,"), "got:\n{out}");
+    assert!(out.contains("grid: v.grid,"), "got:\n{out}");
+    assert!(
+        out.contains("counts: v.counts.into_iter().map(|x| x as u32).collect::<Vec<_>>(),"),
+        "widened u32 elements must keep their narrowing cast; got:\n{out}"
+    );
+    for same in ["as u64", "as f64", "as i64"] {
+        assert!(!out.contains(same), "no-op `{same}` cast emitted; got:\n{out}");
+    }
+}

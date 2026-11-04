@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use super::conversions::primitive_name;
+use super::conversions::{frb_widens_primitive, primitive_name};
 use crate::codegen::shared::binding_fields;
 use crate::core::ir::{ApiSurface, CoreWrapper, EnumDef, FieldDef, TypeDef, TypeRef};
 
@@ -576,6 +576,7 @@ fn field_from_expr_to_core(field: &FieldDef, _source_crate_name: &str) -> String
                     }
                 },
                 TypeRef::Vec(inner_inner) => match inner_inner.as_ref() {
+                    TypeRef::Primitive(prim) if !frb_widens_primitive(prim) => format!("v.{name}"),
                     TypeRef::Primitive(prim) => {
                         let target = primitive_name(prim);
                         if field.optional {
@@ -600,6 +601,9 @@ fn field_from_expr_to_core(field: &FieldDef, _source_crate_name: &str) -> String
                         }
                     }
                 },
+                TypeRef::Primitive(prim) if !frb_widens_primitive(prim) && field.newtype_wrapper.is_none() => {
+                    format!("v.{name}")
+                }
                 TypeRef::Primitive(prim) => {
                     let target = primitive_name(prim);
                     let elem_conv = if let Some(nw) = &field.newtype_wrapper {

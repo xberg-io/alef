@@ -82,6 +82,12 @@ pub(crate) fn frb_rust_type_inner_excluded_aware(
     }
 }
 
+/// Whether FRB carries `prim` as a different Rust type than the core uses, so a call
+/// argument or return value needs an `as` cast across the boundary.
+pub(crate) fn frb_widens_primitive(prim: &PrimitiveType) -> bool {
+    primitive_name(prim) != frb_rust_type_inner(&TypeRef::Primitive(prim.clone()))
+}
+
 pub(crate) fn primitive_name(prim: &PrimitiveType) -> &'static str {
     match prim {
         PrimitiveType::Bool => "bool",
@@ -196,7 +202,7 @@ pub(crate) fn dart_call_arg_checked(p: &ParamDef, checked: bool) -> String {
 
     if let TypeRef::Primitive(prim) = &p.ty {
         let target = primitive_name(prim);
-        if target != "i64" && target != "f64" && target != "bool" {
+        if frb_widens_primitive(prim) {
             if checked
                 && matches!(
                     prim,
@@ -233,7 +239,7 @@ pub(crate) fn dart_call_arg_checked(p: &ParamDef, checked: bool) -> String {
         && let TypeRef::Primitive(prim) = inner.as_ref()
     {
         let target = primitive_name(prim);
-        if target != "i64" && target != "f64" && target != "bool" {
+        if frb_widens_primitive(prim) {
             if p.optional {
                 if p.is_ref {
                     return format!(

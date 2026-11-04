@@ -8,7 +8,9 @@ mod newtypes;
 use crate::codegen::mut_writeback;
 use crate::core::ir::{FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 
-use super::conversions::{dart_call_arg, dart_call_arg_checked, frb_rust_type_inner, primitive_name};
+use super::conversions::{
+    dart_call_arg, dart_call_arg_checked, frb_rust_type_inner, frb_widens_primitive, primitive_name,
+};
 use super::helpers::emit_cleaned_dartdoc;
 
 /// Plan for the single `&mut T` DTO parameter a writeback binding must hand back to its caller.
@@ -361,7 +363,7 @@ fn dart_call_arg_with_mirror_transmute(
 
     if let TypeRef::Primitive(prim) = &p.ty {
         let target = primitive_name(prim);
-        if target != "i64" && target != "f64" && target != "bool" {
+        if frb_widens_primitive(prim) {
             if checked
                 && matches!(
                     prim,
@@ -389,7 +391,7 @@ fn dart_call_arg_with_mirror_transmute(
         && let TypeRef::Primitive(prim) = inner.as_ref()
     {
         let target = primitive_name(prim);
-        if target != "i64" && target != "f64" && target != "bool" {
+        if frb_widens_primitive(prim) {
             if p.optional {
                 if p.is_ref {
                     return format!(
@@ -833,8 +835,7 @@ fn build_primitive_result_cast(ty: &TypeRef, returns_ref: bool) -> String {
             let iter_method = if returns_ref { "iter" } else { "into_iter" };
             match inner.as_ref() {
                 TypeRef::Primitive(prim) => {
-                    let target = primitive_name(prim);
-                    if target == "f64" || target == "i64" || target == "bool" {
+                    if !frb_widens_primitive(prim) {
                         String::new()
                     } else {
                         format!(
@@ -933,5 +934,7 @@ fn call_callable(callable: &str, ident: &str) -> String {
     format!("{callable}({ident})")
 }
 
+#[cfg(test)]
+mod primitive_cast_tests;
 #[cfg(test)]
 mod tests;

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Stop the Dart Rust crate casting a value to the type it already has (`prompt_tokens as u64` on a `u64` parameter),
+  which failed `cargo clippy -D warnings` with `clippy::unnecessary_cast` in liter-llm. Call arguments, `Vec`
+  returns and mirror-to-core `Vec` fields now cast only when FRB carries the primitive as a different type, and a
+  checked `u64` argument no longer goes through a no-op `u64::try_from`.
+
 ## [0.124.0] - 2026-11-04
 
 ### Changed (BREAKING)

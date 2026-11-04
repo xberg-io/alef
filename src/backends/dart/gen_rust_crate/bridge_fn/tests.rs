@@ -1,6 +1,6 @@
 use super::*;
 
-fn make_param(name: &str, ty: TypeRef, is_ref: bool, is_mut: bool, optional: bool) -> ParamDef {
+pub(super) fn make_param(name: &str, ty: TypeRef, is_ref: bool, is_mut: bool, optional: bool) -> ParamDef {
     ParamDef {
         name: name.to_string(),
         ty,
