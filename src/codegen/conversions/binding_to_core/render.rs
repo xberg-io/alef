@@ -699,6 +699,15 @@ pub fn gen_from_lifetime_type_constructor(
                             format!("val.{binding_field}.into()")
                         }
                     }
+                    // A map a backend does not hold as a native map (wasm's `JsValue`, a JSON
+                    // string) decodes through that backend's own field conversion.
+                    TypeRef::Map(_k, _v) if config.map_uses_jsvalue || config.map_as_string => {
+                        let conversion = field_conversion_to_core_cfg(&field.name, &field.ty, field.optional, config);
+                        conversion
+                            .strip_prefix(&format!("{}: ", field.name))
+                            .unwrap_or(&conversion)
+                            .replace(&format!("val.{}", field.name), &format!("val.{binding_field}"))
+                    }
                     TypeRef::Map(_k, _v) => {
                         format!(
                             "val.{binding_field}.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<std::collections::BTreeMap<_, _>>()"

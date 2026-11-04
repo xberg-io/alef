@@ -42,6 +42,8 @@ pub(crate) fn php_omitted_legacy_extension(typ: &TypeDef, field: &FieldDef, enum
 pub(crate) fn php_field_base_constructor_optional(typ: &TypeDef, field: &FieldDef, serde_available: bool) -> bool {
     field.optional
         || typ.constructor_extension_value(field).is_some()
+        // The core fills a private-field accessor's value; a PHP-built value may omit it.
+        || crate::codegen::private_accessors::is_private_accessor_field(typ, field)
         || (serde_available && typ.has_default && matches!(field.ty, TypeRef::Duration))
 }
 
@@ -704,14 +706,15 @@ fn gen_struct_methods_impl(
                     .filter(|field| constructor_init::php_binding_keeps_field(field, never_skip_cfg_field_names))
                     .filter(|f| f.cfg.is_none())
                     .collect();
-                ctor_fields.sort_by_key(|f| f.optional);
+                let carried = |f: &FieldDef| crate::codegen::private_accessors::is_private_accessor_field(typ, f);
+                ctor_fields.sort_by_key(|f| f.optional || carried(f));
 
                 let param_defs: Vec<crate::core::ir::ParamDef> = ctor_fields
                     .into_iter()
                     .map(|f| crate::core::ir::ParamDef {
                         name: f.name.clone(),
                         ty: f.ty.clone(),
-                        optional: f.optional,
+                        optional: f.optional || carried(f),
                         default: None,
                         is_ref: false,
                         is_mut: false,
@@ -766,6 +769,9 @@ fn gen_struct_methods_impl(
                             && !enum_names.contains(name.as_str())
                         {
                             return format!("{}: {}_core", f.name, php_param_name);
+                        }
+                        if carried(f) && !f.optional {
+                            return format!("{}: {php_param_name}.unwrap_or_default()", f.name);
                         }
                         if f.name == php_param_name {
                             f.name.clone()

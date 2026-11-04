@@ -156,7 +156,7 @@ impl Backend for KotlinAndroidBackend {
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         // Order the IR once, before anything reads it: every emission loop below concatenates
         // api.types/enums/functions/errors into a single generated file in Vec order. ~keep
-        let sorted_api = crate::backends::ir_order::with_sorted_items(api);
+        let sorted_api = crate::backends::ir_order::with_sorted_items(api).with_private_accessor_fields();
         let api = &sorted_api;
         let config = config.clone().with_kotlin_ffi_style(KotlinFfiStyle::Jni);
         let config = &config;

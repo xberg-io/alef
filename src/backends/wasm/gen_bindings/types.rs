@@ -204,6 +204,10 @@ pub(super) fn gen_struct_methods(
         if field_references_excluded_type(&field.ty, exclude_types) {
             continue;
         }
+        // The accessor method reads a carried private-field value; a getter would shadow it.
+        if crate::codegen::private_accessors::is_private_accessor_field(typ, field) {
+            continue;
+        }
         emitted_field_names.insert(field.name.as_str());
         let accessor_env = AccessorEnv {
             mapper,
@@ -422,6 +426,7 @@ fn gen_new_method(
         .iter()
         .filter(|f| !f.binding_excluded)
         .filter(|f| !field_references_excluded_type(&f.ty, exclude_types))
+        .filter(|f| !crate::codegen::private_accessors::is_private_accessor_field(typ, f))
         .cloned()
         .collect();
 
@@ -452,6 +457,15 @@ fn gen_new_method(
         .filter_map(|field| text_value_companion(&typ.fields, field, &mapper.text_value_enums))
         .fold(assignments_camel, |assignments, companion| {
             format!("{assignments}, {companion}: None")
+        });
+    // A private-field accessor's carried value is the core's to fill; a JS-built value starts
+    // empty, as the core constructor's would.
+    let assignments_camel = typ
+        .fields
+        .iter()
+        .filter(|field| crate::codegen::private_accessors::is_private_accessor_field(typ, field))
+        .fold(assignments_camel, |assignments, field| {
+            format!("{assignments}, {}: Default::default()", field.name)
         });
 
     let field_count = filtered_fields.iter().filter(|f| f.cfg.is_none()).count();

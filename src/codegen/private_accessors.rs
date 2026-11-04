@@ -20,16 +20,21 @@ pub fn is_private_accessor_field(typ: &TypeDef, field: &FieldDef) -> bool {
     typ.private_fields.contains(&field.name)
 }
 
-/// Rewrite every `val.<field>` read in a core-to-binding conversion expression into a call of
-/// the field's public accessor, cloned so the expression owns the value as a field read would.
+/// Rewrite every `<receiver>.<field>` read in a core-to-binding conversion expression into a
+/// call of the field's public accessor, cloned so the expression owns the value as a field read
+/// would.
 #[must_use]
-pub fn read_through_accessor(conversion: &str, field_name: &str, returns_ref: bool) -> String {
-    let pattern = regex::Regex::new(&format!(r"\bval\.{}\b(?:\(\))?", regex::escape(field_name)))
-        .expect("field names are valid regex literals once escaped");
+pub fn read_through_accessor(conversion: &str, receiver: &str, field_name: &str, returns_ref: bool) -> String {
+    let pattern = regex::Regex::new(&format!(
+        r"\b{}\.{}\b(?:\(\))?",
+        regex::escape(receiver),
+        regex::escape(field_name)
+    ))
+    .expect("identifiers are valid regex literals once escaped");
     let replacement = if returns_ref {
-        format!("val.{field_name}().clone()")
+        format!("{receiver}.{field_name}().clone()")
     } else {
-        format!("val.{field_name}()")
+        format!("{receiver}.{field_name}()")
     };
     pattern.replace_all(conversion, replacement.as_str()).into_owned()
 }
@@ -90,6 +95,8 @@ pub fn promote_private_accessors(typ: &mut TypeDef) {
                 ty: accessor.return_type.clone(),
                 doc: accessor.doc.clone(),
                 cfg: accessor.cfg.clone(),
+                // The core fills the value itself, so a host-built value may start empty.
+                typed_default: Some(crate::core::ir::DefaultValue::Empty),
                 ..FieldDef::default()
             });
         } else {

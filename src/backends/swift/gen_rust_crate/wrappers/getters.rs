@@ -140,6 +140,7 @@ pub(super) fn emit_getters(
             getter_name,
             bridge_ty_owned,
         };
+        let getter_start = out.len();
         if text_projected_getter_type(field, text_types).is_some() {
             super::super::text_projection::emit_getters(
                 field,
@@ -198,6 +199,16 @@ pub(super) fn emit_getters(
             emit_string_like_getter(ty, field, &ctx, out);
         } else {
             emit_remaining_getter(ty, field, &ctx, out);
+        }
+        // A carried private-field value is read through the core's public accessor.
+        if crate::codegen::private_accessors::is_private_accessor_field(ty, field) {
+            let getter = out.split_off(getter_start);
+            out.push_str(&crate::codegen::private_accessors::read_through_accessor(
+                &getter,
+                "self.0",
+                &field.name,
+                false,
+            ));
         }
     }
 }

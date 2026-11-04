@@ -215,7 +215,7 @@ impl Backend for SwiftBackend {
         // facade can never call an extern the bridge crate did not declare. ~keep
         let cfg_filtered_api =
             gen_rust_crate::feature_gate::with_cfg_filtered_methods(&cfg_filtered_api, &configured_features);
-        let deduped_api = cfg_filtered_api.with_deduped_functions();
+        let deduped_api = cfg_filtered_api.with_deduped_functions().with_private_accessor_fields();
         let api = &deduped_api;
 
         let exclude_types = effective_exclude_types(config, api);
@@ -609,7 +609,7 @@ impl Backend for SwiftBackend {
             generated_header: false,
         }];
 
-        let rust_crate_files = gen_rust_crate::emit(original_api, config)?;
+        let rust_crate_files = gen_rust_crate::emit(&original_api.with_private_accessor_fields(), config)?;
         files.extend(rust_crate_files);
 
         let binding_crate_name = format!("{}-swift", api.crate_name);

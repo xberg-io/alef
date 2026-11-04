@@ -138,7 +138,6 @@ fn napi_exposes_the_accessor_value_as_an_object_property() {
         .generate_bindings(&node_context_api(), &config("node"))
         .unwrap();
     let content = &files[0].content;
-    std::fs::write("/private/tmp/claude-501/-Users-naamanhirschfeld-workspace-xberg-io/5d69f932-4d49-440f-8720-636c64e3adba/scratchpad/napi.rs", content).unwrap();
     syn::parse_file(content).unwrap_or_else(|error| panic!("{error}:\n{content}"));
     assert!(content.contains("pub attributes: HashMap<String, String>"), "{content}");
     let from_core = impl_block(content, "impl From<test_lib::NodeContext<'_>> for JsNodeContext");
@@ -152,11 +151,15 @@ fn php_carries_the_accessor_value_into_the_method_round_trip() {
         .generate_bindings(&node_context_api(), &config("php"))
         .unwrap();
     let content = &files[0].content;
-    std::fs::write("/private/tmp/claude-501/-Users-naamanhirschfeld-workspace-xberg-io/5d69f932-4d49-440f-8720-636c64e3adba/scratchpad/php.rs", content).unwrap();
     syn::parse_file(content).unwrap_or_else(|error| panic!("{error}:\n{content}"));
     assert!(!content.contains("BTreeMap::new()"), "{content}");
     assert!(content.contains("val.attributes()"), "{content}");
     assert!(content.contains("pub fn attributes(&self)"), "{content}");
+    assert!(
+        content.contains("attributes: Option<HashMap<String, String>>")
+            && content.contains("attributes: attributes.unwrap_or_default()"),
+        "the PHP constructor takes the carried value as an optional parameter:\n{content}"
+    );
 }
 
 #[test]
@@ -183,12 +186,13 @@ fn accessor_reads_rewrite_only_whole_field_references() {
     assert_eq!(
         read_through_accessor(
             "attributes: val.attributes.iter().count(), x: val.attributes_len",
+            "val",
             "attributes",
             true
         ),
         "attributes: val.attributes().clone().iter().count(), x: val.attributes_len"
     );
-    assert_eq!(read_through_accessor("a: val.a", "a", false), "a: val.a()");
+    assert_eq!(read_through_accessor("v.a.into()", "v", "a", false), "v.a().into()");
 }
 
 #[test]
@@ -213,8 +217,134 @@ fn type_stubs_match_the_generated_bindings() {
         .generate_type_stubs(&node_context_api(), &config("php"))
         .unwrap();
     let stub = php.iter().map(|file| file.content.as_str()).collect::<String>();
-    std::fs::write("/private/tmp/claude-501/-Users-naamanhirschfeld-workspace-xberg-io/5d69f932-4d49-440f-8720-636c64e3adba/scratchpad/php.stub", &stub).unwrap();
-    std::fs::write("/private/tmp/claude-501/-Users-naamanhirschfeld-workspace-xberg-io/5d69f932-4d49-440f-8720-636c64e3adba/scratchpad/node.dts", &dts).unwrap();
-    std::fs::write("/private/tmp/claude-501/-Users-naamanhirschfeld-workspace-xberg-io/5d69f932-4d49-440f-8720-636c64e3adba/scratchpad/py.pyi", &pyi).unwrap();
-    assert!(stub.contains("attributes"), "{stub}");
+    assert!(stub.contains("public readonly ?array $attributes = null"), "{stub}");
+}
+
+fn generated(backend: &dyn Backend, language: &str) -> String {
+    let mut files = backend
+        .generate_bindings(&node_context_api(), &config(language))
+        .unwrap();
+    files.extend(
+        backend
+            .generate_public_api(&node_context_api(), &config(language))
+            .unwrap(),
+    );
+    files
+        .iter()
+        .map(|file| file.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn assert_rust_round_trip(content: &str, from_core_header: &str, read: &str) {
+    assert!(
+        !content.contains("std::collections::BTreeMap::new(),"),
+        "the accessor's data must not be replaced by an empty default:\n{content}"
+    );
+    let from_core = impl_block(content, from_core_header);
+    assert!(
+        from_core.contains(read),
+        "the binding must read through the accessor:\n{from_core}"
+    );
+}
+
+#[test]
+fn wasm_carries_the_accessor_value_behind_the_method() {
+    let content = generated(&crate::backends::wasm::WasmBackend, "wasm");
+    assert_rust_round_trip(
+        &content,
+        "impl From<test_lib::NodeContext<'_>> for WasmNodeContext",
+        "val.attributes()",
+    );
+    assert!(
+        content.contains("serde_wasm_bindgen::from_value(val.attributes.clone())"),
+        "the carried JsValue decodes back into the core constructor:\n{content}"
+    );
+    assert!(content.contains("pub fn attributes(&self) -> JsValue"), "{content}");
+    assert!(
+        !content.contains("#[wasm_bindgen(getter)]\n    pub fn attributes"),
+        "{content}"
+    );
+    assert!(
+        content.contains("pub fn new(tagName: String, depth: usize)")
+            && content.contains("attributes: Default::default()"),
+        "the JS constructor keeps its signature:\n{content}"
+    );
+}
+
+#[test]
+fn magnus_carries_the_accessor_value_as_the_attributes_method() {
+    let content = generated(&crate::backends::magnus::MagnusBackend, "ruby");
+    assert_rust_round_trip(
+        &content,
+        "impl From<test_lib::NodeContext<'_>> for NodeContext",
+        "val.attributes()",
+    );
+    assert_eq!(
+        content.matches("define_method(\"attributes\"").count(),
+        1,
+        "Ruby keeps exactly one `attributes` method:\n{content}"
+    );
+}
+
+#[test]
+fn rustler_carries_the_accessor_value_in_the_struct() {
+    let content = generated(&crate::backends::rustler::RustlerBackend, "elixir");
+    assert_rust_round_trip(
+        &content,
+        "impl From<test_lib::NodeContext<'_>> for NodeContext",
+        "val.attributes()",
+    );
+    assert!(content.contains("pub fn nodecontext_attributes("), "{content}");
+    assert!(
+        content.contains("attributes: %{}"),
+        "the Elixir struct declares the key:\n{content}"
+    );
+}
+
+#[test]
+fn extendr_carries_the_accessor_value_in_the_struct() {
+    let content = generated(&crate::backends::extendr::ExtendrBackend, "r");
+    assert_rust_round_trip(
+        &content,
+        "impl From<test_lib::NodeContext<'_>> for NodeContext",
+        "val.attributes()",
+    );
+    assert!(content.contains("pub attributes: HashMap<String, String>"), "{content}");
+}
+
+#[test]
+fn dart_mirror_reads_the_accessor_value() {
+    let content = generated(&crate::backends::dart::DartBackend, "dart");
+    assert_rust_round_trip(
+        &content,
+        "impl From<test_lib::NodeContext<'_>> for NodeContext",
+        "v.attributes()",
+    );
+    assert!(
+        content.contains("pub attributes: std::collections::HashMap<String, String>"),
+        "{content}"
+    );
+}
+
+#[test]
+fn json_dto_backends_carry_the_accessor_value_on_the_wire() {
+    let go = generated(&crate::backends::go::GoBackend, "go");
+    assert!(
+        go.contains("Attributes map[string]string `json:\"attributes\"`"),
+        "{go}"
+    );
+
+    let kotlin = generated(&crate::backends::kotlin_android::KotlinAndroidBackend, "kotlin_android");
+    assert!(
+        kotlin.contains("val attributes: Map<String, String> = emptyMap(),"),
+        "{kotlin}"
+    );
+
+    let swift = generated(&crate::backends::swift::SwiftBackend, "swift");
+    assert!(
+        swift.contains("serde_json::to_string(&self.0.attributes())"),
+        "the bridge getter reads through the accessor:\n{swift}"
+    );
+    assert!(swift.contains("attributes: [String: String] = [:]"), "{swift}");
 }

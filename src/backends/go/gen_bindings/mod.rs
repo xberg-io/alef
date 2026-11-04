@@ -93,7 +93,7 @@ impl Backend for GoBackend {
                 "go",
             )?;
         }
-        let deduped_api = api.with_deduped_functions();
+        let deduped_api = api.with_deduped_functions().with_private_accessor_fields();
         crate::codegen::cfg::warn_on_ffi_feature_drift(api, config, Language::Go);
         // Derived from the *unfiltered* surface: the FFI crate defaults every cfg-discovered
         // feature ON, so a gate whose items this Go build filters out is still compiled into the

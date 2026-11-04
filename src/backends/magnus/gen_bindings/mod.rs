@@ -108,7 +108,9 @@ impl Backend for MagnusBackend {
         crate::codegen::config_gen::validate_rust_default_functions(api)?;
         // `#[cfg(feature = "X")]`, its `#[cfg(not(...))]` stub, AND an unconditional stub from a
         // separate `#[cfg(not(...))]` parent module whose gate did not propagate into the IR),
-        let mut deduped_api = crate::backends::ir_order::with_sorted_items(api).with_deduped_functions();
+        let mut deduped_api = crate::backends::ir_order::with_sorted_items(api)
+            .with_deduped_functions()
+            .with_private_accessor_fields();
         // A field can be entirely UNGATED (`field.cfg == None`, correctly mirroring that the core
         // field itself always compiles -- e.g. `Chunk.sparse_embedding: Option<crate::SparseEmbedding>`,
         // where the core crate always defines `SparseEmbedding` as either the real type or a
@@ -729,7 +731,9 @@ impl Backend for MagnusBackend {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
-        let mut deduped_api = crate::backends::ir_order::with_sorted_items(api).with_deduped_functions();
+        let mut deduped_api = crate::backends::ir_order::with_sorted_items(api)
+            .with_deduped_functions()
+            .with_private_accessor_fields();
         // The RBS stub must describe the surface the binding actually registers. Both
         // `generate_bindings` and the module-init emitter drop
         // `[crates.ruby].exclude_functions`, but this stub path read `api.functions`
@@ -804,7 +808,9 @@ impl Backend for MagnusBackend {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
-        let deduped_api = crate::backends::ir_order::with_sorted_items(api).with_deduped_functions();
+        let deduped_api = crate::backends::ir_order::with_sorted_items(api)
+            .with_deduped_functions()
+            .with_private_accessor_fields();
         let api = &deduped_api;
 
         let gem_name = config.ruby_gem_name();

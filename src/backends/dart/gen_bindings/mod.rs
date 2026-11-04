@@ -57,6 +57,8 @@ impl Backend for DartBackend {
             return gen_ffi::emit(api, config);
         }
 
+        let promoted_api = api.with_private_accessor_fields();
+        let api = &promoted_api;
         let module_name = dart_module_name(&config.name);
         let barrel_name = config
             .dart

@@ -190,6 +190,16 @@ pub(super) fn emit_from_impl_for_struct(out: &mut String, ty: &TypeDef, source_c
             emit_rust_struct_field(out, None, &field.name, &fallback);
         } else {
             let expr = field_from_expr(field, source_crate_name);
+            let expr = if crate::codegen::private_accessors::is_private_accessor_field(ty, field) {
+                crate::codegen::private_accessors::read_through_accessor(
+                    &expr,
+                    "v",
+                    &field.name,
+                    crate::codegen::private_accessors::accessor_returns_ref(ty, &field.name),
+                )
+            } else {
+                expr
+            };
             // at compile time. Emitting `#[cfg(...)]` here would gate on the dart
             emit_rust_struct_field(out, None, &field.name, &expr);
         }

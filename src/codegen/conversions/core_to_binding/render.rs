@@ -245,6 +245,7 @@ pub fn gen_from_core_to_binding_cfg(
         let conversion = if crate::codegen::private_accessors::is_private_accessor_field(typ, field) {
             crate::codegen::private_accessors::read_through_accessor(
                 &conversion,
+                "val",
                 &field.name,
                 crate::codegen::private_accessors::accessor_returns_ref(typ, &field.name),
             )

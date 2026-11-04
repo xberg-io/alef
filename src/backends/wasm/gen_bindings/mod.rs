@@ -75,7 +75,7 @@ impl Backend for WasmBackend {
         crate::codegen::config_gen::validate_rust_default_functions(api)?;
         // Must run before dedup -- see `cfg::drop_cfg_disabled_functions`. ~keep
         let enabled_features = enabled_features_for_language(config, Language::Wasm);
-        let sorted = crate::backends::ir_order::with_sorted_items(api);
+        let sorted = crate::backends::ir_order::with_sorted_items(api).with_private_accessor_fields();
         let api = &cfg::drop_cfg_disabled_functions(sorted, &enabled_features).with_deduped_functions();
 
         let wasm_config = config.wasm.as_ref();

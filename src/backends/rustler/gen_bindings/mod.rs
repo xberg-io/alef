@@ -47,7 +47,10 @@ impl Backend for RustlerBackend {
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         crate::codegen::config_gen::validate_rust_default_functions(api)?;
-        native::generate_bindings(&crate::backends::ir_order::with_sorted_items(api), config)
+        native::generate_bindings(
+            &crate::backends::ir_order::with_sorted_items(api).with_private_accessor_fields(),
+            config,
+        )
     }
 
     fn generate_public_api(
@@ -55,7 +58,10 @@ impl Backend for RustlerBackend {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
-        public_api::generate_public_api(&crate::backends::ir_order::with_sorted_items(api), config)
+        public_api::generate_public_api(
+            &crate::backends::ir_order::with_sorted_items(api).with_private_accessor_fields(),
+            config,
+        )
     }
 
     fn generate_service_api(
