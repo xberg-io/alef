@@ -181,6 +181,7 @@ fn flatten_json_field_forces_builder_emission_below_auto_threshold() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let out = gen_record_type(

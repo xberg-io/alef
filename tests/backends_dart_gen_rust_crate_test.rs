@@ -86,6 +86,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     }
 }
@@ -117,6 +118,7 @@ fn make_opaque_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     }
 }
@@ -776,6 +778,7 @@ fn make_trait(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeDef {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     }
 }
@@ -1728,6 +1731,7 @@ fn sanitized_string_cow_field_roundtrips_in_from_mirror_to_core_impl() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -1896,6 +1900,7 @@ fn sanitized_string_non_cow_field_falls_back_to_default_in_from_mirror_to_core_i
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 

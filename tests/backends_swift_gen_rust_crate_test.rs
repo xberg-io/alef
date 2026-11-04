@@ -82,6 +82,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     }
 }
@@ -1059,6 +1060,7 @@ fn make_trait_type(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> Type
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     }
 }
@@ -1441,6 +1443,7 @@ fn cargo_toml_serde_json_dep_present_when_has_serde_type_with_vec_field() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -1692,6 +1695,7 @@ type = "ChatCompletionRequest"
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -1888,6 +1892,7 @@ type = "CompletionRequest"
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -1996,6 +2001,7 @@ fn opaque_type_refmut_method_emits_mut_receiver_in_extern_and_shim() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -2105,6 +2111,7 @@ fn make_opaque_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     }
 }

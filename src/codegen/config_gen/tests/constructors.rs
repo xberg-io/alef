@@ -154,6 +154,7 @@ fn test_gen_magnus_kwargs_constructor_hash_path_for_many_fields() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper, &HashSet::new());

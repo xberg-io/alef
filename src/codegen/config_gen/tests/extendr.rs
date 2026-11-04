@@ -151,6 +151,7 @@ fn test_gen_magnus_hash_constructor_generic_type_prefix() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper, &std::collections::HashSet::new());
@@ -241,6 +242,7 @@ fn test_magnus_hash_constructor_no_double_option_when_ty_is_optional() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper, &std::collections::HashSet::new());

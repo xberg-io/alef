@@ -84,6 +84,7 @@ fn make_api_surface() -> ApiSurface {
 
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![FunctionDef {

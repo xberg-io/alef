@@ -266,6 +266,7 @@ fn extendr_wrappers_default_required_config_objects_in_r() {
 
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![FunctionDef {
@@ -357,6 +358,7 @@ fn extendr_wrappers_do_not_call_defaults_for_excluded_classes() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![FunctionDef {
@@ -514,6 +516,7 @@ fn make_api_with_instance_method() -> ApiSurface {
 
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -672,6 +675,7 @@ fn extendr_wrappers_emits_roxygen_class_block_with_field_lines_for_struct() {
 
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -987,6 +991,7 @@ fn extendr_codegen_keeps_cfg_fields_enabled_by_explicit_r_features() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         },
         TypeDef {
@@ -1015,6 +1020,7 @@ fn extendr_codegen_keeps_cfg_fields_enabled_by_explicit_r_features() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         },
     ];
@@ -1093,6 +1099,7 @@ fn r_public_api_omits_from_json_for_unregistered_dto_roots() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![FunctionDef {
@@ -1228,6 +1235,7 @@ fn extendr_json_bridged_function_with_named_return_and_optional_named_params() {
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
             TypeDef {
@@ -1256,6 +1264,7 @@ fn extendr_json_bridged_function_with_named_return_and_optional_named_params() {
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
         ],

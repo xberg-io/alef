@@ -37,6 +37,7 @@ fn test_basic_generation() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![FunctionDef {
@@ -209,6 +210,7 @@ fn public_api_converters_accept_json_string_for_dict_coercion() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![FunctionDef {
@@ -311,6 +313,7 @@ fn test_type_mapping() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],

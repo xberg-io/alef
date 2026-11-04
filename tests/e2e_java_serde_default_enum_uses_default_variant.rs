@@ -132,6 +132,7 @@ fn java_builder_uses_correct_default_variant_for_serde_default_enum_field() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 

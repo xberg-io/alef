@@ -129,6 +129,7 @@ fn make_demo_api() -> ApiSurface {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -164,6 +165,7 @@ fn make_demo_api() -> ApiSurface {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -713,6 +715,7 @@ fn real_ir_shape_optional_ref_result_async() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -961,6 +964,7 @@ fn method_ref_mut_receiver_emits_mut_cast() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -1045,6 +1049,7 @@ fn method_ref_receiver_emits_const_cast() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -1141,6 +1146,7 @@ fn method_slice_u8_param_receives_jbytearray() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -1243,6 +1249,7 @@ fn method_optional_bytes_param_and_return_use_jbytearray_nullability() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let api = ApiSurface {
@@ -1350,6 +1357,7 @@ fn method_pathbuf_param_receives_raw_string() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -1455,6 +1463,7 @@ fn method_slice_str_param_coerces_to_str_refs() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -1839,6 +1848,7 @@ fn lib_rs_emits_use_clauses_for_trait_method_paths() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -1911,6 +1921,7 @@ fn lib_rs_dedupes_trait_paths_by_last_segment() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 

@@ -480,7 +480,11 @@ pub fn gen_struct_with_rename(
         };
         let name_override = field_name_override(field);
         let extra_attrs = extra_field_attrs(field);
-        let mut attrs: Vec<String> = if name_override.is_some() && !extra_attrs.is_empty() {
+        // A field carrying a private-field accessor's value stays behind the accessor method,
+        // which reads it, so it gets no getter attribute that would shadow that method.
+        let mut attrs: Vec<String> = if (name_override.is_some() && !extra_attrs.is_empty())
+            || crate::codegen::private_accessors::is_private_accessor_field(typ, field)
+        {
             extra_attrs
         } else {
             let mut a: Vec<String> = cfg.field_attrs.iter().map(|a| a.to_string()).collect();

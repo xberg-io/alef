@@ -108,7 +108,9 @@ impl Backend for NapiBackend {
         // Collapse same-named cfg-variant functions into one canonical entry. The napi `#[napi]`
         // wrapper delegates to the core crate (which resolves the cfg) and emits no `#[cfg]` gate,
         // so two same-named entries would otherwise produce duplicate `#[napi]` fn definitions.
-        let deduped_api = crate::backends::ir_order::with_sorted_items(api).with_deduped_functions();
+        let deduped_api = crate::backends::ir_order::with_sorted_items(api)
+            .with_deduped_functions()
+            .with_private_accessor_fields();
         let api = &deduped_api;
         let active_trait_bridges: Vec<_> = config.trait_bridges_for(Language::Node).cloned().collect();
 
@@ -896,7 +898,10 @@ impl Backend for NapiBackend {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
-        type_stubs::generate(&crate::backends::ir_order::with_sorted_items(api), config)
+        type_stubs::generate(
+            &crate::backends::ir_order::with_sorted_items(api).with_private_accessor_fields(),
+            config,
+        )
     }
 
     fn generate_service_api(

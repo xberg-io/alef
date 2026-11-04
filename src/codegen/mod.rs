@@ -30,6 +30,7 @@ pub mod json_wire_types;
 pub mod keywords;
 pub mod mut_writeback;
 pub mod naming;
+pub mod private_accessors;
 pub mod serde_enum_repr;
 pub mod shared;
 pub mod type_mapper;

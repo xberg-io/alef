@@ -66,6 +66,7 @@ fn test_gen_opaque_struct_arc_inner() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let cfg = default_cfg();
@@ -130,6 +131,7 @@ fn test_gen_opaque_struct_mutex_when_ref_mut_method() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     typ.is_opaque = true;
@@ -175,6 +177,7 @@ fn test_gen_opaque_struct_trait_uses_dyn() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let cfg = default_cfg();
@@ -275,6 +278,7 @@ fn test_gen_struct_default_impl_optional_field_uses_none() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -348,6 +352,7 @@ fn test_can_generate_default_impl_named_not_in_known_set() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let known: std::collections::HashSet<&str> = std::collections::HashSet::new();
@@ -409,6 +414,7 @@ fn test_can_generate_default_impl_named_in_known_set() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let mut known: std::collections::HashSet<&str> = std::collections::HashSet::new();
@@ -475,6 +481,7 @@ fn test_gen_struct_with_opaque_field_skips_serde_derives() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let mapper = RustMapper;
@@ -579,6 +586,7 @@ fn delegating_default_body_applies_source_crate_remaps() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -624,6 +632,7 @@ fn delegating_default_body_without_remaps_uses_original_path() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -693,6 +702,7 @@ fn delegating_default_suppressed_when_type_not_in_convertible_set() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let mapper = RustMapper;
@@ -771,6 +781,7 @@ fn delegating_default_emitted_when_type_in_convertible_set() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let mapper = RustMapper;
@@ -885,6 +896,7 @@ fn core_to_binding_convertible_excludes_excluded_type_fields() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 

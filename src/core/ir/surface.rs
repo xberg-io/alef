@@ -236,6 +236,18 @@ impl ApiSurface {
         deduped
     }
 
+    /// Returns a clone of this surface in which each public `&self` accessor over a private core
+    /// field becomes a binding field carrying its value, or is dropped when no public
+    /// constructor accepts the value back (see [`crate::codegen::private_accessors`]).
+    ///
+    /// Only backends that mirror a core struct into a binding struct and run methods by
+    /// converting it back to the core type call this. Backends that wrap the core value itself
+    /// (FFI handles, Swift) already reach the private field through the real accessor.
+    #[must_use]
+    pub fn with_private_accessor_fields(&self) -> Self {
+        crate::codegen::private_accessors::with_private_accessor_fields(self)
+    }
+
     /// Returns a clone of this surface with every type, enum, and function whose
     /// `#[cfg(feature = "...")]` gate is not satisfied by `enabled_features` removed.
     ///

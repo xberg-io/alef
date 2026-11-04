@@ -95,6 +95,7 @@ fn test_basic_generation() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![FunctionDef {
@@ -370,6 +371,7 @@ module = "github.com/test/test-lib"
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let visible_type = TypeDef {
@@ -417,6 +419,7 @@ module = "github.com/test/test-lib"
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let api = ApiSurface {
@@ -500,6 +503,7 @@ fn test_type_mapping() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -805,6 +809,7 @@ fn test_methods_generation() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],

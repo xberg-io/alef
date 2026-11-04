@@ -631,6 +631,7 @@ fn lifetime_param_named_type_emits_angle_lifetime_placeholder() {
             is_variant_wrapper: false,
             has_lifetime_params: true,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],

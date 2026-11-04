@@ -85,6 +85,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     }
 }
@@ -928,6 +929,7 @@ fn nullary_free_function_returning_named_dto_wraps_bridge_call_in_converter() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![FunctionDef {
@@ -1826,6 +1828,7 @@ fn make_streaming_api() -> ApiSurface {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -1990,6 +1993,7 @@ fn streaming_chunk_type_with_serde_and_fields_emits_codable_struct() {
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
             TypeDef {
@@ -2021,6 +2025,7 @@ fn streaming_chunk_type_with_serde_and_fields_emits_codable_struct() {
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
         ],
@@ -2144,6 +2149,7 @@ fn opaque_class_method_emits_doc_comment_above_signature() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -2260,6 +2266,7 @@ fn method_with_first_class_dto_param_calls_into_rust_at_call_site() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -2371,6 +2378,7 @@ fn method_with_dto_param_only_adds_throws_even_without_error_type() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -3143,6 +3151,7 @@ fn first_class_struct_emits_instance_methods() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -3242,6 +3251,7 @@ fn opaque_type_returned_from_free_function_emits_forwarder() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 

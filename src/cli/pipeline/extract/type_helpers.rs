@@ -35,6 +35,7 @@ pub(super) fn inject_declared_opaque_types(api: &mut ApiSurface, config: &Resolv
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             });
             debug!("Injected declared opaque type: {name} -> {rust_path}");

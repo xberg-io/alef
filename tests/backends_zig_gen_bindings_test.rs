@@ -82,6 +82,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     }
 }
@@ -146,6 +147,7 @@ fn make_trait_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     }
 }
@@ -783,6 +785,7 @@ fn opaque_handle_with_no_methods_is_emitted() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let get_language_fn = FunctionDef {
@@ -1574,6 +1577,7 @@ type = "CrawlStreamRequest"
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -1782,6 +1786,7 @@ type = "CrawlStreamRequest"
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -1967,6 +1972,7 @@ type = "BatchCrawlStreamRequest"
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -2092,6 +2098,7 @@ fn named_json_return_guards_against_null_to_json_pointer() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let api = ApiSurface {

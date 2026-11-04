@@ -150,6 +150,7 @@ fn trait_bridge_string_return_is_not_json_quoted() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let api = ApiSurface {
@@ -234,6 +235,7 @@ fn trait_bridge_register_downcall_passes_vtable_address() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let api = ApiSurface {
@@ -507,6 +509,7 @@ fn named_param_from_json_is_checked_before_primary_call() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let api = ApiSurface {
@@ -640,6 +643,7 @@ fn test_basic_generation() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![FunctionDef {
@@ -843,6 +847,7 @@ package = "dev.example"
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let visible_type = TypeDef {
@@ -890,6 +895,7 @@ package = "dev.example"
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let api = ApiSurface {
@@ -1290,6 +1296,7 @@ fn test_optional_field_defaults_in_builder() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -1457,6 +1464,7 @@ fn test_no_standalone_builder_java_file_emitted() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -1568,6 +1576,7 @@ fn test_serde_default_boxed_boolean_true_restored_in_compact_ctor() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -1869,6 +1878,7 @@ type = "ChatCompletionRequest"
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
             TypeDef {
@@ -1897,6 +1907,7 @@ type = "ChatCompletionRequest"
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
             TypeDef {
@@ -1925,6 +1936,7 @@ type = "ChatCompletionRequest"
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
         ],
@@ -2202,6 +2214,7 @@ fn test_dto_emits_as_record_with_fields_only() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -2337,6 +2350,7 @@ fn test_opaque_handle_type_remains_class() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -2599,6 +2613,7 @@ type = "EventRequest"
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
             TypeDef {
@@ -2627,6 +2642,7 @@ type = "EventRequest"
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
             TypeDef {
@@ -2655,6 +2671,7 @@ type = "EventRequest"
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
         ],
@@ -2921,6 +2938,7 @@ fn test_plain_dto_emits_as_record_not_sealed_class() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -3013,6 +3031,7 @@ fn test_option_params_and_returns_emit_nullable_annotations() {
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
             TypeDef {
@@ -3060,6 +3079,7 @@ fn test_option_params_and_returns_emit_nullable_annotations() {
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
         ],
@@ -3277,6 +3297,7 @@ type = "EventRequest"
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
             TypeDef {
@@ -3305,6 +3326,7 @@ type = "EventRequest"
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
             TypeDef {
@@ -3333,6 +3355,7 @@ type = "EventRequest"
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
         ],
@@ -3479,6 +3502,7 @@ fn optional_named_method_body_wraps_via_optional_of() {
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
             TypeDef {
@@ -3526,6 +3550,7 @@ fn optional_named_method_body_wraps_via_optional_of() {
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
         ],
@@ -3653,6 +3678,7 @@ fn builder_optional_fields_use_nullable_not_optional_in_setters() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -3745,6 +3771,7 @@ fn json_util_centralizes_from_json_deserialization() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -3829,6 +3856,7 @@ Related: `ConversionOptions::output_format` and `Result::unwrap_or()`."#
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -3908,6 +3936,7 @@ fn test_trait_bridge_clear_fn_generates_correct_error_handling() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![FunctionDef {
@@ -4088,6 +4117,7 @@ fn options_field_visitor_uses_trait_bridge_config_not_convert_literals() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -4185,6 +4215,7 @@ fn options_field_visitor_uses_trait_bridge_config_not_convert_literals() {
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
         ],
@@ -4421,6 +4452,7 @@ fn options_field_visitor_context_type_with_lifetime_params_is_still_bound() {
         is_variant_wrapper: false,
         has_lifetime_params,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -4521,6 +4553,7 @@ fn options_field_visitor_context_type_with_lifetime_params_is_still_bound() {
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
         ],
@@ -4750,6 +4783,7 @@ fn test_facade_no_java_lang_imports() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -4877,6 +4911,7 @@ type = "CrawlRequest"
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
             TypeDef {
@@ -4905,6 +4940,7 @@ type = "CrawlRequest"
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
             TypeDef {
@@ -4933,6 +4969,7 @@ type = "CrawlRequest"
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
         ],
@@ -5204,6 +5241,7 @@ fn trait_bridge_sync_infallible_primitive_uses_direct_value_convention() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let api = ApiSurface {

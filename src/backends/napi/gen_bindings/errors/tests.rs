@@ -195,6 +195,7 @@ fn plugin_trait_bridge_requires_name_in_typescript_interface() {
 
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let bridges = vec![crate::core::config::TraitBridgeConfig {

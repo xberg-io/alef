@@ -813,6 +813,7 @@ mod tests {
             has_serde: true,
             has_default: true,
             has_private_fields: true,
+            private_fields: Vec::new(),
             fields: vec![
                 FieldDef {
                     name: "content".to_owned(),

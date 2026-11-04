@@ -89,6 +89,7 @@ fn make_basic_api() -> ApiSurface {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![FunctionDef {
@@ -286,6 +287,7 @@ fn trait_bridge_vtable_builder_coverage() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     api.types.push(trait_def);
@@ -395,6 +397,7 @@ fn trait_bridge_multiple_traits_emit_all_vtable_builders() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         };
         api.types.push(trait_def);
@@ -537,6 +540,7 @@ fn trait_bridge_register_fn_passes_vtable_pointer_not_value() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     api.types.push(trait_def);

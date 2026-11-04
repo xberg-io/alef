@@ -62,3 +62,14 @@ mod serde;
 mod std_traits;
 mod unsupported_generics;
 mod versioning;
+
+#[test]
+fn private_named_fields_are_recorded_by_name() {
+    let surface = extract_from_source(
+        "pub struct NodeContext<'a> {\n    pub tag_name: std::borrow::Cow<'a, str>,\n    attributes: std::collections::BTreeMap<String, String>,\n    pub(crate) depth: usize,\n}\n",
+    );
+    let typ = surface.types.iter().find(|typ| typ.name == "NodeContext").unwrap();
+    assert!(typ.has_private_fields);
+    assert_eq!(typ.private_fields, vec!["attributes".to_string(), "depth".to_string()]);
+    assert_eq!(typ.fields.len(), 1);
+}

@@ -103,6 +103,7 @@ fn test_gen_struct_with_empty_fields() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let mapper = RustMapper;

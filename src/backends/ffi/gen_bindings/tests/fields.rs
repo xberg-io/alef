@@ -64,6 +64,7 @@ fn test_option_option_primitive_getter_returns_primitive_type() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -155,6 +156,7 @@ fn api_with_named_field(field_type: &str, is_clone: bool) -> ApiSurface {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let named_type = TypeDef {
@@ -183,6 +185,7 @@ fn api_with_named_field(field_type: &str, is_clone: bool) -> ApiSurface {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     ApiSurface {

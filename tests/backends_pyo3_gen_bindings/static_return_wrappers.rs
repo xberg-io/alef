@@ -60,6 +60,7 @@ fn test_static_default_returns_binding_wrapper_not_core_type() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -165,6 +166,7 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
             TypeDef {
@@ -197,6 +199,7 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
         ],

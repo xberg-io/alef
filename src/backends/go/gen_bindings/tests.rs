@@ -435,6 +435,7 @@ fn test_gen_go_opaque_constructor_emits_new_function() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let ctor = ClientConstructorConfig {
@@ -532,6 +533,7 @@ fn capsule_api() -> crate::core::ir::ApiSurface {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![FunctionDef {
@@ -646,6 +648,7 @@ fn free_function_colliding_with_type_name_is_renamed_get_prefixed() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![

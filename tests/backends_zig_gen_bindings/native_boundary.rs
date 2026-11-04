@@ -28,6 +28,7 @@ fn from_json_params_check_null_and_defer_handle_cleanup() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let api = ApiSurface {
@@ -140,6 +141,7 @@ type = "*const std::ffi::c_char"
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],

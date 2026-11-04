@@ -305,6 +305,7 @@ fn trait_bridge_register_uses_c_vtable_helper_and_free_string_callback() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let bridge_cfg = TraitBridgeConfig {
@@ -378,6 +379,7 @@ fn register_wrapper_deletes_the_handle_when_vtable_allocation_fails() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let bridge_cfg = TraitBridgeConfig {
@@ -481,6 +483,7 @@ fn register_c_call_passes_vtable_by_value() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let bridge_cfg = TraitBridgeConfig {
@@ -545,6 +548,7 @@ fn text_processor_interface_and_bridge_wrapper_emitted() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let bridge_cfg = TraitBridgeConfig {

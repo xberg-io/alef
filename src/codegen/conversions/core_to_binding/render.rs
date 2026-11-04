@@ -242,6 +242,15 @@ pub fn gen_from_core_to_binding_cfg(
         } else {
             conversion
         };
+        let conversion = if crate::codegen::private_accessors::is_private_accessor_field(typ, field) {
+            crate::codegen::private_accessors::read_through_accessor(
+                &conversion,
+                &field.name,
+                crate::codegen::private_accessors::accessor_returns_ref(typ, &field.name),
+            )
+        } else {
+            conversion
+        };
         // A cfg-gated field (`field.cfg`) was stripped from the binding struct's own
         // declaration above only when `strip_cfg_fields_from_binding_struct` is set; backends
         // that keep the field (Magnus) must repeat its gate on this struct-literal entry too,

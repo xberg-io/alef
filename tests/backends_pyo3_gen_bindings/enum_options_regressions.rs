@@ -129,6 +129,7 @@ fn test_options_py_does_not_emit_screaming_alias_lines() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -199,6 +200,7 @@ fn test_options_py_escapes_python_keyword_variant_names() {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],
@@ -542,6 +544,7 @@ fn test_native_import_no_stray_blank_line_after_open_paren() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 

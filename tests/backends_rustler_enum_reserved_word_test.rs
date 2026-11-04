@@ -124,6 +124,7 @@ fn enum_variant_with_reserved_word_end_escapes_in_module() {
         has_lifetime_params: false,
         is_variant_wrapper: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -292,6 +293,7 @@ fn enum_variant_with_multiple_reserved_words() {
         has_lifetime_params: false,
         is_variant_wrapper: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 

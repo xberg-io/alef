@@ -147,6 +147,7 @@ fn make_jni_api_with_client_and_function() -> ApiSurface {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     ApiSurface {
@@ -567,6 +568,7 @@ fn make_api_with_chat_and_embeddings() -> ApiSurface {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     ApiSurface {
@@ -708,6 +710,7 @@ fn make_api_with_speech_method() -> ApiSurface {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     ApiSurface {
@@ -825,6 +828,7 @@ fn jni_optional_byte_array_method_uses_nullable_facade_and_empty_array_sentinel(
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let api = ApiSurface {
@@ -926,6 +930,7 @@ fn make_api_with_unit_return_method() -> ApiSurface {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     ApiSurface {
@@ -1053,6 +1058,7 @@ fn make_opaque_client_api() -> ApiSurface {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -1124,6 +1130,7 @@ fn make_opaque_client_api() -> ApiSurface {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 

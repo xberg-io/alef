@@ -152,6 +152,7 @@ fn regression_namespace_exports_functions_types_enums() {
 
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     });
     api.enums.push(EnumDef {
@@ -290,6 +291,7 @@ clear_fn = "clear_greeters"
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let doc_ty = TypeDef {
@@ -379,6 +381,7 @@ fn r_field_long_descriptions_are_truncated_to_fit_120_char_lines() {
 
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],

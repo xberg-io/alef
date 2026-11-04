@@ -497,6 +497,7 @@ fn test_scaffold_elixir_cargo_tokio_when_async_method() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     });
     let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();

@@ -101,6 +101,7 @@ fn test_struct_module_emits_moduledoc_heredoc_when_doc_present() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 
@@ -174,6 +175,7 @@ fn test_struct_module_emits_moduledoc_false_when_doc_empty() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let config = make_config("test_app");

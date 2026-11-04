@@ -102,6 +102,7 @@ fn print_generated_java_code() {
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
             TypeDef {
@@ -181,6 +182,7 @@ fn print_generated_java_code() {
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
         ],

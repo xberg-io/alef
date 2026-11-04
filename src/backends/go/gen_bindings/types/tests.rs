@@ -60,6 +60,7 @@ fn test_struct_type(name: &str, fields: Vec<FieldDef>, has_default: bool) -> Typ
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     }
 }
@@ -180,6 +181,7 @@ fn test_gen_struct_type_emits_json_tags() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let out = gen_struct_type(
@@ -300,6 +302,7 @@ fn gen_struct_type_marshal_optional_bytes_field_does_not_dereference() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let out = gen_struct_type(
@@ -348,6 +351,7 @@ fn gen_config_options_defaults_data_enum_field_to_nil_not_composite_literal() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let mut data_enum_names = std::collections::HashSet::new();
@@ -404,6 +408,7 @@ fn test_gen_struct_type_emits_no_config_options_by_default() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let out = gen_struct_type(
@@ -463,6 +468,7 @@ fn test_gen_config_options_emitted_when_in_allowlist() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let out = gen_config_options(

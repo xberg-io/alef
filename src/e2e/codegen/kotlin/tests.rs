@@ -915,6 +915,7 @@ fn auto_detected_enum_fields_from_type_defs_route_through_get_value() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 

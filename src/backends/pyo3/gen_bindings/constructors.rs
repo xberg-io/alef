@@ -112,6 +112,7 @@ pub(super) fn replace_constructor_with_serde_rename(
     let mut sorted_fields: Vec<_> = binding_fields(&typ.fields)
         .filter(|f| !f.binding_excluded && (f.cfg.is_none() || never_skip_cfg_field_names.contains(&f.name)))
         .filter(|f| bridge_field_name.is_none() || f.name != bridge_field_name.unwrap())
+        .filter(|f| !crate::codegen::private_accessors::is_private_accessor_field(typ, f))
         .collect();
     sorted_fields.sort_by_key(|f| {
         (
@@ -198,6 +199,11 @@ pub(super) fn replace_constructor_with_serde_rename(
         .iter()
         .filter(|f| !f.binding_excluded && (bridge_field_name.is_none() || f.name != bridge_field_name.unwrap()))
         .map(|f| {
+            // The core type fills a private-field accessor's value itself; a binding-built
+            // value starts empty, as the core constructor's would.
+            if crate::codegen::private_accessors::is_private_accessor_field(typ, f) {
+                return format!("{}: Default::default()", f.name);
+            }
             if f.cfg.is_some() && !never_skip_cfg_field_names.contains(&f.name) {
                 if f.optional {
                     format!("{}: None", f.name)

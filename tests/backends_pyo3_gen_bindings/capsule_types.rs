@@ -41,6 +41,7 @@ fn test_capsule_types_end_to_end() {
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
             TypeDef {
@@ -69,6 +70,7 @@ fn test_capsule_types_end_to_end() {
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
         ],
@@ -420,6 +422,7 @@ fn test_capsule_types_in_methods() {
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
             // Language — capsule round-trip type (no #[pyclass] emitted)
@@ -449,6 +452,7 @@ fn test_capsule_types_in_methods() {
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
         ],

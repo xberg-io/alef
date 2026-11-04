@@ -39,6 +39,7 @@ fn opaque_with_constructor_api() -> ApiSurface {
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
             TypeDef {
@@ -121,6 +122,7 @@ fn opaque_with_constructor_api() -> ApiSurface {
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
                 has_private_fields: false,
+                private_fields: Vec::new(),
                 version: Default::default(),
             },
         ],
@@ -508,6 +510,7 @@ fn opaque_with_named_constructor_api() -> ApiSurface {
             is_variant_wrapper: false,
             has_lifetime_params: false,
             has_private_fields: false,
+            private_fields: Vec::new(),
             version: Default::default(),
         }],
         functions: vec![],

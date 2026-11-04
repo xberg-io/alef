@@ -61,6 +61,7 @@ pub(super) fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
 
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     }
 }

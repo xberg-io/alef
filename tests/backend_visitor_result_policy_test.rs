@@ -99,6 +99,7 @@ fn type_def(name: &str, rust_path: &str, is_trait: bool, methods: Vec<MethodDef>
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     }
 }

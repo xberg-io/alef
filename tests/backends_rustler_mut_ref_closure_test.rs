@@ -61,6 +61,7 @@ fn test_vec_of_mutable_refs_in_closure_preserves_mutability() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
 

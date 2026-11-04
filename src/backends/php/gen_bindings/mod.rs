@@ -59,7 +59,7 @@ impl Backend for PhpBackend {
         let api = visitor_filtered.as_ref().unwrap_or(api);
         // Order the IR once, before anything reads it: every emission loop below concatenates
         // api.types/enums/functions/errors into a single generated file in Vec order. ~keep
-        let sorted_api = crate::backends::ir_order::with_sorted_items(api);
+        let sorted_api = crate::backends::ir_order::with_sorted_items(api).with_private_accessor_fields();
         let api = &sorted_api;
         crate::codegen::config_gen::validate_rust_default_functions(api)?;
         rust_bindings::generate_bindings(api, config)
@@ -75,7 +75,7 @@ impl Backend for PhpBackend {
         let api = visitor_filtered.as_ref().unwrap_or(api);
         // Order the IR once, before anything reads it: every emission loop below concatenates
         // api.types/enums/functions/errors into a single generated file in Vec order. ~keep
-        let sorted_api = crate::backends::ir_order::with_sorted_items(api);
+        let sorted_api = crate::backends::ir_order::with_sorted_items(api).with_private_accessor_fields();
         let api = &sorted_api;
         public_api::generate_public_api(api, config)
     }
@@ -90,7 +90,7 @@ impl Backend for PhpBackend {
         let api = visitor_filtered.as_ref().unwrap_or(api);
         // Order the IR once, before anything reads it: every emission loop below concatenates
         // api.types/enums/functions/errors into a single generated file in Vec order. ~keep
-        let sorted_api = crate::backends::ir_order::with_sorted_items(api);
+        let sorted_api = crate::backends::ir_order::with_sorted_items(api).with_private_accessor_fields();
         let api = &sorted_api;
         type_stubs::generate_type_stubs(api, config)
     }

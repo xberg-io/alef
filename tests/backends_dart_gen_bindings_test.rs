@@ -82,6 +82,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     }
 }
@@ -1312,6 +1313,7 @@ fn make_trait(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeDef {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     }
 }

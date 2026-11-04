@@ -748,6 +748,7 @@ mod tests {
             is_variant_wrapper: _,         // opts static `new` into host constructor emission
             has_lifetime_params: _,        // From<T<'_>> vs From<T> / opaque wrapper choice
             has_private_fields: _,         // non-literal construction strategy in conversions
+            private_fields: _,             // accessor-backed binding fields in mirroring backends
             version: _,                    // since/deprecated annotation emission
         } = value;
     }

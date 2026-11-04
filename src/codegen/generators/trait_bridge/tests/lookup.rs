@@ -173,6 +173,7 @@ fn options_type_with_visitor_field() -> TypeDef {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     }
 }
@@ -359,6 +360,7 @@ fn find_bridge_field_returns_none_for_function_param_bridge() {
         is_variant_wrapper: false,
         has_lifetime_params: false,
         has_private_fields: false,
+        private_fields: Vec::new(),
         version: Default::default(),
     };
     let func = make_func(

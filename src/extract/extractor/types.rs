@@ -107,6 +107,15 @@ pub(crate) fn extract_struct(
         }
         syn::Fields::Unit => false,
     };
+    let private_fields: Vec<String> = match &item.fields {
+        syn::Fields::Named(named) => named
+            .named
+            .iter()
+            .filter(|f| !is_pub(&f.vis))
+            .filter_map(|f| f.ident.as_ref().map(ToString::to_string))
+            .collect(),
+        _ => Vec::new(),
+    };
 
     let extracted_fields: Vec<(FieldDef, Option<DefaultValue>)> = match &item.fields {
         syn::Fields::Named(named) => named
@@ -219,6 +228,7 @@ pub(crate) fn extract_struct(
     };
     typedef.has_lifetime_params = has_lifetime_params;
     typedef.has_private_fields = has_private_fields;
+    typedef.private_fields = private_fields;
     Some((typedef, serde_defaults))
 }
 
