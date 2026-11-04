@@ -227,6 +227,18 @@ pub fn write_package_named(
     signature: Option<ComponentSignature>,
     name_template: Option<&str>,
 ) -> Result<ComponentArtifactRecord> {
+    write_package_recorded(library_path, output_dir, manifest, signature, name_template, None)
+}
+
+/// [`write_package_named`] that also records the build's input fingerprint in the artifact record.
+pub fn write_package_recorded(
+    library_path: &Path,
+    output_dir: &Path,
+    manifest: ComponentManifest,
+    signature: Option<ComponentSignature>,
+    name_template: Option<&str>,
+    input_hash: Option<String>,
+) -> Result<ComponentArtifactRecord> {
     let library_file = library_path
         .file_name()
         .and_then(|name| name.to_str())
@@ -266,6 +278,7 @@ pub fn write_package_named(
         archive_sha256,
         archive_size,
         signature,
+        input_hash,
     };
     let record_path = record.record_path(output_dir);
     fs::write(&record_path, canonical_json(&record)?)
@@ -470,6 +483,7 @@ fn build_lock_inner(
             size: record.archive_size,
             manifest_sha256: record.manifest_sha256.clone(),
             key_id,
+            input_hash: record.input_hash.clone(),
         });
     }
     artifacts.sort_by(|left, right| {

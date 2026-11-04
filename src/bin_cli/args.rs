@@ -4,6 +4,11 @@ use clap::{Parser, Subcommand};
 
 use crate::cli::commands;
 
+#[path = "args_component.rs"]
+mod component_action;
+
+pub(crate) use component_action::ComponentAction;
+
 #[derive(Parser)]
 // `version` keeps `-V` a single bare `alef <semver>` line; `long_version` gives `--version` the
 // build provenance stamped by `build.rs` — commit, build time, and whether the tree was dirty.
@@ -606,106 +611,6 @@ pub(crate) enum PublishAction {
     },
     /// Validate that all package manifests are consistent and ready for publishing.
     Validate,
-}
-
-#[derive(Subcommand)]
-pub(crate) enum ComponentAction {
-    /// Compile configured component feature profiles as native dynamic libraries.
-    Build {
-        /// Component profile names (default: every configured profile).
-        #[arg(long, value_delimiter = ',')]
-        component: Vec<String>,
-        /// Rust target triples (default: each profile's configured targets).
-        #[arg(long, value_delimiter = ',')]
-        target: Vec<String>,
-        /// Build without release optimizations.
-        #[arg(long)]
-        debug: bool,
-        /// Print build commands without executing them.
-        #[arg(long)]
-        dry_run: bool,
-        /// Share one Cargo target directory across every component instead of using
-        /// `.alef/components/build/<crate>/<component>` per component. Pass the same value to
-        /// `component package`.
-        #[arg(long)]
-        target_dir: Option<PathBuf>,
-    },
-    /// Create deterministic signed component archives and artifact records.
-    Package {
-        /// Component profile names (default: every configured profile).
-        #[arg(long, value_delimiter = ',')]
-        component: Vec<String>,
-        /// Rust target triples (default: each profile's configured targets).
-        #[arg(long, value_delimiter = ',')]
-        target: Vec<String>,
-        /// Output directory for component archives and records.
-        #[arg(long, short, default_value = "dist/components")]
-        output: PathBuf,
-        /// Component version (default: resolved from version_from).
-        #[arg(long)]
-        version: Option<String>,
-        /// Ed25519 private key: PKCS#8 PEM or DER (e.g. `openssl genpkey -algorithm ED25519`),
-        /// or a raw 32-byte seed. Pass `-` to read the key from stdin.
-        #[arg(long, requires = "key_id", conflicts_with_all = ["unsigned", "signing_key_env"])]
-        signing_key: Option<PathBuf>,
-        /// Name of an environment variable holding the Ed25519 private key as PKCS#8 PEM text, or
-        /// base64 of PKCS#8 DER / a raw 32-byte seed.
-        #[arg(long, requires = "key_id", conflicts_with_all = ["unsigned", "signing_key"])]
-        signing_key_env: Option<String>,
-        /// Stable ID of the public key embedded in generated binding packages.
-        #[arg(long)]
-        key_id: Option<String>,
-        /// Produce an unsigned CI intermediate archive.
-        #[arg(long, conflicts_with_all = ["signing_key", "signing_key_env"])]
-        unsigned: bool,
-        /// Package the library built without release optimizations.
-        #[arg(long)]
-        debug: bool,
-        /// Explicit built library path; valid only for one profile/target.
-        #[arg(long)]
-        library: Option<PathBuf>,
-        /// Cargo target directory the components were built into; must match the
-        /// `--target-dir` given to `component build` (default: per-component directories).
-        #[arg(long)]
-        target_dir: Option<PathBuf>,
-    },
-    /// Generate and stage a binding-embeddable components.lock.json from signed artifact records.
-    Lock {
-        /// Directory containing `*.record.json` files from `component package`.
-        #[arg(long, short, default_value = "dist/components")]
-        input: PathBuf,
-        /// Output lock manifest path (default: components.lock.json). Explicit unsigned
-        /// output stays isolated instead of staging into binding packages.
-        #[arg(long, short)]
-        output: Option<PathBuf>,
-        /// Rust target triples (default: every configured target).
-        #[arg(long, value_delimiter = ',')]
-        target: Vec<String>,
-        /// Component profile names to lock (default: every configured profile). A lock narrowed to
-        /// some components is written to `--output` only and never staged into binding packages.
-        #[arg(long, value_delimiter = ',')]
-        component: Vec<String>,
-        /// Emit a dev lock with no `public_keys` from unsigned (or signed) records. The runtime
-        /// does not verify signatures against such a lock; never ship it. Archive hashes are
-        /// still checked.
-        #[arg(long)]
-        unsigned: bool,
-        /// Override the configured `url_template` (must contain `{artifact}`); e.g.
-        /// `file:///abs/dist/components/{artifact}` for a local dev lock. Required with
-        /// `--unsigned` when the crate has no `component_distribution`.
-        #[arg(long)]
-        url_template: Option<String>,
-    },
-    /// Print each component contract's hash, as recorded in the component lock.
-    ///
-    /// One `component contract hash` line per provided contract; select crates with `--crate`.
-    ContractHash,
-    /// Verify artifact hashes, identities, library contents, and Ed25519 signatures.
-    Verify {
-        /// Artifact record file or directory containing `*.record.json` files.
-        #[arg(long, short, default_value = "dist/components")]
-        input: PathBuf,
-    },
 }
 
 #[derive(Subcommand)]

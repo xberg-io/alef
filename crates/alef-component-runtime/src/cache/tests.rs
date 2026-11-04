@@ -63,6 +63,7 @@ fn package(signing: Option<(&SigningKey, &str)>) -> (Vec<u8>, ComponentLockEntry
         size: compressed.len() as u64,
         manifest_sha256: hex::encode(sha256(&manifest_bytes)),
         key_id: signature.map(|value| value.key_id).unwrap_or_default(),
+        input_hash: None,
     };
     (compressed, entry)
 }

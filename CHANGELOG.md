@@ -15,11 +15,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Let a component that names its own `source_manifest` crate omit `features` (it defaults to empty). (#866)
 - Add `--component` to `alef component lock` to lock a subset of the configured components, for example a
   development lock; a component-filtered lock is written to `--output` only and never staged into binding packages. (#866)
+- Add input fingerprints, release planning and lock reuse for components. `alef component plan
+  --previous-lock` prints `build` or `reuse` per component and target, each row carrying an `input_hash`
+  (SHA-256 over the producer's `cargo metadata` closure, path package files including untracked ones, compiler
+  identity, build environment, cargo and rustup configuration, workspace inheritance tables, contracts,
+  distribution settings, `--extra key=value` pairs and `--env NAME` variables). `build --plan` handles only `build`
+  rows and writes a `<library>.input-hash` sidecar; `package --plan` checks it and records the fingerprint as
+  `input_hash` in the artifact record; `lock --reuse <lock> --plan <plan>` carries reused entries over verbatim after
+  checking their signing key is still trusted. Go components are never reused. `lock` strips `input_hash` from the
+  locks it stages into binding packages. (#869)
 
 ### Changed (BREAKING)
 
 - Extend `ComponentConfig` and `ResolvedComponent` with `source_manifest` and `producer_dir`. Rust callers
   constructing these structs must initialize the new fields; existing configuration files are unaffected. (#866)
+- Add `input_hash: Option<String>` to `ComponentArtifactRecord` and `ComponentLockEntry`. Rust callers constructing
+  these structs must initialize it. A lock at `--output` that carries it is rejected by older `alef-component-runtime` versions; staged binding locks never do. (#869)
 
 ## [0.122.1] - 2026-11-04
 

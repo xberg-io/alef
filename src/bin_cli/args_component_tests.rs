@@ -98,3 +98,27 @@ fn component_contract_hash_parses_with_a_crate_filter() {
     let cli = Cli::try_parse_from(["alef", "component", "contract-hash", "--crate", "demo"]).unwrap();
     assert_eq!(cli.crate_filter, vec!["demo".to_string()]);
 }
+
+#[test]
+fn component_build_and_package_fingerprint_flags_require_a_plan() {
+    for command in ["build", "package"] {
+        assert!(
+            component_action(&[command, "--extra", "image=x"]).is_err(),
+            "{command} --extra"
+        );
+        assert!(component_action(&[command, "--env", "CC"]).is_err(), "{command} --env");
+    }
+    let ComponentAction::Build { extra, env, plan, .. } = component_action(&[
+        "build", "--plan", "p.json", "--extra", "image=x", "--env", "CC", "--env", "AR",
+    ])
+    .unwrap() else {
+        panic!("expected build");
+    };
+    assert_eq!(plan, Some(PathBuf::from("p.json")));
+    assert_eq!(extra, ["image=x"]);
+    assert_eq!(env, ["CC", "AR"]);
+    let ComponentAction::Plan { env, .. } = component_action(&["plan", "--env", "SDKROOT"]).unwrap() else {
+        panic!("expected plan");
+    };
+    assert_eq!(env, ["SDKROOT"]);
+}

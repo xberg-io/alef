@@ -387,6 +387,7 @@ fn lock_is_sorted_and_expands_urls() {
             key_id: "release".into(),
             signature: "AA==".into(),
         }),
+        input_hash: None,
     };
     let keys = BTreeMap::from([("release".into(), "key".into())]);
     let lock = build_lock(

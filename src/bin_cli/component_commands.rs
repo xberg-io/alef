@@ -10,7 +10,7 @@ use crate::codegen::component_host::contract_hash_rows;
 use crate::component::artifact::{
     ComponentArtifactRecord, ComponentLock, PackageInput, ProvidedContractInput, SigningKeySource, build_lock,
     build_unsigned_lock, canonical_json, create_manifest, feature_hash, load_signing_key_from_source, read_record,
-    sign_manifest_with_key, verify_record_with, write_lock, write_package_named,
+    sign_manifest_with_key, verify_record_with, write_lock, write_package_recorded,
 };
 use crate::core::config::{ComponentConfig, ComponentDistributionConfig, Language, ResolvedCrateConfig};
 
@@ -20,8 +20,11 @@ use super::helpers::load_config;
 
 #[path = "component_build.rs"]
 mod build;
+#[path = "component_plan.rs"]
+mod plan;
 
 use build::{build_component, built_library_path};
+use plan::{Fingerprinter, PlanArgs};
 
 pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Option<Commands>> {
     let Commands::Component { action } = command else {
@@ -38,10 +41,15 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             debug,
             dry_run,
             target_dir,
+            plan,
+            extra,
+            env,
         } => {
+            let plan = plan::load_selection(plan.as_deref(), debug)?;
+            let mut fingerprinter = Fingerprinter::new(&extra, &env)?;
             for config in &crates {
                 let contracts = extract_contracts(config, &context.config_path)?;
-                for profile in select_profiles(config, &component)? {
+                for profile in plan::plan_profiles(config, &component, plan.as_ref())? {
                     let resolved_component = contracts
                         .get(profile.name.as_str())
                         .with_context(|| format!("component `{}` has no resolved contract", profile.name))?;
@@ -51,12 +59,62 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                             "component contract hash changed during build planning"
                         );
                     }
-                    for rust_target in select_targets(config, profile, &target)? {
+                    for rust_target in plan::plan_targets(config, profile, &target, plan.as_ref())? {
+                        let planned_hash = match &plan {
+                            Some(plan) => {
+                                let Some(hash) = plan::gate(
+                                    plan,
+                                    &mut fingerprinter,
+                                    config,
+                                    profile,
+                                    resolved_component,
+                                    &rust_target,
+                                    debug,
+                                )?
+                                else {
+                                    continue;
+                                };
+                                hash
+                            }
+                            None => None,
+                        };
+                        let library =
+                            built_library_path(config, &profile.name, &rust_target, debug, target_dir.as_deref());
+                        if !dry_run {
+                            plan::clear_sidecar(&library)?;
+                        }
                         build_component(config, profile, &rust_target, debug, dry_run, target_dir.as_deref())?;
+                        if let (false, Some(hash)) = (dry_run, planned_hash.as_deref()) {
+                            plan::write_sidecar(&library, hash)?;
+                        }
                     }
                 }
             }
             tracing::info!("Component build complete");
+            Ok(None)
+        }
+        ComponentAction::Plan {
+            previous_lock,
+            component,
+            target,
+            extra,
+            env,
+            debug,
+            output,
+        } => {
+            plan::run(
+                &crates,
+                &context.config_path,
+                PlanArgs {
+                    previous_lock,
+                    component,
+                    target,
+                    extra,
+                    env,
+                    debug,
+                    output,
+                },
+            )?;
             Ok(None)
         }
         ComponentAction::Package {
@@ -71,7 +129,12 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             library,
             debug,
             target_dir,
+            extra,
+            env,
+            plan,
         } => {
+            let plan = plan::load_selection(plan.as_deref(), debug)?;
+            let mut fingerprinter = Fingerprinter::new(&extra, &env)?;
             let mut package_count = 0_usize;
             let requested_count = crates
                 .iter()
@@ -126,7 +189,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     );
                 }
 
-                for profile in select_profiles(config, &component)? {
+                for profile in plan::plan_profiles(config, &component, plan.as_ref())? {
                     let resolved_component = contracts
                         .get(profile.name.as_str())
                         .with_context(|| format!("component `{}` has no resolved contract", profile.name))?;
@@ -147,10 +210,29 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                         })
                         .collect::<Vec<_>>();
                     let profile_feature_hash = feature_hash(&profile.features, profile.default_features);
-                    for rust_target in select_targets(config, profile, &target)? {
+                    for rust_target in plan::plan_targets(config, profile, &target, plan.as_ref())? {
                         let library_path = library.clone().unwrap_or_else(|| {
                             built_library_path(config, &profile.name, &rust_target, debug, target_dir.as_deref())
                         });
+                        let input_hash = match &plan {
+                            Some(plan) => {
+                                let Some(hash) = plan::gate(
+                                    plan,
+                                    &mut fingerprinter,
+                                    config,
+                                    profile,
+                                    resolved_component,
+                                    &rust_target,
+                                    debug,
+                                )?
+                                else {
+                                    continue;
+                                };
+                                plan::check_sidecar(&library_path, hash.as_deref())?;
+                                hash
+                            }
+                            None => None,
+                        };
                         let manifest = create_manifest(
                             &library_path,
                             PackageInput {
@@ -174,7 +256,14 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                             .component_distribution
                             .as_ref()
                             .and_then(|distribution| distribution.artifact_name_template.as_deref());
-                        let record = write_package_named(&library_path, &output, manifest, signature, name_template)?;
+                        let record = write_package_recorded(
+                            &library_path,
+                            &output,
+                            manifest,
+                            signature,
+                            name_template,
+                            input_hash,
+                        )?;
                         tracing::info!("Packaged component {}", output.join(&record.archive).display());
                         package_count += 1;
                     }
@@ -190,8 +279,12 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             url_template,
             target,
             component,
+            reuse,
+            plan,
         } => {
             validate_lock_targets(&crates, &target)?;
+            plan::check_reuse_options(url_template.as_deref(), reuse.is_some())?;
+            let reuse = plan::load_reuse(reuse.as_deref(), plan.as_deref())?;
             for config in &crates {
                 if !component.is_empty() {
                     select_profiles(config, &component)?;
@@ -202,9 +295,13 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             if let Some(template) = url_template.as_deref() {
                 ComponentDistributionConfig::validate_url_template(template).map_err(|message| anyhow!(message))?;
             }
-            let records = records_in(&input)?;
+            let records = if reuse.is_some() && !input.exists() {
+                Vec::new()
+            } else {
+                records_in(&input)?
+            };
             ensure!(
-                !records.is_empty(),
+                reuse.is_some() || !records.is_empty(),
                 "no component artifact records found in {}",
                 input.display()
             );
@@ -256,9 +353,15 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 for (path, _) in &crate_records {
                     verify_record_with(path, signed_keys, name_template)?;
                 }
-                ensure_configured_matrix_present(config, &crate_records, &target, &component)?;
+                let reused =
+                    plan::reuse_for_crate(reuse.as_ref(), config, &crate_records, signed_keys, &component, &target)?;
+                let reused_keys = reused
+                    .iter()
+                    .map(|entry| (entry.identity.component.clone(), entry.identity.target.clone()))
+                    .collect::<Vec<_>>();
+                ensure_configured_matrix_present(config, &crate_records, &target, &component, &reused_keys)?;
                 ensure!(
-                    !crate_records.is_empty(),
+                    !(crate_records.is_empty() && reused.is_empty()),
                     "no artifact records found for crate `{}`",
                     config.name
                 );
@@ -271,6 +374,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     None => build_unsigned_lock(&owned, &template)?,
                 };
                 artifacts.extend(lock.artifacts);
+                artifacts.extend(reused);
             }
             ensure!(
                 !artifacts.is_empty(),
@@ -602,11 +706,17 @@ pub(crate) fn binding_component_lock_paths(config: &ResolvedCrateConfig) -> BTre
 }
 
 fn binding_lock_for_crate(lock: &ComponentLock, crate_name: &str) -> ComponentLock {
+    // Older runtimes deny unknown lock fields, so the planning-only `input_hash` stays out of the
+    // lock that ships inside binding packages.
     let artifacts = lock
         .artifacts
         .iter()
         .filter(|artifact| artifact.identity.crate_name == crate_name)
         .cloned()
+        .map(|mut artifact| {
+            artifact.input_hash = None;
+            artifact
+        })
         .collect::<Vec<_>>();
     let key_ids = artifacts
         .iter()
@@ -736,6 +846,7 @@ fn ensure_configured_matrix_present(
     records: &[&(PathBuf, ComponentArtifactRecord)],
     requested: &[String],
     components: &[String],
+    reused: &[(String, String)],
 ) -> Result<()> {
     for profile in config
         .components
@@ -749,7 +860,9 @@ fn ensure_configured_matrix_present(
             ensure!(
                 records.iter().any(|(_, record)| {
                     record.manifest.identity.component == profile.name && record.manifest.identity.target == target
-                }),
+                }) || reused
+                    .iter()
+                    .any(|(component, reused_target)| component == &profile.name && reused_target == &target),
                 "component lock input is missing `{}` for target `{target}`",
                 profile.name
             );

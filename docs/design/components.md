@@ -120,6 +120,109 @@ lto = "thin"
 panic = "unwind"
 ```
 
+## Incremental releases: fingerprints, plans and lock reuse
+
+Rebuilding every component for every target each release is wasteful when nothing a component is
+built from changed. alef fingerprints each build, plans which builds can be skipped, and carries
+the previous artifacts' lock entries over.
+
+```console
+alef component plan --previous-lock components.lock.json --extra image=manylinux_2_28 -o plan.json
+alef component build --plan plan.json --extra image=manylinux_2_28
+alef component package --plan plan.json --extra image=manylinux_2_28 --signing-key-env KEY --key-id release-2026
+alef component lock --reuse components.lock.json --plan plan.json
+```
+
+**Fingerprint.** A SHA-256 hex digest (`input_hash`) over, in this order: the fingerprint format
+version, alef version, `<crate>/<component>`, target, profile (`release` or `debug`), the sorted
+feature list and `default_features`; each provided contract's hash; the distribution settings
+(`url_template`, `artifact_name_template`, `public_keys`); the compiler identity; the build
+environment; the implicit configuration files; the workspace root manifest tables; the `--extra`
+pairs; and the producer's dependency closure.
+
+- *Compiler.* The `release:`, `commit-hash:` and `LLVM version:` lines of `rustc -vV`. The `host:`
+  line is left out, so the same compiler on two build machines agrees.
+- *Environment.* `RUSTFLAGS`, `CARGO_ENCODED_RUSTFLAGS`, `CARGO_BUILD_RUSTFLAGS`, `CARGO_BUILD_RUSTC`,
+  `CARGO_BUILD_RUSTC_WRAPPER`, `CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER`, `CARGO_BUILD_TARGET`,
+  `CARGO_PROFILE_*`, `CARGO_TARGET_*_RUSTFLAGS`, the target's `CARGO_TARGET_<T>_LINKER`, `RUSTC`,
+  `RUSTC_WRAPPER`, `RUSTC_WORKSPACE_WRAPPER`, `MACOSX_DEPLOYMENT_TARGET`,
+  `IPHONEOS_DEPLOYMENT_TARGET`, `SDKROOT`, and `CC`, `CXX`, `AR`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS` in
+  their cc-rs spellings (`<NAME>`, `<NAME>_<target>`, `<NAME>_<target_with_underscores>`,
+  `TARGET_<NAME>`, `HOST_<NAME>`). `--env NAME` (repeatable on `plan`, `build` and `package`) adds
+  any other variable a build script reads. alef does not probe non-rustc tools: put the C compiler
+  or SDK version in `--extra`, for example `--extra cc=$(cc --version | head -1)`.
+- *Configuration files.* The SHA-256 of every `.cargo/config.toml`, `.cargo/config`,
+  `rust-toolchain.toml` and `rust-toolchain` found walking up from the working directory and from
+  the producer directory all the way to the filesystem root (not stopping at `.git`), and of
+  `$CARGO_HOME/config.toml` (`~/.cargo` by default). Records are labeled by scope and depth, never
+  by absolute path, so the checkout location does not change the digest.
+- *Manifest tables.* From the producer workspace root: `[profile]`, `[patch]`, `[replace]`,
+  `[workspace.package]` without its `version` key, `[workspace.lints]` and
+  `[workspace.dependencies]` (a path dependency's `version` is ignored there). Package versions
+  stay out on purpose: a lock-step release that touches no file must still reuse. The consequence is
+  that `env!("CARGO_PKG_VERSION")` inside a reused artifact reports the version it was built at.
+- *Closure.* `cargo metadata --manifest-path <producer>/Cargo.toml --locked`, so a producer in
+  another workspace uses that workspace's `Cargo.lock`, and a stale or missing lock is an error.
+  There is no `--filter-platform`: the closure is a sound superset that includes host-only build
+  dependencies. Metadata unifies features across the whole workspace, so a feature change in an
+  unrelated member can cause a rebuild; that is over-sensitive, never stale. Normal and build
+  dependencies are followed, each with its resolved feature set. Registry and git packages enter as
+  name, version, source and `Cargo.lock` checksum. Path packages (the producer, the core crate, any
+  engine crate) enter by a digest of their files, without their version; workspace members outside
+  the closure do not matter.
+
+The path-package digest uses git when the directory is inside a repository: the blob ids of the
+tracked files (`git ls-files -s`) and of untracked files that are not ignored
+(`git ls-files -o --exclude-standard`, skipping `target` directories), with modified and untracked
+files hashed from their current content, so an uncommitted edit or a new source file counts and
+line-ending conversion does not. If git cannot list a directory that has a `.git` ancestor, alef logs
+a warning and hashes by walking it instead. Outside git it hashes the content of every regular file
+except `target` and `.git` directories. A symlink to a file is hashed by the content of its target in
+both modes; a symlink to a directory is not followed. The same tree hashes differently with and
+without git, which only costs a rebuild. Files outside the package directory, such as
+`include_str!("../../data.json")`, are not covered: keep them inside a hashed package or pass them
+through `--extra`.
+
+Pass the same `--extra` and `--env` values to `plan`, `build` and `package`. Only Rust producers are
+fingerprinted: `plan` emits a `build` row without `input_hash` for a Go component, and it is never
+reused.
+
+**Record and lock.** `package --plan` stores the planned fingerprint as `input_hash` in the artifact
+record; without `--plan` nothing is recorded. `lock` copies it into each lock entry written to
+`--output`. It is optional: older records and locks parse unchanged, and an entry without it is never
+reused. It is not covered by the manifest signature. Runtimes older than this field reject a lock
+that carries it (the lock structs deny unknown fields), so `lock` strips it from the locks it stages
+into binding packages; only the lock at `--output`, the one you keep for the next `plan`, has it.
+
+**Plan.** `plan` prints (or writes with `-o`) `{"schema_version": 1, "debug": false, "rows": [...]}`.
+A row is `{"crate", "component", "target", "input_hash", "action": "build" | "reuse", "previous"}`;
+`previous` is the lock entry to carry over and is present only for `reuse`. A row is `reuse` only
+when the previous lock has an entry with an equal `input_hash`, `Download` mode and the same crate,
+component, target, feature hash and contract hash; the version may differ. If more than one entry
+matches, `plan` fails and names them. Without `--previous-lock` every row is `build`. `plan`,
+`build` and `package` must agree on `--debug`.
+
+**Build and package.** `build --plan` and `package --plan` handle only the `build` rows (still
+narrowed by `--component` and `--target`). A selected component and target that has no row is an
+error (`not in plan`); one that has a `reuse` row is skipped with an info log. Both recompute the
+fingerprint and refuse to continue if the inputs changed since the plan. After a successful
+`build --plan`, the library gets a sidecar `<library path>.input-hash` holding the planned
+fingerprint (a rebuild first removes any old sidecar). `package --plan` requires the sidecar next to
+the library (or next to `--library <path>`, as `<path>.input-hash`) to equal the plan's
+fingerprint, so a library built from other inputs or by an unplanned build cannot be packaged under
+the plan.
+
+**Lock reuse.** `lock --reuse <previous-lock> --plan <plan>` copies each `reuse` row's entry from
+the previous lock verbatim (URL, hashes, signature, key id) without downloading or uploading
+anything, and merges it with the freshly packaged records in `--input`, which hold the `build` rows
+only. It refuses a `--url-template` (reused entries keep their URL); a `reuse` row for a component
+or target the crate does not configure or that `--component` / `--target` do not select; an entry that
+differs from the one in the previous lock; an entry whose `key_id` is not in the current
+`component_distribution.public_keys` (or whose key there differs from the previous lock's); a signed
+entry in an `--unsigned` lock; a fresh record with no row in the plan, with a fingerprint that
+differs from the plan, or for a pair the plan reuses. Reused entries count toward the
+configured-matrix completeness check.
+
 ## Host services
 
 A component can call back into its host through an optional service table appended to
