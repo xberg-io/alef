@@ -27,19 +27,20 @@ pub(crate) use commands::{build_with_environment, canonical_frb_generated, run_p
 pub use extract::extract;
 pub(crate) use extract::sanitize_binding_projection;
 pub(crate) use format::{
-    FormattingOwner, PolyCoverage, format_generated_reporting_with_extra_paths, formatting_owner,
-    generated_tree_needs_formatting, install_poly_hooks, is_tool_available, languages_owning_changed_paths,
-    poly_format, poly_format_strict, poly_format_strict_including_excluded, unowned_changed_paths,
+    FormattingOwner, PolyCoverage, format_generated_reporting_with_extra_paths, format_owned_paths_reporting,
+    formatting_owner, generated_tree_needs_formatting, install_poly_hooks, is_tool_available,
+    languages_owning_changed_paths, poly_format, poly_format_strict, poly_format_strict_including_excluded,
+    unowned_changed_paths,
 };
 pub use format::{format_generated, format_generated_reporting, unstamp_before_formatting, warn_missing_formatters};
 pub use generate::{
     WriteReport, collect_alef_headered_paths, diff_files, finalize_hashes, finalize_hashes_after_tree_format,
     finalize_hashes_sweeping, find_create_once_template_drift, generate, generate_public_api, generate_service_api,
     generate_stubs, generate_sweep_roots, managed_generated_files, managed_output_paths, normalize_content, readme,
-    reconcile_managed_scaffold_manifests, report_refused_writes, report_user_owned_skips, scaffold,
-    stampable_output_paths, sweep_manifest_orphans, sweep_orphans, targeted_e2e_sweep_roots, write_files,
-    write_files_report, write_format_config_prepass, write_scaffold_files, write_scaffold_files_report,
-    write_scaffold_files_with_overwrite,
+    reclaim_components_only_leftovers, reconcile_managed_scaffold_manifests, report_refused_writes,
+    report_user_owned_skips, scaffold, stampable_output_paths, sweep_manifest_orphans, sweep_orphans,
+    targeted_e2e_sweep_roots, write_files, write_files_report, write_format_config_prepass, write_scaffold_files,
+    write_scaffold_files_report, write_scaffold_files_with_overwrite,
 };
 pub(crate) use generate::{
     apply_shebang_chmod, atomic_write, check_ffi_header_freshness, declared_user_owned, decode_base64_binary,

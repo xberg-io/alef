@@ -526,7 +526,17 @@ pub(crate) fn handle_generate(
         // THIS run, and the tree is still non-canonical. `generated_tree_needs_formatting`
         // answers "no" on a settled tree, so the fast path (skip formatting entirely) is
         // unchanged -- see `pipeline::format::stamp_gate`. ~keep
-        if any_output_changed || pipeline::generated_tree_needs_formatting(&base_dir) {
+        // A components-only crate owns a closed set of files, so its gate and its format pass are
+        // both scoped to them. `generated_tree_needs_formatting` and the `base_dir` walk below
+        // judge and rewrite the WHOLE tree, which for such a crate is hand-written code and docs
+        // (`CHANGELOG.md`) alef never wrote. ~keep
+        let components_only = resolved_cfg.is_components_only();
+        let format_gate = if components_only {
+            any_written
+        } else {
+            any_output_changed || pipeline::generated_tree_needs_formatting(&base_dir)
+        };
+        if format_gate {
             tracing::info!("Formatting generated files...");
             // Load-bearing, not defence in depth: removing the per-phase
             // `finalize_hashes` checkpoints above stops a FRESH run from stamping too
@@ -559,13 +569,22 @@ pub(crate) fn handle_generate(
             // `extra_format_paths` rides along regardless of which `format_scope` branch fired
             // above: a workspace-root scaffold file no language owns is not reachable through
             // `format_scope` no matter how it is widened, so it is handed to poly directly. ~keep
-            pipeline::format_generated_reporting_with_extra_paths(
-                resolved_cfg,
-                &base_dir,
-                Some(&format_scope),
-                &extra_format_paths,
-                strict,
-            )?;
+            if components_only {
+                let owned: std::collections::BTreeSet<_> = current_gen_paths
+                    .iter()
+                    .chain(extra_format_paths.iter())
+                    .cloned()
+                    .collect();
+                pipeline::format_owned_paths_reporting(&base_dir, &owned, strict)?;
+            } else {
+                pipeline::format_generated_reporting_with_extra_paths(
+                    resolved_cfg,
+                    &base_dir,
+                    Some(&format_scope),
+                    &extra_format_paths,
+                    strict,
+                )?;
+            }
         }
         // Final stamp, after post-build AND formatting have both settled every byte this
         // run will ship -- see the ordering comment above `complete_generated_artifacts`
@@ -737,6 +756,7 @@ pub(crate) fn handle_generate(
         // so a language this run skipped or whose bookkeeping is broken is refused, not
         // scanned -- see that function's doc for the measured evidence behind the gate. ~keep
         pipeline::sweep_manifest_orphans(&previous_paths, &cleanup_keep_paths, &cleanup_roots, &cleanup_roots)?;
+        pipeline::reclaim_components_only_leftovers(resolved_cfg, &resolved, &base_dir)?;
         for (language, paths) in &generation_owned_paths {
             let paths: Vec<_> = paths.iter().cloned().collect();
             cache::write_stage_hash(

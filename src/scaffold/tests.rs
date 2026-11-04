@@ -120,6 +120,7 @@ fn language_files(files: &[GeneratedFile]) -> Vec<&GeneratedFile> {
 
 mod cargo_config;
 mod cargo_table_order;
+mod components_only;
 mod core_deps;
 mod dependency_key_order;
 mod extra_deps;

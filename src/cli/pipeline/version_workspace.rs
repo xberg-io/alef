@@ -110,11 +110,20 @@ pub(super) fn sync_workspace_cargo_toml_versions(
     };
 
     let version_family = selected_version_family(config, selected_core.as_ref(), &cargo_toml_paths);
+    let components_only = config.is_components_only();
     for path_str in &cargo_toml_paths {
+        // A components-only crate owns just the producer crates it generated; every other
+        // workspace member (the core crate included) keeps its own version and dependency
+        // literals. ~keep
+        if components_only && !manifest_carries_alef_marker(path_str) {
+            debug!("Skipping version sync for a workspace member alef does not own: {path_str}");
+            continue;
+        }
         if Path::new(path_str)
             .canonicalize()
             .is_ok_and(|path| version_family.manifests.contains(&path))
-            && crate::publish::workspace::manifest_is_publishable(Path::new(path_str))
+            // Producer crates are `publish = false` yet alef-owned, so they are stamped regardless. ~keep
+            && (components_only || crate::publish::workspace::manifest_is_publishable(Path::new(path_str)))
         {
             if write_version_to_cargo_toml(path_str, version).unwrap_or(false) && !updated.contains(path_str) {
                 updated.push(path_str.clone());
@@ -138,6 +147,10 @@ pub(super) fn sync_workspace_cargo_toml_versions(
         }
     }
 
+    if components_only {
+        return;
+    }
+
     match patch_family_dependency_versions("Cargo.toml", version, &version_family) {
         Ok(true) => {
             if !updated.contains(&"Cargo.toml".to_string()) {
@@ -150,6 +163,10 @@ pub(super) fn sync_workspace_cargo_toml_versions(
             debug!("Could not patch workspace dep versions in root Cargo.toml: {e}");
         }
     }
+}
+
+fn manifest_carries_alef_marker(path: &str) -> bool {
+    std::fs::read_to_string(path).is_ok_and(|content| crate::core::hash::content_has_alef_marker(&content))
 }
 
 fn collect_workspace_cargo_toml_paths(

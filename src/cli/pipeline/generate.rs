@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod adopted_seed_marker_tests;
 mod binary;
+mod components_only;
 mod diff;
 mod format_config;
 mod generation;
@@ -29,6 +30,7 @@ use crate::core::backend::GeneratedFile;
 use std::path::Path;
 
 pub(crate) use binary::{decode_base64_binary, is_base64_binary_output};
+pub use components_only::reclaim_components_only_leftovers;
 pub use diff::diff_files;
 pub use format_config::write_format_config_prepass;
 pub use generation::{generate, generate_public_api, generate_service_api, generate_stubs};

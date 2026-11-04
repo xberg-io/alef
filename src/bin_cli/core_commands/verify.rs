@@ -334,8 +334,12 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
     // Guarded by `!crates_to_process.is_empty()`: an empty crate selection has nothing to check
     // by construction and must not be confused with the enumerator finding a configured crate
     // but examining zero of its manifests, which IS a failure (see `verify_versions`'s doc). ~keep
-    let has_version_issues =
-        !crates_to_process.is_empty() && !commands::validate_versions::checks_pass(&all_version_checks);
+    let nothing_to_examine = crates_to_process
+        .iter()
+        .all(|cfg| commands::component_version_checks::nothing_to_examine(cfg));
+    let has_version_issues = !crates_to_process.is_empty()
+        && !(all_version_checks.is_empty() && nothing_to_examine)
+        && !commands::validate_versions::checks_pass(&all_version_checks);
     if has_version_issues {
         crate::bin_cli::output::line("Version mismatches detected:");
         for check in all_version_checks.iter().filter(|check| !check.matches) {
@@ -644,6 +648,10 @@ fn missing_snippet_directories(
     config: &crate::core::config::ResolvedCrateConfig,
     base_dir: &std::path::Path,
 ) -> Vec<String> {
+    // A components-only crate generates no docs, so its snippet roots are never consulted.
+    if config.is_components_only() {
+        return Vec::new();
+    }
     let Some(snippets) = config.docs.as_ref().and_then(|docs| docs.snippets.as_ref()) else {
         return Vec::new();
     };

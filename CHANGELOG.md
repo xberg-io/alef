@@ -25,6 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `[crates.python.visitor_context_accessors]`. Configured getters can read borrowed
   core context data during the callback without copying it on entry.
 
+### Fixed
+
+- Make a components-only crate (components, no binding languages) own only its component outputs: `alef generate`
+  no longer rewrites other workspace members' versions, relocks `Cargo.lock`, or seeds `rust-toolchain.toml`, scaffold
+  files or docs reference pages, and `alef verify` passes after a fresh generate while still detecting drift in a
+  generated producer. (#868)
+- Scope the post-generate format pass of a components-only crate to the files alef wrote, so `alef generate` no longer
+  reformats hand-written files such as `CHANGELOG.md` or other workspace members' sources. (#872)
+
 ### Changed (BREAKING)
 
 - Extend `ComponentConfig` and `ResolvedComponent` with `source_manifest` and `producer_dir`. Rust callers

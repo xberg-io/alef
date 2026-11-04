@@ -799,6 +799,10 @@ pub(crate) fn collect_managed_surface(
     // that never looked at their result, since a docs-stage `Err` is already downgraded to the
     // debug log below regardless of which sub-step produced it. ~keep
     let docs_stage: Stage<'_> = Box::new(|| {
+        // A components-only crate has no API reference pages to own. ~keep
+        if config.is_components_only() {
+            return Ok((Vec::new(), Vec::new()));
+        }
         let doc_languages = resolve_doc_languages(config, None)?;
         let (doc_files, doc_result) = crate::docs::generate_docs_stage_for_manifest(
             api,

@@ -342,6 +342,15 @@ impl ResolvedCrateConfig {
         Ok(sources)
     }
 
+    /// Whether this crate declares components and no binding languages.
+    ///
+    /// Such a crate owns only its component outputs (producer crates, host module, component
+    /// lock): no toolchain, scaffold or docs-reference files, and no version or lockfile rewrites
+    /// of workspace members alef did not generate.
+    pub fn is_components_only(&self) -> bool {
+        self.languages.is_empty() && !self.components.is_empty()
+    }
+
     /// Convenience accessor: the resolved output directory for a language.
     /// Returns `None` if this crate does not target the language.
     pub fn output_for(&self, lang: &str) -> Option<&std::path::Path> {

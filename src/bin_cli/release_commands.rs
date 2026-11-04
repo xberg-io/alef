@@ -37,7 +37,9 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     // deliberately tolerates because such a row cannot resolve until the
                     // release being gated is published. `--json` already reported
                     // `checks_pass`, so one command could answer `ok: true` and exit 1.
-                    if !commands::validate_versions::checks_pass(&checks) {
+                    if !commands::component_version_checks::nothing_to_examine(resolved_cfg)
+                        && !commands::validate_versions::checks_pass(&checks)
+                    {
                         has_mismatches = true;
                     }
                     // ~keep alef #1528: `checks_pass` above only compares version STRINGS across

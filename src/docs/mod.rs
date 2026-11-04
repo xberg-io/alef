@@ -261,6 +261,10 @@ fn generate_docs_stage_impl(
     run_snippet_compile_validation: bool,
     non_python_api: Option<&ApiSurface>,
 ) -> (Vec<GeneratedFile>, anyhow::Result<()>) {
+    // A components-only crate has no API reference pages to own. ~keep
+    if config.is_components_only() {
+        return (Vec::new(), Ok(()));
+    }
     let reference_output = output_override
         .map(PathBuf::from)
         .unwrap_or_else(|| reference_output_dir(config));

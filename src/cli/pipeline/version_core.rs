@@ -309,7 +309,7 @@ pub fn verify_versions(
         .resolved_version()
         .context("Cannot read canonical version from Cargo.toml (version_from)")?;
     let checks = crate::cli::commands::validate_versions::collect_checks(config, workspace_root, &canonical);
-    if checks.is_empty() {
+    if checks.is_empty() && !crate::cli::commands::component_version_checks::nothing_to_examine(config) {
         anyhow::bail!(
             "version verification examined 0 manifests for crate `{}` (canonical {canonical}); \
              check that the configured package directories exist and are readable",

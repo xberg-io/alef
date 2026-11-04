@@ -603,6 +603,8 @@ pub(super) fn ensure_generation_completed(incomplete_crates: &[String], report_o
 }
 
 #[cfg(test)]
+mod components_only_tests;
+#[cfg(test)]
 mod format_scope_tests;
 #[cfg(test)]
 mod generate_summary_tests;
