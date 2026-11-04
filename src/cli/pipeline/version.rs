@@ -1116,7 +1116,9 @@ fn sync_citation_and_extra_paths(
     writable: &crate::cli::git::IgnoreFilter,
     state: &mut SyncState,
 ) -> anyhow::Result<()> {
-    sync_citation_file(config, version, release_date_override, &mut state.updated)?;
+    if !config.is_components_only() || config.citation.is_some() {
+        sync_citation_file(config, version, release_date_override, &mut state.updated)?;
+    }
 
     if let Some(sync_config) = &config.sync {
         apply_sync_extra_paths(
@@ -1133,6 +1135,10 @@ fn sync_citation_and_extra_paths(
             &mut state.updated,
             &mut state.text_replacement_paths,
         );
+    }
+
+    if config.is_components_only() {
+        return Ok(());
     }
 
     // Resolved from `[docs] reference_output`, not the `docs/reference` default this used to

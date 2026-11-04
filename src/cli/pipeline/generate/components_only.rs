@@ -34,10 +34,15 @@ fn collect_markdown(dir: &Path, found: &mut Vec<PathBuf>) {
 }
 
 /// Delete the scaffold and docs-reference files a components-only crate no longer owns, but only
-/// those that still carry an alef provenance marker. An unmarked file is user-owned and is never
-/// touched. Returns the number of files removed.
-pub fn reclaim_components_only_leftovers(config: &ResolvedCrateConfig, base_dir: &Path) -> anyhow::Result<usize> {
-    if !config.is_components_only() {
+/// those that still carry an alef provenance marker. A marker cannot distinguish sibling
+/// ownership, so cleanup requires the full workspace, including crates excluded by `--crate`.
+/// Returns the number of files removed.
+pub fn reclaim_components_only_leftovers(
+    config: &ResolvedCrateConfig,
+    workspace: &[ResolvedCrateConfig],
+    base_dir: &Path,
+) -> anyhow::Result<usize> {
+    if !config.is_components_only() || workspace.iter().any(|krate| !krate.is_components_only()) {
         return Ok(0);
     }
     let mut candidates: Vec<PathBuf> = FORMER_SCAFFOLD_FILES.iter().map(|file| base_dir.join(file)).collect();

@@ -737,7 +737,7 @@ pub(crate) fn handle_generate(
         // so a language this run skipped or whose bookkeeping is broken is refused, not
         // scanned -- see that function's doc for the measured evidence behind the gate. ~keep
         pipeline::sweep_manifest_orphans(&previous_paths, &cleanup_keep_paths, &cleanup_roots, &cleanup_roots)?;
-        pipeline::reclaim_components_only_leftovers(resolved_cfg, &base_dir)?;
+        pipeline::reclaim_components_only_leftovers(resolved_cfg, &resolved, &base_dir)?;
         for (language, paths) in &generation_owned_paths {
             let paths: Vec<_> = paths.iter().cloned().collect();
             cache::write_stage_hash(
