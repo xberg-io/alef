@@ -681,6 +681,10 @@ pub(crate) enum ComponentAction {
         /// Rust target triples (default: every configured target).
         #[arg(long, value_delimiter = ',')]
         target: Vec<String>,
+        /// Component profile names to lock (default: every configured profile). A lock narrowed to
+        /// some components is written to `--output` only and never staged into binding packages.
+        #[arg(long, value_delimiter = ',')]
+        component: Vec<String>,
         /// Emit a dev lock with no `public_keys` from unsigned (or signed) records. The runtime
         /// does not verify signatures against such a lock; never ship it. Archive hashes are
         /// still checked.

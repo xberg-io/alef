@@ -64,6 +64,17 @@ fn component_lock_accepts_unsigned_with_a_url_template_override() {
 }
 
 #[test]
+fn component_lock_accepts_a_component_filter() {
+    let ComponentAction::Lock { component, target, .. } =
+        component_action(&["lock", "--component", "sql,ruby", "--target", "aarch64-apple-darwin"]).unwrap()
+    else {
+        panic!("expected lock");
+    };
+    assert_eq!(component, vec!["sql".to_string(), "ruby".to_string()]);
+    assert_eq!(target, vec!["aarch64-apple-darwin".to_string()]);
+}
+
+#[test]
 fn component_build_and_package_accept_a_shared_target_dir() {
     let ComponentAction::Build { target_dir, .. } = component_action(&["build", "--target-dir", "target/c"]).unwrap()
     else {

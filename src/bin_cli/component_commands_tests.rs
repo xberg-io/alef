@@ -473,3 +473,67 @@ fn rust_component_build_uses_the_relocated_producer_manifest() {
     assert_eq!(args[1], "--manifest-path");
     assert_eq!(args[2], producer_dir.join("Cargo.toml").as_os_str());
 }
+
+fn record_for(component: &str) -> (PathBuf, ComponentArtifactRecord) {
+    use crate::component::artifact::{ComponentLibrary, ComponentManifest, ComponentProvidedContract};
+    let record = ComponentArtifactRecord {
+        manifest: ComponentManifest {
+            schema_version: 1,
+            abi_version: 1,
+            identity: ComponentIdentity {
+                crate_name: "demo-core".into(),
+                component: component.into(),
+                version: "1.0.0".into(),
+                target: "x86_64-unknown-linux-gnu".into(),
+                feature_hash: "a".repeat(64),
+                contract_hash: "b".repeat(64),
+            },
+            provides: vec![ComponentProvidedContract {
+                contract: "engine".into(),
+                interface_version: 1,
+                contract_hash: "b".repeat(64),
+                implementation: "demo::Fast".into(),
+            }],
+            features: vec![],
+            default_features: false,
+            library: ComponentLibrary {
+                file: "libdemo.so".into(),
+                sha256: "c".repeat(64),
+                size: 1,
+            },
+        },
+        manifest_sha256: "d".repeat(64),
+        archive: format!("{component}.tar.gz"),
+        archive_sha256: "e".repeat(64),
+        archive_size: 2,
+        signature: None,
+    };
+    (PathBuf::from(format!("{component}.record.json")), record)
+}
+
+#[test]
+fn lock_matrix_check_covers_only_the_requested_components() {
+    let mut config = one_component_config();
+    let mut slow = config.components[0].clone();
+    slow.name = "slow".into();
+    slow.features = vec!["slow".into()];
+    config.components.push(slow);
+    let fast = record_for("fast");
+    let records = vec![&fast];
+
+    let error = ensure_configured_matrix_present(&config, &records, &[], &[]).unwrap_err();
+    assert!(error.to_string().contains("missing `slow`"), "{error}");
+    ensure_configured_matrix_present(&config, &records, &[], &["fast".to_string()]).unwrap();
+    let error = ensure_configured_matrix_present(&config, &records, &[], &["slow".to_string()]).unwrap_err();
+    assert!(error.to_string().contains("missing `slow`"), "{error}");
+}
+
+#[test]
+fn lock_component_filter_selects_named_profiles() {
+    let config = one_component_config();
+    let profile = &config.components[0];
+    assert!(profile_selected(&[], profile));
+    assert!(profile_selected(&["fast".to_string()], profile));
+    assert!(!profile_selected(&["slow".to_string()], profile));
+    assert!(select_profiles(&config, &["slow".to_string()]).is_err());
+}

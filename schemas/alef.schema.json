@@ -1285,7 +1285,8 @@
           "type": "object"
         },
         "features": {
-          "description": "Exact Cargo feature set enabled for this component.",
+          "default": [],
+          "description": "Exact Cargo feature set enabled for this component. Required and non-empty unless the\ncomponent is a Go producer or names its own `source_manifest` crate.",
           "items": {
             "type": "string"
           },
@@ -1334,8 +1335,7 @@
       },
       "required": [
         "name",
-        "provides",
-        "features"
+        "provides"
       ],
       "type": "object"
     },

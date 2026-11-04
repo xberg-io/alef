@@ -29,9 +29,12 @@ pub(super) fn validate_components(
             return invalid_component_config(&krate.name, format!("duplicate component `{}`", component.name));
         }
         validate_component_provides(&krate.name, component, &contract_names)?;
-        if component.producer_language != crate::core::config::ComponentProducerLanguage::Go
-            || !component.features.is_empty()
-        {
+        // A component built from the core crate is distinguished by its feature set, so it must name
+        // one; a Go producer, or one whose implementation lives in its own `source_manifest` crate,
+        // may enable none.
+        let may_omit_features = component.producer_language == crate::core::config::ComponentProducerLanguage::Go
+            || component.source_manifest.is_some();
+        if !may_omit_features || !component.features.is_empty() {
             validate_nonempty_values(&krate.name, &component.name, "features", &component.features)?;
         }
         validate_component_targets(&krate.name, component)?;

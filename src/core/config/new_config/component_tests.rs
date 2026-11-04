@@ -176,6 +176,36 @@ fn resolve_rejects_empty_component_features() {
 }
 
 #[test]
+fn source_manifest_components_may_omit_features() {
+    let mut config = component_config("");
+    let component = &mut config.crates[0].components[0];
+    component.features.clear();
+    component.source_manifest = Some("components/crates/x-web/Cargo.toml".into());
+    component.producer_dir = Some("components/crates/x-web-component".into());
+    config.resolve().unwrap();
+
+    let mut blank = component_config("");
+    let component = &mut blank.crates[0].components[0];
+    component.features = vec![String::new()];
+    component.source_manifest = Some("components/crates/x-web/Cargo.toml".into());
+    let error = blank.resolve().unwrap_err().to_string();
+    assert!(error.contains("features"), "{error}");
+}
+
+#[test]
+fn features_default_to_empty_when_omitted() {
+    let component: crate::core::config::ComponentConfig = toml::from_str(
+        r#"
+name = "web"
+provides = [{ contract = "ocr", implementation = "x_web::Web" }]
+source_manifest = "components/crates/x-web/Cargo.toml"
+"#,
+    )
+    .unwrap();
+    assert!(component.features.is_empty());
+}
+
+#[test]
 fn resolve_accepts_an_explicit_empty_target_list() {
     let mut config = component_config("");
     config.crates[0].components[0].targets = Some(Vec::new());

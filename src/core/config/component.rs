@@ -141,7 +141,9 @@ pub struct ComponentConfig {
     /// contract may be provided by more than one component under different
     /// feature sets.
     pub provides: Vec<ComponentProvidesConfig>,
-    /// Exact Cargo feature set enabled for this component.
+    /// Exact Cargo feature set enabled for this component. Required and non-empty unless the
+    /// component is a Go producer or names its own `source_manifest` crate.
+    #[serde(default)]
     pub features: Vec<String>,
     /// Whether the core crate's default Cargo features are also enabled.
     #[serde(default)]
