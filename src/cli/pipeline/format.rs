@@ -236,6 +236,22 @@ pub(crate) fn format_generated_reporting_with_extra_paths(
     escalate_missing_toolchains(skipped, strict)
 }
 
+/// Format exactly `paths` with poly and nothing else -- the pass for a crate that owns a closed set
+/// of outputs (a components-only crate). Unlike [`format_generated_reporting`] it never walks
+/// `base_dir`, so a hand-written file alef did not write (a `CHANGELOG.md`, a stray `.rs`) is never
+/// reformatted. Paths that no longer exist are dropped. ~keep
+pub(crate) fn format_owned_paths_reporting(
+    base_dir: &Path,
+    paths: &std::collections::BTreeSet<PathBuf>,
+    strict: bool,
+) -> anyhow::Result<Vec<DeferredFormatting>> {
+    let mut pass = FormatPass::new(&is_tool_available);
+    let existing: Vec<PathBuf> = paths.iter().filter(|path| path.is_file()).cloned().collect();
+    poly_format_pass(&existing, base_dir, &mut pass);
+    crate::e2e::format::warn_deferred(&pass.skipped);
+    escalate_missing_toolchains(pass.skipped, strict)
+}
+
 /// Testable seam for [`format_generated_reporting`]: resolves executable presence through
 /// `is_available` instead of PATH, so the `--strict` escalation is provable without
 /// depending on which formatters the host running the suite happens to have. ~keep

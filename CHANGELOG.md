@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no longer rewrites other workspace members' versions, relocks `Cargo.lock`, or seeds `rust-toolchain.toml`, scaffold
   files or docs reference pages, and `alef verify` passes after a fresh generate while still detecting drift in a
   generated producer. (#868)
+- Scope the post-generate format pass of a components-only crate to the files alef wrote, so `alef generate` no longer
+  reformats hand-written files such as `CHANGELOG.md` or other workspace members' sources. (#872)
 
 ### Changed (BREAKING)
 

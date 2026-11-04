@@ -338,3 +338,29 @@ fn generate_preserves_shared_files_of_an_unselected_bindings_crate() {
 fn all_preserves_shared_files_of_an_unselected_bindings_crate() {
     assert_selected_components_preserve_sibling_outputs(true);
 }
+
+#[test]
+fn generate_never_reformats_files_it_does_not_own() {
+    let (_dir, root) = generated_fixture(None);
+    let changelog = "# Changelog\n\n\n\n## 1.0.0   \n- entry\n\n\n";
+    let stray = "pub fn   stray( ) {  }\n";
+    write_file(&root, "CHANGELOG.md", changelog);
+    write_file(&root, "crates/vendored/src/stray.rs", stray);
+    // Removing a generated file forces a write this run, so the format pass is reached.
+    let producer = producer_lib(&root, "crates/demo-pdf-component");
+    std::fs::remove_file(&producer).unwrap();
+    {
+        let _cwd = CwdGuard::enter(&root);
+        generate(&root);
+    }
+
+    assert!(
+        producer.is_file(),
+        "the producer must be rewritten, or the format pass was never reached"
+    );
+    assert_eq!(std::fs::read_to_string(root.join("CHANGELOG.md")).unwrap(), changelog);
+    assert_eq!(
+        std::fs::read_to_string(root.join("crates/vendored/src/stray.rs")).unwrap(),
+        stray
+    );
+}
