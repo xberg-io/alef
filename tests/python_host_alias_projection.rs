@@ -187,27 +187,14 @@ fn private_callback_keeps_unrelated_inherent_method_with_same_name() {
         let core = std::fs::read_to_string(&source).unwrap();
         std::fs::write(
             source,
-            core + r#"
-pub struct Widget {
-    pub value: usize,
-}
-
-impl Widget {
-    pub fn new(value: usize) -> Self {
-        Self { value }
-    }
-
-    pub fn checked_count(&self, text: &str) -> usize {
-        self.value + text.len()
-    }
-}
-"#,
+            core + "\n" + include_str!("fixtures/python_host_aliases/concrete.rs"),
         )
         .unwrap();
         let output = generate_with_config(root.path(), &config, alias);
         assert!(output.status.success(), "{}", output_text(&output));
         let protocol = std::fs::read_to_string(
-            root.path().join("packages/swift/Sources/RustBridge/SwiftCounterBridge.swift"),
+            root.path()
+                .join("packages/swift/Sources/RustBridge/SwiftCounterBridge.swift"),
         )
         .unwrap();
         assert_eq!(protocol.contains("func checkedCount("), exposed);
@@ -215,6 +202,10 @@ impl Widget {
         assert!(
             bindings.contains("pub fn widget_checked_count_from_json("),
             "unrelated Widget::checked_count must survive {alias}"
+        );
+        assert!(
+            bindings.contains("pub fn implementer_checked_count_from_json("),
+            "public Implementer::checked_count must survive {alias}"
         );
     }
 }
