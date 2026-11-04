@@ -227,8 +227,67 @@ fn type_with_a_static_new_carries_the_value_through_it() {
         .content
         .clone();
     let to_core = impl_block(&content, "impl From<NodeContext> for test_lib::NodeContext {");
-    assert!(to_core.contains("Self::new("), "{to_core}");
-    assert!(to_core.contains("val.attributes"), "{to_core}");
+    let call = &to_core[to_core.find("Self::new(").expect("calls the static new")..];
+    let position = |needle: &str| {
+        call.find(needle)
+            .unwrap_or_else(|| panic!("`{needle}` is not an argument:\n{to_core}"))
+    };
+    assert!(
+        position("val.tag_name") < position("val.attributes") && position("val.attributes") < position("val.depth"),
+        "arguments follow `new(tag_name, attributes, depth)`:\n{to_core}"
+    );
+    assert!(!call.contains("Default::default()"), "{to_core}");
+}
+
+#[test]
+fn constructor_taking_the_value_by_reference_does_not_carry_it() {
+    let mut typ = node_context_api().types.remove(0);
+    typ.methods[1].params[1].is_ref = true;
+    promote_private_accessors(&mut typ);
+    assert!(
+        typ.fields.iter().all(|field| field.name != "attributes"),
+        "the conversion passes an owned value, which a `&BTreeMap` parameter rejects (E0308)"
+    );
+    assert!(typ.methods.iter().any(|method| method.name == "attributes"));
+}
+
+#[test]
+fn promotion_validates_the_constructor_the_conversion_selects() {
+    let mut typ = node_context_api().types.remove(0);
+    let mut wrong_type = typ.methods[1].clone();
+    wrong_type.name = "from_parts".to_string();
+    wrong_type.params[1].ty = TypeRef::String;
+    typ.methods.insert(1, wrong_type);
+    let mut selected = typ.clone();
+    selected.fields.push(FieldDef {
+        name: "attributes".to_string(),
+        ty: map_ty(),
+        ..Default::default()
+    });
+    assert_eq!(
+        crate::codegen::conversions::select_constructor(&selected).map(|method| method.name.as_str()),
+        Some("from_parts"),
+        "fixture: the conversion would call the first covering constructor"
+    );
+    promote_private_accessors(&mut typ);
+    assert!(
+        typ.fields.iter().all(|field| field.name != "attributes"),
+        "a later constructor with the right type must not vouch for the one the conversion calls"
+    );
+}
+
+#[test]
+fn borrowing_constructor_does_not_shadow_the_owning_one() {
+    let mut typ = node_context_api().types.remove(0);
+    let mut borrowing = typ.methods[1].clone();
+    borrowing.name = "with_borrowed_attributes".to_string();
+    borrowing.params[1].is_ref = true;
+    typ.methods.insert(1, borrowing);
+    promote_private_accessors(&mut typ);
+    assert!(
+        typ.fields.iter().any(|field| field.name == "attributes"),
+        "the conversion prefers the non-borrowing constructor, which takes the value by value"
+    );
 }
 
 #[test]
@@ -300,13 +359,45 @@ fn carried_value_without_a_renderable_zero_gets_no_default() {
 }
 
 #[test]
-fn accessor_with_arguments_or_over_a_public_name_is_left_alone() {
+fn accessor_that_is_not_a_plain_getter_is_left_alone() {
+    type MakeUnplain = fn(&mut TypeDef);
+    let not_plain_getters: [(&str, MakeUnplain); 7] = [
+        ("takes an argument", |typ| {
+            typ.methods[0].params.push(ParamDef::default())
+        }),
+        ("is async", |typ| typ.methods[0].is_async = true),
+        ("can fail", |typ| typ.methods[0].error_type = Some("Error".to_string())),
+        ("is sanitized", |typ| typ.methods[0].sanitized = true),
+        ("returns unit", |typ| typ.methods[0].return_type = TypeRef::Unit),
+        ("takes &mut self", |typ| {
+            typ.methods[0].receiver = Some(ReceiverKind::RefMut)
+        }),
+        ("shares a public field's name", |typ| {
+            typ.fields.push(FieldDef {
+                name: "attributes".to_string(),
+                ty: map_ty(),
+                ..Default::default()
+            });
+        }),
+    ];
+    for (case, make_unplain) in not_plain_getters {
+        let mut typ = node_context_api().types.remove(0);
+        make_unplain(&mut typ);
+        let before = typ.clone();
+        promote_private_accessors(&mut typ);
+        assert_eq!(
+            typ.fields.len(),
+            before.fields.len(),
+            "an accessor that {case} was promoted"
+        );
+        assert_eq!(typ.methods.len(), before.methods.len(), "{case}");
+    }
     let mut typ = node_context_api().types.remove(0);
-    typ.private_fields.clear();
-    let before = typ.clone();
     promote_private_accessors(&mut typ);
-    assert_eq!(typ.fields.len(), before.fields.len());
-    assert_eq!(typ.methods.len(), before.methods.len());
+    assert!(
+        typ.fields.iter().any(|field| field.name == "attributes"),
+        "the unmodified fixture is promoted, so each case above fails on its own guard"
+    );
 }
 
 /// A type whose private `field` of type `ty` is returned by `fn field(&self) -> <ty or &ty>`.
@@ -349,6 +440,16 @@ fn accessor_reads_own_the_value_by_the_accessor_return_type() {
     };
     let optional = |ty: TypeRef| TypeRef::Optional(Box::new(ty));
     let usize_ty = TypeRef::Primitive(PrimitiveType::Usize);
+    let cow = |ty: TypeRef| {
+        let mut typ = getter_type(ty, false);
+        typ.methods[0].returns_cow = true;
+        read_through_accessor("f: val.field", "val", &typ, "field")
+    };
+    assert_eq!(cow(TypeRef::String), "f: val.field().into_owned()");
+    assert_eq!(
+        cow(optional(TypeRef::String)),
+        "f: val.field().map(std::borrow::Cow::into_owned)"
+    );
     assert_eq!(read(TypeRef::String, true, "f: val.field"), "f: val.field().to_owned()");
     assert_eq!(
         read(TypeRef::String, true, "f: val.field.clone()"),

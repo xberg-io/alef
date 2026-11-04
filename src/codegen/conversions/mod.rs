@@ -6,6 +6,7 @@ mod enums;
 pub(crate) mod helpers;
 
 // Re-export all public items so callers continue to use `conversions::foo`.
+pub(crate) use binding_to_core::select_constructor;
 pub use binding_to_core::{
     apply_core_wrapper_to_core, field_conversion_to_core, field_conversion_to_core_cfg, gen_from_binding_to_core,
     gen_from_binding_to_core_cfg, gen_from_lifetime_type_constructor,

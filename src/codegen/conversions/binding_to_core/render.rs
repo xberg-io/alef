@@ -4,7 +4,7 @@ use crate::codegen::conversions::helpers::{
     explicit_newtype_replaces_base_conversion, explicit_newtype_uses_wasm_jsvalue, field_references_excluded_type,
     is_newtype, is_tuple_type_name, needs_clippy_allow, needs_f64_cast, needs_i32_cast, needs_i64_cast,
 };
-use crate::core::ir::{CoreWrapper, FieldDef, TypeDef, TypeRef};
+use crate::core::ir::{CoreWrapper, FieldDef, MethodDef, TypeDef, TypeRef};
 
 use super::fields::field_conversion_to_core_cfg;
 use super::wrappers::apply_core_wrapper_to_core;
@@ -547,6 +547,27 @@ fn constructor_field_default_expr(
     expr
 }
 
+/// The static constructor a binding-to-core conversion of a private-field type calls: the first
+/// method without a receiver whose parameters cover every binding field, preferring one that
+/// does not borrow its inputs. [`gen_from_explicit_new_constructor`],
+/// [`gen_from_lifetime_type_constructor`] and the private-field accessor promotion all pick
+/// through here, so the constructor a promotion validates is the one the conversion calls.
+pub(crate) fn select_constructor(typ: &TypeDef) -> Option<&MethodDef> {
+    let covers_fields = |method: &&MethodDef| {
+        method.receiver.is_none()
+            && typ
+                .fields
+                .iter()
+                .filter(|field| !field.binding_excluded)
+                .all(|field| method.params.iter().any(|param| param.name == field.name))
+    };
+    typ.methods
+        .iter()
+        .filter(covers_fields)
+        .find(|method| !method.name.contains("borrowed"))
+        .or_else(|| typ.methods.iter().find(covers_fields))
+}
+
 /// Generate `impl From<BindingType> for CoreType` using a static constructor method.
 ///
 /// Used for types without lifetime params but with private fields (indicated by
@@ -561,31 +582,7 @@ pub fn gen_from_explicit_new_constructor(
     binding_name: &str,
     config: &ConversionConfig,
 ) -> Option<String> {
-    let field_names: std::collections::HashSet<&str> = typ
-        .fields
-        .iter()
-        .filter(|f| !f.binding_excluded)
-        .map(|f| f.name.as_str())
-        .collect();
-
-    let constructor = typ
-        .methods
-        .iter()
-        .find(|m| {
-            m.receiver.is_none()
-                && !m.name.contains("borrowed")
-                && field_names
-                    .iter()
-                    .all(|fname| m.params.iter().any(|p| p.name == *fname))
-        })
-        .or_else(|| {
-            typ.methods.iter().find(|m| {
-                m.receiver.is_none()
-                    && field_names
-                        .iter()
-                        .all(|fname| m.params.iter().any(|p| p.name == *fname))
-            })
-        })?;
+    let constructor = select_constructor(typ)?;
 
     let mut args: Vec<String> = Vec::new();
     for param in &constructor.params {
@@ -649,31 +646,7 @@ pub fn gen_from_lifetime_type_constructor(
     core_import: &str,
     config: &ConversionConfig,
 ) -> Option<String> {
-    let field_names: std::collections::HashSet<&str> = typ
-        .fields
-        .iter()
-        .filter(|f| !f.binding_excluded)
-        .map(|f| f.name.as_str())
-        .collect();
-
-    let constructor = typ
-        .methods
-        .iter()
-        .find(|m| {
-            m.receiver.is_none()
-                && field_names
-                    .iter()
-                    .all(|fname| m.params.iter().any(|p| p.name == *fname))
-                && !m.name.contains("borrowed")
-        })
-        .or_else(|| {
-            typ.methods.iter().find(|m| {
-                m.receiver.is_none()
-                    && field_names
-                        .iter()
-                        .all(|fname| m.params.iter().any(|p| p.name == *fname))
-            })
-        })?;
+    let constructor = select_constructor(typ)?;
 
     let mut args: Vec<String> = Vec::new();
     for param in &constructor.params {

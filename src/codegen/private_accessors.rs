@@ -32,7 +32,11 @@ fn owning_suffix(method: &MethodDef) -> &'static str {
     let owns_through_to_owned =
         |ty: &TypeRef| matches!(ty, TypeRef::String | TypeRef::Path | TypeRef::Vec(_) | TypeRef::Bytes);
     if method.returns_cow {
-        return ".into_owned()";
+        return if matches!(method.return_type, TypeRef::Optional(_)) {
+            ".map(std::borrow::Cow::into_owned)"
+        } else {
+            ".into_owned()"
+        };
     }
     if !method.returns_ref {
         return "";
@@ -174,26 +178,26 @@ fn returned_private_field<'a>(typ: &'a TypeDef, method: &MethodDef) -> Option<&'
         .find(|private| private.name == method.name && !private.serde_skip)
 }
 
-/// A static constructor the binding-to-core conversion calls (a lifetime-bearing type's, or a
-/// type's beside its own static `new`) takes every binding field plus a parameter named after
-/// the accessor with the accessor's own type, so the carried value goes back to the core.
-fn constructor_accepts(typ: &TypeDef, accessor: &MethodDef) -> bool {
+/// The binding-to-core conversion goes through a static constructor here (a lifetime-bearing
+/// type's, or a type's beside its own static `new`), and the constructor it selects once the
+/// value is a binding field takes it back: a by-value parameter named after the accessor with
+/// the accessor's own type. A by-reference parameter is refused, since the conversion passes an
+/// owned value.
+fn constructor_accepts(typ: &TypeDef, accessor: &MethodDef, carried: &FieldDef) -> bool {
     let has_static_new = typ
         .methods
         .iter()
         .any(|method| method.is_static && method.name == "new");
-    (typ.has_lifetime_params || has_static_new)
-        && typ.methods.iter().any(|method| {
-            method.receiver.is_none()
-                && method.params.iter().any(|param| {
-                    param.name == accessor.name && full_type(&param.ty, param.optional) == accessor.return_type
-                })
-                && typ
-                    .fields
-                    .iter()
-                    .filter(|field| !field.binding_excluded)
-                    .all(|field| method.params.iter().any(|param| param.name == field.name))
+    if !typ.has_lifetime_params && !has_static_new {
+        return false;
+    }
+    let mut promoted = typ.clone();
+    promoted.fields.push(carried.clone());
+    crate::codegen::conversions::select_constructor(&promoted).is_some_and(|constructor| {
+        constructor.params.iter().any(|param| {
+            param.name == accessor.name && !param.is_ref && full_type(&param.ty, param.optional) == accessor.return_type
         })
+    })
 }
 
 /// Whether the type's own zero (`DefaultValue::Empty`) is a value every binding can render for
@@ -241,15 +245,11 @@ pub fn promote_private_accessors(typ: &mut TypeDef) {
         .filter_map(|method| returned_private_field(typ, method).map(|private| (method.clone(), private.clone())))
         .collect();
     for (accessor, private) in candidates {
-        if !constructor_accepts(typ, &accessor) {
-            warn_once(typ, &accessor.name);
-            continue;
-        }
         let (ty, optional) = match &accessor.return_type {
             TypeRef::Optional(inner) => (inner.as_ref().clone(), true),
             other => (other.clone(), false),
         };
-        typ.fields.push(FieldDef {
+        let carried = FieldDef {
             name: private.name.clone(),
             // The core fills the value itself, so a host-built value may start empty.
             typed_default: has_renderable_zero(&ty).then_some(DefaultValue::Empty),
@@ -259,7 +259,12 @@ pub fn promote_private_accessors(typ: &mut TypeDef) {
             cfg: accessor.cfg.clone(),
             serde_rename: private.serde_rename.clone(),
             ..FieldDef::default()
-        });
+        };
+        if !constructor_accepts(typ, &accessor, &carried) {
+            warn_once(typ, &accessor.name);
+            continue;
+        }
+        typ.fields.push(carried);
     }
 }
 
