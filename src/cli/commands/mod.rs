@@ -2,6 +2,7 @@
 
 pub mod adopt;
 pub mod check_registry;
+pub(crate) mod component_version_checks;
 pub mod go_tag;
 pub mod migrate;
 pub mod release_metadata;

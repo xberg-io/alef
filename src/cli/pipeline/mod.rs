@@ -36,10 +36,10 @@ pub use generate::{
     WriteReport, collect_alef_headered_paths, diff_files, finalize_hashes, finalize_hashes_after_tree_format,
     finalize_hashes_sweeping, find_create_once_template_drift, generate, generate_public_api, generate_service_api,
     generate_stubs, generate_sweep_roots, managed_generated_files, managed_output_paths, normalize_content, readme,
-    reconcile_managed_scaffold_manifests, report_refused_writes, report_user_owned_skips, scaffold,
-    stampable_output_paths, sweep_manifest_orphans, sweep_orphans, targeted_e2e_sweep_roots, write_files,
-    write_files_report, write_format_config_prepass, write_scaffold_files, write_scaffold_files_report,
-    write_scaffold_files_with_overwrite,
+    reclaim_components_only_leftovers, reconcile_managed_scaffold_manifests, report_refused_writes,
+    report_user_owned_skips, scaffold, stampable_output_paths, sweep_manifest_orphans, sweep_orphans,
+    targeted_e2e_sweep_roots, write_files, write_files_report, write_format_config_prepass, write_scaffold_files,
+    write_scaffold_files_report, write_scaffold_files_with_overwrite,
 };
 pub(crate) use generate::{
     apply_shebang_chmod, atomic_write, check_ffi_header_freshness, declared_user_owned, decode_base64_binary,

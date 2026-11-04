@@ -257,11 +257,27 @@ pub(crate) fn sync_versions_prepared(
     let mut state = SyncState::new();
     let ruby_version = to_rubygems_prerelease(&version);
 
-    sync_rust_and_python(config, &version, &writable, &mut state)?;
-    sync_node_and_ruby_packages(config, &version, &ruby_version, &writable, &mut state)?;
-    sync_remaining_package_manifests(config, &version, &writable, &mut state)?;
-    sync_go_and_swift(config, &version, &writable, &mut state)?;
-    sync_e2e_harness_files(config, &version, &ruby_version, &writable, &mut state)?;
+    if config.is_components_only() {
+        // No binding package exists to stamp: only the generated producer crates carry the
+        // version. Every fixed-path binding manifest probe below would reach into files the
+        // consumer owns (a root package.json, a pubspec.yaml). ~keep
+        sync_workspace_cargo_toml_versions(
+            config,
+            &version,
+            &writable,
+            &mut state.updated,
+            &mut state.any_cargo_toml_modified,
+        );
+        if config.e2e.is_some() {
+            sync_e2e_harness_files(config, &version, &ruby_version, &writable, &mut state)?;
+        }
+    } else {
+        sync_rust_and_python(config, &version, &writable, &mut state)?;
+        sync_node_and_ruby_packages(config, &version, &ruby_version, &writable, &mut state)?;
+        sync_remaining_package_manifests(config, &version, &writable, &mut state)?;
+        sync_go_and_swift(config, &version, &writable, &mut state)?;
+        sync_e2e_harness_files(config, &version, &ruby_version, &writable, &mut state)?;
+    }
     sync_citation_and_extra_paths(config, &version, release_date_override, &writable, &mut state)?;
 
     finalize_version_sync(config, config_path, &version, &mut state, &prepared)
@@ -1129,7 +1145,7 @@ fn sync_citation_and_extra_paths(
     super::version_python::sync_uv_workspace_locks(writable, &mut state.updated)
 }
 
-fn run_post_write_side_effects(state: &SyncState, version: &str) {
+fn run_post_write_side_effects(state: &SyncState, version: &str, components_only: bool) {
     if state.any_node_pkg_modified {
         run_optional("pnpm", &["install", "--no-frozen-lockfile", "--ignore-scripts", "-w"]);
     }
@@ -1146,7 +1162,9 @@ fn run_post_write_side_effects(state: &SyncState, version: &str) {
     // re-derived fresh each time from whatever the lock and manifest currently disagree on, so it
     // cannot tell "still pending" from "published weeks ago, never relocked since"; only an actual
     // retry can. See `retry_blocked_lockfiles`'s doc for the full incident.
-    retry_blocked_lockfiles(version);
+    if !components_only {
+        retry_blocked_lockfiles(version);
+    }
     if state.any_composer_json_modified {
         run_optional("composer", &["update", "--lock", "--no-interaction"]);
     }
@@ -1397,7 +1415,7 @@ fn finalize_version_sync(
     state: &mut SyncState,
     prepared: &PreparedVersionSync,
 ) -> anyhow::Result<()> {
-    run_post_write_side_effects(state, version);
+    run_post_write_side_effects(state, version, config.is_components_only());
 
     // `sync_registry_package_versions` must run *before* `finalize_hashes` below, not after it.
     // `finalize_hashes` re-derives `inputs_hash` by reading `config_path` (`alef.toml`) off disk

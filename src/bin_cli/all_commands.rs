@@ -385,6 +385,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 let scaffold_keep: std::collections::HashSet<PathBuf> = scaffold_output_paths.iter().cloned().collect();
                 let scaffold_sweep_roots = pipeline::generate_sweep_roots(&languages, false, resolved_cfg, &base_dir);
                 pipeline::sweep_manifest_orphans(&previous_scaffold_paths, &scaffold_keep, &scaffold_sweep_roots, &[])?;
+                pipeline::reclaim_components_only_leftovers(resolved_cfg, &base_dir)?;
                 cache::write_scaffold_manifest(&resolved_cfg.name, &scaffold_output_paths)?;
                 // The same call `alef generate` and `alef scaffold` make after their own scaffold
                 // phase. Omitting it here left the three manifests `scaffold::repair` covers with

@@ -168,7 +168,7 @@ pub fn run(config: &ResolvedCrateConfig, workspace_root: &Path, output_json: boo
         //
         let out = json!({
             "canonical": canonical,
-            "ok": checks_pass(&checks),
+            "ok": super::component_version_checks::nothing_to_examine(config) || checks_pass(&checks),
             "checks": entries,
         });
         crate::bin_cli::output::payload(serde_json::to_string_pretty(&out)?);
@@ -207,7 +207,7 @@ pub fn run(config: &ResolvedCrateConfig, workspace_root: &Path, output_json: boo
     // `checks.iter().any(|c| !c.matches)` verdict cannot distinguish from success.
     // Fail here rather than downstream so the run is non-zero even without
     // `--exit-code`: "nothing to verify" is never a valid release-gate pass.
-    if checks.is_empty() {
+    if checks.is_empty() && !super::component_version_checks::nothing_to_examine(config) {
         anyhow::bail!(
             "version validation examined 0 manifests for crate `{}` (canonical {canonical}); check that \
              the configured package directories exist and are readable",
@@ -219,6 +219,9 @@ pub fn run(config: &ResolvedCrateConfig, workspace_root: &Path, output_json: boo
 }
 
 pub fn collect_checks(config: &ResolvedCrateConfig, workspace_root: &Path, canonical: &str) -> Vec<VersionCheck> {
+    if config.is_components_only() {
+        return super::component_version_checks::collect(config, workspace_root, canonical);
+    }
     let mut checks = Vec::new();
 
     let py_dir = config.package_dir(crate::core::config::extras::Language::Python);

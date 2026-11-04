@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `--component` to `alef component lock` to lock a subset of the configured components, for example a
   development lock; a component-filtered lock is written to `--output` only and never staged into binding packages. (#866)
 
+### Fixed
+
+- Make a components-only crate (components, no binding languages) own only its component outputs: `alef generate`
+  no longer rewrites other workspace members' versions, relocks `Cargo.lock`, or seeds `rust-toolchain.toml`, scaffold
+  files or docs reference pages, and `alef verify` passes after a fresh generate while still detecting drift in a
+  generated producer. (#868)
+
 ### Changed (BREAKING)
 
 - Extend `ComponentConfig` and `ResolvedComponent` with `source_manifest` and `producer_dir`. Rust callers

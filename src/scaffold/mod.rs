@@ -65,6 +65,11 @@ pub fn scaffold(
     config: &ResolvedCrateConfig,
     languages: &[Language],
 ) -> anyhow::Result<Vec<GeneratedFile>> {
+    // A components-only crate owns only its producer crates (added by the caller): no
+    // rust-toolchain.toml, poly/rustfmt config, .gitattributes or LICENSE copies. ~keep
+    if languages.is_empty() && config.is_components_only() {
+        return Ok(Vec::new());
+    }
     crate::core::config::validation::validate_wrapper_default_features(config)?;
     let projected_api = crate::codegen::binding_projection::project(api);
     let api = &projected_api;
