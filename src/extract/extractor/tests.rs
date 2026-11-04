@@ -70,6 +70,26 @@ fn private_named_fields_are_recorded_by_name() {
     );
     let typ = surface.types.iter().find(|typ| typ.name == "NodeContext").unwrap();
     assert!(typ.has_private_fields);
-    assert_eq!(typ.private_fields, vec!["attributes".to_string(), "depth".to_string()]);
+    let private: Vec<(&str, &crate::core::ir::TypeRef)> = typ
+        .private_fields
+        .iter()
+        .map(|field| (field.name.as_str(), &field.ty))
+        .collect();
+    assert_eq!(
+        private,
+        vec![
+            (
+                "attributes",
+                &crate::core::ir::TypeRef::Map(
+                    Box::new(crate::core::ir::TypeRef::String),
+                    Box::new(crate::core::ir::TypeRef::String)
+                )
+            ),
+            (
+                "depth",
+                &crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::Usize)
+            ),
+        ]
+    );
     assert_eq!(typ.fields.len(), 1);
 }

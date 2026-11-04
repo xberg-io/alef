@@ -9,54 +9,120 @@
 //! [`promote_private_accessors`] makes such an accessor's value a binding field, read through
 //! the accessor in the core-to-binding conversion and passed to the public constructor in the
 //! binding-to-core conversion. The accessor method stays, and now returns the carried value.
-//! When no public constructor accepts the value, the binding cannot carry it back, so the method
-//! is dropped and reported instead of returning empty data.
+//! When no public constructor accepts the value, the binding cannot carry it back: the method
+//! keeps its current behavior and the accessor is reported.
 
-use crate::core::ir::{ApiSurface, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
+use crate::core::ir::{ApiSurface, DefaultValue, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
 
 /// True when `field` of `typ` holds a private core field's value read through its accessor.
 #[must_use]
 pub fn is_private_accessor_field(typ: &TypeDef, field: &FieldDef) -> bool {
-    typ.private_fields.contains(&field.name)
+    typ.private_fields.iter().any(|private| private.name == field.name)
 }
 
-/// Rewrite every `<receiver>.<field>` read in a core-to-binding conversion expression into a
-/// call of the field's public accessor, cloned so the expression owns the value as a field read
-/// would.
-#[must_use]
-pub fn read_through_accessor(conversion: &str, receiver: &str, field_name: &str, returns_ref: bool) -> String {
-    let pattern = regex::Regex::new(&format!(
+fn accessor<'a>(typ: &'a TypeDef, field_name: &str) -> Option<&'a MethodDef> {
+    typ.methods
+        .iter()
+        .find(|method| method.name == field_name && method.receiver.is_some())
+}
+
+/// The suffix that turns the accessor's return value into an owned value of the field's type,
+/// chosen by what the accessor returns (`&str`, `&[T]`, `&T`, `Option<&T>`, a `Cow` or a value).
+fn owning_suffix(method: &MethodDef) -> &'static str {
+    let owns_through_to_owned =
+        |ty: &TypeRef| matches!(ty, TypeRef::String | TypeRef::Path | TypeRef::Vec(_) | TypeRef::Bytes);
+    if method.returns_cow {
+        return ".into_owned()";
+    }
+    if !method.returns_ref {
+        return "";
+    }
+    match &method.return_type {
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Primitive(_)) => ".copied()",
+        TypeRef::Optional(inner) if owns_through_to_owned(inner) => ".map(ToOwned::to_owned)",
+        TypeRef::Optional(_) => ".cloned()",
+        ty if owns_through_to_owned(ty) => ".to_owned()",
+        _ => ".clone()",
+    }
+}
+
+/// The accessor call that owns the field's value, and whether it is a dereferenced `Copy` value
+/// (which needs parentheses before a method call).
+fn owned_call(typ: &TypeDef, receiver: &str, field_name: &str) -> (String, bool) {
+    let call = format!("{receiver}.{field_name}()");
+    match accessor(typ, field_name) {
+        Some(method) if method.returns_ref && matches!(method.return_type, TypeRef::Primitive(_)) => {
+            (format!("*{call}"), true)
+        }
+        Some(method) => (format!("{call}{}", owning_suffix(method)), false),
+        None => (format!("{call}.clone()"), false),
+    }
+}
+
+fn place_pattern(receiver: &str, field_name: &str) -> regex::Regex {
+    regex::Regex::new(&format!(
         r"\b{}\.{}\b(?:\(\))?",
         regex::escape(receiver),
         regex::escape(field_name)
     ))
-    .expect("identifiers are valid regex literals once escaped");
-    let replacement = if returns_ref {
-        format!("{receiver}.{field_name}().clone()")
-    } else {
-        format!("{receiver}.{field_name}()")
-    };
-    pattern.replace_all(conversion, replacement.as_str()).into_owned()
+    .expect("identifiers are valid regex literals once escaped")
+}
+
+/// Rewrite every `<receiver>.<field>` read in a core-to-binding conversion expression into a
+/// call of the field's public accessor that owns its value as the field read would. A trailing
+/// `.clone()` is folded into that call.
+#[must_use]
+pub fn read_through_accessor(conversion: &str, receiver: &str, typ: &TypeDef, field_name: &str) -> String {
+    let (owned, derefs_copy) = owned_call(typ, receiver, field_name);
+    let mut out = String::with_capacity(conversion.len());
+    let mut last = 0;
+    for found in place_pattern(receiver, field_name).find_iter(conversion) {
+        out.push_str(&conversion[last..found.start()]);
+        let rest = &conversion[found.end()..];
+        let rest_start = found.end()
+            + if rest.starts_with(".clone()") {
+                ".clone()".len()
+            } else {
+                0
+            };
+        if derefs_copy && conversion[rest_start..].starts_with('.') {
+            out.push_str(&format!("({owned})"));
+        } else {
+            out.push_str(&owned);
+        }
+        last = rest_start;
+    }
+    out.push_str(&conversion[last..]);
+    out
 }
 
 /// Rewrite every `<receiver>.<field>` place expression into the field's accessor call, so
 /// borrowing reads keep their meaning. With a reference-returning accessor, a method chain
 /// (`ctx.field.iter()`) and a plain borrow (`&ctx.field`) take the accessor's reference as is,
-/// and any other read dereferences it back to the field's place (`(*ctx.field()) as f64`).
+/// a `.clone()` becomes the owning call, and any other read dereferences the reference back to
+/// the field's place (`(*ctx.field()) as f64`).
 #[must_use]
-pub fn borrow_through_accessor(code: &str, receiver: &str, field_name: &str, returns_ref: bool) -> String {
-    let pattern = regex::Regex::new(&format!(
-        r"\b{}\.{}\b(?:\(\))?",
-        regex::escape(receiver),
-        regex::escape(field_name)
-    ))
-    .expect("identifiers are valid regex literals once escaped");
+pub fn borrow_through_accessor(code: &str, receiver: &str, typ: &TypeDef, field_name: &str) -> String {
+    let returns_ref = accessor_returns_ref(typ, field_name);
     let accessor = format!("{receiver}.{field_name}()");
     let mut out = String::with_capacity(code.len());
     let mut last = 0;
-    for found in pattern.find_iter(code) {
+    for found in place_pattern(receiver, field_name).find_iter(code) {
         let mut prefix = &code[last..found.start()];
-        let chained = code[found.end()..].trim_start().starts_with('.');
+        let rest = &code[found.end()..];
+        last = found.end();
+        if rest.starts_with(".clone()") {
+            out.push_str(prefix);
+            let (owned, derefs_copy) = owned_call(typ, receiver, field_name);
+            last += ".clone()".len();
+            if derefs_copy && code[last..].starts_with('.') {
+                out.push_str(&format!("({owned})"));
+            } else {
+                out.push_str(&owned);
+            }
+            continue;
+        }
+        let chained = rest.trim_start().starts_with('.');
         let borrowed = returns_ref && prefix.ends_with('&') && !chained;
         if borrowed {
             prefix = &prefix[..prefix.len() - 1];
@@ -67,41 +133,63 @@ pub fn borrow_through_accessor(code: &str, receiver: &str, field_name: &str, ret
         } else {
             out.push_str(&format!("(*{accessor})"));
         }
-        last = found.end();
     }
     out.push_str(&code[last..]);
     out
 }
 
-/// Whether the accessor of `field_name` on `typ` returns a reference (and so needs a clone).
+/// Whether the accessor of `field_name` on `typ` returns a reference.
 #[must_use]
 pub fn accessor_returns_ref(typ: &TypeDef, field_name: &str) -> bool {
-    typ.methods
-        .iter()
-        .find(|method| method.name == field_name && method.receiver.is_some())
-        .is_none_or(|method| method.returns_ref)
+    accessor(typ, field_name).is_none_or(|method| method.returns_ref)
 }
 
-fn is_private_field_accessor(typ: &TypeDef, method: &MethodDef) -> bool {
-    method.receiver == Some(ReceiverKind::Ref)
+/// The field's type as a whole, with `Option` folded back in.
+fn full_type(ty: &TypeRef, optional: bool) -> TypeRef {
+    if optional && !matches!(ty, TypeRef::Optional(_)) {
+        TypeRef::Optional(Box::new(ty.clone()))
+    } else {
+        ty.clone()
+    }
+}
+
+/// The private field `method` returns unchanged: same name and same type. A derived accessor
+/// (`self.depth + 1`) cannot be told apart from the IR, but one returning another type is left
+/// alone, and so is a field serde skips (a JSON round trip could not carry it).
+fn returned_private_field<'a>(typ: &'a TypeDef, method: &MethodDef) -> Option<&'a FieldDef> {
+    let simple_getter = method.receiver == Some(ReceiverKind::Ref)
         && !method.is_static
         && !method.is_async
         && method.params.is_empty()
         && method.error_type.is_none()
         && !method.sanitized
-        && method.return_type != TypeRef::Unit
-        && typ.private_fields.contains(&method.name)
-        && !typ.fields.iter().any(|field| field.name == method.name)
+        && method.return_type != TypeRef::Unit;
+    if !simple_getter || typ.fields.iter().any(|field| field.name == method.name) {
+        return None;
+    }
+    typ.private_fields.iter().find(|private| {
+        private.name == method.name
+            && !private.serde_skip
+            && full_type(&private.ty, private.optional) == method.return_type
+    })
 }
 
-/// A static constructor taking every binding field plus `extra` exists, so the
-/// binding-to-core conversion (which calls such a constructor for a lifetime-bearing type) can
-/// pass the carried value back.
-fn constructor_accepts(typ: &TypeDef, extra: &str) -> bool {
-    typ.has_lifetime_params
+/// A static constructor the binding-to-core conversion calls (a lifetime-bearing type's, or a
+/// type's beside its own static `new`) takes every binding field plus the private field, with
+/// the private field's type, so the carried value goes back to the core.
+fn constructor_accepts(typ: &TypeDef, private: &FieldDef) -> bool {
+    let has_static_new = typ
+        .methods
+        .iter()
+        .any(|method| method.is_static && method.name == "new");
+    let private_ty = full_type(&private.ty, private.optional);
+    (typ.has_lifetime_params || has_static_new)
         && typ.methods.iter().any(|method| {
             method.receiver.is_none()
-                && method.params.iter().any(|param| param.name == extra)
+                && method
+                    .params
+                    .iter()
+                    .any(|param| param.name == private.name && full_type(&param.ty, param.optional) == private_ty)
                 && typ
                     .fields
                     .iter()
@@ -110,39 +198,66 @@ fn constructor_accepts(typ: &TypeDef, extra: &str) -> bool {
         })
 }
 
-/// Promote every carriable private-field accessor of `typ` to a binding field; drop and report
-/// the accessors whose value the binding could not carry back to the core type.
+/// Whether the type's own zero (`DefaultValue::Empty`) is a value every binding can render for
+/// `ty`, so a host-built value may start empty.
+fn has_renderable_zero(ty: &TypeRef) -> bool {
+    matches!(
+        ty,
+        TypeRef::Map(_, _)
+            | TypeRef::Vec(_)
+            | TypeRef::String
+            | TypeRef::Bytes
+            | TypeRef::Primitive(_)
+            | TypeRef::Optional(_)
+    )
+}
+
+fn warn_once(typ: &TypeDef, accessor: &str) {
+    static WARNED: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+        std::sync::OnceLock::new();
+    let key = format!("{}.{accessor}", typ.rust_path);
+    let first = WARNED
+        .get_or_init(Default::default)
+        .lock()
+        .map(|mut warned| warned.insert(key))
+        .unwrap_or(true);
+    if first {
+        tracing::warn!(
+            "{}.{}() reads a private field and no public constructor accepts its value, so a \
+             mirroring binding cannot carry it and the method returns the value of a rebuilt core",
+            typ.name,
+            accessor
+        );
+    }
+}
+
+/// Promote every carriable private-field accessor of `typ` to a binding field. An accessor the
+/// binding cannot carry back to the core type keeps today's method and is reported.
 pub fn promote_private_accessors(typ: &mut TypeDef) {
     if typ.is_opaque || typ.private_fields.is_empty() {
         return;
     }
-    let accessors: Vec<MethodDef> = typ
+    let candidates: Vec<(MethodDef, FieldDef)> = typ
         .methods
         .iter()
-        .filter(|method| is_private_field_accessor(typ, method))
-        .cloned()
+        .filter_map(|method| returned_private_field(typ, method).map(|private| (method.clone(), private.clone())))
         .collect();
-    for accessor in accessors {
-        if constructor_accepts(typ, &accessor.name) {
-            typ.fields.push(FieldDef {
-                name: accessor.name.clone(),
-                ty: accessor.return_type.clone(),
-                doc: accessor.doc.clone(),
-                cfg: accessor.cfg.clone(),
-                // The core fills the value itself, so a host-built value may start empty.
-                typed_default: Some(crate::core::ir::DefaultValue::Empty),
-                ..FieldDef::default()
-            });
-        } else {
-            tracing::warn!(
-                "{}.{}() reads a private field and no public constructor accepts its value, so a \
-                 binding cannot carry it; the method is not generated",
-                typ.name,
-                accessor.name
-            );
-            typ.methods
-                .retain(|method| method.name != accessor.name || method.receiver.is_none());
+    for (accessor, private) in candidates {
+        if !constructor_accepts(typ, &private) {
+            warn_once(typ, &accessor.name);
+            continue;
         }
+        typ.fields.push(FieldDef {
+            name: private.name.clone(),
+            ty: private.ty.clone(),
+            optional: private.optional,
+            doc: accessor.doc.clone(),
+            cfg: accessor.cfg.clone(),
+            serde_rename: private.serde_rename.clone(),
+            // The core fills the value itself, so a host-built value may start empty.
+            typed_default: has_renderable_zero(&private.ty).then_some(DefaultValue::Empty),
+            ..FieldDef::default()
+        });
     }
 }
 
@@ -157,14 +272,14 @@ pub fn with_private_accessor_fields(api: &ApiSurface) -> ApiSurface {
 }
 
 /// [`with_private_accessor_fields`] for a public surface (type stubs, docs) whose backend keeps
-/// the carried value behind the accessor method: dropped accessors are gone, carried fields are
-/// not listed.
+/// the carried value behind the accessor method: carried fields are not listed.
 #[must_use]
 pub fn with_private_accessor_methods(api: &ApiSurface) -> ApiSurface {
     let mut promoted = with_private_accessor_fields(api);
     for typ in &mut promoted.types {
         let private_fields = std::mem::take(&mut typ.private_fields);
-        typ.fields.retain(|field| !private_fields.contains(&field.name));
+        typ.fields
+            .retain(|field| !private_fields.iter().any(|private| private.name == field.name));
         typ.private_fields = private_fields;
     }
     promoted

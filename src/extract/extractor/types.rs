@@ -107,12 +107,12 @@ pub(crate) fn extract_struct(
         }
         syn::Fields::Unit => false,
     };
-    let private_fields: Vec<String> = match &item.fields {
+    let private_fields: Vec<FieldDef> = match &item.fields {
         syn::Fields::Named(named) => named
             .named
             .iter()
             .filter(|f| !is_pub(&f.vis))
-            .filter_map(|f| f.ident.as_ref().map(ToString::to_string))
+            .map(|f| extract_field(f, Some(crate_name)).0)
             .collect(),
         _ => Vec::new(),
     };

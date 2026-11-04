@@ -24,7 +24,11 @@ fn node_context_api() -> ApiSurface {
             is_clone: true,
             has_lifetime_params: true,
             has_private_fields: true,
-            private_fields: vec!["attributes".to_string()],
+            private_fields: vec![FieldDef {
+                name: "attributes".to_string(),
+                ty: map_ty(),
+                ..Default::default()
+            }],
             fields: vec![
                 FieldDef {
                     name: "tag_name".to_string(),
@@ -188,12 +192,101 @@ fn php_carries_the_accessor_value_into_the_method_round_trip() {
 }
 
 #[test]
-fn accessor_without_a_constructor_accepting_its_value_is_dropped() {
+fn accessor_without_a_constructor_accepting_its_value_keeps_its_method() {
     let mut typ = node_context_api().types.remove(0);
     typ.methods.retain(|method| method.name != "with_owned_attributes");
     promote_private_accessors(&mut typ);
     assert!(typ.fields.iter().all(|field| field.name != "attributes"));
-    assert!(typ.methods.iter().all(|method| method.name != "attributes"));
+    assert!(typ.methods.iter().any(|method| method.name == "attributes"));
+}
+
+#[test]
+fn plain_getter_on_a_type_without_a_constructor_keeps_its_method() {
+    let mut typ = node_context_api().types.remove(0);
+    typ.has_lifetime_params = false;
+    promote_private_accessors(&mut typ);
+    assert!(
+        typ.fields.iter().all(|field| field.name != "attributes"),
+        "no constructor the conversion calls takes the value"
+    );
+    assert!(typ.methods.iter().any(|method| method.name == "attributes"));
+}
+
+#[test]
+fn type_with_a_static_new_carries_the_value_through_it() {
+    let mut api = node_context_api();
+    let typ = &mut api.types[0];
+    typ.has_lifetime_params = false;
+    let constructor = typ
+        .methods
+        .iter_mut()
+        .find(|method| method.name == "with_owned_attributes")
+        .unwrap();
+    constructor.name = "new".to_string();
+    let content = Pyo3Backend.generate_bindings(&api, &config("python")).unwrap()[0]
+        .content
+        .clone();
+    let to_core = impl_block(&content, "impl From<NodeContext> for test_lib::NodeContext {");
+    assert!(to_core.contains("Self::new("), "{to_core}");
+    assert!(to_core.contains("val.attributes"), "{to_core}");
+}
+
+#[test]
+fn accessor_returning_another_type_than_its_field_is_not_promoted() {
+    let mut typ = node_context_api().types.remove(0);
+    typ.private_fields[0].ty = TypeRef::Primitive(PrimitiveType::Usize);
+    promote_private_accessors(&mut typ);
+    assert!(typ.fields.iter().all(|field| field.name != "attributes"));
+    assert!(typ.methods.iter().any(|method| method.name == "attributes"));
+}
+
+#[test]
+fn constructor_parameter_of_another_type_does_not_carry_the_value() {
+    let mut typ = node_context_api().types.remove(0);
+    let constructor = typ
+        .methods
+        .iter_mut()
+        .find(|method| method.name == "with_owned_attributes")
+        .unwrap();
+    constructor.params[1].ty = TypeRef::String;
+    promote_private_accessors(&mut typ);
+    assert!(typ.fields.iter().all(|field| field.name != "attributes"));
+}
+
+#[test]
+fn serde_skipped_private_field_is_not_promoted() {
+    let mut typ = node_context_api().types.remove(0);
+    typ.private_fields[0].serde_skip = true;
+    promote_private_accessors(&mut typ);
+    assert!(typ.fields.iter().all(|field| field.name != "attributes"));
+}
+
+#[test]
+fn serde_renamed_private_field_keeps_its_wire_name() {
+    let mut api = node_context_api();
+    api.types[0].private_fields[0].serde_rename = Some("attrs".to_string());
+    let mut typ = api.types[0].clone();
+    promote_private_accessors(&mut typ);
+    let carried = typ.fields.iter().find(|field| field.name == "attributes").unwrap();
+    assert_eq!(carried.serde_rename.as_deref(), Some("attrs"));
+    let go = crate::backends::go::GoBackend
+        .generate_bindings(&api, &config("go"))
+        .unwrap()
+        .iter()
+        .map(|file| file.content.clone())
+        .collect::<String>();
+    assert!(go.contains("`json:\"attrs\"`"), "{go}");
+}
+
+#[test]
+fn carried_value_without_a_renderable_zero_gets_no_default() {
+    let mut typ = node_context_api().types.remove(0);
+    typ.private_fields[0].ty = TypeRef::Named("Other".to_string());
+    typ.methods[0].return_type = TypeRef::Named("Other".to_string());
+    typ.methods[1].params[1].ty = TypeRef::Named("Other".to_string());
+    promote_private_accessors(&mut typ);
+    let carried = typ.fields.iter().find(|field| field.name == "attributes").unwrap();
+    assert_eq!(carried.typed_default, None);
 }
 
 #[test]
@@ -206,18 +299,110 @@ fn accessor_with_arguments_or_over_a_public_name_is_left_alone() {
     assert_eq!(typ.methods.len(), before.methods.len());
 }
 
+/// A type whose private `field` of type `ty` is returned by `fn field(&self) -> <ty or &ty>`.
+fn getter_type(ty: TypeRef, returns_ref: bool) -> TypeDef {
+    TypeDef {
+        name: "T".to_string(),
+        methods: vec![MethodDef {
+            name: "field".to_string(),
+            return_type: ty,
+            receiver: Some(ReceiverKind::Ref),
+            returns_ref,
+            ..Default::default()
+        }],
+        ..Default::default()
+    }
+}
+
 #[test]
 fn accessor_reads_rewrite_only_whole_field_references() {
+    let typ = getter_type(map_ty(), true);
     assert_eq!(
         read_through_accessor(
-            "attributes: val.attributes.iter().count(), x: val.attributes_len",
+            "field: val.field.iter().count(), x: val.field_len",
             "val",
-            "attributes",
-            true
+            &typ,
+            "field"
         ),
-        "attributes: val.attributes().clone().iter().count(), x: val.attributes_len"
+        "field: val.field().clone().iter().count(), x: val.field_len"
     );
-    assert_eq!(read_through_accessor("v.a.into()", "v", "a", false), "v.a().into()");
+    assert_eq!(
+        read_through_accessor("v.field.into()", "v", &getter_type(map_ty(), false), "field"),
+        "v.field().into()"
+    );
+}
+
+#[test]
+fn accessor_reads_own_the_value_by_the_accessor_return_type() {
+    let read = |ty: TypeRef, returns_ref: bool, conversion: &str| {
+        read_through_accessor(conversion, "val", &getter_type(ty, returns_ref), "field")
+    };
+    let optional = |ty: TypeRef| TypeRef::Optional(Box::new(ty));
+    let usize_ty = TypeRef::Primitive(PrimitiveType::Usize);
+    assert_eq!(read(TypeRef::String, true, "f: val.field"), "f: val.field().to_owned()");
+    assert_eq!(
+        read(TypeRef::String, true, "f: val.field.clone()"),
+        "f: val.field().to_owned()"
+    );
+    assert_eq!(
+        read(TypeRef::Vec(Box::new(TypeRef::String)), true, "f: val.field"),
+        "f: val.field().to_owned()"
+    );
+    assert_eq!(
+        read(usize_ty.clone(), true, "f: val.field as i64"),
+        "f: *val.field() as i64"
+    );
+    assert_eq!(
+        read(usize_ty.clone(), true, "f: val.field.into()"),
+        "f: (*val.field()).into()"
+    );
+    assert_eq!(read(usize_ty.clone(), false, "f: val.field"), "f: val.field()");
+    assert_eq!(
+        read(optional(TypeRef::String), true, "f: val.field"),
+        "f: val.field().map(ToOwned::to_owned)"
+    );
+    assert_eq!(
+        read(optional(usize_ty), true, "f: val.field"),
+        "f: val.field().copied()"
+    );
+    assert_eq!(
+        read(optional(TypeRef::Named("X".to_string())), true, "f: val.field"),
+        "f: val.field().cloned()"
+    );
+}
+
+#[test]
+fn owned_string_field_before_the_carried_value_moves_after_the_accessor_read() {
+    let mut api = node_context_api();
+    api.types[0].fields.insert(
+        0,
+        FieldDef {
+            name: "label".to_string(),
+            ty: TypeRef::String,
+            ..Default::default()
+        },
+    );
+    api.types[0].methods[1].params.push(ParamDef {
+        name: "label".to_string(),
+        ty: TypeRef::String,
+        ..Default::default()
+    });
+    let content = Pyo3Backend.generate_bindings(&api, &config("python")).unwrap()[0]
+        .content
+        .clone();
+    let from_core = impl_block(&content, "impl From<test_lib::NodeContext<'_>> for NodeContext");
+    let accessor_read = from_core
+        .find("val.attributes()")
+        .unwrap_or_else(|| panic!("no accessor read:\n{from_core}"));
+    let first_move = regex::Regex::new(r"\bval\.(label|tag_name|depth)\b")
+        .unwrap()
+        .find(from_core)
+        .unwrap_or_else(|| panic!("no field read:\n{from_core}"))
+        .start();
+    assert!(
+        accessor_read < first_move,
+        "the accessor borrows `val` before any field moves out of it (E0382):\n{from_core}"
+    );
 }
 
 #[test]
@@ -347,8 +532,10 @@ fn dart_mirror_reads_the_accessor_value() {
         "v.attributes()",
     );
     let from_core = impl_block(&content, "impl From<test_lib::NodeContext<'_>> for NodeContext");
+    let accessor_read = from_core.find("v.attributes()").expect("accessor read");
+    let field_move = from_core.find("v.tag_name").expect("field read");
     assert!(
-        from_core.find("v.attributes()") < from_core.find("v.tag_name"),
+        accessor_read < field_move,
         "the accessor borrows `v` before any field moves out of it:\n{from_core}"
     );
     assert!(
@@ -373,7 +560,7 @@ fn json_dto_backends_carry_the_accessor_value_on_the_wire() {
 
     let swift = generated(&crate::backends::swift::SwiftBackend, "swift");
     assert!(
-        swift.contains("serde_json::to_string(&self.0.attributes())"),
+        swift.contains("serde_json::to_string(self.0.attributes())"),
         "the bridge getter reads through the accessor:\n{swift}"
     );
     assert!(swift.contains("attributes: [String: String] = [:]"), "{swift}");
@@ -414,22 +601,36 @@ fn visitor_callback_contexts_read_the_accessor_in_place() {
 
 #[test]
 fn borrowing_reads_keep_their_meaning_through_a_reference_accessor() {
+    let map = getter_type(map_ty(), true);
+    let number = getter_type(TypeRef::Primitive(PrimitiveType::Usize), true);
     assert_eq!(
-        borrow_through_accessor("for (k, v) in &ctx.attributes {", "ctx", "attributes", true),
-        "for (k, v) in ctx.attributes() {"
+        borrow_through_accessor("for (k, v) in &ctx.field {", "ctx", &map, "field"),
+        "for (k, v) in ctx.field() {"
     );
     assert_eq!(
-        borrow_through_accessor("x(ctx.depth as f64, &ctx.depth_map)", "ctx", "depth", true),
-        "x((*ctx.depth()) as f64, &ctx.depth_map)"
+        borrow_through_accessor("x(ctx.field as f64, &ctx.field_map)", "ctx", &number, "field"),
+        "x((*ctx.field()) as f64, &ctx.field_map)"
     );
     assert_eq!(
         borrow_through_accessor(
-            "map(env, &ctx.attributes\n    .iter()\n    .collect())",
+            "map(env, &ctx.field\n    .iter()\n    .collect())",
             "ctx",
-            "attributes",
-            true
+            &map,
+            "field"
         ),
-        "map(env, &ctx.attributes()\n    .iter()\n    .collect())"
+        "map(env, &ctx.field()\n    .iter()\n    .collect())"
     );
-    assert_eq!(borrow_through_accessor("&ctx.a", "ctx", "a", false), "&ctx.a()");
+    assert_eq!(
+        borrow_through_accessor("&ctx.field", "ctx", &getter_type(map_ty(), false), "field"),
+        "&ctx.field()"
+    );
+    assert_eq!(
+        borrow_through_accessor(
+            "self.0.field.clone()",
+            "self.0",
+            &getter_type(TypeRef::String, true),
+            "field"
+        ),
+        "self.0.field().to_owned()"
+    );
 }

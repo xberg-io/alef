@@ -203,11 +203,11 @@ pub(super) fn emit_getters(
         // A carried private-field value is read through the core's public accessor.
         if crate::codegen::private_accessors::is_private_accessor_field(ty, field) {
             let getter = out.split_off(getter_start);
-            out.push_str(&crate::codegen::private_accessors::read_through_accessor(
+            out.push_str(&crate::codegen::private_accessors::borrow_through_accessor(
                 &getter,
                 "self.0",
+                ty,
                 &field.name,
-                false,
             ));
         }
     }

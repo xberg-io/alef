@@ -72,12 +72,7 @@ fn context_field_line(
     // A carried private-field value is read in place through the core's public accessor.
     Ok(
         if crate::codegen::private_accessors::is_private_accessor_field(context_def, field) {
-            crate::codegen::private_accessors::borrow_through_accessor(
-                &line,
-                "ctx",
-                &field.name,
-                crate::codegen::private_accessors::accessor_returns_ref(context_def, &field.name),
-            )
+            crate::codegen::private_accessors::borrow_through_accessor(&line, "ctx", context_def, &field.name)
         } else {
             line
         },

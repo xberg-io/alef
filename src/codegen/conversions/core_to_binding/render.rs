@@ -54,6 +54,7 @@ pub fn gen_from_core_to_binding_cfg(
     }
 
     let mut fields = Vec::new();
+    let mut carried_fields = Vec::new();
     for field in &typ.fields {
         if field.binding_excluded {
             continue;
@@ -242,13 +243,9 @@ pub fn gen_from_core_to_binding_cfg(
         } else {
             conversion
         };
-        let conversion = if crate::codegen::private_accessors::is_private_accessor_field(typ, field) {
-            crate::codegen::private_accessors::read_through_accessor(
-                &conversion,
-                "val",
-                &field.name,
-                crate::codegen::private_accessors::accessor_returns_ref(typ, &field.name),
-            )
+        let carried = crate::codegen::private_accessors::is_private_accessor_field(typ, field);
+        let conversion = if carried {
+            crate::codegen::private_accessors::read_through_accessor(&conversion, "val", typ, &field.name)
         } else {
             conversion
         };
@@ -265,14 +262,19 @@ pub fn gen_from_core_to_binding_cfg(
             }
             _ => conversion,
         };
-        fields.push(conversion);
+        // An accessor borrows the whole of `val`, so a carried value is read before any other
+        // field moves out of it (Rust evaluates a struct literal's fields in written order).
+        let entries = if carried { &mut carried_fields } else { &mut fields };
+        entries.push(conversion);
         if let Some(companion) = config
             .text_value_enum_names
             .and_then(|names| text_value_companion(&typ.fields, field, names))
         {
-            fields.push(text_value_conversion(field, &companion));
+            entries.push(text_value_conversion(field, &companion));
         }
     }
+    carried_fields.append(&mut fields);
+    let fields = carried_fields;
 
     let (needs_redundant_closure_allow, needs_useless_conversion_allow) =
         needs_clippy_allow(fields.iter().map(String::as_str));

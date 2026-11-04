@@ -109,12 +109,12 @@ pub struct TypeDef {
     /// (public constructor, `Default`-seeded builder, or serde `Deserialize`).
     #[serde(default)]
     pub has_private_fields: bool,
-    /// Names of the core struct's non-`pub` named fields. A `&self` accessor method with one of
-    /// these names reads state the binding mirror does not otherwise hold, so mirroring
-    /// backends carry its value as a binding field
+    /// The core struct's non-`pub` named fields, with their types and serde attributes. A `&self`
+    /// accessor method returning one of these fields reads state the binding mirror does not
+    /// otherwise hold, so mirroring backends carry its value as a binding field
     /// (see [`crate::core::ir::ApiSurface::with_private_accessor_fields`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub private_fields: Vec<String>,
+    pub private_fields: Vec<FieldDef>,
     /// Version annotation (since, deprecated).
     #[serde(default)]
     pub version: VersionAnnotation,
