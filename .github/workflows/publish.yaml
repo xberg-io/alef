@@ -348,6 +348,20 @@ jobs:
           printf '%s\n' "$RELEASE_SPEC" > "$RUNNER_TEMP/alef-release-spec.json"
           python3 "$RUNNER_TEMP/alef-release-state.py" smoke --spec "$RUNNER_TEMP/alef-release-spec.json" --binary "$CLI_BINARY"
 
+      # ~keep The manylinux_2_28 image's glibc is older than the one the gnu builds link against;
+      # running the musl binary there proves it is statically linked (#870). The runner and the
+      # image share an architecture, so no emulation is involved.
+      - name: Smoke musl binary in manylinux_2_28
+        if: ${{ contains(matrix.target, '-linux-musl') }}
+        shell: bash
+        env:
+          CLI_BINARY: ${{ steps.build.outputs.binary-path }}
+          MANYLINUX_ARCH: ${{ startsWith(matrix.target, 'aarch64') && 'aarch64' || 'x86_64' }}
+        run: |
+          set -euo pipefail
+          binary_dir="$(cd "$(dirname "$CLI_BINARY")" && pwd)"
+          docker run --rm -v "${binary_dir}:/alef:ro" "quay.io/pypa/manylinux_2_28_${MANYLINUX_ARCH}" /alef/alef --version
+
       - name: Create release archive
         id: archive
         shell: bash

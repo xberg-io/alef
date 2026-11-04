@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Publish statically linked `alef-x86_64-unknown-linux-musl` and `alef-aarch64-unknown-linux-musl` release archives,
+  smoke-tested inside a `manylinux_2_28` container, for builds that must run on an older glibc. (#870)
 - Add optional `source_manifest` and `producer_dir` fields to `[[crates.components]]`, so a component's
   implementation crate and generated producer can live in a different Cargo workspace from the core crate.
   Both resolve relative to the directory containing `alef.toml`. (#866)
