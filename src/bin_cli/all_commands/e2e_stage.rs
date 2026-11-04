@@ -52,6 +52,7 @@ pub(crate) fn run(
     resolved_cfg: &ResolvedCrateConfig,
     api: &ApiSurface,
     base_dir: &Path,
+    config_path: &Path,
     config_toml: &str,
     sources_hash: &str,
     alef_toml_bytes: &[u8],
@@ -154,6 +155,7 @@ pub(crate) fn run(
         api,
         e2e_config,
         base_dir,
+        config_path,
         &ir_json,
         config_toml,
         sources_hash,
@@ -172,6 +174,7 @@ pub(crate) fn run(
         api,
         e2e_config,
         base_dir,
+        config_path,
         &ir_json,
         config_toml,
         sources_hash,
@@ -211,6 +214,7 @@ fn run_e2e_substage(
     api: &ApiSurface,
     e2e_config: &E2eConfig,
     base_dir: &Path,
+    config_path: &Path,
     ir_json: &str,
     config_toml: &str,
     sources_hash: &str,
@@ -248,15 +252,13 @@ fn run_e2e_substage(
         } else {
             tracing::info!("Generating e2e test suites...");
             let previous_paths = cache::read_stage_paths(&resolved_cfg.name, "e2e");
-            let (files, generator_error) = crate::e2e::generate_e2e_with_log(
+            let (files, generator_error) = crate::e2e::generate_e2e_for_manifest(
                 resolved_cfg,
                 e2e_config,
                 None,
-                &api.types,
-                &api.enums,
-                &api.functions,
-                &api.errors,
-                diagnostic_log,
+                api,
+                config_path,
+                Some(diagnostic_log),
             )?;
             let e2e_report = pipeline::write_scaffold_files_report(&files, base_dir, true)?;
             refusals.absorb_unwritten(&e2e_report);
@@ -309,6 +311,7 @@ fn run_test_apps_substage(
     api: &ApiSurface,
     e2e_config: &E2eConfig,
     base_dir: &Path,
+    config_path: &Path,
     ir_json: &str,
     config_toml: &str,
     sources_hash: &str,
@@ -349,15 +352,13 @@ fn run_test_apps_substage(
             registry_e2e_config.dep_mode = crate::core::config::e2e::DependencyMode::Registry;
             let registry_e2e_ref = &registry_e2e_config;
 
-            let (files, generator_error) = crate::e2e::generate_e2e_with_log(
+            let (files, generator_error) = crate::e2e::generate_e2e_for_manifest(
                 resolved_cfg,
                 registry_e2e_ref,
                 None,
-                &api.types,
-                &api.enums,
-                &api.functions,
-                &api.errors,
-                diagnostic_log,
+                api,
+                config_path,
+                Some(diagnostic_log),
             )?;
             let test_apps_report = pipeline::write_scaffold_files_report(&files, base_dir, true)?;
             refusals.absorb_unwritten(&test_apps_report);

@@ -448,10 +448,7 @@ fn run_generators_isolates_one_backend_failure_from_the_rest() {
         &[],
         &E2eConfig::default(),
         &ResolvedCrateConfig::default(),
-        &[],
-        &[],
-        &[],
-        &[],
+        FixtureApi::new(&[], &[], &[], &[]),
     );
 
     assert_eq!(
@@ -517,9 +514,15 @@ fn generate_e2e_with_extensions_defers_an_extension_failure_so_backend_output_su
 
     let log = crate::e2e::diagnostic_log::DiagnosticLog::new();
 
-    let (files, deferred_error) =
-        generate_e2e_with_extensions(&config, &e2e_config, None, &[], &[], &[], &[], &extensions, &log)
-            .expect("an extension failure must defer through the `Option` slot, not propagate as a hard `Err`");
+    let (files, deferred_error) = generate_e2e_with_extensions(
+        &config,
+        &e2e_config,
+        None,
+        FixtureApi::new(&[], &[], &[], &[]),
+        &extensions,
+        &log,
+    )
+    .expect("an extension failure must defer through the `Option` slot, not propagate as a hard `Err`");
 
     let error = deferred_error.expect("the extension's failure must still be reported, not silently dropped");
     assert!(

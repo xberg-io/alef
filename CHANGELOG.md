@@ -18,10 +18,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `--component` to `alef component lock` to lock a subset of the configured components, for example a
   development lock; a component-filtered lock is written to `--output` only and never staged into binding packages. (#866)
 
+- Opt in to private Python host aliases for defaulted Rust callbacks while preserving the existing callback surface
+  in other SDKs, reference pages, and generated fixtures.
+
+- Opt in to lazy Python visitor context string-map getters through
+  `[crates.python.visitor_context_accessors]`. Configured getters can read borrowed
+  core context data during the callback without copying it on entry.
+
 ### Changed (BREAKING)
 
 - Extend `ComponentConfig` and `ResolvedComponent` with `source_manifest` and `producer_dir`. Rust callers
   constructing these structs must initialize the new fields; existing configuration files are unaffected. (#866)
+
+## [0.122.2] - 2026-11-04
+
+### Fixed
+
+- Emit fallible Node conversions for serde-defaulted required DTO fields without the `Ok(..?)` wrapper that clippy rejects as `needless_question_mark`.
+
+- Emit fallible Node conversions directly at Result tails while preserving InvalidArg error details.
+
+- Generate Dart trait stub defaults as BigInt for u64 callback returns.
 
 ## [0.122.1] - 2026-11-04
 

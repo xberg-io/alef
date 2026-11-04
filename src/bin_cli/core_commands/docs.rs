@@ -91,17 +91,15 @@ pub(crate) fn handle(
         // strict-mode bail never discards already-rendered API reference pages. `files` goes
         // through `write_and_stamp` before `docs_result` is propagated, not after -- see that
         // function's doc for what a written-but-unstamped page costs (alef#475). ~keep
-        let (files, docs_result) = if skip_snippet_validation {
-            crate::docs::generate_docs_stage_without_snippet_compile_validation(
-                &api,
-                resolved_cfg,
-                &languages,
-                output.as_deref(),
-                &base_dir,
-            )
-        } else {
-            crate::docs::generate_docs_stage(&api, resolved_cfg, &languages, output.as_deref(), &base_dir)
-        };
+        let (files, docs_result) = crate::docs::generate_docs_stage_for_manifest(
+            &api,
+            resolved_cfg,
+            &languages,
+            output.as_deref(),
+            &base_dir,
+            config_path,
+            !skip_snippet_validation,
+        );
         grand_total += write_and_stamp(&files, &base_dir, &sources_hash, &alef_toml_bytes)?;
         if let Err(error) = docs_result {
             stage_failures.record(&format!("[{}] docs/snippet validation", resolved_cfg.name), error);

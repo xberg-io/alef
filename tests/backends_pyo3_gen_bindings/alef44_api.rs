@@ -268,6 +268,7 @@ fn test_api_py_uses_keyword_arguments() {
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
+        visitor_context_accessors: Default::default(),
         reexported_types: Vec::new(),
         target_dep_overrides: Vec::new(),
     });
@@ -376,6 +377,7 @@ fn test_async_function_emits_async_def_and_await() {
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
+        visitor_context_accessors: Default::default(),
         reexported_types: Vec::new(),
         target_dep_overrides: Vec::new(),
     });
@@ -502,6 +504,7 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
+        visitor_context_accessors: Default::default(),
         reexported_types: Vec::new(),
         target_dep_overrides: Vec::new(),
     });

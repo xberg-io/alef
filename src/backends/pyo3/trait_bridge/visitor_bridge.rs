@@ -3,6 +3,8 @@ use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{ApiSurface, MethodDef, TypeDef};
 use std::collections::HashMap;
 
+use super::scoped_context::ScopedContextAccessor;
+
 #[cfg(test)]
 mod tests;
 
@@ -17,6 +19,7 @@ pub(super) struct VisitorBridgeInputs<'a> {
     pub(super) api: &'a ApiSurface,
     pub(super) pyclass_absent_types: &'a ahash::AHashSet<String>,
     pub(super) core_to_binding_convertible_types: &'a ahash::AHashSet<String>,
+    pub(super) scoped_context: Option<&'a ScopedContextAccessor>,
 }
 
 pub(super) fn gen_visitor_bridge(
@@ -43,6 +46,10 @@ pub(super) fn gen_visitor_bridge(
         inputs.pyclass_absent_types,
         inputs.core_to_binding_convertible_types,
     );
+    anyhow::ensure!(
+        inputs.scoped_context.is_none() || binding_class.is_some(),
+        "A scoped Python context accessor requires a generated context class"
+    );
     let helper_fn = crate::backends::pyo3::template_env::render(
         "trait_bridge/nodecontext_to_py_object.jinja",
         crate::alef_context! {
@@ -50,6 +57,7 @@ pub(super) fn gen_visitor_bridge(
             context_field_lines => context_helper.field_lines,
             binding_type_name => binding_class.map(|typ| typ.name.clone()),
             build_binding_type => binding_class.is_some(),
+            scoped_initializer => inputs.scoped_context.map(ScopedContextAccessor::initializer),
         },
     );
 
@@ -66,6 +74,7 @@ pub(super) fn gen_visitor_bridge(
         type_paths,
         struct_name,
         result_metadata: &result_metadata,
+        scoped_context: inputs.scoped_context,
     };
     for method in crate::codegen::generators::trait_bridge::visitor_callback_methods(trait_type, bridge_cfg) {
         gen_visitor_method(&mut methods_code, method, &method_context);
@@ -138,6 +147,7 @@ struct VisitorMethodContext<'a> {
     type_paths: &'a HashMap<String, String>,
     struct_name: &'a str,
     result_metadata: &'a crate::codegen::visitor_result::VisitorResultMetadata,
+    scoped_context: Option<&'a ScopedContextAccessor>,
 }
 
 /// Generate a single visitor-style trait method that tries Python dispatch, falls back to default.
@@ -168,13 +178,24 @@ fn gen_visitor_method(out: &mut String, method: &MethodDef, context: &VisitorMet
     };
 
     let default_result_expr = crate::codegen::visitor_result::default_result_expr(&ret_ty, result_metadata);
-    let VisitorPyArgs { setup, args: py_args } =
-        build_visitor_py_args(method, context.bridge_cfg, struct_name, name, &default_result_expr);
+    let VisitorPyArgs {
+        setup,
+        args: py_args,
+        context_args,
+    } = build_visitor_py_args(method, context, &default_result_expr);
 
     let py_call = if py_args.is_empty() {
         format!("obj.call_method0(\"{name}\")")
     } else {
         format!("obj.call_method1(\"{name}\", ({py_args}))")
+    };
+
+    let py_call = if let Some(accessor) = context.scoped_context {
+        context_args.iter().rev().fold(py_call, |call, (arg, borrow)| {
+            accessor.call_in_scope(arg, borrow, &call)
+        })
+    } else {
+        py_call
     };
 
     let method_code = crate::backends::pyo3::template_env::render(
@@ -207,6 +228,7 @@ fn gen_visitor_method(out: &mut String, method: &MethodDef, context: &VisitorMet
 struct VisitorPyArgs {
     setup: String,
     args: String,
+    context_args: Vec<(String, String)>,
 }
 
 /// Build Python call argument expressions for a visitor method.
@@ -225,13 +247,15 @@ struct VisitorPyArgs {
 /// - `&[String]` / `Vec<String>` params: passed as Python lists
 fn build_visitor_py_args(
     method: &MethodDef,
-    bridge_cfg: &TraitBridgeConfig,
-    struct_name: &str,
-    method_name: &str,
+    context: &VisitorMethodContext<'_>,
     default_result_expr: &str,
 ) -> VisitorPyArgs {
     use crate::core::ir::TypeRef;
+    let bridge_cfg = context.bridge_cfg;
+    let struct_name = context.struct_name;
+    let method_name = &method.name;
     let mut setup = String::new();
+    let mut context_args = Vec::new();
     let mut reserved_names: std::collections::HashSet<String> =
         method.params.iter().map(|param| param.name.clone()).collect();
     reserved_names.extend(
@@ -262,6 +286,11 @@ fn build_visitor_py_args(
                         default_result_expr => default_result_expr,
                     },
                 ));
+                if context.scoped_context.is_some() {
+                    context_args.push((arg_name.clone(), borrow_expr));
+                    // Keep the context alive through the scoped dispatch. ~keep
+                    return format!("&{arg_name}");
+                }
                 return arg_name;
             }
             if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
@@ -297,7 +326,11 @@ fn build_visitor_py_args(
     } else {
         args.join(", ")
     };
-    VisitorPyArgs { setup, args }
+    VisitorPyArgs {
+        setup,
+        args,
+        context_args,
+    }
 }
 
 fn collision_free_local_name(base: &str, reserved_names: &mut std::collections::HashSet<String>) -> String {

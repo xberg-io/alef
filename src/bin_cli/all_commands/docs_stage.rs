@@ -8,27 +8,21 @@ use crate::core::backend::GeneratedFile;
 use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::ApiSurface;
 
-/// Selects between `docs::generate_docs_stage` and
-/// `docs::generate_docs_stage_without_snippet_compile_validation` based on
-/// `alef all --skip-snippet-validation`. See that function's doc comment for
-/// why the compile step is worth skipping on purpose rather than just
-/// tolerating its failure. ~keep
 pub(crate) fn generate(
     skip_snippet_validation: bool,
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
     languages: &[Language],
     workspace_root: &Path,
+    config_path: &Path,
 ) -> (Vec<GeneratedFile>, anyhow::Result<()>) {
-    if skip_snippet_validation {
-        crate::docs::generate_docs_stage_without_snippet_compile_validation(
-            api,
-            config,
-            languages,
-            None,
-            workspace_root,
-        )
-    } else {
-        crate::docs::generate_docs_stage(api, config, languages, None, workspace_root)
-    }
+    crate::docs::generate_docs_stage_for_manifest(
+        api,
+        config,
+        languages,
+        None,
+        workspace_root,
+        config_path,
+        !skip_snippet_validation,
+    )
 }

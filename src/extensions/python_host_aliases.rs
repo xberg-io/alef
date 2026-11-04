@@ -9,10 +9,12 @@ use anyhow::{Context as _, Result, ensure};
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 
+mod projection;
 #[cfg(test)]
 mod tests;
 mod workspace;
 
+pub(crate) use projection::{read_non_python_surface, require_active_python_bridge};
 pub(crate) use workspace::read_for_crate;
 
 /// Parsed callback aliases for one source crate or direct backend instance.
@@ -20,7 +22,35 @@ pub(crate) use workspace::read_for_crate;
 #[serde(deny_unknown_fields)]
 pub struct PythonHostAliases {
     #[serde(default)]
-    traits: BTreeMap<String, BTreeMap<String, String>>,
+    traits: BTreeMap<String, BTreeMap<String, HostAlias>>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(untagged)]
+enum HostAlias {
+    Legacy(String),
+    Configured(HostAliasOptions),
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HostAliasOptions {
+    fallback: String,
+    #[serde(default)]
+    python_only: bool,
+}
+
+impl HostAlias {
+    fn fallback(&self) -> &str {
+        match self {
+            Self::Legacy(fallback) => fallback,
+            Self::Configured(options) => &options.fallback,
+        }
+    }
+
+    fn python_only(&self) -> bool {
+        matches!(self, Self::Configured(options) if options.python_only)
+    }
 }
 
 impl PythonHostAliases {
@@ -35,11 +65,27 @@ impl PythonHostAliases {
         self.traits
             .get(&typ.rust_path)
             .or_else(|| self.traits.get(&typ.name))
-            .cloned()
+            .map(|aliases| {
+                aliases
+                    .iter()
+                    .map(|(source, alias)| (source.clone(), alias.fallback().to_owned()))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
+    pub(crate) fn has_python_only_methods(&self) -> bool {
+        self.traits
+            .values()
+            .flat_map(|aliases| aliases.values())
+            .any(HostAlias::python_only)
+    }
+
     pub(crate) fn validate(&self, api: &ApiSurface) -> Result<()> {
+        self.validate_with(api, |_, _, _| {})
+    }
+
+    fn validate_with(&self, api: &ApiSurface, mut visit: impl FnMut(&TypeDef, &MethodDef, &HostAlias)) -> Result<()> {
         let mut seen = BTreeSet::new();
         for (name, aliases) in &self.traits {
             let matches: Vec<_> = api
@@ -58,10 +104,15 @@ impl PythonHostAliases {
                 "Python host aliases: trait `{name}` configured twice"
             );
             ensure!(!typ.binding_excluded, "Python host aliases: trait `{name}` is excluded");
-            for (source, target) in aliases {
+            for (source, alias) in aliases {
                 let source = own_method(typ, source)?;
-                let target = own_method(typ, target)?;
+                let target = own_method(typ, alias.fallback())?;
                 validate_pair(typ, source, target)?;
+                ensure!(
+                    !alias.python_only() || !typ.rust_path.is_empty(),
+                    "Python-only host aliases require a qualified Rust trait identity"
+                );
+                visit(typ, source, alias);
             }
         }
         Ok(())

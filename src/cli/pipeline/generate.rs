@@ -32,6 +32,7 @@ pub(crate) use binary::{decode_base64_binary, is_base64_binary_output};
 pub use diff::diff_files;
 pub use format_config::write_format_config_prepass;
 pub use generation::{generate, generate_public_api, generate_service_api, generate_stubs};
+pub(crate) use generation::{generate_service_api_for_manifest, generate_stubs_for_manifest};
 pub(crate) use header_freshness::{check_ffi_header_freshness, ensure_ffi_header_freshness};
 pub use normalization::normalize_content;
 pub use orphans::{

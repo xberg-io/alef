@@ -207,13 +207,12 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
         let Some(e2e_config) = &resolved_cfg.e2e else {
             continue;
         };
-        if let Err(error) = crate::e2e::verify_fresh_snippet_coverage(
+        if let Err(error) = crate::e2e::verify_fresh_snippet_coverage_for_manifest(
             &base_dir,
             resolved_cfg,
             e2e_config,
-            &api.types,
-            &api.enums,
-            &api.functions,
+            &api,
+            config_path,
         ) {
             snippet_coverage_issues.push(format!("[{}] {error:#}", resolved_cfg.name));
         }

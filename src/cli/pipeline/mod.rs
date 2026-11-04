@@ -43,9 +43,9 @@ pub use generate::{
 };
 pub(crate) use generate::{
     apply_shebang_chmod, atomic_write, check_ffi_header_freshness, declared_user_owned, decode_base64_binary,
-    ensure_ffi_header_freshness, ensure_generated_header, is_base64_binary_output, is_markable_path,
-    is_owned_by_ownership_record, marker_comment_style, matches_alef_output, provenance_header_for_path,
-    stamp_for_adoption,
+    ensure_ffi_header_freshness, ensure_generated_header, generate_service_api_for_manifest,
+    generate_stubs_for_manifest, is_base64_binary_output, is_markable_path, is_owned_by_ownership_record,
+    marker_comment_style, matches_alef_output, provenance_header_for_path, stamp_for_adoption,
 };
 pub use helpers::{init, run_optional};
 pub(crate) use lock_freshness::{

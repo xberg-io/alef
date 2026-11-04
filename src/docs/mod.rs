@@ -107,12 +107,27 @@ pub fn generate_docs(
     languages: &[Language],
     output_dir: &str,
 ) -> anyhow::Result<Vec<GeneratedFile>> {
+    generate_docs_impl(api, config, languages, output_dir, None)
+}
+
+fn generate_docs_impl(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    languages: &[Language],
+    output_dir: &str,
+    non_python_api: Option<&ApiSurface>,
+) -> anyhow::Result<Vec<GeneratedFile>> {
     let mut files = Vec::new();
     let ffi_prefix = &config.ffi_prefix().to_pascal_case();
     let binding_api = crate::codegen::binding_projection::project(api);
+    let non_python_api = non_python_api.map(crate::codegen::binding_projection::project);
 
     for lang in reference_languages(languages) {
-        let language_api = if lang == Language::Rust { api } else { &binding_api };
+        // The optional Python hook is absent from the public protocol. ~keep
+        let language_api = match lang {
+            Language::Rust => api,
+            _ => non_python_api.as_ref().unwrap_or(&binding_api),
+        };
         files.push(language_pages::generate_lang_doc(
             language_api,
             config,
@@ -182,7 +197,7 @@ pub fn generate_docs_stage(
     output_override: Option<&str>,
     workspace_root: &Path,
 ) -> (Vec<GeneratedFile>, anyhow::Result<()>) {
-    generate_docs_stage_impl(api, config, languages, output_override, workspace_root, true)
+    generate_docs_stage_impl(api, config, languages, output_override, workspace_root, true, None)
 }
 
 /// Same as [`generate_docs_stage`], except it never spawns a compiler, interpreter, or
@@ -209,7 +224,32 @@ pub fn generate_docs_stage_without_snippet_compile_validation(
     output_override: Option<&str>,
     workspace_root: &Path,
 ) -> (Vec<GeneratedFile>, anyhow::Result<()>) {
-    generate_docs_stage_impl(api, config, languages, output_override, workspace_root, false)
+    generate_docs_stage_impl(api, config, languages, output_override, workspace_root, false, None)
+}
+
+pub(crate) fn generate_docs_stage_for_manifest(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    languages: &[Language],
+    output_override: Option<&str>,
+    workspace_root: &Path,
+    config_path: &Path,
+    run_snippet_compile_validation: bool,
+) -> (Vec<GeneratedFile>, anyhow::Result<()>) {
+    let non_python_api = match crate::extensions::python_host_aliases::read_non_python_surface(api, config_path, config)
+    {
+        Ok(surface) => surface,
+        Err(error) => return (Vec::new(), Err(error)),
+    };
+    generate_docs_stage_impl(
+        api,
+        config,
+        languages,
+        output_override,
+        workspace_root,
+        run_snippet_compile_validation,
+        non_python_api.as_ref(),
+    )
 }
 
 fn generate_docs_stage_impl(
@@ -219,13 +259,14 @@ fn generate_docs_stage_impl(
     output_override: Option<&str>,
     workspace_root: &Path,
     run_snippet_compile_validation: bool,
+    non_python_api: Option<&ApiSurface>,
 ) -> (Vec<GeneratedFile>, anyhow::Result<()>) {
     let reference_output = output_override
         .map(PathBuf::from)
         .unwrap_or_else(|| reference_output_dir(config));
     let reference_output_str = reference_output.to_string_lossy().to_string();
 
-    let mut files = match generate_docs(api, config, languages, &reference_output_str) {
+    let mut files = match generate_docs_impl(api, config, languages, &reference_output_str, non_python_api) {
         Ok(files) => files,
         Err(err) => return (Vec::new(), Err(err)),
     };
