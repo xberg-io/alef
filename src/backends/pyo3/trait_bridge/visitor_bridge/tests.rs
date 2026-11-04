@@ -36,6 +36,7 @@ fn python_config(exclude_types: &[&str], capsule_types: &[&str]) -> PythonConfig
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
         extra_init_imports: Default::default(),
+        visitor_context_accessors: Default::default(),
         reexported_types: Vec::new(),
         target_dep_overrides: Vec::new(),
     }
@@ -411,4 +412,106 @@ fn visitor_context_local_avoids_parameters_and_preserves_tuple_order() {
         code.contains(&format!("({unique}, {collision},")),
         "the collision-safe local must replace only the context argument and retain exact parameter order:\n{code}"
     );
+}
+
+fn scoped_context_fixture() -> (ApiSurface, TypeDef, TraitBridgeConfig) {
+    use crate::core::ir::{MethodDef, ReceiverKind, TypeRef};
+
+    let (mut api, trait_type, bridge) = clone_able_fixture();
+    let context = api.types.iter_mut().find(|typ| typ.name == "TraversalState").unwrap();
+    context.methods.push(MethodDef {
+        name: "attributes".to_string(),
+        receiver: Some(ReceiverKind::Ref),
+        return_type: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+        returns_ref: true,
+        ..MethodDef::default()
+    });
+    (api, trait_type, bridge)
+}
+
+#[test]
+fn opted_in_visitor_getter_reads_the_borrowed_context_only_inside_dispatch() {
+    use crate::backends::pyo3::trait_bridge::{
+        gen_trait_bridge_with_host_aliases, scoped_context::ScopedContextAccessor,
+    };
+    use std::collections::BTreeMap;
+
+    let (api, trait_type, bridge) = scoped_context_fixture();
+    let config = ResolvedCrateConfig::default();
+    let unknown = BTreeMap::from([("TraversalState".to_string(), "wrong".to_string())]);
+    assert!(ScopedContextAccessor::resolve(&api, &config, std::slice::from_ref(&bridge), &unknown).is_err());
+    let configured = BTreeMap::from([("TraversalState".to_string(), "attributes".to_string())]);
+    let resolved = ScopedContextAccessor::resolve(&api, &config, std::slice::from_ref(&bridge), &configured).unwrap();
+
+    let convertible = crate::codegen::conversions::core_to_binding_convertible_types(&api, &[]);
+    let code = gen_trait_bridge_with_host_aliases(
+        &trait_type,
+        &bridge,
+        "sample_core",
+        "SampleError",
+        "SampleError::Message { message: {msg} }",
+        &api,
+        &[],
+        &AHashSet::new(),
+        &convertible,
+        &BTreeMap::new(),
+        resolved.get("TraversalState"),
+    )
+    .unwrap()
+    .code;
+
+    assert!(code.contains("let value = TraversalState {"));
+    assert!(code.contains("display_name: ctx.display_name.to_string()"));
+    assert!(!code.contains("ctx.clone().into()"));
+    assert!(code.contains("alef_call_with_scoped_traversalstate(&state_py, state, ||"));
+    let declaration = resolved["TraversalState"].declaration("sample_core::walk::TraversalState");
+    assert!(declaration.contains("|| ctx.attributes().iter()"));
+    assert!(code.contains("|| obj.call_method1(\"inspect_node\", (&state_py, label))"));
+}
+
+#[test]
+fn scoped_context_initializer_preserves_renamed_fields_and_rejects_getter_collision() {
+    use crate::backends::pyo3::trait_bridge::scoped_context::ScopedContextAccessor;
+    use std::collections::BTreeMap;
+
+    let (api, _, bridge) = scoped_context_fixture();
+    let configured = BTreeMap::from([("TraversalState".to_string(), "attributes".to_string())]);
+    let mut python = python_config(&[], &[]);
+    python
+        .rename_fields
+        .insert("TraversalState.display_name".to_string(), "display".to_string());
+    let renamed = ResolvedCrateConfig {
+        python: Some(python),
+        ..ResolvedCrateConfig::default()
+    };
+    let renamed = ScopedContextAccessor::resolve(&api, &renamed, std::slice::from_ref(&bridge), &configured).unwrap();
+    assert!(
+        renamed["TraversalState"]
+            .initializer()
+            .contains("display: ctx.display_name.to_string()")
+    );
+
+    let mut renamed_api = api.clone();
+    let context = renamed_api
+        .types
+        .iter_mut()
+        .find(|typ| typ.name == "TraversalState")
+        .unwrap();
+    context
+        .fields
+        .iter_mut()
+        .find(|field| field.name == "display_name")
+        .unwrap()
+        .name = "class".to_string();
+    let mut python = python_config(&[], &[]);
+    python
+        .rename_fields
+        .insert("TraversalState.class".to_string(), "attributes".to_string());
+    let conflicting = ResolvedCrateConfig {
+        python: Some(python),
+        ..ResolvedCrateConfig::default()
+    };
+    let collision =
+        ScopedContextAccessor::resolve(&renamed_api, &conflicting, std::slice::from_ref(&bridge), &configured);
+    assert!(matches!(collision, Err(error) if error.to_string().contains("collides with a Python field getter")));
 }
