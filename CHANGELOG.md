@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.122.2] - 2026-11-04
+
 ### Fixed
 
 - Emit fallible Node conversions for serde-defaulted required DTO fields without the `Ok(..?)` wrapper that clippy rejects as `needless_question_mark`.
