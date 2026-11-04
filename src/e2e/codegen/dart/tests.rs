@@ -466,6 +466,30 @@ fn dart_test_file_emits_wrapper_for_call_config_trait_argument() {
 }
 
 #[test]
+fn dart_trait_stub_numeric_defaults_match_mapped_types() {
+    use crate::core::ir::{PrimitiveType, TypeRef};
+
+    let mut unsigned = make_method("estimatedDurationMs", true);
+    unsigned.return_type = TypeRef::Primitive(PrimitiveType::U64);
+    let mut signed = make_method("signedCount", true);
+    signed.return_type = TypeRef::Primitive(PrimitiveType::I64);
+    let emission = emit_test_backend(
+        &make_trait_bridge("TestTrait"),
+        &[&unsigned, &signed],
+        &make_fixture("register_backend"),
+        &[],
+    );
+    assert!(
+        emission
+            .setup_block
+            .contains("Future<BigInt> estimatedDurationMs() async => BigInt.parse('1');"),
+        "{}",
+        emission.setup_block
+    );
+    assert!(emission.setup_block.contains("Future<int> signedCount() async => 1;"));
+}
+
+#[test]
 fn dart_trait_stub_wrapper_compiles() {
     if crate::test_support::spawn_from_stable_dir("dart")
         .arg("--version")
