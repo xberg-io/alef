@@ -113,6 +113,12 @@ impl NewAlefConfig {
     /// - [`ResolveError::OverlappingOutputPath`] when two crates resolve to the
     ///   same output directory for the same language.
     pub fn resolve(&self) -> Result<Vec<ResolvedCrateConfig>, ResolveError> {
+        let resolved = self.resolve_crates()?;
+        component_validation::validate_producer_dir_overlaps(&resolved)?;
+        Ok(resolved)
+    }
+
+    pub(crate) fn resolve_crates(&self) -> Result<Vec<ResolvedCrateConfig>, ResolveError> {
         if self.crates.is_empty() {
             return Err(ResolveError::NoCratesConfigured);
         }
@@ -447,7 +453,6 @@ impl NewAlefConfig {
         };
         validate_all_effective_ffi_configs(&resolved)?;
         validate_package_coordinates(&resolved)?;
-        component_validation::validate_producer_dir_overlaps(&resolved)?;
         Ok(resolved)
     }
 }
@@ -1191,6 +1196,7 @@ mod c_abi_tests;
 #[cfg(test)]
 mod component_tests;
 mod component_validation;
+pub(crate) use component_validation::validate_physical_producer_paths;
 #[cfg(test)]
 mod path_safety_review_tests;
 #[cfg(test)]

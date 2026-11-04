@@ -11,7 +11,11 @@ fn nodecontext_to_py_object<'py>(
     ctx: &{{ context_type_path }},
 ) -> pyo3::PyResult<pyo3::Bound<'py, pyo3::PyAny>> {
 {% if build_binding_type %}
+{% if scoped_initializer %}
+    let value = {{ scoped_initializer }};
+{% else %}
     let value: {{ binding_type_name }} = ctx.clone().into();
+{% endif %}
     Ok(pyo3::Bound::new(py, value)?.into_any())
 {% else %}
     let d = pyo3::types::PyDict::new(py);

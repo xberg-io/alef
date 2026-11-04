@@ -77,7 +77,7 @@ def archives(directory):
     directory.mkdir(parents=True)
     for name in NAMES:
         write_archive(directory / name)
-    assert len(list(directory.iterdir())) == 5
+    assert len(list(directory.iterdir())) == len(TARGETS)
 
 
 def workflow_guard():
@@ -119,7 +119,7 @@ class WorkflowBoundaryTest(unittest.TestCase):
             return result
 
     def test_actual_workflow_accepts_five_nonempty_real_archives(self):
-        assert len(NAMES) == 5
+        assert len(NAMES) == len(TARGETS)
         for poisoned in (False, True):
             with self.subTest(poisoned_python=poisoned):
                 result = self.guard(poisoned_python=poisoned)
@@ -767,12 +767,12 @@ class ReleaseStateTest(unittest.TestCase):
 
     def test_complete_five_then_verify_three_crates_before_promotion(self):
         self.complete_draft()
-        assert len(self.api.current["assets"]) == 5
+        assert len(self.api.current["assets"]) == len(TARGETS)
         assert self.api.current["draft"]
         self.state.promote("success", "success", True)
-        assert [method for method, _, _ in self.api.writes] == ["POST"] * 6 + ["PATCH"]
+        assert [method for method, _, _ in self.api.writes] == ["POST"] * (len(TARGETS) + 1) + ["PATCH"]
         assert sum(endpoint == "/releases" for _, endpoint, _ in self.api.writes) == 1
-        assert sum("/assets?" in endpoint for _, endpoint, _ in self.api.writes) == 5
+        assert sum("/assets?" in endpoint for _, endpoint, _ in self.api.writes) == len(TARGETS)
         assert not self.api.current["draft"]
         prior = len(self.api.writes)
         assert not self.state.prepare()["build_needed"]
@@ -788,8 +788,8 @@ class ReleaseStateTest(unittest.TestCase):
         prior = len(self.api.writes)
         self.state.upload(self.directory, "success")
         assert self.api.current["assets"][0] == first
-        assert len(self.api.writes) - prior == 4
-        assert len(self.api.current["assets"]) == 5
+        assert len(self.api.writes) - prior == len(TARGETS) - 1
+        assert len(self.api.current["assets"]) == len(TARGETS)
 
     def test_local_missing_empty_extra_and_symlink_fail_before_writes(self):
         for mutation in ("missing", "empty", "extra", "symlink"):

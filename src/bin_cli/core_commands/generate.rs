@@ -214,7 +214,7 @@ pub(crate) fn handle_generate(
         }
 
         if !api.services.is_empty() {
-            let svc_files = pipeline::generate_service_api(&api, resolved_cfg, &languages)?;
+            let svc_files = pipeline::generate_service_api_for_manifest(&api, resolved_cfg, &languages, config_path)?;
             if !svc_files.is_empty() {
                 for (_, files) in &svc_files {
                     current_gen_paths.extend(pipeline::stampable_output_paths(files, &base_dir));
@@ -320,7 +320,7 @@ pub(crate) fn handle_generate(
             }
         }
 
-        let stub_files = pipeline::generate_stubs(&api, resolved_cfg, &languages)?;
+        let stub_files = pipeline::generate_stubs_for_manifest(&api, resolved_cfg, &languages, config_path)?;
         if !stub_files.is_empty() {
             let stub_hashes: Vec<(String, String)> = stub_files
                 .iter()

@@ -175,14 +175,13 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                             tracing::info!("Generating e2e test suites...");
                         }
                         let languages = lang.as_deref();
-                        let (files, generator_error) = crate::e2e::generate_e2e(
+                        let (files, generator_error) = crate::e2e::generate_e2e_for_manifest(
                             e2e_crate,
                             e2e_ref,
                             languages,
-                            &api.types,
-                            &api.enums,
-                            &api.functions,
-                            &api.errors,
+                            &api,
+                            config_path,
+                            None,
                         )?;
                         let report = pipeline::write_scaffold_files_report(&files, &base_dir, true)?;
                         pipeline::report_refused_writes(&report);
@@ -432,14 +431,13 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
 
                         tracing::info!("Generating registry-mode test apps...");
                         let languages = lang.as_deref();
-                        let (files, generator_error) = crate::e2e::generate_e2e(
+                        let (files, generator_error) = crate::e2e::generate_e2e_for_manifest(
                             e2e_crate,
                             e2e_ref,
                             languages,
-                            &api.types,
-                            &api.enums,
-                            &api.functions,
-                            &api.errors,
+                            &api,
+                            config_path,
+                            None,
                         )?;
                         let report = pipeline::write_scaffold_files_report(&files, &base_dir, true)?;
                         pipeline::report_refused_writes(&report);

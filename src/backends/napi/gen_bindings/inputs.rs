@@ -12,8 +12,16 @@ pub(in crate::backends::napi) const INVALID_ARG: &str =
     ".map_err(|error| napi::Error::new(napi::Status::InvalidArg, format!(\"invalid JSON input: {error}\")))";
 
 pub(super) fn invalid_arg(core: &str) -> String {
+    invalid_arg_with_error(core, "error")
+}
+
+pub(super) fn invalid_serde_arg(core: &str) -> String {
+    invalid_arg_with_error(core, "error: serde_json::Error")
+}
+
+fn invalid_arg_with_error(core: &str, error: &str) -> String {
     let message = format!("invalid JSON for {core}: {{error}}");
-    format!(".map_err(|error| napi::Error::new(napi::Status::InvalidArg, format!({message:?})))")
+    format!(".map_err(|{error}| napi::Error::new(napi::Status::InvalidArg, format!({message:?})))")
 }
 
 fn binding_identifier(local: &syn::Local) -> Option<&syn::Ident> {

@@ -73,7 +73,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     tracing::info!("Generating type stubs for: {}", format_languages(&languages));
                 }
                 let api = pipeline::extract(resolved_cfg, config_path, false)?;
-                let files = pipeline::generate_stubs(&api, resolved_cfg, &languages)?;
+                let files = pipeline::generate_stubs_for_manifest(&api, resolved_cfg, &languages, config_path)?;
                 let sources_hash = cache::sources_hash(&resolved_cfg.sources)?;
 
                 let hashes: Vec<(String, String)> = files
@@ -497,7 +497,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 // step emits only its Rust glue crate (python/node/ruby/elixir/php/wasm), every `alef
                 // diff` run silently regressed `<lang>.manifest` back down to that one file. ~keep
                 let bindings = pipeline::generate(&api, resolved_cfg, &languages, true, config_path, false)?;
-                let stubs = pipeline::generate_stubs(&api, resolved_cfg, &languages)?;
+                let stubs = pipeline::generate_stubs_for_manifest(&api, resolved_cfg, &languages, config_path)?;
                 let scaffold = pipeline::scaffold(&api, resolved_cfg, &languages, config_path)?;
                 all_diffs.extend(pipeline::diff_files(&bindings, &base_dir)?);
                 all_diffs.extend(pipeline::diff_files(&stubs, &base_dir)?);
