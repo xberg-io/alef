@@ -41,9 +41,13 @@ fn fixture() -> tempfile::TempDir {
 }
 
 fn generate(root: &Path, alias: &str) -> Output {
+    generate_with_config(root, CONFIG, alias)
+}
+
+fn generate_with_config(root: &Path, config: &str, alias: &str) -> Output {
     std::fs::write(
         root.join("alef.toml"),
-        CONFIG.replace("__VERSION__", env!("CARGO_PKG_VERSION")) + alias,
+        config.replace("__VERSION__", env!("CARGO_PKG_VERSION")) + alias,
     )
     .unwrap();
     Command::new(env!("CARGO_BIN_EXE_alef"))
@@ -169,4 +173,48 @@ fn opted_in_alias_refuses_to_project_a_required_rust_callback() {
     let report = output_text(&output);
     assert!(report.contains("callback must be defaulted and fallible"), "{report}");
     assert!(!root.path().join("packages/dart/lib/src/traits.dart").exists());
+}
+
+#[test]
+fn private_callback_keeps_unrelated_inherent_method_with_same_name() {
+    let config = CONFIG.replace("public_api = false", "public_api = true");
+    for (alias, exposed) in [
+        ("checked_count = 'count'\n", true),
+        ("checked_count = { fallback = 'count', python_only = true }\n", false),
+    ] {
+        let root = fixture();
+        let source = root.path().join("src/lib.rs");
+        let core = std::fs::read_to_string(&source).unwrap();
+        std::fs::write(
+            source,
+            core + r#"
+pub struct Widget {
+    pub value: usize,
+}
+
+impl Widget {
+    pub fn new(value: usize) -> Self {
+        Self { value }
+    }
+
+    pub fn checked_count(&self, text: &str) -> usize {
+        self.value + text.len()
+    }
+}
+"#,
+        )
+        .unwrap();
+        let output = generate_with_config(root.path(), &config, alias);
+        assert!(output.status.success(), "{}", output_text(&output));
+        let protocol = std::fs::read_to_string(
+            root.path().join("packages/swift/Sources/RustBridge/SwiftCounterBridge.swift"),
+        )
+        .unwrap();
+        assert_eq!(protocol.contains("func checkedCount("), exposed);
+        let bindings = std::fs::read_to_string(root.path().join("packages/swift/rust/src/lib.rs")).unwrap();
+        assert!(
+            bindings.contains("pub fn widget_checked_count_from_json("),
+            "unrelated Widget::checked_count must survive {alias}"
+        );
+    }
 }
