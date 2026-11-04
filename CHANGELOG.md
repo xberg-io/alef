@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.124.1] - 2026-11-04
+
 ### Fixed
 
 - Stop the Dart Rust crate casting a value to the type it already has (`prompt_tokens as u64` on a `u64` parameter),
