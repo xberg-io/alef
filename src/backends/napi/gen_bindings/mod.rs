@@ -716,7 +716,7 @@ impl Backend for NapiBackend {
                             continue;
                         }
                         if crate::codegen::conversions::can_generate_conversion(typ, &binding_to_core) {
-                            builder.add_item(&crate::codegen::conversions::gen_from_binding_to_core_cfg(
+                            builder.add_item(&containers.gen_from_binding_to_core(
                                 typ,
                                 &core_import,
                                 &napi_conv_config,
@@ -737,11 +737,7 @@ impl Backend for NapiBackend {
             if !emitted_binding_to_core.contains(&typ.name)
                 && crate::codegen::conversions::can_generate_conversion(typ, &binding_to_core)
             {
-                builder.add_item(&crate::codegen::conversions::gen_from_binding_to_core_cfg(
-                    typ,
-                    &core_import,
-                    &napi_conv_config,
-                ));
+                builder.add_item(&containers.gen_from_binding_to_core(typ, &core_import, &napi_conv_config));
                 emitted_binding_to_core.insert(typ.name.clone());
             }
         }

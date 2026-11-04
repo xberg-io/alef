@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Convert a Node DTO that no function takes as input through `TryFrom` when it holds a fallibly converted DTO, instead of
+  a `From` that does not compile (E0277).
+
 ## [0.122.0] - 2026-11-04
 
 ### Added

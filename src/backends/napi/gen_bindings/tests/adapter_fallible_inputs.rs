@@ -136,3 +136,45 @@ fn adapter_body_consumes_the_fallibly_converted_input() {
         "no unused separately-named conversion may remain, got:\n{code}"
     );
 }
+
+/// Regression: a DTO that no function takes as input is emitted by the fallback conversion pass,
+/// which rendered a plain `From` with `.into()` on its fields. When a field holds a DTO whose
+/// conversion is fallible, that `From` needed `From<JsChatRequest>`, which a `TryFrom`-converted
+/// DTO does not implement (E0277). The fallback must convert through the same fallible policy.
+#[test]
+fn fallback_conversion_of_a_dto_holding_a_fallible_dto_is_fallible() {
+    use crate::core::backend::Backend;
+
+    let mut api = fallible_request_api();
+    api.crate_name = "sample-core".into();
+    api.version = "0.1.0".into();
+    api.types.push(TypeDef {
+        name: "Batch".into(),
+        rust_path: "sample_core::Batch".into(),
+        fields: vec![FieldDef {
+            name: "requests".into(),
+            ty: TypeRef::Vec(Box::new(TypeRef::Named("ChatRequest".into()))),
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+    let config: crate::core::config::new_config::NewAlefConfig = toml::from_str(
+        "[workspace]\nlanguages = [\"node\"]\n[[crates]]\nname = \"sample-core\"\nsources = [\"src/lib.rs\"]\n",
+    )
+    .unwrap();
+    let files = super::super::NapiBackend
+        .generate_bindings(&api, &config.resolve().unwrap().remove(0))
+        .unwrap();
+    let lib = &files.iter().find(|file| file.path.ends_with("lib.rs")).unwrap().content;
+    let compact: String = lib.chars().filter(|character| !character.is_whitespace()).collect();
+    for name in ["ChatRequest", "Batch"] {
+        assert!(
+            compact.contains(&format!("implTryFrom<Js{name}>forsample_core::{name}")),
+            "{name} must convert fallibly:\n{lib}"
+        );
+        assert!(
+            !compact.contains(&format!("implFrom<Js{name}>forsample_core::{name}")),
+            "{name} must not also convert infallibly:\n{lib}"
+        );
+    }
+}
