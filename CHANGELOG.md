@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (BREAKING)
+
+- Add `TypeDef::private_fields`, a core struct's non-`pub` fields with their types and serde attributes. Rust callers
+  constructing `TypeDef` literals must initialize it. (#865)
+- Generated bindings expose the value of a public accessor over a private field (html-to-markdown's
+  `NodeContext::attributes()`) as a field or property in Node, Go, Swift, R, Dart, Kotlin Android and PHP. Go's
+  `Attributes()` and Swift's `attributes()` method become an `Attributes` / `attributes` property; Kotlin Android and
+  PHP gain an `attributes` property next to the method; Node and R, which had no such method, gain the field. PHP's
+  constructor takes the value as an optional trailing parameter, Swift's defaults it to `[:]`, and Ruby's RBS
+  initializer declares it as an optional keyword. (#865)
+
+### Fixed
+
+- Return the real value from a public accessor over a private field (html-to-markdown's `NodeContext::attributes()`)
+  in every binding, including visitor-callback contexts, instead of an empty map or a decode error. The value is
+  copied into the binding only when a public constructor the binding already calls takes a by-value parameter of the
+  accessor's name and type, and the field is not serde-skipped; otherwise the method keeps its current behavior and
+  alef warns once. Python, Ruby, WebAssembly and Elixir keep their existing `attributes` method or NIF. A Python
+  visitor context accessor listed in `[crates.python.visitor_context_accessors]` keeps its lazy callback-scoped
+  reader and is not copied (ADR 0020). (#865)
+- Declare the configured `[crates.swift] min_ios_version` in the generated Swift e2e and test_apps `Package.swift`
+  instead of the default iOS minimum. The macOS minimum stays at 26 by default and follows `min_macos_version`
+  everywhere. (#864)
+
 ## [0.123.0] - 2026-11-04
 
 ### Added
