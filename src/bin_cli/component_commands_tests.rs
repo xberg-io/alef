@@ -562,6 +562,7 @@ fn reuse_plan(rows: &[(&str, &str)]) -> ComponentPlan {
                 target: (*target).into(),
                 input_hash: Some("h".into()),
                 action: PlanAction::Reuse,
+                host_family: None,
                 previous: Some(previous.clone()),
             })
             .collect(),
@@ -717,6 +718,7 @@ fn build_row_checks_honour_filters_and_cover_every_row() {
         target: target.into(),
         input_hash: None,
         action,
+        host_family: None,
         previous: None,
     };
     let plan = ComponentPlan::new(

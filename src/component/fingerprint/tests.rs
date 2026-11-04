@@ -728,29 +728,72 @@ fn non_native_targets_ignore_the_probes() {
     }
 }
 
-#[test]
-fn msvc_targets_hash_the_dev_shell_versions_and_vswhere_on_a_windows_host() {
-    let target = "x86_64-pc-windows-msvc";
-    let vars = |tools: &str| {
-        vec![
-            ("VCToolsVersion".to_string(), tools.to_string()),
-            ("WindowsSDKVersion".to_string(), "10.0.22621.0\\".to_string()),
-            ("ProgramFiles(x86)".to_string(), "C:\\PF86".to_string()),
-        ]
-    };
-    let vswhere = |version: &'static str| {
-        move |program: &str, args: &[&str]| {
-            (program == "C:\\PF86\\Microsoft Visual Studio\\Installer\\vswhere.exe" && args.contains(&"-latest"))
-                .then(|| version.to_string())
+const VSWHERE: &str = "C:\\PF86\\Microsoft Visual Studio\\Installer\\vswhere.exe";
+
+fn vswhere_probe(display: &'static str, installation: &'static str) -> impl Fn(&str, &[&str]) -> Option<String> {
+    move |program, args| {
+        if program != VSWHERE {
+            return None;
         }
+        match args.last().copied() {
+            Some("catalog_productDisplayVersion") => Some(display.to_string()),
+            Some("installationVersion") => Some(installation.to_string()),
+            _ => None,
+        }
+    }
+}
+
+#[test]
+fn msvc_targets_hash_vswhere_versions_and_ignore_dev_shell_variables() {
+    let target = "x86_64-pc-windows-msvc";
+    let vars = vec![("ProgramFiles(x86)".to_string(), "C:\\PF86".to_string())];
+    let old = native_toolchain(
+        target,
+        HostFamily::Windows,
+        &vars,
+        &vswhere_probe("17.10.1", "17.10.34916.146"),
+    );
+    assert_eq!(
+        old,
+        vec![
+            ("msvc:vswhere".to_string(), "17.10.1".to_string()),
+            ("msvc:vswhere-installation".to_string(), "17.10.34916.146".to_string()),
+        ]
+    );
+    let patched = native_toolchain(
+        target,
+        HostFamily::Windows,
+        &vars,
+        &vswhere_probe("17.10.1", "17.10.34916.200"),
+    );
+    assert_ne!(old, patched, "the full build number is hashed");
+    let shell = [vars.clone(), vec![("VCToolsVersion".to_string(), "14.40".to_string())]].concat();
+    assert_eq!(
+        old,
+        native_toolchain(
+            target,
+            HostFamily::Windows,
+            &shell,
+            &vswhere_probe("17.10.1", "17.10.34916.146")
+        ),
+        "a developer shell must not change the identity"
+    );
+}
+
+#[test]
+fn msvc_env_names_are_case_insensitive_and_default_to_program_files_x86() {
+    let target = "x86_64-pc-windows-msvc";
+    let probe = vswhere_probe("17.10.1", "17.10.34916.146");
+    let lower = vec![("programfiles(x86)".to_string(), "C:\\PF86".to_string())];
+    let records = native_toolchain(target, HostFamily::Windows, &lower, &probe);
+    assert!(records.iter().any(|(_, value)| value == "17.10.1"), "{records:?}");
+
+    let default_root = |program: &str, _: &[&str]| {
+        (program == "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe")
+            .then(|| "17.9.0".to_string())
     };
-    let old = native_toolchain(target, HostFamily::Windows, &vars("14.40"), &vswhere("17.10.1"));
-    let new_vs = native_toolchain(target, HostFamily::Windows, &vars("14.40"), &vswhere("17.11.0"));
-    let new_tools = native_toolchain(target, HostFamily::Windows, &vars("14.41"), &vswhere("17.10.1"));
-    assert_eq!(old.len(), 3);
-    assert!(old.contains(&("msvc:vswhere".to_string(), "17.10.1".to_string())));
-    assert_ne!(old, new_vs);
-    assert_ne!(old, new_tools);
-    let unset = native_toolchain(target, HostFamily::Windows, &[], &vswhere("17.10.1"));
-    assert!(unset.iter().all(|(_, value)| value == ABSENT), "{unset:?}");
+    let records = native_toolchain(target, HostFamily::Windows, &[], &default_root);
+    assert!(records.iter().all(|(_, value)| value == "17.9.0"), "{records:?}");
+    let missing = native_toolchain(target, HostFamily::Windows, &[], &|_: &str, _: &[&str]| None);
+    assert!(missing.iter().all(|(_, value)| value == ABSENT));
 }

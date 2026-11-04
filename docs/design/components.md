@@ -156,12 +156,15 @@ pairs; and the producer's dependency closure.
   `xcrun --sdk <sdk> clang --version` (Apple clang drives the link); `<sdk>` follows the target OS
   (`macosx` for darwin and macabi, `iphoneos`, `iphonesimulator` for `-sim` and x86_64 iOS,
   `appletvos`/`appletvsimulator`, `watchos`/`watchsimulator`, `xros`/`xrsimulator`). For
-  `*-windows-msvc` targets on a Windows host, `VCToolsVersion` and `WindowsSDKVersion` from the
-  environment (set by a developer shell) and the Visual Studio version from `vswhere` under
-  `%ProgramFiles(x86)%\Microsoft Visual Studio\Installer`. A missing tool or variable hashes the
+  `*-windows-msvc` targets on a Windows host, the Visual Studio `catalog_productDisplayVersion` and
+  `installationVersion` from `vswhere` under `%ProgramFiles(x86)%\Microsoft Visual Studio\Installer`
+  (the variable is matched case-insensitively and defaults to `C:\Program Files (x86)`); the
+  developer-shell variables `VCToolsVersion` and `WindowsSDKVersion` are not used, since a plan from
+  a plain shell and a build in a developer shell would disagree. A missing tool hashes the
   marker `absent`. Like `rustc -vV`, this identity is the build machine's, so for Apple and MSVC
   targets `plan` must run on the same OS family as the build; from another family it records
-  nothing, and a plan made there fails the build-time gate. The C compiler version is not probed:
+  nothing. Each plan row records the planning `host_family` (`macos`, `windows`, `other`), and
+  `build` / `package` reject an Apple or MSVC row planned on a different family with a clear error. The C compiler version is not probed:
   put it in `--extra`, for example `--extra cc=$(cc --version | head -1)`.
 - *Configuration files.* The SHA-256 of every `.cargo/config.toml`, `.cargo/config`,
   `rust-toolchain.toml` and `rust-toolchain` found walking up from the working directory and from

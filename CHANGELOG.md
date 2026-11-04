@@ -26,9 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   locks it stages into binding packages. (#869)
 - Hash the native toolchain in component fingerprints when the host OS family matches the target's: for
   `*-apple-*` targets on macOS the `xcrun` SDK version, SDK build version and Apple clang version, for
-  `*-windows-msvc` targets on Windows `VCToolsVersion`, `WindowsSDKVersion` and the `vswhere` Visual Studio version, with
+  `*-windows-msvc` targets on Windows the `vswhere` Visual Studio product and installation versions, with
   a stable `absent` marker when a probe is unavailable. A runner image upgrade no longer reuses artifacts built with an
-  older SDK or linker; for these targets `plan` must run on the same OS family as the build, like `rustc -vV`. (#873)
+  older SDK or linker; for these targets `plan` must run on the same OS family as the build, like `rustc -vV`; plan rows record the planning `host_family` and `build`/`package` reject a mismatch with a clear error. (#873)
 - Accept an absent or empty `--input` for `alef component lock --reuse --plan` when every plan row is `reuse`, and
   fail when a `build` row has no record in the input. (#873)
 

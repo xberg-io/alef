@@ -39,6 +39,9 @@ pub struct PlanRow {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_hash: Option<String>,
     pub action: PlanAction,
+    /// The OS family of the machine that made the plan; absent in plans from older alef versions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_family: Option<crate::component::fingerprint::HostFamily>,
     /// The lock entry to carry over, present exactly when `action` is `reuse`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub previous: Option<ComponentLockEntry>,
@@ -116,6 +119,7 @@ pub fn decide(candidate: &PlanCandidate, previous: &[ComponentLockEntry]) -> Res
         } else {
             PlanAction::Build
         },
+        host_family: None,
         previous: reusable.cloned(),
     })
 }

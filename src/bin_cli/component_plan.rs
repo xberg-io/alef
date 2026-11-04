@@ -63,6 +63,11 @@ impl Fingerprinter {
             .clone()
     }
 
+    /// The OS family this process runs on (injectable in tests).
+    pub(super) fn host(&self) -> HostFamily {
+        self.host
+    }
+
     #[cfg(test)]
     fn with_probe(mut self, host: HostFamily, probe: Box<dyn ToolProbe>) -> Self {
         self.host = host;
@@ -176,7 +181,7 @@ pub(super) fn run(crates: &[&ResolvedCrateConfig], config_path: &Path, args: Pla
             let contract_hash = primary_contract_hash(resolved)?;
             for target in select_targets(config, profile, &args.target)? {
                 let input_hash = fingerprinter.input_hash(config, profile, resolved, &target, args.debug)?;
-                rows.push(decide(
+                let mut row = decide(
                     &PlanCandidate {
                         crate_name: config.name.clone(),
                         component: profile.name.clone(),
@@ -186,7 +191,9 @@ pub(super) fn run(crates: &[&ResolvedCrateConfig], config_path: &Path, args: Pla
                         input_hash,
                     },
                     previous_entries,
-                )?);
+                )?;
+                row.host_family = Some(fingerprinter.host());
+                rows.push(row);
             }
         }
     }
@@ -241,6 +248,7 @@ pub(super) fn gate(
         tracing::info!("Skipping `{}` for `{target}`: the plan reuses it", profile.name);
         return Ok(None);
     };
+    check_plan_host(row.host_family, fingerprinter.host(), target)?;
     let current = fingerprinter.input_hash(config, profile, resolved, target, debug)?;
     ensure!(
         current == row.input_hash,
@@ -248,6 +256,22 @@ pub(super) fn gate(
         profile.name
     );
     Ok(Some(row.input_hash.clone()))
+}
+
+/// Fail with a clear message when a plan for an Apple or MSVC `target` was made on a different OS
+/// family than the one building it, instead of a misleading "inputs changed" from the gate.
+pub(super) fn check_plan_host(planned: Option<HostFamily>, current: HostFamily, target: &str) -> Result<()> {
+    if let Some(planned) = planned
+        && planned != current
+        && HostFamily::needs_matching_host(target)
+    {
+        bail!(
+            "plan for {target} was made on a {} host but this build runs on {}; plan Apple and MSVC targets on a matching runner",
+            planned.name(),
+            current.name()
+        );
+    }
+    Ok(())
 }
 
 /// The profiles `build`/`package` act on: the explicitly requested ones, or with a plan and no
@@ -386,7 +410,11 @@ pub(super) fn check_records_against_plan(
 /// empty set: a release that reuses every component builds no archives, so nothing writes the
 /// directory. Without reuse a missing `input` is an error.
 pub(super) fn lock_input_records(input: &Path, reusing: bool) -> Result<Vec<(PathBuf, ComponentArtifactRecord)>> {
-    if reusing && !input.exists() {
+    if reusing
+        && !input
+            .try_exists()
+            .with_context(|| format!("cannot access component record input {}", input.display()))?
+    {
         return Ok(Vec::new());
     }
     super::records_in(input)

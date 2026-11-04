@@ -58,6 +58,7 @@ fn a_plan_without_explicit_selection_drives_profiles_and_targets() {
             target: "aarch64-apple-darwin".into(),
             input_hash: Some("a".repeat(64)),
             action: PlanAction::Build,
+            host_family: None,
             previous: None,
         }],
     };
@@ -99,4 +100,25 @@ fn fingerprinter_feeds_the_probed_toolchain_for_the_target_host_only() {
         .unwrap()
         .with_probe(HostFamily::Other, Box::new(probe));
     assert!(linux.toolchain_for("aarch64-apple-darwin").is_empty());
+}
+
+#[test]
+fn a_plan_from_another_os_family_is_rejected_for_native_targets_only() {
+    let mac = "aarch64-apple-darwin";
+    let error = check_plan_host(Some(HostFamily::Other), HostFamily::Macos, mac).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "plan for aarch64-apple-darwin was made on a other host but this build runs on macos; plan Apple and MSVC targets on a matching runner"
+    );
+    assert!(check_plan_host(Some(HostFamily::Other), HostFamily::Windows, "x86_64-pc-windows-msvc").is_err());
+    check_plan_host(Some(HostFamily::Macos), HostFamily::Macos, mac).unwrap();
+    check_plan_host(None, HostFamily::Macos, mac).unwrap();
+    check_plan_host(Some(HostFamily::Other), HostFamily::Macos, "x86_64-unknown-linux-gnu").unwrap();
+}
+
+#[test]
+fn lock_input_check_propagates_access_errors_and_tolerates_absence() {
+    let dir = tempfile::tempdir().unwrap();
+    assert!(lock_input_records(&dir.path().join("absent"), true).unwrap().is_empty());
+    assert!(lock_input_records(&dir.path().join("absent"), false).is_err());
 }

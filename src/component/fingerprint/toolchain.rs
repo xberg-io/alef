@@ -38,7 +38,8 @@ impl ToolProbe for SystemProbe {
 }
 
 /// The OS family of the machine running alef.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum HostFamily {
     Macos,
     Windows,
@@ -46,6 +47,22 @@ pub enum HostFamily {
 }
 
 impl HostFamily {
+    /// The lowercase name used in plans and messages.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Macos => "macos",
+            Self::Windows => "windows",
+            Self::Other => "other",
+        }
+    }
+
+    /// Whether `target` has a native toolchain identity that only a matching host can probe.
+    #[must_use]
+    pub fn needs_matching_host(target: &str) -> bool {
+        target.contains("-apple-") || target.ends_with("-windows-msvc")
+    }
+
     /// The family alef was compiled for.
     #[must_use]
     pub const fn current() -> Self {
@@ -104,9 +121,10 @@ fn first_line(output: Option<String>) -> String {
 ///
 /// * Apple: the SDK version and build version `xcrun` reports for the target's SDK, and the first
 ///   line of `xcrun --sdk <sdk> clang --version` (Apple clang drives the link).
-/// * MSVC: `VCToolsVersion` and `WindowsSDKVersion` from `vars` (set by a developer shell), and the
-///   Visual Studio product version from `vswhere` under `ProgramFiles(x86)`, since stock runners
-///   have no developer shell.
+/// * MSVC: the Visual Studio product version and full installation version from `vswhere` under
+///   `ProgramFiles(x86)` (matched case-insensitively, default `C:\Program Files (x86)`). The
+///   developer-shell variables `VCToolsVersion` and `WindowsSDKVersion` are not used: they exist
+///   only inside such a shell, so a plan and a build would disagree.
 ///
 /// Anything that cannot be probed is recorded as [`ABSENT`].
 #[must_use]
@@ -127,32 +145,31 @@ pub fn native_toolchain(
             first_line(probe.run("xcrun", &["--sdk", sdk, "clang", "--version"])),
         ));
     } else if target.ends_with("-windows-msvc") && host == HostFamily::Windows {
-        let var = |name: &str| {
-            vars.iter()
-                .find(|(key, _)| key == name)
-                .map(|(_, value)| value.trim().to_string())
-                .filter(|value| !value.is_empty())
-        };
-        for name in ["VCToolsVersion", "WindowsSDKVersion"] {
-            records.push((format!("msvc:{name}"), var(name).unwrap_or_else(|| ABSENT.to_string())));
+        let program_files = vars
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("ProgramFiles(x86)"))
+            .map(|(_, value)| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "C:\\Program Files (x86)".to_string());
+        let vswhere = format!("{program_files}\\Microsoft Visual Studio\\Installer\\vswhere.exe");
+        for (key, property) in [
+            ("msvc:vswhere", "catalog_productDisplayVersion"),
+            ("msvc:vswhere-installation", "installationVersion"),
+        ] {
+            let output = probe.run(
+                &vswhere,
+                &[
+                    "-latest",
+                    "-products",
+                    "*",
+                    "-requires",
+                    "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                    "-property",
+                    property,
+                ],
+            );
+            records.push((key.to_string(), first_line(output)));
         }
-        let vswhere = var("ProgramFiles(x86)")
-            .map(|root| format!("{root}\\Microsoft Visual Studio\\Installer\\vswhere.exe"))
-            .and_then(|path| {
-                probe.run(
-                    &path,
-                    &[
-                        "-latest",
-                        "-products",
-                        "*",
-                        "-requires",
-                        "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
-                        "-property",
-                        "catalog_productDisplayVersion",
-                    ],
-                )
-            });
-        records.push(("msvc:vswhere".to_string(), first_line(vswhere)));
     }
     records.sort();
     records
