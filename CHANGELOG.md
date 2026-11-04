@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add optional `source_manifest` and `producer_dir` fields to `[[crates.components]]`, so a component's
+  implementation crate and generated producer can live in a different Cargo workspace from the core crate.
+  Both resolve relative to the directory containing `alef.toml`. (#866)
+
+### Changed (BREAKING)
+
+- Extend `ComponentConfig` and `ResolvedComponent` with `source_manifest` and `producer_dir`. Rust callers
+  constructing these structs must initialize the new fields; existing configuration files are unaffected. (#866)
+
 ## [0.122.1] - 2026-11-04
 
 ### Fixed

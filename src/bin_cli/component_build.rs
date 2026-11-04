@@ -15,7 +15,7 @@ pub(super) fn build_component(
     dry_run: bool,
     shared_target_dir: Option<&Path>,
 ) -> Result<()> {
-    let mut producer_manifest = producer_manifest_path(config, &profile.name);
+    let mut producer_manifest = producer_manifest_path(config, profile);
     if profile.producer_language == ComponentProducerLanguage::Go {
         producer_manifest.set_file_name("go.mod");
     }
@@ -187,11 +187,15 @@ pub(super) fn built_library_path(
 }
 
 fn producer_package_name(config: &ResolvedCrateConfig, component: &str) -> String {
-    format!("{}-{}-component", config.core_crate_dir(), component.replace('_', "-"))
+    crate::core::config::component::component_producer_package(&config.core_crate_dir(), component)
 }
 
-fn producer_manifest_path(config: &ResolvedCrateConfig, component: &str) -> PathBuf {
-    Path::new("crates")
-        .join(producer_package_name(config, component))
-        .join("Cargo.toml")
+/// `Cargo.toml` of the component's producer crate, honouring a configured `producer_dir`.
+pub(super) fn producer_manifest_path(config: &ResolvedCrateConfig, profile: &ComponentConfig) -> PathBuf {
+    crate::core::config::component::component_producer_dir(
+        &config.core_crate_dir(),
+        &profile.name,
+        profile.producer_dir.as_deref(),
+    )
+    .join("Cargo.toml")
 }

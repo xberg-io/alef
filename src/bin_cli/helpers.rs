@@ -192,14 +192,31 @@ pub(crate) fn load_config(
     let cfg: crate::core::config::NewAlefConfig = toml_value
         .try_into()
         .with_context(|| format!("Failed to deserialize alef.toml ({})", path.display()))?;
-    let resolved = cfg
+    let mut resolved = cfg
         .resolve()
         .with_context(|| format!("failed to resolve crates in {}", path.display()))?;
+    rebase_component_paths(&mut resolved, path, &std::env::current_dir().unwrap_or_default());
     for resolved_cfg in &resolved {
         crate::core::config::validation::validate_resolved(resolved_cfg)
             .with_context(|| format!("invalid resolved config for crate `{}`", resolved_cfg.name))?;
     }
     Ok((cfg.workspace, resolved))
+}
+
+/// Re-root every component's `source_manifest` / `producer_dir` onto the directory of the
+/// `alef.toml` at `config_path`, expressed relative to `cwd`. Every other path in the config stays
+/// relative to the working directory.
+pub(crate) fn rebase_component_paths(
+    resolved: &mut [crate::core::config::ResolvedCrateConfig],
+    config_path: &std::path::Path,
+    cwd: &std::path::Path,
+) {
+    let config_dir = crate::core::config::component::config_dir_relative_to(config_path, cwd);
+    for resolved_cfg in resolved {
+        for component in &mut resolved_cfg.components {
+            component.rebase_paths(&config_dir);
+        }
+    }
 }
 
 pub(crate) fn resolve_languages(
@@ -889,6 +906,8 @@ pub(crate) fn verify_walk(base_dir: &std::path::Path) -> anyhow::Result<Vec<Stal
 
 #[cfg(all(test, unix))]
 mod complete_generated_artifacts_staging_order_tests;
+#[cfg(test)]
+mod component_rebase_tests;
 #[cfg(test)]
 mod drift_tests;
 #[cfg(test)]

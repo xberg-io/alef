@@ -175,6 +175,8 @@ fn codec_config() -> ResolvedCrateConfig {
             default_features: true,
             targets: Some(vec!["test-target".into()]),
             bundled_on: Vec::new(),
+            source_manifest: None,
+            producer_dir: None,
             extra_dependencies: Default::default(),
         }],
         ..ResolvedCrateConfig::default()

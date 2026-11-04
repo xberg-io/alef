@@ -648,3 +648,205 @@ fn generated_schema_contains_extra_dependencies() {
     let schema = crate::core::config::alef_config_schema("test").unwrap();
     assert!(serde_json::to_string(&schema).unwrap().contains("extra_dependencies"));
 }
+
+#[test]
+fn source_manifest_and_producer_dir_default_to_unset() {
+    let resolved = component_config("").resolve().unwrap().remove(0);
+    assert_eq!(resolved.components[0].source_manifest, None);
+    assert_eq!(resolved.components[0].producer_dir, None);
+    let value = serde_json::to_value(&resolved.components[0]).unwrap();
+    assert!(value.get("source_manifest").is_none() && value.get("producer_dir").is_none());
+}
+
+#[test]
+fn source_manifest_and_producer_dir_parse_and_resolve() {
+    let parsed: crate::core::config::ComponentConfig = toml::from_str(
+        r#"
+name = "web"
+provides = []
+features = []
+source_manifest = "components/crates/x-web/Cargo.toml"
+producer_dir = "components/crates/x-web-component"
+"#,
+    )
+    .unwrap();
+    assert_eq!(
+        parsed.source_manifest.as_deref(),
+        Some("components/crates/x-web/Cargo.toml")
+    );
+    assert_eq!(
+        parsed.producer_dir.as_deref(),
+        Some("components/crates/x-web-component")
+    );
+
+    let mut config = component_config("");
+    config.crates[0].components[0].source_manifest = Some("../other/Cargo.toml".into());
+    config.crates[0].components[0].producer_dir = Some("components/out".into());
+    let resolved = config.resolve().unwrap().remove(0);
+    assert_eq!(
+        resolved.components[0].source_manifest.as_deref(),
+        Some("../other/Cargo.toml")
+    );
+    assert_eq!(resolved.components[0].producer_dir.as_deref(), Some("components/out"));
+}
+
+#[test]
+fn resolve_rejects_invalid_source_manifest_and_producer_dir() {
+    for (manifest, dir, expected) in [
+        (Some("/abs/Cargo.toml"), None, "relative path"),
+        (Some("a\\b/Cargo.toml"), None, "relative path"),
+        (Some(""), None, "must not be empty"),
+        (Some("crates/x"), None, "must point at a `Cargo.toml`"),
+        (Some("crates/x/Cargo.lock"), None, "must point at a `Cargo.toml`"),
+        (None, Some("../out"), "must not contain `..`"),
+        (None, Some("/abs/out"), "relative path"),
+        (None, Some("  "), "must not be empty"),
+    ] {
+        let mut config = component_config("");
+        config.crates[0].components[0].source_manifest = manifest.map(str::to_string);
+        config.crates[0].components[0].producer_dir = dir.map(str::to_string);
+        let error = config.resolve().unwrap_err().to_string();
+        assert!(error.contains(expected), "{manifest:?} {dir:?}: {error}");
+    }
+}
+
+#[test]
+fn resolve_rejects_source_manifest_for_go_producers() {
+    let mut config = component_config("");
+    let component = &mut config.crates[0].components[0];
+    component.producer_language = crate::core::config::ComponentProducerLanguage::Go;
+    component.provides[0].implementation = "NewTesseract".into();
+    component.source_manifest = Some("crates/x/Cargo.toml".into());
+    let error = config.resolve().unwrap_err().to_string();
+    assert!(error.contains("cannot declare `source_manifest`"), "{error}");
+}
+
+#[test]
+fn rebase_paths_roots_both_fields_at_the_config_directory() {
+    let mut component = component_config("").crates.remove(0).components.remove(0);
+    component.source_manifest = Some("components/crates/x-web/Cargo.toml".into());
+    component.producer_dir = Some("components/crates/x-web-component".into());
+
+    let mut unchanged = component.clone();
+    unchanged.rebase_paths(std::path::Path::new(""));
+    assert_eq!(unchanged, component);
+
+    component.rebase_paths(std::path::Path::new(".."));
+    assert_eq!(
+        component.source_manifest.as_deref(),
+        Some("../components/crates/x-web/Cargo.toml")
+    );
+    assert_eq!(
+        component.producer_dir.as_deref(),
+        Some("../components/crates/x-web-component")
+    );
+
+    let mut unset = component_config("").crates.remove(0).components.remove(0);
+    unset.rebase_paths(std::path::Path::new(".."));
+    assert_eq!((unset.source_manifest, unset.producer_dir), (None, None));
+}
+
+#[test]
+fn generated_schema_contains_source_manifest_and_producer_dir() {
+    let schema = serde_json::to_string(&crate::core::config::alef_config_schema("test").unwrap()).unwrap();
+    assert!(schema.contains("source_manifest") && schema.contains("producer_dir"));
+}
+
+fn resolve_error_with(edit: impl FnOnce(&mut NewAlefConfig)) -> String {
+    let mut config = component_config("");
+    edit(&mut config);
+    config.resolve().unwrap_err().to_string()
+}
+
+fn second_component(config: &mut NewAlefConfig, producer_dir: Option<&str>) {
+    let mut other = config.crates[0].components[0].clone();
+    other.name = "other".into();
+    other.producer_dir = producer_dir.map(str::to_string);
+    config.crates[0].components.push(other);
+}
+
+#[test]
+fn resolve_rejects_dot_segments_in_producer_dir() {
+    for dir in ["./out", "a/./b", "a/."] {
+        let error = resolve_error_with(|config| config.crates[0].components[0].producer_dir = Some(dir.into()));
+        assert!(error.contains("must not contain `.` segments"), "{dir}: {error}");
+    }
+}
+
+#[test]
+fn resolve_normalises_trailing_slashes_in_producer_dir() {
+    let mut config = component_config("");
+    config.crates[0].components[0].producer_dir = Some("components/out/".into());
+    config.resolve().expect("trailing slash is accepted");
+}
+
+#[test]
+fn resolve_rejects_duplicate_producer_dirs_including_trailing_slash_spellings() {
+    let error = resolve_error_with(|config| {
+        config.crates[0].components[0].producer_dir = Some("components/out".into());
+        second_component(config, Some("components/out/"));
+    });
+    assert!(error.contains("resolve to the same producer directory"), "{error}");
+}
+
+#[test]
+fn resolve_rejects_an_explicit_producer_dir_equal_to_another_components_default() {
+    let error = resolve_error_with(|config| {
+        config.crates[0].components[0].producer_dir = Some("crates/sample-other-component".into());
+        second_component(config, None);
+    });
+    assert!(
+        error.contains("resolve to the same producer directory `crates/sample-other-component`"),
+        "{error}"
+    );
+}
+
+#[test]
+fn resolve_rejects_producer_dir_that_is_an_ancestor_of_or_inside_the_core_crate() {
+    for dir in [
+        "crates/sample",
+        "crates",
+        "crates/sample/components/out",
+        "crates/sample/",
+    ] {
+        let error = resolve_error_with(|config| {
+            config.crates[0].sources = vec!["crates/sample/src/lib.rs".into()];
+            config.crates[0].components[0].producer_dir = Some(dir.into());
+        });
+        assert!(error.contains("core crate directory `crates/sample`"), "{dir}: {error}");
+    }
+}
+
+#[test]
+fn producer_dir_beside_the_core_crate_is_accepted() {
+    let mut config = component_config("");
+    config.crates[0].sources = vec!["crates/sample/src/lib.rs".into()];
+    config.crates[0].components[0].producer_dir = Some("crates/sample-web-component".into());
+    config
+        .resolve()
+        .expect("a sibling directory does not overlap the core crate");
+}
+
+#[test]
+fn root_flat_core_crate_only_claims_its_src_directory() {
+    for dir in ["src", "src/out"] {
+        let error = resolve_error_with(|config| config.crates[0].components[0].producer_dir = Some(dir.into()));
+        assert!(error.contains("core crate directory `src`"), "{dir}: {error}");
+    }
+    let mut config = component_config("");
+    config.crates[0].components[0].producer_dir = Some("components/out".into());
+    config.resolve().expect("a directory away from src is accepted");
+}
+
+#[test]
+fn resolve_rejects_producer_dir_equal_to_the_source_manifest_directory() {
+    let error = resolve_error_with(|config| {
+        let component = &mut config.crates[0].components[0];
+        component.source_manifest = Some("components/x-web/Cargo.toml".into());
+        component.producer_dir = Some("components/x-web/".into());
+    });
+    assert!(
+        error.contains("must not be the directory of its source_manifest"),
+        "{error}"
+    );
+}

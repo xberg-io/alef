@@ -1295,6 +1295,13 @@
           "description": "Stable component name used in manifests and release assets.",
           "type": "string"
         },
+        "producer_dir": {
+          "description": "Directory where the producer crate is generated and built from\n(`cargo build --manifest-path <producer_dir>/Cargo.toml`).\n\nDefaults to `crates/<core>-<name>-component`. Relative to the directory containing\n`alef.toml`; must not contain `..`. For Go producers it is the Go module directory.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "producer_language": {
           "$ref": "#/$defs/ComponentProducerLanguage",
           "description": "Language used by the generated component producer; defaults to Rust."
@@ -1305,6 +1312,13 @@
             "$ref": "#/$defs/ComponentProvidesConfig"
           },
           "type": "array"
+        },
+        "source_manifest": {
+          "description": "Path to the `Cargo.toml` of the crate that holds this component's `implementation` types.\n\nDefaults to the `[[crates]]` core crate. When set, the generated producer keeps its path\ndependency on the core crate (the contract trait home) and additionally depends on this\ncrate, named by its `[package] name`. The component's `features` go on this source crate\n(so they must be defined there) and `default_features` applies to both dependencies; the\ncore crate gets no features. When the manifest resolves to the core crate itself, a single\ndependency carrying the features is emitted as usual. Rust producers only. Relative to the\ndirectory containing `alef.toml`.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "targets": {
           "default": null,

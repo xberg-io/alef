@@ -592,6 +592,8 @@ mod tests {
                 default_features: false,
                 targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
                 bundled_on: Vec::new(),
+                source_manifest: None,
+                producer_dir: None,
                 extra_dependencies: Default::default(),
             }],
             ..Default::default()
@@ -618,6 +620,8 @@ mod tests {
                 default_features: false,
                 targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
                 bundled_on: Vec::new(),
+                source_manifest: None,
+                producer_dir: None,
                 extra_dependencies: Default::default(),
             }],
             extra_dependencies: std::collections::HashMap::from([

@@ -1,4 +1,4 @@
-use super::{ComponentConfig, ComponentDistributionConfig, RawCrateConfig, ResolveError};
+use super::{ComponentConfig, ComponentDistributionConfig, RawCrateConfig, ResolveError, ResolvedCrateConfig};
 
 pub(super) fn validate_components(
     krate: &RawCrateConfig,
@@ -36,9 +36,110 @@ pub(super) fn validate_components(
         }
         validate_component_targets(&krate.name, component)?;
         validate_component_dependencies(&krate.name, component)?;
+        validate_component_locations(&krate.name, component)?;
     }
 
     validate_component_distribution(&krate.name, component_distribution)
+}
+
+fn validate_component_locations(crate_name: &str, component: &ComponentConfig) -> Result<(), ResolveError> {
+    if component.producer_language == crate::core::config::ComponentProducerLanguage::Go
+        && component.source_manifest.is_some()
+    {
+        return invalid_component_config(
+            crate_name,
+            format!(
+                "Go component `{}` cannot declare `source_manifest`; it names a Cargo manifest",
+                component.name
+            ),
+        );
+    }
+    if let Some(manifest) = &component.source_manifest {
+        crate::core::config::component::validate_source_manifest(manifest).or_else(|reason| {
+            invalid_component_config(crate_name, format!("component `{}`: {reason}", component.name))
+        })?;
+    }
+    if let Some(dir) = &component.producer_dir {
+        crate::core::config::component::validate_producer_dir(dir).or_else(|reason| {
+            invalid_component_config(crate_name, format!("component `{}`: {reason}", component.name))
+        })?;
+    }
+    Ok(())
+}
+
+/// The non-empty, non-`.` segments of a path written with `/` or `\` separators.
+fn dir_segments(path: &str) -> Vec<String> {
+    path.split(['/', '\\'])
+        .filter(|segment| !segment.is_empty() && *segment != ".")
+        .map(str::to_string)
+        .collect()
+}
+
+/// Reject `producer_dir` values that would make a generated producer overwrite real files: two
+/// components sharing a directory (explicit or default), a directory that is, contains or sits
+/// inside the core crate, or one that is the directory of a `source_manifest`.
+///
+/// Runs on the resolved crate, where the core crate root is known, and before any rebasing, so
+/// every value compared is relative to the directory of `alef.toml`. A root-flat core crate (its
+/// root is the project root) only claims its `src` directory, since every other path is
+/// necessarily below the project root.
+pub(super) fn validate_producer_dir_overlaps(config: &ResolvedCrateConfig) -> Result<(), ResolveError> {
+    use crate::core::config::component::{component_producer_dir, path_segments};
+
+    let core_dir = config.core_crate_dir();
+    let core_root = dir_segments(&config.core_crate_root().to_string_lossy());
+    let mut seen: std::collections::HashMap<Vec<String>, &str> = std::collections::HashMap::new();
+    for component in &config.components {
+        let effective = dir_segments(
+            &component_producer_dir(&core_dir, &component.name, component.producer_dir.as_deref()).to_string_lossy(),
+        );
+        if let Some(previous) = seen.insert(effective.clone(), component.name.as_str()) {
+            return invalid_component_config(
+                &config.name,
+                format!(
+                    "components `{previous}` and `{}` resolve to the same producer directory `{}`",
+                    component.name,
+                    effective.join("/")
+                ),
+            );
+        }
+        let Some(explicit) = component.producer_dir.as_deref() else {
+            continue;
+        };
+        let overlaps_core = if core_root.is_empty() {
+            effective.first().is_some_and(|segment| segment == "src")
+        } else {
+            effective.starts_with(&core_root) || core_root.starts_with(&effective)
+        };
+        if overlaps_core {
+            return invalid_component_config(
+                &config.name,
+                format!(
+                    "component `{}` producer_dir `{explicit}` must not be, contain or sit inside the core crate directory `{}`",
+                    component.name,
+                    if core_root.is_empty() {
+                        "src".to_string()
+                    } else {
+                        core_root.join("/")
+                    }
+                ),
+            );
+        }
+        if let Some(manifest) = component.source_manifest.as_deref() {
+            let mut source_dir = path_segments(manifest);
+            source_dir.pop();
+            if source_dir == effective.iter().map(String::as_str).collect::<Vec<_>>() {
+                return invalid_component_config(
+                    &config.name,
+                    format!(
+                        "component `{}` producer_dir `{explicit}` must not be the directory of its source_manifest `{manifest}`",
+                        component.name
+                    ),
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_component_dependencies(crate_name: &str, component: &ComponentConfig) -> Result<(), ResolveError> {

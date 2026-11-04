@@ -447,6 +447,7 @@ impl NewAlefConfig {
         };
         validate_all_effective_ffi_configs(&resolved)?;
         validate_package_coordinates(&resolved)?;
+        component_validation::validate_producer_dir_overlaps(&resolved)?;
         Ok(resolved)
     }
 }
