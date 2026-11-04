@@ -115,3 +115,104 @@ fn load_config_rebases_component_paths_exactly_once() {
         component.producer_dir
     );
 }
+
+#[test]
+fn distinct_working_and_config_roots_do_not_create_a_false_overlap() {
+    let directory = tempfile::tempdir().unwrap();
+    let cwd = directory.path();
+    let config_dir = cwd.join("config");
+    std::fs::create_dir(&config_dir).unwrap();
+    let config = ALEF_TOML
+        .replace("src/lib.rs", "crates/sample/src/lib.rs")
+        .replace("components/crates/x-web-component", "crates/sample");
+    std::fs::write(config_dir.join("alef.toml"), config).unwrap();
+
+    let (_, resolved) = load_config_in(Path::new("config/alef.toml"), cwd).unwrap();
+    assert_eq!(
+        resolved[0].components[0].producer_dir.as_deref(),
+        Some("config/crates/sample"),
+    );
+}
+
+#[test]
+fn rebased_source_parent_segments_can_point_at_the_default_producer() {
+    let directory = tempfile::tempdir().unwrap();
+    let cwd = directory.path();
+    let config_dir = cwd.join("config");
+    std::fs::create_dir(&config_dir).unwrap();
+    let config = ALEF_TOML
+        .replace(
+            "components/crates/x-web/Cargo.toml",
+            "../crates/sample-tesseract-component/Cargo.toml",
+        )
+        .replace("producer_dir = \"components/crates/x-web-component\"", "");
+    std::fs::write(config_dir.join("alef.toml"), config).unwrap();
+
+    let error = load_config_in(Path::new("config/alef.toml"), cwd).unwrap_err();
+    let message = format!("{error:#}");
+    assert!(
+        message.contains("producer_dir") && message.contains("source_manifest"),
+        "{message}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn producer_symlink_alias_is_rejected_even_before_its_leaf_exists() {
+    let directory = tempfile::tempdir().unwrap();
+    let cwd = directory.path();
+    let config_dir = cwd.join("config");
+    let core = cwd.join("crates/sample");
+    std::fs::create_dir(&config_dir).unwrap();
+    std::fs::create_dir_all(&core).unwrap();
+    std::os::unix::fs::symlink(&core, config_dir.join("alias")).unwrap();
+    let config = ALEF_TOML
+        .replace("src/lib.rs", "crates/sample/src/lib.rs")
+        .replace("components/crates/x-web-component", "alias/generated");
+    std::fs::write(config_dir.join("alef.toml"), config).unwrap();
+
+    let error = load_config_in(Path::new("config/alef.toml"), cwd).unwrap_err();
+    let message = format!("{error:#}");
+    assert!(
+        message.contains("producer_dir") && message.contains("core crate directory"),
+        "{message}"
+    );
+}
+
+#[test]
+fn absent_producer_dirs_with_different_casing_are_rejected() {
+    let directory = tempfile::tempdir().unwrap();
+    let cwd = directory.path();
+    let mut config = ALEF_TOML.replace("components/crates/x-web-component", "generated/Prod");
+    config.push_str(
+        r#"
+[[crates.components]]
+name = "other"
+provides = [{ contract = "ocr", implementation = "sample_components::OtherBackend" }]
+features = ["other"]
+producer_dir = "generated/prod"
+"#,
+    );
+    std::fs::write(cwd.join("alef.toml"), config).unwrap();
+    assert!(!cwd.join("generated").exists());
+
+    let error = load_config_in(Path::new("alef.toml"), cwd).unwrap_err();
+    let message = format!("{error:#}");
+    assert!(message.contains("same producer directory"), "{message}");
+}
+
+#[test]
+fn absent_producer_dir_cannot_overlap_a_differently_cased_source_dir() {
+    let directory = tempfile::tempdir().unwrap();
+    let cwd = directory.path();
+    let config = ALEF_TOML.replace("components/crates/x-web-component", "components/crates/X-WEB/generated");
+    std::fs::write(cwd.join("alef.toml"), config).unwrap();
+    assert!(!cwd.join("components").exists());
+
+    let error = load_config_in(Path::new("alef.toml"), cwd).unwrap_err();
+    let message = format!("{error:#}");
+    assert!(
+        message.contains("must not overlap source_manifest directory"),
+        "{message}"
+    );
+}

@@ -234,7 +234,7 @@ pub fn config_dir_relative_to(config_path: &std::path::Path, cwd: &std::path::Pa
 }
 
 /// `path` with `.` segments dropped and `..` segments folded into the preceding segment.
-fn lexically_clean(path: &std::path::Path) -> std::path::PathBuf {
+pub(crate) fn lexically_clean(path: &std::path::Path) -> std::path::PathBuf {
     let mut out = std::path::PathBuf::new();
     for component in path.components() {
         match component {

@@ -175,8 +175,19 @@ pub(crate) fn load_config(
     crate::core::config::WorkspaceConfig,
     Vec<crate::core::config::ResolvedCrateConfig>,
 )> {
-    let content =
-        std::fs::read_to_string(path).with_context(|| format!("Failed to read config: {}", path.display()))?;
+    let cwd = std::env::current_dir().context("cannot determine working directory for alef.toml")?;
+    load_config_in(path, &cwd)
+}
+
+fn load_config_in(
+    path: &std::path::Path,
+    cwd: &std::path::Path,
+) -> Result<(
+    crate::core::config::WorkspaceConfig,
+    Vec<crate::core::config::ResolvedCrateConfig>,
+)> {
+    let content = std::fs::read_to_string(cwd.join(path))
+        .with_context(|| format!("Failed to read config: {}", path.display()))?;
     crate::core::config::detect_legacy_keys(&content).with_context(|| {
         format!(
             "legacy schema detected in {} — run `alef migrate` to update automatically",
@@ -193,9 +204,12 @@ pub(crate) fn load_config(
         .try_into()
         .with_context(|| format!("Failed to deserialize alef.toml ({})", path.display()))?;
     let mut resolved = cfg
-        .resolve()
+        .resolve_crates()
         .with_context(|| format!("failed to resolve crates in {}", path.display()))?;
-    rebase_component_paths(&mut resolved, path, &std::env::current_dir().unwrap_or_default());
+    rebase_component_paths(&mut resolved, path, cwd);
+    let config_dir = crate::core::config::component::config_dir_relative_to(path, cwd);
+    crate::core::config::new_config::validate_physical_producer_paths(&resolved, cwd, &config_dir)
+        .with_context(|| format!("invalid component paths in {}", path.display()))?;
     for resolved_cfg in &resolved {
         crate::core::config::validation::validate_resolved(resolved_cfg)
             .with_context(|| format!("invalid resolved config for crate `{}`", resolved_cfg.name))?;
