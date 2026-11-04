@@ -22,7 +22,20 @@ attribute is absent, it calls `count_tokens` through the fallible conversion pat
 Host exceptions and return conversion errors retain their type/message text in the
 Rust error; the original Python exception object and traceback are not preserved.
 Descriptor failures propagate instead of selecting the fallback. The alias adds no
-required Python protocol method and changes no other language's callback behavior.
+required Python protocol method.
+
+Use the opt-in table form to keep the companion out of other generated host
+bindings. These bridges inherit the existing Rust default for that method.
+
+```toml
+[extensions.python_host_aliases.crates.xberg.traits.TokenizerBackend]
+try_count_tokens = { fallback = "count_tokens", python_only = true }
+```
+
+The opt-in companion remains available to PyO3 as an optional callback. Python
+reference pages omit it to match the public protocol. The string form keeps the
+original visibility in other bindings. Rust source and Rust reference documentation
+retain the defaulted companion in either form.
 
 The built-in extension validates aliases before emitting bindings. Normal generation
 and read-only verification use the same configured emitter, and the raw extension
@@ -31,6 +44,5 @@ can opt in through `Pyo3Backend::with_host_aliases` using its already-scoped
 `[traits.TokenizerBackend]` table. Constructing the existing unit
 `Pyo3Backend` retains its behavior and public layout.
 
-An added Rust trait method can still affect C callback layouts. Configure the existing
-`ffi_skip_methods` for a method that should inherit its Rust default across C FFI;
-Python host aliases do not silently change or repair that ABI contract.
+The existing `ffi_skip_methods` setting still controls explicit C vtable
+exclusions. Keep it for C consumers whose configuration depends on that contract.

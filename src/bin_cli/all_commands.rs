@@ -327,7 +327,8 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 }
 
                 if !api.services.is_empty() {
-                    let svc_files = pipeline::generate_service_api(&api, resolved_cfg, &languages)?;
+                    let svc_files =
+                        pipeline::generate_service_api_for_manifest(&api, resolved_cfg, &languages, config_path)?;
                     if !svc_files.is_empty() {
                         for (lang, files) in &svc_files {
                             current_gen_paths.extend(pipeline::stampable_output_paths(files, &base_dir));
@@ -446,7 +447,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 }
 
                 tracing::info!("Generating type stubs...");
-                let stubs = pipeline::generate_stubs(&api, resolved_cfg, &languages)?;
+                let stubs = pipeline::generate_stubs_for_manifest(&api, resolved_cfg, &languages, config_path)?;
 
                 let stub_hashes: Vec<(String, String)> = stubs
                     .iter()
@@ -563,6 +564,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     resolved_cfg,
                     &api,
                     &base_dir,
+                    config_path,
                     &config_toml,
                     &sources_hash,
                     &alef_toml_bytes,
@@ -630,6 +632,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     resolved_cfg,
                     &doc_languages,
                     &base_dir,
+                    config_path,
                 );
                 // Inert today and kept honest on purpose: `docs::generate_docs_stage` forces
                 // `generated_header = true` on every reference page and every extra

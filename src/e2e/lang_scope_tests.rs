@@ -37,6 +37,7 @@ use crate::core::config::ResolvedCrateConfig;
 use crate::core::config::e2e::SnippetConfig;
 use crate::e2e::config::E2eConfig;
 use crate::e2e::diagnostic_log::DiagnosticLog;
+use crate::e2e::fixture_api::FixtureApi;
 use crate::e2e::{generate_e2e_with_extensions, snippets};
 use std::path::{Path, PathBuf};
 
@@ -111,10 +112,7 @@ fn render(snippet_output: &str, languages: Option<&[String]>) -> Rendered {
         &ResolvedCrateConfig::default(),
         &e2e_config(directory.path(), snippet_output),
         languages,
-        &[],
-        &[],
-        &[],
-        &[],
+        FixtureApi::new(&[], &[], &[], &[]),
         &[],
         &DiagnosticLog::new(),
     )

@@ -4,6 +4,7 @@ use crate::codegen::generators::trait_bridge;
 use crate::core::backend::GeneratedFile;
 use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::ApiSurface;
+use crate::core::validation::ValidatedApiSurface;
 use crate::extensions::python_host_aliases as aliases;
 use anyhow::Context as _;
 use rayon::prelude::*;
@@ -26,6 +27,18 @@ fn project_binding_api(
     let mut projected = projected;
     exclude_component_contract_types(&mut projected, config);
     Ok(crate::codegen::binding_projection::project_owned(projected))
+}
+
+fn host_language_surface<'a>(
+    api: ValidatedApiSurface<'a>,
+    non_python_api: &'a Option<ApiSurface>,
+    language: Language,
+) -> ValidatedApiSurface<'a> {
+    if language == Language::Python {
+        api
+    } else {
+        trait_bridge::validated_language_surface(non_python_api, api)
+    }
 }
 
 /// Mark every downloadable component's implementation type and contract error type
@@ -111,6 +124,11 @@ pub fn generate(
     crate::codegen::foreign_cfg_variants::warn_foreign_cfg_gated_variants(api, config, languages);
     let projected_api = project_binding_api(api, config, languages)?;
     let api = &projected_api;
+    let non_python_api = host_aliases
+        .as_ref()
+        .map(|aliases| aliases.non_python_surface(api, config))
+        .transpose()?
+        .flatten();
     let validated_api = validate_generation_api(api, config, languages)?;
 
     // Every host-language backend derives its error dispatch from the same explicit
@@ -174,6 +192,7 @@ pub fn generate(
             // Guarded above: every entry in `to_generate` already passed `try_get_backend`.
             let backend = registry::get_backend(*lang);
             info!("  {}: generating...", lang_str);
+            let validated_api = host_language_surface(validated_api, &non_python_api, *lang);
             // Shadowed so every emitter reached from this closure reads the same per-language
             // surface, with an excluded bridge's carrier field pruned (alef #480). ~keep
             let pruned = config.trait_bridge_language_surface(validated_api.api(), *lang);
@@ -233,8 +252,27 @@ pub fn generate_stubs(
     config: &ResolvedCrateConfig,
     languages: &[Language],
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
+    generate_stubs_impl(api, config, languages, None)
+}
+
+pub(crate) fn generate_stubs_for_manifest(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    languages: &[Language],
+    config_path: &Path,
+) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
+    generate_stubs_impl(api, config, languages, Some(config_path))
+}
+
+fn generate_stubs_impl(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    languages: &[Language],
+    config_path: Option<&Path>,
+) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
     let projected_api = project_binding_api(api, config, languages)?;
     let validated_api = validate_generation_api(&projected_api, config, languages)?;
+    let non_python_api = manifest_surface(&projected_api, config, config_path)?;
 
     let results: Vec<(Language, Vec<GeneratedFile>)> = languages
         .par_iter()
@@ -242,6 +280,7 @@ pub fn generate_stubs(
             let Some(backend) = registry::try_get_backend(lang) else {
                 return Ok((lang, Vec::new()));
             };
+            let validated_api = host_language_surface(validated_api, &non_python_api, lang);
             // Shadowed so every emitter reached from this closure reads the same per-language
             // surface, with an excluded bridge's carrier field pruned (alef #480). ~keep
             let pruned = config.trait_bridge_language_surface(validated_api.api(), lang);
@@ -264,6 +303,24 @@ pub fn generate_service_api(
     config: &ResolvedCrateConfig,
     languages: &[Language],
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
+    generate_service_api_impl(api, config, languages, None)
+}
+
+pub(crate) fn generate_service_api_for_manifest(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    languages: &[Language],
+    config_path: &Path,
+) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
+    generate_service_api_impl(api, config, languages, Some(config_path))
+}
+
+fn generate_service_api_impl(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    languages: &[Language],
+    config_path: Option<&Path>,
+) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
     let projected_api = project_binding_api(api, config, languages)?;
     let validated_api = validate_generation_api(&projected_api, config, languages)?;
     let api = validated_api.api();
@@ -271,6 +328,7 @@ pub fn generate_service_api(
     if api.services.is_empty() {
         return Ok(vec![]);
     }
+    let non_python_api = manifest_surface(api, config, config_path)?;
 
     let results: Vec<(Language, Vec<GeneratedFile>)> = languages
         .par_iter()
@@ -280,6 +338,7 @@ pub fn generate_service_api(
         })
         .map(|lang| {
             let backend = registry::get_backend(lang);
+            let validated_api = host_language_surface(validated_api, &non_python_api, lang);
             // Shadowed so every emitter reached from this closure reads the same per-language
             // surface, with an excluded bridge's carrier field pruned (alef #480). ~keep
             let pruned = config.trait_bridge_language_surface(validated_api.api(), lang);
@@ -292,6 +351,17 @@ pub fn generate_service_api(
         .filter(|(_, files)| !files.is_empty())
         .collect();
     Ok(results)
+}
+
+fn manifest_surface(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    config_path: Option<&Path>,
+) -> anyhow::Result<Option<ApiSurface>> {
+    match config_path {
+        Some(path) => aliases::read_non_python_surface(api, path, config),
+        None => Ok(None),
+    }
 }
 
 /// Candidate filenames for a language's package public-API entry file.
@@ -373,6 +443,7 @@ pub fn generate_public_api(
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
     let projected_api = project_binding_api(api, config, languages)?;
     let validated_api = validate_generation_api(&projected_api, config, languages)?;
+    let non_python_api = aliases::read_non_python_surface(&projected_api, config_path, config)?;
 
     let results: Vec<(Language, Vec<GeneratedFile>)> = languages
         .par_iter()
@@ -380,6 +451,7 @@ pub fn generate_public_api(
             let Some(backend) = registry::try_get_backend(lang) else {
                 return Ok((lang, Vec::new()));
             };
+            let validated_api = host_language_surface(validated_api, &non_python_api, lang);
             // Shadowed so every emitter reached from this closure reads the same per-language
             // surface, with an excluded bridge's carrier field pruned (alef #480). ~keep
             let pruned = config.trait_bridge_language_surface(validated_api.api(), lang);

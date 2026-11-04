@@ -35,19 +35,14 @@ pub(crate) fn run_snippet_coverage_preflight(
                 continue;
             }
         };
-        let coverage = match crate::e2e::evaluate_snippet_coverage(
-            resolved_cfg,
-            e2e_config,
-            &api.types,
-            &api.enums,
-            &api.functions,
-        ) {
-            Ok(coverage) => coverage,
-            Err(error) => {
-                failures.record(&format!("[{}] snippet coverage precondition", resolved_cfg.name), error);
-                continue;
-            }
-        };
+        let coverage =
+            match crate::e2e::evaluate_snippet_coverage_for_manifest(resolved_cfg, e2e_config, &api, config_path) {
+                Ok(coverage) => coverage,
+                Err(error) => {
+                    failures.record(&format!("[{}] snippet coverage precondition", resolved_cfg.name), error);
+                    continue;
+                }
+            };
         let Some(coverage) = coverage else {
             continue;
         };

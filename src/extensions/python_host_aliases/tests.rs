@@ -108,6 +108,50 @@ fn qualified_trait_alias_is_unambiguous() {
     assert_eq!(aliases.for_trait(&api.types[0]).len(), 1);
 }
 
+#[test]
+fn python_only_projection_matches_qualified_trait_identity() {
+    let mut api = surface();
+    let mut sibling = api.types[0].clone();
+    sibling.rust_path = "other::Counter".into();
+    api.types.push(sibling);
+
+    let inherent = api.types[0].methods[1].clone();
+    let mut projected_copy = inherent.clone();
+    projected_copy.trait_source = Some("sample::Counter".into());
+    let mut sibling_copy = inherent.clone();
+    sibling_copy.trait_source = Some("other::Counter".into());
+    api.types.push(TypeDef {
+        name: "Concrete".into(),
+        methods: vec![inherent, projected_copy, sibling_copy],
+        ..Default::default()
+    });
+
+    let raw = toml::from_str("[traits.'sample::Counter']\nchecked_count={fallback='count',python_only=true}").unwrap();
+    let aliases = PythonHostAliases::from_raw(&raw).unwrap();
+    let projected = aliases.non_python_surface(&api, &config()).unwrap().unwrap();
+    assert_eq!(projected.types[0].methods.len(), 1);
+    assert_eq!(projected.types[0].methods[0].name, "count");
+    assert_eq!(projected.types[1].methods.len(), 2);
+    assert_eq!(projected.types[2].methods.len(), 2);
+    assert_eq!(projected.types[2].methods[0].trait_source, None);
+    assert_eq!(
+        projected.types[2].methods[1].trait_source.as_deref(),
+        Some("other::Counter")
+    );
+    assert_eq!(api.types[0].methods.len(), 2);
+    assert_eq!(api.types[2].methods.len(), 3);
+}
+
+#[test]
+fn python_only_projection_requires_an_active_bridge_and_does_not_default_on() {
+    let api = surface();
+    assert!(aliases().non_python_surface(&api, &config()).unwrap().is_none());
+    let raw = toml::from_str("[traits.Counter]\nchecked_count={fallback='count',python_only=true}").unwrap();
+    let aliases = PythonHostAliases::from_raw(&raw).unwrap();
+    let error = aliases.non_python_surface(&api, &Default::default()).unwrap_err();
+    assert!(error.to_string().contains("no active Python bridge"));
+}
+
 fn config() -> crate::core::config::ResolvedCrateConfig {
     crate::core::config::ResolvedCrateConfig {
         name: "sample".into(),
