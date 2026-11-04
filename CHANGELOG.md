@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.122.0] - 2026-11-04
+
 ### Added
 
 - Generate a strict Swift DTO whose fields use custom input codecs (`deserialize_with`, `with`) by listing it in
