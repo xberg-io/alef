@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Opt in to private Python host aliases for defaulted Rust callbacks while preserving the existing callback surface
+  in other SDKs, reference pages, and generated fixtures.
+
 - Opt in to lazy Python visitor context string-map getters through
   `[crates.python.visitor_context_accessors]`. Configured getters can read borrowed
   core context data during the callback without copying it on entry.

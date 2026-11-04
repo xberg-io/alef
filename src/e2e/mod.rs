@@ -11,6 +11,7 @@ pub mod diagnostic_log;
 pub mod escape;
 pub mod field_access;
 pub mod fixture;
+mod fixture_api;
 pub mod format;
 mod inert_report;
 pub mod scaffold;
@@ -25,10 +26,12 @@ pub mod validate_call_result_type;
 use crate::core::backend::GeneratedFile;
 use crate::core::config::e2e::DependencyMode;
 use crate::core::config::{Language, ResolvedCrateConfig};
+use crate::core::ir::ApiSurface;
 use anyhow::{Context, Result, bail};
 use config::E2eConfig;
 use diagnostic_log::{DiagnosticLog, unreported};
 use fixture::{group_fixtures, load_fixtures};
+use fixture_api::FixtureApi;
 use std::path::Path;
 use tracing::{error, info, warn};
 use validate::Severity;
@@ -157,25 +160,58 @@ pub fn generate_e2e_with_log(
 ) -> Result<(Vec<GeneratedFile>, Option<anyhow::Error>)> {
     crate::with_extensions(|extensions| {
         generate_e2e_with_extensions(
-            config, e2e_config, languages, type_defs, enums, functions, errors, extensions, log,
+            config,
+            e2e_config,
+            languages,
+            FixtureApi::new(type_defs, enums, functions, errors),
+            extensions,
+            log,
         )
     })
 }
 
-#[allow(clippy::too_many_arguments)]
+pub(crate) fn generate_e2e_for_manifest(
+    config: &ResolvedCrateConfig,
+    e2e_config: &E2eConfig,
+    languages: Option<&[String]>,
+    api: &ApiSurface,
+    config_path: &Path,
+    log: Option<&DiagnosticLog>,
+) -> Result<(Vec<GeneratedFile>, Option<anyhow::Error>)> {
+    let non_python = crate::extensions::python_host_aliases::read_non_python_surface(api, config_path, config)?;
+    let local_log = DiagnosticLog::new();
+    crate::with_extensions(|extensions| {
+        generate_e2e_with_extensions(
+            config,
+            e2e_config,
+            languages,
+            FixtureApi::from_surface(api, non_python.as_ref()),
+            extensions,
+            log.unwrap_or(&local_log),
+        )
+    })
+}
+
 fn generate_e2e_with_extensions(
     config: &ResolvedCrateConfig,
     e2e_config: &E2eConfig,
     languages: Option<&[String]>,
-    type_defs: &[crate::core::ir::TypeDef],
-    enums: &[crate::core::ir::EnumDef],
-    functions: &[crate::core::ir::FunctionDef],
-    errors: &[crate::core::ir::ErrorDef],
+    api: FixtureApi<'_>,
     extensions: &[Box<dyn crate::Extension>],
     log: &DiagnosticLog,
 ) -> Result<(Vec<GeneratedFile>, Option<anyhow::Error>)> {
-    let projected_errors = crate::codegen::binding_projection::project_errors(errors);
-    let errors = projected_errors.as_ref();
+    let projected_errors = crate::codegen::binding_projection::project_errors(api.errors);
+    let api = FixtureApi {
+        errors: projected_errors.as_ref(),
+        ..api
+    };
+    let FixtureApi {
+        type_defs,
+        enums,
+        functions,
+        errors,
+        ..
+    } = api;
     let fixtures_dir = Path::new(&e2e_config.fixtures);
     let fixtures = load_fixtures(fixtures_dir)
         .with_context(|| format!("failed to load fixtures from {}", fixtures_dir.display()))?;
@@ -360,16 +396,7 @@ fn generate_e2e_with_extensions(
 
     let generators = codegen::generators_for(&resolved_languages);
 
-    let (mut all_files, generator_failures) = run_generators(
-        &generators,
-        &groups,
-        e2e_config,
-        config,
-        type_defs,
-        enums,
-        functions,
-        errors,
-    );
+    let (mut all_files, generator_failures) = run_generators(&generators, &groups, e2e_config, config, api);
 
     // Docs-only fixtures render independently of `run_generators` and the snippet stage
     // below: they carry no per-language cell and never enter
@@ -447,8 +474,16 @@ fn generate_e2e_with_extensions(
     // loop without skipping the snippet stage or the return below. ~keep
     let extension_result = (|| {
         for lang in &resolved_languages {
+            let language_api = api.for_language(lang);
             for ext in extensions {
-                let extra = ext.emit_e2e(&groups, e2e_config, config, lang, type_defs, enums)?;
+                let extra = ext.emit_e2e(
+                    &groups,
+                    e2e_config,
+                    config,
+                    lang,
+                    language_api.type_defs,
+                    language_api.enums,
+                )?;
                 if !extra.is_empty() {
                     info!(
                         "  [{}] extension `{}` generated {} e2e file(s)",
@@ -485,16 +520,13 @@ fn generate_e2e_with_extensions(
     // unfiltered run; the `--lang` scope is applied to the per-language files alone, by
     // `language_filter::retain_selected_languages` below. ~keep
     if let Some(snippet_config) = &e2e_config.snippets {
-        match snippets::generate_snippet_report(
+        match snippets::generate_fixture_snippet_report(
             &fixtures,
             snippet_config.languages_or(&configured_languages),
             e2e_config,
             snippet_config,
             config,
-            type_defs,
-            enums,
-            functions,
-            errors,
+            api,
         ) {
             Ok(report) => {
                 report_snippet_coverage(&report.coverage);
@@ -557,20 +589,23 @@ fn generate_e2e_with_extensions(
 /// reported at `WARN` immediately (this repo's level contract: degraded, but the run
 /// continues) with the backend's own diagnostic verbatim, and the caller still sees a
 /// hard `Err` once every backend that could run has. ~keep
-#[allow(clippy::too_many_arguments)]
 fn run_generators(
     generators: &[Box<dyn codegen::E2eCodegen>],
     groups: &[fixture::FixtureGroup],
     e2e_config: &E2eConfig,
     config: &ResolvedCrateConfig,
-    type_defs: &[crate::core::ir::TypeDef],
-    enums: &[crate::core::ir::EnumDef],
-    functions: &[crate::core::ir::FunctionDef],
-    errors: &[crate::core::ir::ErrorDef],
+    api: FixtureApi<'_>,
 ) -> (Vec<GeneratedFile>, Vec<String>) {
     let mut all_files = Vec::new();
     let mut failures = Vec::new();
     for generator in generators {
+        let FixtureApi {
+            type_defs,
+            enums,
+            functions,
+            errors,
+            ..
+        } = api.for_language(generator.language_name());
         match generator.generate_gated(groups, e2e_config, config, type_defs, enums, functions, errors) {
             Ok(files) => {
                 info!("  [{}] generated {} file(s)", generator.language_name(), files.len());
@@ -617,6 +652,31 @@ pub fn evaluate_snippet_coverage(
     enums: &[crate::core::ir::EnumDef],
     functions: &[crate::core::ir::FunctionDef],
 ) -> Result<Option<snippets::SnippetCoverageLedger>> {
+    evaluate_snippet_coverage_with_api(config, e2e_config, FixtureApi::new(type_defs, enums, functions, &[]))
+}
+
+pub(crate) fn evaluate_snippet_coverage_for_manifest(
+    config: &ResolvedCrateConfig,
+    e2e_config: &E2eConfig,
+    api: &ApiSurface,
+    config_path: &Path,
+) -> Result<Option<snippets::SnippetCoverageLedger>> {
+    if e2e_config.snippets.is_none() {
+        return Ok(None);
+    }
+    let non_python = crate::extensions::python_host_aliases::read_non_python_surface(api, config_path, config)?;
+    let views = FixtureApi {
+        errors: &[],
+        ..FixtureApi::from_surface(api, non_python.as_ref())
+    };
+    evaluate_snippet_coverage_with_api(config, e2e_config, views)
+}
+
+fn evaluate_snippet_coverage_with_api(
+    config: &ResolvedCrateConfig,
+    e2e_config: &E2eConfig,
+    api: FixtureApi<'_>,
+) -> Result<Option<snippets::SnippetCoverageLedger>> {
     let Some(snippet_config) = &e2e_config.snippets else {
         return Ok(None);
     };
@@ -628,16 +688,13 @@ pub fn evaluate_snippet_coverage(
     } else {
         e2e_config.languages.clone()
     };
-    let report = snippets::generate_snippet_report(
+    let report = snippets::generate_fixture_snippet_report(
         &fixtures,
         snippet_config.languages_or(&configured_languages),
         e2e_config,
         snippet_config,
         config,
-        type_defs,
-        enums,
-        functions,
-        &[],
+        api,
     )?;
     Ok(Some(report.coverage))
 }
@@ -661,6 +718,29 @@ pub fn verify_fresh_snippet_coverage(
     };
     let computed = evaluate_snippet_coverage(config, e2e_config, type_defs, enums, functions)?
         .expect("snippet configuration produces a coverage ledger");
+    verify_snippet_coverage_on_disk(base_dir, snippet_config, computed)
+}
+
+pub(crate) fn verify_fresh_snippet_coverage_for_manifest(
+    base_dir: &Path,
+    config: &ResolvedCrateConfig,
+    e2e_config: &E2eConfig,
+    api: &ApiSurface,
+    config_path: &Path,
+) -> Result<()> {
+    let Some(snippet_config) = &e2e_config.snippets else {
+        return Ok(());
+    };
+    let computed = evaluate_snippet_coverage_for_manifest(config, e2e_config, api, config_path)?
+        .expect("snippet configuration produces a coverage ledger");
+    verify_snippet_coverage_on_disk(base_dir, snippet_config, computed)
+}
+
+fn verify_snippet_coverage_on_disk(
+    base_dir: &Path,
+    snippet_config: &crate::core::config::e2e::SnippetConfig,
+    computed: snippets::SnippetCoverageLedger,
+) -> Result<()> {
     ensure_fresh_snippet_coverage_complete(&computed)?;
     let manifest = base_dir.join(&snippet_config.output).join(snippets::COVERAGE_MANIFEST);
     let disk = coverage_cache::read_coverage_manifest(&manifest)?;

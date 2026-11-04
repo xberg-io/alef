@@ -16,14 +16,7 @@ impl ConfiguredPyo3Backend {
             .iter()
             .filter(|typ| !self.host_aliases.for_trait(typ).is_empty())
         {
-            anyhow::ensure!(
-                config.trait_bridges_for(Language::Python).any(|bridge| {
-                    crate::backends::pyo3::trait_bridge::active_bridge_trait(bridge, api)
-                        .is_some_and(|active| active.rust_path == typ.rust_path)
-                }),
-                "Python host aliases: trait `{}` has no active Python bridge",
-                typ.rust_path
-            );
+            crate::extensions::python_host_aliases::require_active_python_bridge(api, config, &typ.rust_path)?;
         }
         Ok(())
     }

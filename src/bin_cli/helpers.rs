@@ -692,7 +692,9 @@ pub(crate) fn collect_managed_surface(
         for (_, produced) in crate::cli::pipeline::generate(api, config, languages, true, config_path, false)? {
             files.extend(produced);
         }
-        for (_, produced) in crate::cli::pipeline::generate_service_api(api, config, languages)? {
+        for (_, produced) in
+            crate::cli::pipeline::generate_service_api_for_manifest(api, config, languages, config_path)?
+        {
             files.extend(produced);
         }
         files.extend(crate::codegen::component_host::generate_component_host(api, config)?);
@@ -700,7 +702,7 @@ pub(crate) fn collect_managed_surface(
     });
     let scaffold_stage: Stage<'_> = Box::new(|| {
         let mut files = crate::cli::pipeline::scaffold(api, config, languages, config_path)?;
-        for (_, produced) in crate::cli::pipeline::generate_stubs(api, config, languages)? {
+        for (_, produced) in crate::cli::pipeline::generate_stubs_for_manifest(api, config, languages, config_path)? {
             files.extend(produced);
         }
         if config.generate.public_api {
@@ -729,17 +731,9 @@ pub(crate) fn collect_managed_surface(
         let Some(e2e_config) = &config.e2e else {
             return Ok((Vec::new(), Vec::new()));
         };
-        let (files, generator_error) = crate::e2e::generate_e2e_with_log(
-            config,
-            e2e_config,
-            None,
-            &api.types,
-            &api.enums,
-            &api.functions,
-            &api.errors,
-            &diagnostic_log,
-        )
-        .context("failed to render the e2e stage of alef's managed output")?;
+        let (files, generator_error) =
+            crate::e2e::generate_e2e_for_manifest(config, e2e_config, None, api, config_path, Some(&diagnostic_log))
+                .context("failed to render the e2e stage of alef's managed output")?;
         Ok(stage_failure_for("e2e", generator_error, files))
     });
     let e2e_registry_stage: Stage<'_> = Box::new(|| {
@@ -748,15 +742,13 @@ pub(crate) fn collect_managed_surface(
         };
         let mut registry_config = e2e_config.clone();
         registry_config.dep_mode = crate::core::config::e2e::DependencyMode::Registry;
-        let (files, generator_error) = crate::e2e::generate_e2e_with_log(
+        let (files, generator_error) = crate::e2e::generate_e2e_for_manifest(
             config,
             &registry_config,
             None,
-            &api.types,
-            &api.enums,
-            &api.functions,
-            &api.errors,
-            &diagnostic_log,
+            api,
+            config_path,
+            Some(&diagnostic_log),
         )
         .context("failed to render the registry-mode test-app stage of alef's managed output")?;
         Ok(stage_failure_for("test-apps (registry mode)", generator_error, files))
@@ -777,12 +769,14 @@ pub(crate) fn collect_managed_surface(
     // debug log below regardless of which sub-step produced it. ~keep
     let docs_stage: Stage<'_> = Box::new(|| {
         let doc_languages = resolve_doc_languages(config, None)?;
-        let (doc_files, doc_result) = crate::docs::generate_docs_stage_without_snippet_compile_validation(
+        let (doc_files, doc_result) = crate::docs::generate_docs_stage_for_manifest(
             api,
             config,
             &doc_languages,
             None,
             base_dir,
+            config_path,
+            false,
         );
         if let Err(error) = doc_result {
             tracing::debug!("docs stage reported {error:#}; using the pages it rendered before the failure");
