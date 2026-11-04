@@ -5581,6 +5581,13 @@
             "$ref": "#/$defs/FfiTargetDepOverride"
           },
           "type": "array"
+        },
+        "visitor_context_accessors": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Callback-only borrowed string-map accessors, keyed by visitor context type.\nAn accessor is evaluated only when called on the context during its callback.",
+          "type": "object"
         }
       },
       "type": "object"

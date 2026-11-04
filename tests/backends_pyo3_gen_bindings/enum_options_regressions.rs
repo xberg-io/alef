@@ -314,6 +314,7 @@ fn test_api_py_void_function_no_redundant_return() {
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
+        visitor_context_accessors: Default::default(),
         reexported_types: Vec::new(),
         target_dep_overrides: Vec::new(),
     });
@@ -454,6 +455,7 @@ fn test_api_py_pep8_blank_lines_between_functions() {
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
+        visitor_context_accessors: Default::default(),
         reexported_types: Vec::new(),
         target_dep_overrides: Vec::new(),
     });

@@ -208,6 +208,7 @@ fn test_capsule_types_end_to_end() {
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
+        visitor_context_accessors: Default::default(),
         reexported_types: Vec::new(),
         target_dep_overrides: Vec::new(),
     });
@@ -488,6 +489,7 @@ fn test_capsule_types_in_methods() {
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
+        visitor_context_accessors: Default::default(),
         reexported_types: Vec::new(),
         target_dep_overrides: Vec::new(),
     });

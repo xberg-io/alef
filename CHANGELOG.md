@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Opt in to lazy Python visitor context string-map getters through
+  `[crates.python.visitor_context_accessors]`. Configured getters can read borrowed
+  core context data during the callback without copying it on entry.
+
 ## [0.122.2] - 2026-11-04
 
 ### Fixed

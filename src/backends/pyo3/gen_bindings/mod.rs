@@ -94,6 +94,15 @@ impl Backend for ConfiguredPyo3Backend {
             .trait_bridges_for(crate::core::config::Language::Python)
             .cloned()
             .collect();
+        use crate::backends::pyo3::trait_bridge::scoped_context::{RUNTIME, ScopedContextAccessor};
+        let scoped_contexts = config
+            .python
+            .as_ref()
+            .map(|python| {
+                ScopedContextAccessor::resolve(api, config, &active_trait_bridges, &python.visitor_context_accessors)
+            })
+            .transpose()?
+            .unwrap_or_default();
 
         // should store them as `Option<Py<PyAny>>` with `#[serde(skip)]` so the visitor can
         let mut trait_type_names: ahash::AHashSet<String> = api
@@ -533,6 +542,16 @@ impl Backend for ConfiguredPyo3Backend {
                     typ
                 };
 
+                let scoped = scoped_contexts.get(&typ.name);
+                let scoped_typ;
+                let impl_typ = if let Some(accessor) = scoped {
+                    let mut filtered = impl_typ.clone();
+                    filtered.methods.retain(|method| method.name != accessor.method());
+                    scoped_typ = filtered;
+                    &scoped_typ
+                } else {
+                    impl_typ
+                };
                 let mut impl_block = generators::gen_impl_block_with_renames(
                     impl_typ,
                     &mapper,
@@ -570,6 +589,16 @@ impl Backend for ConfiguredPyo3Backend {
                             impl_block.insert_str(close_pos, &format!("\n{from_json_method}\n"));
                         }
                     }
+                }
+                if let Some(accessor) = scoped {
+                    let core_path = crate::codegen::conversions::core_type_path(typ, &core_import);
+                    let method = accessor.method_source(&core_path);
+                    if let Some(end) = impl_block.rfind('}') {
+                        impl_block.insert_str(end, &method);
+                    } else {
+                        impl_block = format!("#[pymethods]\nimpl {} {{ {method} }}", typ.name);
+                    }
+                    builder.add_item(&accessor.declaration(&core_path));
                 }
                 if !impl_block.is_empty() {
                     builder.add_item(&impl_block);
@@ -698,6 +727,9 @@ impl Backend for ConfiguredPyo3Backend {
             builder.add_item(&marker_class);
         }
 
+        if !scoped_contexts.is_empty() {
+            builder.add_item(&format!("mod alef_visitor_scope {{\n{RUNTIME}\n}}"));
+        }
         if !active_trait_bridges.is_empty() {
             let needs_async_trait = active_trait_bridges.iter().any(|bridge_cfg| {
                 api.types
@@ -743,6 +775,10 @@ impl Backend for ConfiguredPyo3Backend {
                         &bridge_pyclass_absent_types,
                         &bridge_core_to_binding_convertible_types,
                         &self.host_aliases.for_trait(trait_type),
+                        bridge_cfg
+                            .context_type
+                            .as_ref()
+                            .and_then(|name| scoped_contexts.get(name)),
                     )?;
                     for imp in &bridge.imports {
                         builder.add_import(imp);

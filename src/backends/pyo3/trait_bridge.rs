@@ -8,6 +8,7 @@ mod generator;
 mod host_aliases;
 mod options_field;
 mod registry;
+pub(crate) mod scoped_context;
 mod visitor_bridge;
 mod writeback;
 
@@ -117,6 +118,7 @@ pub(crate) fn gen_trait_bridge_with_absent_types(
         pyclass_absent_types,
         core_to_binding_convertible_types,
         &std::collections::BTreeMap::new(),
+        None,
     )
 }
 
@@ -132,6 +134,7 @@ pub(crate) fn gen_trait_bridge_with_host_aliases(
     pyclass_absent_types: &ahash::AHashSet<String>,
     core_to_binding_convertible_types: &ahash::AHashSet<String>,
     host_aliases: &std::collections::BTreeMap<String, String>,
+    scoped_context: Option<&scoped_context::ScopedContextAccessor>,
 ) -> anyhow::Result<BridgeOutput> {
     let type_paths: HashMap<String, String> = api
         .types
@@ -158,6 +161,7 @@ pub(crate) fn gen_trait_bridge_with_host_aliases(
             api,
             pyclass_absent_types,
             core_to_binding_convertible_types,
+            scoped_context,
         };
         let code = gen_visitor_bridge(trait_type, bridge_cfg, &struct_name, &trait_path, &visitor_inputs)?;
         Ok(BridgeOutput { imports: vec![], code })
