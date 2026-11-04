@@ -272,7 +272,8 @@ fn generate_stubs_impl(
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
     let projected_api = project_binding_api(api, config, languages)?;
     let validated_api = validate_generation_api(&projected_api, config, languages)?;
-    let non_python_api = manifest_surface(&projected_api, config, config_path)?;
+    let public_api = manifest_surface(&projected_api, config, config_path)?;
+    let validated_api = trait_bridge::validated_language_surface(&public_api, validated_api);
 
     let results: Vec<(Language, Vec<GeneratedFile>)> = languages
         .par_iter()
@@ -280,7 +281,6 @@ fn generate_stubs_impl(
             let Some(backend) = registry::try_get_backend(lang) else {
                 return Ok((lang, Vec::new()));
             };
-            let validated_api = host_language_surface(validated_api, &non_python_api, lang);
             // Shadowed so every emitter reached from this closure reads the same per-language
             // surface, with an excluded bridge's carrier field pruned (alef #480). ~keep
             let pruned = config.trait_bridge_language_surface(validated_api.api(), lang);

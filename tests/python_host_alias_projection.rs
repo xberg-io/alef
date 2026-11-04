@@ -209,3 +209,47 @@ fn private_callback_keeps_unrelated_inherent_method_with_same_name() {
         );
     }
 }
+
+#[test]
+fn python_options_protocol_keeps_private_alias_optional() {
+    let config = CONFIG
+        .replace("[\"python\", \"dart\", \"swift\"]", "[\"python\"]")
+        .replace(
+            "trait_name = \"Counter\"",
+            "trait_name = \"Counter\"\nbind_via = \"options_field\"\noptions_type = \"CounterOptions\"\n\
+             options_field = \"counter\"\ntype_alias = \"CounterHandle\"",
+        )
+        .replace(
+            "[extensions.python_host_aliases",
+            "[crates.python.stubs]\noutput = \"python-stubs\"\n\n[extensions.python_host_aliases",
+        );
+    for (alias, exposed) in [
+        ("checked_count = 'count'\n", true),
+        ("checked_count = { fallback = 'count', python_only = true }\n", false),
+    ] {
+        let root = fixture();
+        let source = root.path().join("src/lib.rs");
+        let core = std::fs::read_to_string(&source).unwrap();
+        std::fs::write(
+            source,
+            core + "\npub type CounterHandle = std::sync::Arc<dyn Counter>;\n\
+                     pub struct CounterOptions { pub counter: Option<CounterHandle> }\n",
+        )
+        .unwrap();
+
+        let output = generate_with_config(root.path(), &config, alias);
+        assert!(output.status.success(), "{}", output_text(&output));
+        python_bridge(root.path());
+        let stubs = std::fs::read_dir(root.path().join("python-stubs"))
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .find(|path| path.extension().is_some_and(|ext| ext == "pyi"))
+            .expect("Python bindings must emit a protocol stub");
+        let stubs = std::fs::read_to_string(stubs).unwrap();
+        assert!(stubs.contains("class Counter(Protocol):"), "{stubs}");
+        assert!(stubs.contains("    def count("), "{stubs}");
+        assert!(stubs.contains("    def describe("), "{stubs}");
+        assert_eq!(stubs.contains("    def checked_count("), exposed, "{alias}\n{stubs}");
+    }
+}
