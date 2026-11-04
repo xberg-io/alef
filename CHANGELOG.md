@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Generate a strict Swift DTO whose fields use custom input codecs (`deserialize_with`, `with`) by listing it in
+  `[crates.swift] lenient_serde_types`: its Swift decoder ignores unknown keys, the Rust type keeps
+  `deny_unknown_fields`, and an entry naming no strict type fails generation.
+
 ## [0.121.0] - 2026-11-04
 
 ### Added

@@ -50,6 +50,12 @@ pub struct SwiftConfig {
     /// Format: `"TypeName.field_name"`.
     #[serde(default)]
     pub exclude_fields: Vec<String>,
+    /// Types whose Swift DTO is generated without `serde(deny_unknown_fields)`: it ignores unknown
+    /// keys instead of rejecting them. For strict types whose fields use custom input codecs
+    /// (`deserialize_with`, `with`) that the strict Swift decoder cannot mirror. Each entry must name
+    /// a type with `deny_unknown_fields`.
+    #[serde(default)]
+    pub lenient_serde_types: Vec<String>,
     /// Prefix wrapper for default tool invocations.
     #[serde(default)]
     pub run_wrapper: Option<String>,

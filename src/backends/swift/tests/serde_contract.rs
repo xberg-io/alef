@@ -231,3 +231,74 @@ fn should_ignore_custom_input_codecs_on_fully_skipped_swift_caches() {
         );
     }
 }
+
+fn configuration_with_swift(swift: &str) -> crate::core::config::ResolvedCrateConfig {
+    let config: NewAlefConfig = toml::from_str(&format!(
+        "[workspace]\nlanguages = [\"swift\"]\n[[crates]]\nname = \"sample\"\nsources = [\"src/lib.rs\"]\n\
+         [crates.swift]\n{swift}\n"
+    ))
+    .expect("parse fixture configuration");
+    config.resolve().expect("resolve configuration").remove(0)
+}
+
+fn custom_input_type(name: &str) -> ApiSurface {
+    let mut api = extracted_api(include_str!("fixtures/serde_custom_input_types.rs"));
+    api.types.retain(|ty| ty.name == name);
+    assert_eq!(api.types.len(), 1, "select {name}");
+    api
+}
+
+#[test]
+fn should_generate_a_listed_strict_custom_input_type_as_a_permissive_dto() {
+    let unlisted = SwiftBackend
+        .generate_bindings(&custom_input_type("StrictRead"), &configuration())
+        .expect_err("control: the unlisted strict type fails closed");
+    assert!(
+        unlisted.to_string().contains("unsupported deserialize_with attributes"),
+        "{unlisted}"
+    );
+
+    let config = configuration_with_swift("lenient_serde_types = [\"StrictRead\"]");
+    let files = SwiftBackend
+        .generate_bindings(&custom_input_type("StrictRead"), &config)
+        .expect("a lenient strict type must generate");
+    let file = files
+        .iter()
+        .find(|file| file.content.contains("public struct StrictRead:"))
+        .expect("generated StrictRead DTO");
+    let dto = declaration(&file.content, "StrictRead");
+    assert!(dto.contains("public let value: UInt32"), "{dto}");
+    assert!(!dto.contains("public init(from decoder:"), "{dto}");
+}
+
+#[test]
+fn should_relax_only_the_listed_strict_type() {
+    let mut api = extracted_api(include_str!("fixtures/serde_custom_input_types.rs"));
+    api.types
+        .retain(|ty| ty.name == "StrictRead" || ty.name == "StrictWith");
+    let config = configuration_with_swift("lenient_serde_types = [\"StrictWith\"]");
+    let error = SwiftBackend
+        .generate_bindings(&api, &config)
+        .expect_err("StrictRead stays strict");
+    assert!(error.to_string().contains("'StrictRead'"), "{error}");
+    api.types.retain(|ty| ty.name == "StrictWith");
+    SwiftBackend
+        .generate_bindings(&api, &config)
+        .expect("the listed StrictWith generates");
+}
+
+#[test]
+fn should_reject_lenient_entries_that_name_no_strict_type() {
+    for (name, case) in [("AliasRead", "a permissive type"), ("Missing", "an unknown type")] {
+        let config = configuration_with_swift(&format!("lenient_serde_types = [\"{name}\"]"));
+        let error = SwiftBackend
+            .generate_bindings(&custom_input_type("AliasRead"), &config)
+            .expect_err(case);
+        assert!(
+            error.to_string().contains(&format!(
+                "lenient_serde_types entry '{name}' names no type with serde(deny_unknown_fields)"
+            )),
+            "{case}: {error}"
+        );
+    }
+}

@@ -7306,6 +7306,14 @@
           },
           "type": "array"
         },
+        "lenient_serde_types": {
+          "default": [],
+          "description": "Types whose Swift DTO is generated without `serde(deny_unknown_fields)`: it ignores unknown\nkeys instead of rejecting them. For strict types whose fields use custom input codecs\n(`deserialize_with`, `with`) that the strict Swift decoder cannot mirror. Each entry must name\na type with `deny_unknown_fields`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "min_ios_version": {
           "default": null,
           "description": "Minimum iOS deployment target. Defaults to `template_versions::toolchain::SWIFT_MIN_IOS` when unset.",
