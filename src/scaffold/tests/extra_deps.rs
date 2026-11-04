@@ -221,6 +221,7 @@ fn test_scaffold_language_level_extra_deps_override_crate_level() {
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
+        visitor_context_accessors: Default::default(),
         reexported_types: Vec::new(),
         target_dep_overrides: Vec::new(),
     });

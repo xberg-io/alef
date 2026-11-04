@@ -87,3 +87,63 @@ fn input_errors_keep_the_core_type_and_original_serde_detail() {
         "{conversion}"
     );
 }
+
+fn input_result_tail(ty: TypeRef, optional_default: bool) -> String {
+    context().input_expression(
+        &ParamDef {
+            name: "policy".into(),
+            ty,
+            ..Default::default()
+        },
+        optional_default,
+    )
+}
+
+#[test]
+fn fallible_named_input_returns_its_result_directly() {
+    let actual = input_result_tail(TypeRef::Named("Policy".into()), false);
+    assert_eq!(
+        actual,
+        concat!(
+            "(policy).try_into().map_err(|error: serde_json::Error| ",
+            "napi::Error::new(napi::Status::InvalidArg, format!(\"invalid JSON for sample_core::Policy: {error}\")))?"
+        )
+    );
+}
+
+#[test]
+fn nested_fallible_input_returns_results_at_every_tail() {
+    let actual = input_result_tail(
+        TypeRef::Vec(Box::new(TypeRef::Optional(Box::new(TypeRef::Named("Policy".into()))))),
+        false,
+    );
+    assert_eq!(
+        actual,
+        format!(
+            "{}{}?",
+            concat!(
+                "(policy).into_iter().map(|value| -> std::result::Result<_, serde_json::Error> { ",
+                "(value).map(|value| -> std::result::Result<_, serde_json::Error> { (value).try_into() }).transpose() ",
+                "}).collect::<std::result::Result<_, _>>()"
+            ),
+            invalid_serde_arg("sample_core::Policy")
+        )
+    );
+}
+
+#[test]
+fn defaulted_fallible_input_keeps_unwrap_and_propagates_conversion_errors() {
+    let actual = input_result_tail(TypeRef::Named("Policy".into()), true);
+    assert_eq!(
+        actual,
+        format!(
+            "{}{}?",
+            concat!(
+                "(|| -> std::result::Result<_, serde_json::Error> { ",
+                "Ok((policy).map(|value| -> std::result::Result<_, serde_json::Error> { ",
+                "(value).try_into() }).transpose()?.unwrap_or_default()) })()"
+            ),
+            invalid_arg("sample_core::Policy")
+        )
+    );
+}

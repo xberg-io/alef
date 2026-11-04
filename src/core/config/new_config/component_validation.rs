@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use super::{ComponentConfig, ComponentDistributionConfig, RawCrateConfig, ResolveError, ResolvedCrateConfig};
 
 pub(super) fn validate_components(
@@ -70,77 +72,158 @@ fn validate_component_locations(crate_name: &str, component: &ComponentConfig) -
     Ok(())
 }
 
-/// The non-empty, non-`.` segments of a path written with `/` or `\` separators.
+/// Split paths into case-insensitive segments for portable overlap checks. Missing paths cannot
+/// be canonicalized, and differently cased suffixes can become aliases when first written.
 fn dir_segments(path: &str) -> Vec<String> {
     path.split(['/', '\\'])
         .filter(|segment| !segment.is_empty() && *segment != ".")
-        .map(str::to_string)
+        .map(str::to_lowercase)
         .collect()
 }
 
-/// Reject `producer_dir` values that would make a generated producer overwrite real files: two
-/// components sharing a directory (explicit or default), a directory that is, contains or sits
-/// inside the core crate, or one that is the directory of a `source_manifest`.
-///
-/// Runs on the resolved crate, where the core crate root is known, and before any rebasing, so
-/// every value compared is relative to the directory of `alef.toml`. A root-flat core crate (its
-/// root is the project root) only claims its `src` directory, since every other path is
-/// necessarily below the project root.
-pub(super) fn validate_producer_dir_overlaps(config: &ResolvedCrateConfig) -> Result<(), ResolveError> {
-    use crate::core::config::component::{component_producer_dir, path_segments};
+/// Reject collisions in the public path-independent configuration resolver.
+pub(super) fn validate_producer_dir_overlaps(configs: &[ResolvedCrateConfig]) -> Result<(), ResolveError> {
+    let lexical = |path: &Path| Ok(dir_segments(&path.to_string_lossy()));
+    validate_producer_dirs(configs, &[], &[], lexical)
+}
 
-    let core_dir = config.core_crate_dir();
-    let core_root = dir_segments(&config.core_crate_root().to_string_lossy());
-    let mut seen: std::collections::HashMap<Vec<String>, &str> = std::collections::HashMap::new();
-    for component in &config.components {
-        let effective = dir_segments(
-            &component_producer_dir(&core_dir, &component.name, component.producer_dir.as_deref()).to_string_lossy(),
-        );
-        if let Some(previous) = seen.insert(effective.clone(), component.name.as_str()) {
-            return invalid_component_config(
-                &config.name,
-                format!(
-                    "components `{previous}` and `{}` resolve to the same producer directory `{}`",
-                    component.name,
-                    effective.join("/")
-                ),
-            );
-        }
-        let Some(explicit) = component.producer_dir.as_deref() else {
-            continue;
-        };
-        let overlaps_core = if core_root.is_empty() {
-            effective.first().is_some_and(|segment| segment == "src")
-        } else {
-            effective.starts_with(&core_root) || core_root.starts_with(&effective)
-        };
-        if overlaps_core {
-            return invalid_component_config(
-                &config.name,
-                format!(
-                    "component `{}` producer_dir `{explicit}` must not be, contain or sit inside the core crate directory `{}`",
-                    component.name,
-                    if core_root.is_empty() {
-                        "src".to_string()
-                    } else {
-                        core_root.join("/")
-                    }
-                ),
-            );
-        }
-        if let Some(manifest) = component.source_manifest.as_deref() {
-            let mut source_dir = path_segments(manifest);
-            source_dir.pop();
-            if source_dir == effective.iter().map(String::as_str).collect::<Vec<_>>() {
-                return invalid_component_config(
-                    &config.name,
-                    format!(
-                        "component `{}` producer_dir `{explicit}` must not be the directory of its source_manifest `{manifest}`",
-                        component.name
-                    ),
-                );
+/// Recheck physical directories after explicit component paths have been rebased onto the working directory.
+pub(crate) fn validate_physical_producer_paths(
+    configs: &[ResolvedCrateConfig],
+    cwd: &Path,
+    config_dir: &Path,
+) -> Result<(), ResolveError> {
+    if !configs.iter().any(|config| !config.components.is_empty()) {
+        return Ok(());
+    }
+    let physical = |path: &Path| {
+        let absolute = super::super::component::lexically_clean(&cwd.join(path));
+        physical_path(&absolute)
+            .map(|path| dir_segments(&path.to_string_lossy()))
+            .map_err(|error| {
+                ResolveError::InvalidConfig(format!(
+                    "cannot resolve component directory `{}`: {error}",
+                    absolute.display()
+                ))
+            })
+    };
+    let working_root = physical(Path::new(""))?;
+    let config_root = physical(config_dir)?;
+    validate_producer_dirs(configs, &working_root, &config_root, physical)
+}
+
+// Resolve existing ancestors and keep the suffix that generation would create. ~keep
+fn physical_path(path: &Path) -> std::io::Result<PathBuf> {
+    let mut current = path;
+    let mut suffix = Vec::new();
+    loop {
+        match current.canonicalize() {
+            Ok(mut resolved) => {
+                resolved.extend(suffix.into_iter().rev());
+                return Ok(resolved);
             }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                match current.symlink_metadata() {
+                    Err(missing) if missing.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(other) => return Err(other),
+                    Ok(_) => return Err(error),
+                }
+                let (Some(parent), Some(name)) = (current.parent(), current.file_name()) else {
+                    return Err(error);
+                };
+                suffix.push(name);
+                current = parent;
+            }
+            Err(error) => return Err(error),
         }
+    }
+}
+
+fn validate_producer_dirs(
+    configs: &[ResolvedCrateConfig],
+    working_root: &[String],
+    config_root: &[String],
+    resolve: impl Fn(&Path) -> Result<Vec<String>, ResolveError>,
+) -> Result<(), ResolveError> {
+    let mut inputs = Vec::new();
+    for config in configs {
+        inputs.extend(protected_component_inputs(config, working_root, config_root, &resolve)?);
+    }
+    let mut producers: Vec<(Vec<String>, &str)> = Vec::new();
+    for config in configs {
+        let core_dir = config.core_crate_dir();
+        for component in &config.components {
+            let dir = crate::core::config::component::component_producer_dir(
+                &core_dir,
+                &component.name,
+                component.producer_dir.as_deref(),
+            );
+            let path = resolve(&dir)?;
+            validate_producer_path(&config.name, &component.name, &path, &inputs, &producers)?;
+            producers.push((path, &component.name));
+        }
+    }
+    Ok(())
+}
+
+fn protected_component_inputs(
+    config: &ResolvedCrateConfig,
+    working_root: &[String],
+    config_root: &[String],
+    resolve: &impl Fn(&Path) -> Result<Vec<String>, ResolveError>,
+) -> Result<Vec<(Vec<String>, String)>, ResolveError> {
+    let core_dir = config.core_crate_root();
+    let mut core = resolve(&core_dir)?;
+    if core == working_root {
+        core = resolve(&core_dir.join("src"))?;
+    }
+    let core_label = format!("core crate directory `{}`", core.join("/"));
+    let mut inputs = vec![(core, core_label)];
+    for manifest in config
+        .components
+        .iter()
+        .filter_map(|component| component.source_manifest.as_deref())
+    {
+        let source = Path::new(manifest).parent().unwrap_or_else(|| Path::new(""));
+        let mut path = resolve(source)?;
+        if path == config_root || path == working_root {
+            path = resolve(&source.join("src"))?;
+        }
+        inputs.push((path, format!("source_manifest directory `{manifest}`")));
+    }
+    Ok(inputs)
+}
+
+fn validate_producer_path(
+    crate_name: &str,
+    component: &str,
+    path: &[String],
+    inputs: &[(Vec<String>, String)],
+    producers: &[(Vec<String>, &str)],
+) -> Result<(), ResolveError> {
+    let overlaps = |other: &[String]| path.starts_with(other) || other.starts_with(path);
+    if let Some((other, previous)) = producers.iter().find(|(other, _)| overlaps(other)) {
+        let relation = if other == path {
+            "resolve to the same"
+        } else {
+            "resolve to overlapping"
+        };
+        return invalid_component_config(
+            crate_name,
+            format!(
+                "components `{previous}` and `{component}` {relation} producer directory `{}`",
+                path.join("/")
+            ),
+        );
+    }
+    if let Some((_, input)) = inputs.iter().find(|(input, _)| overlaps(input)) {
+        return invalid_component_config(
+            crate_name,
+            format!(
+                "component `{component}` producer_dir `{}` must not overlap {input}",
+                path.join("/")
+            ),
+        );
     }
     Ok(())
 }

@@ -382,10 +382,11 @@ features = ["web"]
   `alef component build` runs `cargo build --manifest-path <producer_dir>/Cargo.toml`, so cargo
   resolves the workspace and `Cargo.lock` that own that directory (the build's `--target-dir` is
   unchanged). The package name stays `<core>-<name>-component`. It must not contain `.` or `..`
-  segments, must be unique per component (defaults included), and must not be, contain or sit
-  inside the core crate directory or equal the `source_manifest` directory, so generation never
-  overwrites real files. Changing or removing `producer_dir` leaves the previously generated
-  producer crate where it was; delete it by hand.
+  segments and must not overlap another producer, a core crate directory, or a `source_manifest`
+  directory. These checks include default producer paths and compare directories without regard
+  to case, even on case-sensitive filesystems, so a configuration cannot introduce a collision
+  when used on a case-insensitive checkout. Changing or removing `producer_dir` leaves the
+  previously generated producer crate where it was; delete it by hand.
 
 Both are resolved relative to the directory containing `alef.toml`, not the working directory, so
 `alef --config ../alef.toml ...` finds the same files. Every other path in the config, including

@@ -35,6 +35,8 @@ pub mod shared;
 pub mod type_mapper;
 pub(crate) mod visitor_context;
 pub(crate) mod visitor_context_abi;
+#[cfg(test)]
+mod visitor_context_scope_tests;
 pub(crate) mod visitor_result;
 
 #[cfg(test)]

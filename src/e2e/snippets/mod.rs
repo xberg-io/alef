@@ -13,6 +13,7 @@ use std::path::{Component, Path, PathBuf};
 
 pub mod coverage;
 mod exclusions;
+mod fixture_views;
 pub mod language_filter;
 pub(crate) mod ledger_paths;
 pub mod migration;
@@ -22,6 +23,12 @@ pub mod ownership;
 mod recipe_policy;
 mod render_body;
 mod sample_url_policy;
+
+use fixture_views::SnippetRenderContext;
+pub(super) use fixture_views::generate_fixture_snippet_report;
+pub use fixture_views::generate_snippet_report;
+#[cfg(test)]
+use fixture_views::generate_snippet_report_with_extensions;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SnippetInclusion {
@@ -216,15 +223,6 @@ pub struct SnippetGenerationReport {
     pub curated_paths: Vec<PathBuf>,
 }
 
-struct SnippetRenderContext<'a> {
-    e2e: &'a E2eConfig,
-    crate_config: &'a ResolvedCrateConfig,
-    type_defs: &'a [TypeDef],
-    enums: &'a [EnumDef],
-    functions: &'a [crate::core::ir::FunctionDef],
-    errors: &'a [crate::core::ir::ErrorDef],
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DocumentationLanguage {
     Binding(Language),
@@ -279,40 +277,12 @@ pub fn generate_snippets(
     .collect())
 }
 
-/// ~keep `errors` is `ApiSurface::errors`. Only a caller that holds it can let a snippet name the
-/// exception class a specific error variant maps to (see `codegen::snippet_error_branch`); the
-/// coverage-only paths, which never publish a rendered body, pass an empty slice and get the
-/// generic catch-all, which is exactly what they rendered before.
-#[expect(clippy::too_many_arguments, reason = "preserves the public snippet generation API")]
-pub fn generate_snippet_report(
-    fixtures: &[Fixture],
-    languages: &[String],
-    e2e: &E2eConfig,
-    snippets: &SnippetConfig,
-    crate_config: &ResolvedCrateConfig,
-    type_defs: &[TypeDef],
-    enums: &[EnumDef],
-    functions: &[crate::core::ir::FunctionDef],
-    errors: &[crate::core::ir::ErrorDef],
-) -> Result<SnippetGenerationReport> {
-    crate::with_extensions(|extensions| {
-        let context = SnippetRenderContext {
-            e2e,
-            crate_config,
-            type_defs,
-            enums,
-            functions,
-            errors,
-        };
-        generate_snippet_report_with_extensions(fixtures, languages, snippets, &context, extensions)
-    })
-}
-
-fn generate_snippet_report_with_extensions(
+fn generate_snippet_report_with_views(
     fixtures: &[Fixture],
     languages: &[String],
     snippets: &SnippetConfig,
     context: &SnippetRenderContext<'_>,
+    projected: Option<&SnippetRenderContext<'_>>,
     extensions: &[Box<dyn crate::Extension>],
 ) -> Result<SnippetGenerationReport> {
     validate_relative_path(Path::new(&snippets.output), "snippet output")?;
@@ -346,6 +316,17 @@ fn generate_snippet_report_with_extensions(
         inputs: context,
         session: &session,
     };
+    let projected_session = projected.map(|context| {
+        crate::e2e::codegen::SnippetRenderSession::new(
+            context.type_defs,
+            context.enums,
+            context.functions,
+            context.errors,
+        )
+    });
+    let projected_render = projected
+        .zip(projected_session.as_ref())
+        .map(|(inputs, session)| render_body::RenderContext { inputs, session });
     let mut generated = BTreeMap::<PathBuf, GeneratedSnippet>::new();
     let mut guard_rejections = Vec::<SnippetGuardRejection>::new();
     let mut placeholder_sample_urls = render_body::PlaceholderSampleUrlLedger::default();
@@ -364,6 +345,12 @@ fn generate_snippet_report_with_extensions(
         // for it -- the answer is per fixture, not per fixture/language. ~keep
         let sample_url = url_policy.for_fixture(fixture)?;
         for (language, generator) in &generators {
+            let render_context = if super::fixture_api::uses_projected_fixture_api(generator.language_name()) {
+                projected_render.as_ref().unwrap_or(&render_context)
+            } else {
+                &render_context
+            };
+            let context = render_context.inputs;
             // A function this language's `exclude_functions` (or the crate-wide
             // `[crates.exclude].functions` that `language_excludes` folds in) drops can
             // never be emitted here, so the cell must not enter `expected` at all --
@@ -449,7 +436,7 @@ fn generate_snippet_report_with_extensions(
                 generator.as_ref(),
                 fixture,
                 language,
-                &render_context,
+                render_context,
                 &sample_url,
             )
             .and_then(|rendered| {

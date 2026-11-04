@@ -875,8 +875,26 @@ fn resolve_rejects_producer_dir_equal_to_the_source_manifest_directory() {
         component.source_manifest = Some("components/x-web/Cargo.toml".into());
         component.producer_dir = Some("components/x-web/".into());
     });
-    assert!(
-        error.contains("must not be the directory of its source_manifest"),
-        "{error}"
-    );
+    assert!(error.contains("must not overlap source_manifest directory"), "{error}");
+}
+
+#[test]
+fn resolve_rejects_default_producer_dir_overlapping_a_source_manifest() {
+    let error = resolve_error_with(|config| {
+        config.crates[0].components[0].source_manifest = Some("crates/sample-tesseract-component/Cargo.toml".into());
+    });
+    assert!(error.contains("source_manifest"), "{error}");
+}
+
+#[test]
+fn resolve_rejects_producer_dirs_overlapping_another_crates_source_manifest() {
+    let error = resolve_error_with(|config| {
+        config.crates[0].components[0].producer_dir = Some("implementations/web/build".into());
+        let mut sibling = config.crates[0].clone();
+        sibling.name = "other".into();
+        sibling.components[0].producer_dir = None;
+        sibling.components[0].source_manifest = Some("implementations/web/Cargo.toml".into());
+        config.crates.push(sibling);
+    });
+    assert!(error.contains("implementations/web/Cargo.toml"), "{error}");
 }

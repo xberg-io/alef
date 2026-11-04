@@ -106,41 +106,39 @@ impl ContainerContext {
         } else {
             parameter.ty.clone()
         };
+        use transparent_newtypes::ConversionExpression;
+
+        let policy = self.policy();
         let converted = if optional_default {
-            let value = transparent_newtypes::convert_with_enum_keys(
-                "value",
-                &ty,
-                &[],
-                Direction::ToCore,
-                Some(&self.policy()),
-            );
-            format!(
-                "({}).map(|value| -> std::result::Result<_, serde_json::Error> {{ Ok({value}) }}).transpose()?.unwrap_or_default()",
+            let result = transparent_newtypes::convert_expression("value", &ty, &[], Direction::ToCore, Some(&policy))
+                .into_result();
+            ConversionExpression::Value(format!(
+                "({}).map(|value| -> std::result::Result<_, serde_json::Error> {{ {result} }}).transpose()?.unwrap_or_default()",
                 parameter.name
-            )
+            ))
         } else {
-            transparent_newtypes::convert_with_enum_keys(
-                &parameter.name,
-                &ty,
-                &[],
-                Direction::ToCore,
-                Some(&self.policy()),
-            )
+            transparent_newtypes::convert_expression(&parameter.name, &ty, &[], Direction::ToCore, Some(&policy))
         };
         let converted = if let Some(wrapper) = &parameter.newtype_wrapper {
-            crate::codegen::conversions::helpers::apply_field_newtype_to_core(
-                &converted,
+            ConversionExpression::Value(crate::codegen::conversions::helpers::apply_field_newtype_to_core(
+                &converted.into_value(),
                 &parameter.ty,
                 parameter.optional,
                 wrapper,
-            )
+            ))
         } else {
             converted
         };
-        format!(
-            "(|| -> std::result::Result<_, serde_json::Error> {{ Ok({converted}) }})(){}?",
-            super::inputs::invalid_arg(&self.input_error_context(&parameter.ty))
-        )
+        let core = self.input_error_context(&parameter.ty);
+        match converted {
+            ConversionExpression::SerdeResult(result) => {
+                format!("{result}{}?", super::inputs::invalid_serde_arg(&core))
+            }
+            ConversionExpression::Value(value) => format!(
+                "(|| -> std::result::Result<_, serde_json::Error> {{ Ok({value}) }})(){}?",
+                super::inputs::invalid_arg(&core)
+            ),
+        }
     }
 
     /// The core type a converted input has, when it can be named: an adapter body reads the
@@ -287,15 +285,38 @@ impl ContainerContext {
         } else {
             field.ty.clone()
         };
-        let converted =
-            transparent_newtypes::convert_with_enum_keys(&source, &ty, &[], direction, Some(&self.policy()));
-        let converted = finish_field_conversion(converted, field, nested_optional, binding_optional, direction);
+        let conversion = transparent_newtypes::convert_expression(&source, &ty, &[], direction, Some(&self.policy()));
         if missing_default {
+            let result = match conversion {
+                // Only core wrapping can apply here; when it leaves the value untouched, the
+                // fallible conversion is the closure's result (`Ok(x?)` is needless_question_mark).
+                transparent_newtypes::ConversionExpression::SerdeResult(result)
+                    if wrap_core_field(format!("{result}?"), field) == format!("{result}?") =>
+                {
+                    result
+                }
+                conversion => format!(
+                    "Ok({})",
+                    finish_field_conversion(
+                        conversion.into_value(),
+                        field,
+                        nested_optional,
+                        binding_optional,
+                        direction
+                    )
+                ),
+            };
             format!(
-                "val.{binding_name}.map(|value| -> std::result::Result<_, serde_json::Error> {{ Ok({converted}) }}).transpose()?.unwrap_or_default()"
+                "val.{binding_name}.map(|value| -> std::result::Result<_, serde_json::Error> {{ {result} }}).transpose()?.unwrap_or_default()"
             )
         } else {
-            converted
+            finish_field_conversion(
+                conversion.into_value(),
+                field,
+                nested_optional,
+                binding_optional,
+                direction,
+            )
         }
     }
 

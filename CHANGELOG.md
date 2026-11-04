@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Publish statically linked `alef-x86_64-unknown-linux-musl` and `alef-aarch64-unknown-linux-musl` release archives,
+  smoke-tested inside a `manylinux_2_28` container, for builds that must run on an older glibc. (#870)
 - Add optional `source_manifest` and `producer_dir` fields to `[[crates.components]]`, so a component's
   implementation crate and generated producer can live in a different Cargo workspace from the core crate.
   Both resolve relative to the directory containing `alef.toml`. (#866)
@@ -33,12 +35,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Accept an absent or empty `--input` for `alef component lock --reuse --plan` when every plan row is `reuse`, and
   fail when a `build` row has no record in the input. (#873)
 
+- Opt in to private Python host aliases for defaulted Rust callbacks while preserving the existing callback surface
+  in other SDKs, reference pages, and generated fixtures.
+
+- Opt in to lazy Python visitor context string-map getters through
+  `[crates.python.visitor_context_accessors]`. Configured getters can read borrowed
+  core context data during the callback without copying it on entry.
+
 ### Changed (BREAKING)
 
 - Extend `ComponentConfig` and `ResolvedComponent` with `source_manifest` and `producer_dir`. Rust callers
   constructing these structs must initialize the new fields; existing configuration files are unaffected. (#866)
 - Add `input_hash: Option<String>` to `ComponentArtifactRecord` and `ComponentLockEntry`. Rust callers constructing
   these structs must initialize it. A lock at `--output` that carries it is rejected by older `alef-component-runtime` versions; staged binding locks never do. (#869)
+
+## [0.122.2] - 2026-11-04
+
+### Fixed
+
+- Emit fallible Node conversions for serde-defaulted required DTO fields without the `Ok(..?)` wrapper that clippy rejects as `needless_question_mark`.
+
+- Emit fallible Node conversions directly at Result tails while preserving InvalidArg error details.
+
+- Generate Dart trait stub defaults as BigInt for u64 callback returns.
 
 ## [0.122.1] - 2026-11-04
 
