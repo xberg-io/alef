@@ -46,6 +46,8 @@ is not copied: the scoped reader of 0019 serves it, and the binding class has no
 * Bad, because a copied value is materialized on every conversion from the core, even when the host never reads it.
 * Bad, because Go and Swift expose the copied value as a field where they previously had a method, and the generated
   constructors gain an optional parameter.
+* Bad, because an opted-in Python visitor context used outside a visitor callback, such as one returned from a
+  function or passed back into the core, still yields an empty value: it has no copied field to fall back on.
 
 ### Confirmation
 
