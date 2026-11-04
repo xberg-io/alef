@@ -10,6 +10,8 @@ mod cfg_variant_e2e_tests;
 mod components;
 mod config;
 mod configured;
+use crate::backends::pyo3::trait_bridge::scoped_context::lazy_readers;
+use crate::codegen::private_accessors::{with_private_accessor_fields_except, with_private_accessor_methods};
 use configured::ConfiguredPyo3Backend;
 mod config_opaque;
 pub(in crate::backends::pyo3) mod constructors;
@@ -88,9 +90,8 @@ impl Backend for ConfiguredPyo3Backend {
         // to the core crate — which resolves the cfg itself — and emits no `#[cfg]` gate on the
         // wrapper, so two same-named entries would otherwise produce duplicate `#[pyfunction]`
         self.validate_host_aliases(api, config)?;
-        let deduped_api = crate::backends::ir_order::with_sorted_items(api)
-            .with_deduped_functions()
-            .with_private_accessor_fields();
+        let sorted_api = crate::backends::ir_order::with_sorted_items(api).with_deduped_functions();
+        let deduped_api = with_private_accessor_fields_except(&sorted_api, lazy_readers(config));
         let api = &deduped_api;
         let active_trait_bridges: Vec<crate::core::config::TraitBridgeConfig> = config
             .trait_bridges_for(crate::core::config::Language::Python)
@@ -929,9 +930,8 @@ impl Backend for ConfiguredPyo3Backend {
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
         // Rust binding does — Python has no `#[cfg]`, so two same-named defs in the `.pyi`
-        let deduped_api = crate::codegen::private_accessors::with_private_accessor_methods(
-            &crate::backends::ir_order::with_sorted_items(api).with_deduped_functions(),
-        );
+        let sorted_api = crate::backends::ir_order::with_sorted_items(api).with_deduped_functions();
+        let deduped_api = with_private_accessor_methods(&sorted_api, lazy_readers(config));
         public_files::generate_type_stubs(&deduped_api, config)
     }
 
@@ -940,9 +940,8 @@ impl Backend for ConfiguredPyo3Backend {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
-        let deduped_api = crate::codegen::private_accessors::with_private_accessor_methods(
-            &crate::backends::ir_order::with_sorted_items(api).with_deduped_functions(),
-        );
+        let sorted_api = crate::backends::ir_order::with_sorted_items(api).with_deduped_functions();
+        let deduped_api = with_private_accessor_methods(&sorted_api, lazy_readers(config));
         public_files::generate_public_api(&deduped_api, config)
     }
 

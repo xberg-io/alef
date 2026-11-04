@@ -757,3 +757,110 @@ fn borrowing_reads_keep_their_meaning_through_a_reference_accessor() {
         "self.0.field().to_owned()"
     );
 }
+
+/// The neutral visitor fixture with a private `attributes` field behind a carriable accessor on
+/// its callback context.
+fn visitor_with_carriable_context() -> (ApiSurface, crate::core::config::TraitBridgeConfig) {
+    let (mut api, _, bridge) = crate::codegen::visitor_context::test_support::neutral_visitor_fixture();
+    let context = api.types.iter_mut().find(|typ| typ.name == "TraversalState").unwrap();
+    context.is_clone = true;
+    context.has_serde = true;
+    context.has_lifetime_params = true;
+    context.has_private_fields = true;
+    context.private_fields = vec![FieldDef {
+        name: "attributes".to_string(),
+        ty: map_ty(),
+        ..Default::default()
+    }];
+    let mut params: Vec<ParamDef> = context
+        .fields
+        .iter()
+        .map(|field| ParamDef {
+            name: field.name.clone(),
+            ty: field.ty.clone(),
+            optional: field.optional,
+            ..Default::default()
+        })
+        .collect();
+    params.push(ParamDef {
+        name: "attributes".to_string(),
+        ty: map_ty(),
+        ..Default::default()
+    });
+    context.methods.push(MethodDef {
+        name: "attributes".to_string(),
+        return_type: map_ty(),
+        receiver: Some(ReceiverKind::Ref),
+        returns_ref: true,
+        ..Default::default()
+    });
+    context.methods.push(MethodDef {
+        name: "with_owned_attributes".to_string(),
+        params,
+        return_type: TypeRef::Named("TraversalState".to_string()),
+        is_static: true,
+        ..Default::default()
+    });
+    (api, bridge)
+}
+
+fn python_visitor_bindings(lazy_reader: bool) -> String {
+    let (api, bridge) = visitor_with_carriable_context();
+    let mut config = config("python");
+    config.trait_bridges = vec![bridge];
+    if lazy_reader {
+        config
+            .python
+            .as_mut()
+            .unwrap()
+            .visitor_context_accessors
+            .insert("TraversalState".to_string(), "attributes".to_string());
+    }
+    let content = Pyo3Backend.generate_bindings(&api, &config).unwrap()[0].content.clone();
+    syn::parse_file(&content).unwrap_or_else(|error| panic!("{error}:\n{content}"));
+    content
+}
+
+#[test]
+fn opted_in_python_visitor_context_keeps_the_lazy_reader_without_a_carried_copy() {
+    let content = python_visitor_bindings(true);
+    assert!(
+        content.contains("alef_call_with_scoped_traversalstate(") && content.contains("let value = TraversalState {"),
+        "the callback reads attributes through the scoped reader:\n{content}"
+    );
+    let binding_struct = impl_block(&content, "pub struct TraversalState {");
+    assert!(
+        !binding_struct.contains("attributes"),
+        "no carried copy is materialized for every callback:\n{binding_struct}"
+    );
+    let from_core = impl_block(
+        &content,
+        "for TraversalState {\n    fn from(val: sample_core::walk::TraversalState",
+    );
+    assert!(!from_core.contains("val.attributes()"), "{from_core}");
+    assert_eq!(
+        content.matches("pub fn attributes(").count(),
+        1,
+        "only the scoped reader defines the method:\n{content}"
+    );
+}
+
+#[test]
+fn python_visitor_context_without_the_opt_in_carries_the_value() {
+    let content = python_visitor_bindings(false);
+    assert!(!content.contains("alef_call_with_scoped_"), "{content}");
+    let binding_struct = impl_block(&content, "pub struct TraversalState {");
+    assert!(
+        binding_struct.contains("pub attributes: HashMap<String, String>"),
+        "{binding_struct}"
+    );
+    let from_core = impl_block(
+        &content,
+        "for TraversalState {\n    fn from(val: sample_core::walk::TraversalState",
+    );
+    assert!(from_core.contains("val.attributes()"), "{from_core}");
+    assert!(
+        content.contains("ctx.clone().into()"),
+        "the callback converts the context:\n{content}"
+    );
+}

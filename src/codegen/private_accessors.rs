@@ -236,12 +236,19 @@ fn warn_once(typ: &TypeDef, accessor: &str) {
 /// Promote every carriable private-field accessor of `typ` to a binding field. An accessor the
 /// binding cannot carry back to the core type keeps today's method and is reported.
 pub fn promote_private_accessors(typ: &mut TypeDef) {
+    promote_private_accessors_except(typ, None);
+}
+
+/// [`promote_private_accessors`], leaving out the accessor named `lazy_reader`: a backend reads
+/// that one lazily through its own callback-scoped reader instead of carrying a copy.
+fn promote_private_accessors_except(typ: &mut TypeDef, lazy_reader: Option<&str>) {
     if typ.is_opaque || typ.private_fields.is_empty() {
         return;
     }
     let candidates: Vec<(MethodDef, FieldDef)> = typ
         .methods
         .iter()
+        .filter(|method| lazy_reader != Some(method.name.as_str()))
         .filter_map(|method| returned_private_field(typ, method).map(|private| (method.clone(), private.clone())))
         .collect();
     for (accessor, private) in candidates {
@@ -271,9 +278,22 @@ pub fn promote_private_accessors(typ: &mut TypeDef) {
 /// Apply [`promote_private_accessors`] to every type of `api`.
 #[must_use]
 pub fn with_private_accessor_fields(api: &ApiSurface) -> ApiSurface {
+    with_private_accessor_fields_except(api, &std::collections::BTreeMap::new())
+}
+
+/// [`with_private_accessor_fields`] for a backend with lazy readers of its own, keyed by type
+/// name to the accessor each reads (Python's `[crates.python.visitor_context_accessors]`). Those
+/// accessors are not carried: the lazy reader serves them, and a carried copy would materialize
+/// the value on every callback and collide with the reader's method (alef ADR 0019).
+#[must_use]
+pub fn with_private_accessor_fields_except(
+    api: &ApiSurface,
+    lazy_readers: &std::collections::BTreeMap<String, String>,
+) -> ApiSurface {
     let mut promoted = api.clone();
     for typ in &mut promoted.types {
-        promote_private_accessors(typ);
+        let lazy_reader = lazy_readers.get(&typ.name).map(String::as_str);
+        promote_private_accessors_except(typ, lazy_reader);
     }
     promoted
 }
@@ -281,8 +301,11 @@ pub fn with_private_accessor_fields(api: &ApiSurface) -> ApiSurface {
 /// [`with_private_accessor_fields`] for a public surface (type stubs, docs) whose backend keeps
 /// the carried value behind the accessor method: carried fields are not listed.
 #[must_use]
-pub fn with_private_accessor_methods(api: &ApiSurface) -> ApiSurface {
-    let mut promoted = with_private_accessor_fields(api);
+pub fn with_private_accessor_methods(
+    api: &ApiSurface,
+    lazy_readers: &std::collections::BTreeMap<String, String>,
+) -> ApiSurface {
+    let mut promoted = with_private_accessor_fields_except(api, lazy_readers);
     for typ in &mut promoted.types {
         let private_fields = std::mem::take(&mut typ.private_fields);
         typ.fields

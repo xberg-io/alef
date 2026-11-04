@@ -5,6 +5,17 @@ use crate::core::ir::{ApiSurface, FieldDef, ReceiverKind, TypeRef};
 
 pub(crate) const RUNTIME: &str = include_str!("../../../codegen/visitor_context_scope.rs");
 
+/// The visitor context accessors Python reads through its callback-scoped lazy reader, keyed by
+/// context type. The private-accessor promotion leaves these to the reader instead of carrying a
+/// copy (alef ADR 0020).
+pub(crate) fn lazy_readers(config: &ResolvedCrateConfig) -> &BTreeMap<String, String> {
+    static NONE: BTreeMap<String, String> = BTreeMap::new();
+    config
+        .python
+        .as_ref()
+        .map_or(&NONE, |python| &python.visitor_context_accessors)
+}
+
 pub(crate) struct ScopedContextAccessor {
     method: String,
     context: String,
