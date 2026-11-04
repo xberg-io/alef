@@ -41,7 +41,7 @@ pub(crate) enum ComponentAction {
     /// Each row carries the build's input fingerprint (`input_hash`). A row is `reuse` when the
     /// previous lock has an entry with the same fingerprint and the same identity apart from
     /// `version`; the entry travels in the row as `previous`. Without `--previous-lock` every row
-    /// is `build`. Select crates with `--crate`.
+    /// is `build`. Plans support Rust producers. Select crates with `--crate`.
     Plan {
         /// Previous `components.lock.json` to reuse artifacts from.
         #[arg(long)]

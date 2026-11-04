@@ -22,8 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   distribution settings, `--extra key=value` pairs and `--env NAME` variables). `build --plan` handles only `build`
   rows and writes a `<library>.input-hash` sidecar; `package --plan` checks it and records the fingerprint as
   `input_hash` in the artifact record; `lock --reuse <lock> --plan <plan>` carries reused entries over verbatim after
-  checking their signing key is still trusted. Go components are never reused. `lock` strips `input_hash` from the
-  locks it stages into binding packages. (#869)
+  checking their signing key is still trusted. Lock assembly also checks current project inputs and the versions
+  of newly built artifacts. Release plans require fingerprints and currently support Rust producers.
+  `lock` strips `input_hash` from the locks it stages into binding packages. (#869)
 - Hash the native toolchain in component fingerprints when the host OS family matches the target's: for
   `*-apple-*` targets on macOS the `xcrun` SDK version, SDK build version and Apple clang version, for
   `*-windows-msvc` targets on Windows the `vswhere` Visual Studio product and installation versions, with

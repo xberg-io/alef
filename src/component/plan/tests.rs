@@ -222,3 +222,19 @@ fn a_reuse_row_without_a_fingerprint_is_rejected_on_read() {
     let error = ComponentPlan::read(&path).unwrap_err();
     assert!(error.to_string().contains("input_hash"), "{error}");
 }
+
+#[test]
+fn reuse_rejects_an_entry_for_a_different_plan_row() {
+    let wanted = entry("fast", TARGET, "1.0.0", Some("h1"), "");
+    let previous = ComponentLock {
+        schema_version: 1,
+        public_keys: BTreeMap::new(),
+        artifacts: vec![wanted],
+    };
+    let mut row = decide(&candidate("fast", "h1"), &previous.artifacts).unwrap();
+    row.component = "slow".into();
+    let plan = ComponentPlan::new(false, vec![row]);
+
+    let error = reused_entries(&plan, &previous, "demo", None).unwrap_err();
+    assert!(error.to_string().contains("entry identity"), "{error}");
+}

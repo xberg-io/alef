@@ -173,9 +173,10 @@ pairs; and the producer's dependency closure.
   by absolute path, so the checkout location does not change the digest.
 - *Manifest tables.* From the producer workspace root: `[profile]`, `[patch]`, `[replace]`,
   `[workspace.package]` without its `version` key, `[workspace.lints]` and
-  `[workspace.dependencies]` (a path dependency's `version` is ignored there). Package versions
-  stay out on purpose: a lock-step release that touches no file must still reuse. The consequence is
-  that `env!("CARGO_PKG_VERSION")` inside a reused artifact reports the version it was built at.
+  `[workspace.dependencies]` (a path dependency's `version` is ignored there). A release can reuse
+  an artifact when a version bump leaves all fingerprinted inputs unchanged. If regeneration
+  changes a producer's dependency declaration or another hashed file, the plan rebuilds it.
+  `env!("CARGO_PKG_VERSION")` inside a reused artifact reports the version it was built at.
 - *Closure.* `cargo metadata --manifest-path <producer>/Cargo.toml --locked`, so a producer in
   another workspace uses that workspace's `Cargo.lock`, and a stale or missing lock is an error.
   There is no `--filter-platform`: the closure is a sound superset that includes host-only build
@@ -199,8 +200,8 @@ without git, which only costs a rebuild. Files outside the package directory, su
 through `--extra`.
 
 Pass the same `--extra` and `--env` values to `plan`, `build` and `package`. Only Rust producers are
-fingerprinted: `plan` emits a `build` row without `input_hash` for a Go component, and it is never
-reused.
+fingerprinted, so the release-plan commands reject Go components. The standalone build, package
+and lock commands still support them.
 
 **Record and lock.** `package --plan` stores the planned fingerprint as `input_hash` in the artifact
 record; without `--plan` nothing is recorded. `lock` copies it into each lock entry written to
@@ -210,7 +211,8 @@ that carries it (the lock structs deny unknown fields), so `lock` strips it from
 into binding packages; only the lock at `--output`, the one you keep for the next `plan`, has it.
 
 **Plan.** `plan` prints (or writes with `-o`) `{"schema_version": 1, "debug": false, "rows": [...]}`.
-A row is `{"crate", "component", "target", "input_hash", "action": "build" | "reuse", "previous"}`;
+A row records the crate, component, target, configured release version, full input fingerprint,
+checkout input fingerprint, and action (`build` or `reuse`).
 `previous` is the lock entry to carry over and is present only for `reuse`. A row is `reuse` only
 when the previous lock has an entry with an equal `input_hash`, `Download` mode and the same crate,
 component, target, feature hash and contract hash; the version may differ. If more than one entry
@@ -222,15 +224,15 @@ narrowed by `--component` and `--target`). A selected component and target that 
 error (`not in plan`); one that has a `reuse` row is skipped with an info log. Both recompute the
 fingerprint and refuse to continue if the inputs changed since the plan. After a successful
 `build --plan`, the library gets a sidecar `<library path>.input-hash` holding the planned
-fingerprint (a rebuild first removes any old sidecar). `package --plan` requires the sidecar next to
-the library (or next to `--library <path>`, as `<path>.input-hash`) to equal the plan's
-fingerprint, so a library built from other inputs or by an unplanned build cannot be packaged under
-the plan.
+fingerprint, the library SHA-256, and the planned version. A rebuild first removes any old sidecar.
+`package --plan` checks all three values before packaging the library.
 
 **Lock reuse.** `lock --reuse <previous-lock> --plan <plan>` copies each `reuse` row's entry from
 the previous lock verbatim (URL, hashes, signature, key id) without downloading or uploading
 anything, and merges it with the freshly packaged records in `--input`, which hold the `build` rows
-only. It refuses a `--url-template` (reused entries keep their URL); a `reuse` row for a component
+only. Before writing the lock, it checks every selected row against the current checkout inputs,
+including project-local Cargo and rustup configuration. A fresh record must match the planned
+version and input fingerprint. It refuses a `--url-template` (reused entries keep their URL); a `reuse` row for a component
 or target the crate does not configure or that `--component` / `--target` do not select; an entry that
 differs from the one in the previous lock; an entry whose `key_id` is not in the current
 `component_distribution.public_keys` (or whose key there differs from the previous lock's); a signed

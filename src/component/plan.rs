@@ -3,7 +3,7 @@
 //! A plan row is `reuse` only when the previous lock holds an entry with the same input
 //! fingerprint (`input_hash`) and the same identity apart from `version`: crate, component,
 //! target, feature hash and contract hash. Everything else is `build`. A row with no fingerprint
-//! (a Go producer) is always `build`, and an entry without `input_hash` is never reused.
+//! is always `build` in the decision model; the CLI only plans producers it can fingerprint.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -34,11 +34,16 @@ pub struct PlanRow {
     pub crate_name: String,
     pub component: String,
     pub target: String,
-    /// The build's input fingerprint; absent for producers that are not fingerprinted (Go), whose
-    /// rows are always `build`.
+    /// The build input fingerprint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_hash: Option<String>,
     pub action: PlanAction,
+    /// Configured version of the release. A fresh artifact must carry this version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// Portable source fingerprint checked on the lock assembly host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_hash: Option<String>,
     /// The OS family of the machine that made the plan; absent in plans from older alef versions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_family: Option<crate::component::fingerprint::HostFamily>,
@@ -119,6 +124,8 @@ pub fn decide(candidate: &PlanCandidate, previous: &[ComponentLockEntry]) -> Res
         } else {
             PlanAction::Build
         },
+        version: None,
+        source_hash: None,
         host_family: None,
         previous: reusable.cloned(),
     })
@@ -217,6 +224,17 @@ pub fn reused_entries(
         .filter(|row| row.action == PlanAction::Reuse && row.crate_name == crate_name)
     {
         let wanted = row.previous.as_ref().context("a reuse row has no previous entry")?;
+        let identity = &wanted.identity;
+        ensure!(
+            identity.crate_name == row.crate_name
+                && identity.component == row.component
+                && identity.target == row.target
+                && wanted.mode == ComponentDeliveryMode::Download,
+            "reuse entry identity does not match plan row {}/{} for {}",
+            row.crate_name,
+            row.component,
+            row.target
+        );
         ensure!(
             previous.artifacts.contains(wanted),
             "plan reuses {}/{} for {} but the previous lock has no identical entry",

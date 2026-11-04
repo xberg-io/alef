@@ -6,14 +6,31 @@ fn sidecar_sits_next_to_the_library_and_round_trips() {
     let library = dir.path().join("libdemo.so");
     assert_eq!(sidecar_path(&library), dir.path().join("libdemo.so.input-hash"));
 
-    let missing = check_sidecar(&library, Some("abc")).unwrap_err();
+    let missing = check_sidecar(&library, Some("abc"), "", "1.0.0").unwrap_err();
     assert!(format!("{missing:#}").contains("component build --plan"), "{missing:#}");
-    check_sidecar(&library, None).unwrap();
+    check_sidecar(&library, None, "", "1.0.0").unwrap();
 
-    write_sidecar(&library, "abc").unwrap();
-    check_sidecar(&library, Some("abc")).unwrap();
-    let error = check_sidecar(&library, Some("def")).unwrap_err();
+    std::fs::write(&library, b"original library").unwrap();
+    write_sidecar(&library, "abc", "1.0.0").unwrap();
+    let original_hash = sha256_file(&library).unwrap();
+    check_sidecar(&library, Some("abc"), &original_hash, "1.0.0").unwrap();
+    let error = check_sidecar(&library, Some("def"), &original_hash, "1.0.0").unwrap_err();
     assert!(error.to_string().contains("different fingerprint"), "{error}");
+
+    let stale_version = check_sidecar(&library, Some("abc"), &original_hash, "2.0.0").unwrap_err();
+    assert!(
+        stale_version.to_string().contains("planned release version"),
+        "{stale_version}"
+    );
+
+    std::fs::write(sidecar_path(&library), format!("abc\n{original_hash}\n")).unwrap();
+    let legacy = check_sidecar(&library, Some("abc"), &original_hash, "1.0.0").unwrap_err();
+    assert!(legacy.to_string().contains("planned release version"), "{legacy}");
+    write_sidecar(&library, "abc", "1.0.0").unwrap();
+
+    std::fs::write(&library, b"replacement library").unwrap();
+    let error = check_sidecar(&library, Some("abc"), &sha256_file(&library).unwrap(), "1.0.0").unwrap_err();
+    assert!(error.to_string().contains("library bytes"), "{error}");
 
     clear_sidecar(&library).unwrap();
     assert!(!sidecar_path(&library).exists());
@@ -58,6 +75,8 @@ fn a_plan_without_explicit_selection_drives_profiles_and_targets() {
             target: "aarch64-apple-darwin".into(),
             input_hash: Some("a".repeat(64)),
             action: PlanAction::Build,
+            version: Some("1.0.0".into()),
+            source_hash: None,
             host_family: None,
             previous: None,
         }],
@@ -121,4 +140,54 @@ fn lock_input_check_propagates_access_errors_and_tolerates_absence() {
     let dir = tempfile::tempdir().unwrap();
     assert!(lock_input_records(&dir.path().join("absent"), true).unwrap().is_empty());
     assert!(lock_input_records(&dir.path().join("absent"), false).is_err());
+}
+
+#[test]
+fn portable_reuse_hash_changes_when_source_changes() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    let source = root.join("lib.rs");
+    let manifest = root.join("Cargo.toml");
+    std::fs::write(
+        &manifest,
+        "[package]\nname = \"test-producer\"\nversion = \"0.1.0\"\n[lib]\npath = \"lib.rs\"\n",
+    )
+    .unwrap();
+    std::fs::write(&source, "pub fn value() -> u8 { 1 }\n").unwrap();
+    let lock = std::process::Command::new("cargo")
+        .args(["generate-lockfile", "--offline"])
+        .current_dir(root)
+        .status()
+        .unwrap();
+    assert!(lock.success());
+
+    let before = fingerprint::producer_inputs(&manifest, root).unwrap();
+    let mut after_host_change = before.clone();
+    after_host_change
+        .config_files
+        .push(("cargo-home:config".into(), "other".into()));
+    assert_eq!(
+        portable_producer_hash(&before),
+        portable_producer_hash(&after_host_change)
+    );
+
+    std::fs::write(&source, "pub fn value() -> u8 { 2 }\n").unwrap();
+    let after_source_change = fingerprint::producer_inputs(&manifest, root).unwrap();
+    assert_ne!(
+        portable_producer_hash(&before),
+        portable_producer_hash(&after_source_change)
+    );
+
+    std::fs::write(&source, "pub fn value() -> u8 { 1 }\n").unwrap();
+    let config_dir = root.join(".cargo");
+    std::fs::create_dir(&config_dir).unwrap();
+    std::fs::write(
+        config_dir.join("config.toml"),
+        "[build]\nrustflags = [\"-Copt-level=1\"]\n",
+    )
+    .unwrap();
+    let after_config_change = fingerprint::producer_inputs(&manifest, root).unwrap();
+    let mut config_only = before.clone();
+    config_only.checkout_config_files = after_config_change.checkout_config_files;
+    assert_ne!(portable_producer_hash(&before), portable_producer_hash(&config_only));
 }

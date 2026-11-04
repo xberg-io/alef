@@ -35,6 +35,7 @@ fn producer() -> ProducerInputs {
         packages: vec!["serde@1.0.0#registry+x#abc features=std".into()],
         manifest_tables: vec![("profile".into(), "{}".into())],
         config_files: Vec::new(),
+        checkout_config_files: Vec::new(),
     }
 }
 

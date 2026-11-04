@@ -109,6 +109,8 @@ pub struct ProducerInputs {
     pub manifest_tables: Vec<(String, String)>,
     /// `(label, sha256)` of implicit build configuration files.
     pub config_files: Vec<(String, String)>,
+    /// Project-local Cargo and rustup configs, without machine-local ancestors or cargo home.
+    pub checkout_config_files: Vec<(String, String)>,
 }
 
 /// Compute the fingerprint from already gathered inputs. Pure and deterministic.
@@ -196,10 +198,12 @@ pub fn producer_inputs(producer_manifest: &Path, cwd: &Path) -> Result<ProducerI
     let workspace_root = PathBuf::from(workspace_root);
     let checksums = lock_checksums(&workspace_root.join("Cargo.lock"))?;
     let producer_dir = producer_manifest.parent().unwrap_or(Path::new("."));
+    let config_dirs = [("cwd", cwd), ("producer", producer_dir)];
     Ok(ProducerInputs {
         packages: closure_records(&metadata, producer_manifest, &checksums)?,
         manifest_tables: manifest_tables(&workspace_root.join("Cargo.toml"))?,
-        config_files: implicit_config(&[("cwd", cwd), ("producer", producer_dir)], cargo_home().as_deref())?,
+        config_files: implicit_config(&config_dirs, cargo_home().as_deref())?,
+        checkout_config_files: env::checkout_config(&config_dirs, &workspace_root)?,
     })
 }
 

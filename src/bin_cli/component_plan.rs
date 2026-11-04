@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail, ensure};
 
 use crate::codegen::component::{ResolvedComponent, resolve_component_targets};
-use crate::component::artifact::{ComponentArtifactRecord, ComponentLock, ComponentLockEntry};
+use crate::component::artifact::{
+    ComponentArtifactRecord, ComponentLock, ComponentLockEntry, sha256_bytes, sha256_file,
+};
 use crate::component::fingerprint::{
     self, FingerprintInput, HostFamily, ProducerInputs, SystemProbe, ToolProbe, build_env, compute, native_toolchain,
     parse_extras, process_vars, rustc_version,
@@ -101,14 +103,10 @@ impl Fingerprinter {
             }
         };
         let toolchain = self.toolchain_for(target);
-        let manifest = super::build::producer_manifest_path(config, profile);
-        if !self.producers.contains_key(&manifest) {
-            let producer = fingerprint::producer_inputs(&manifest, &self.cwd)?;
-            self.producers.insert(manifest.clone(), producer);
-        }
-        let producer = &self.producers[&manifest];
         let contracts = contract_hashes(resolved)?;
         let env = build_env(self.vars.iter().cloned(), target, &self.env_names);
+        let extras = self.extras.clone();
+        let producer = self.producer(config, profile)?;
         Ok(Some(compute(
             &FingerprintInput {
                 crate_name: &config.name,
@@ -123,11 +121,51 @@ impl Fingerprinter {
                 rustc: &rustc,
                 env: &env,
                 toolchain: &toolchain,
-                extras: &self.extras,
+                extras: &extras,
             },
             producer,
         )))
     }
+
+    fn producer(&mut self, config: &ResolvedCrateConfig, profile: &ComponentConfig) -> Result<&ProducerInputs> {
+        let manifest = super::build::producer_manifest_path(config, profile);
+        if !self.producers.contains_key(&manifest) {
+            let producer = fingerprint::producer_inputs(&manifest, &self.cwd)?;
+            self.producers.insert(manifest.clone(), producer);
+        }
+        Ok(&self.producers[&manifest])
+    }
+}
+
+// The lock can be assembled on a different host from the build runner. Hash only
+// the dependency closure and workspace manifest inputs common to both. ~keep
+fn portable_producer_hash(producer: &ProducerInputs) -> String {
+    let bytes = serde_json::to_vec(&(
+        &producer.packages,
+        &producer.manifest_tables,
+        &producer.checkout_config_files,
+    ))
+    .expect("producer input strings are serializable");
+    sha256_bytes(&bytes)
+}
+
+fn plan_source_hash(
+    producer: &ProducerInputs,
+    config: &ResolvedCrateConfig,
+    profile: &ComponentConfig,
+    resolved: &ResolvedComponent,
+) -> Result<String> {
+    let mut contracts = contract_hashes(resolved)?;
+    contracts.sort();
+    let bytes = serde_json::to_vec(&(
+        portable_producer_hash(producer),
+        feature_hash(&profile.features, profile.default_features),
+        contracts,
+        &profile.provides,
+        &config.component_distribution,
+    ))
+    .context("failed to encode portable component inputs")?;
+    Ok(sha256_bytes(&bytes))
 }
 
 /// `(contract name, hash)` for every contract the component provides.
@@ -172,6 +210,9 @@ pub(super) fn run(crates: &[&ResolvedCrateConfig], config_path: &Path, args: Pla
     let mut fingerprinter = Fingerprinter::new(&args.extra, &args.env)?;
     let mut rows = Vec::new();
     for config in crates {
+        let version = config
+            .resolved_version()
+            .context("cannot plan a component without a crate version")?;
         let contracts = extract_contracts(config, config_path)?;
         for profile in select_profiles(config, &args.component)? {
             let resolved = contracts
@@ -181,6 +222,10 @@ pub(super) fn run(crates: &[&ResolvedCrateConfig], config_path: &Path, args: Pla
             let contract_hash = primary_contract_hash(resolved)?;
             for target in select_targets(config, profile, &args.target)? {
                 let input_hash = fingerprinter.input_hash(config, profile, resolved, &target, args.debug)?;
+                ensure!(
+                    input_hash.is_some(),
+                    "component planning requires an input fingerprint; Go producers are unsupported"
+                );
                 let mut row = decide(
                     &PlanCandidate {
                         crate_name: config.name.clone(),
@@ -193,6 +238,9 @@ pub(super) fn run(crates: &[&ResolvedCrateConfig], config_path: &Path, args: Pla
                     previous_entries,
                 )?;
                 row.host_family = Some(fingerprinter.host());
+                row.version = Some(version.clone());
+                let producer = fingerprinter.producer(config, profile)?;
+                row.source_hash = Some(plan_source_hash(producer, config, profile, resolved)?);
                 rows.push(row);
             }
         }
@@ -228,9 +276,7 @@ pub(super) fn load_selection(path: Option<&Path>, debug: bool) -> Result<Option<
     Ok(Some(plan))
 }
 
-/// What `build` and `package` do with one selected component and target under a plan: `None` when
-/// the plan reuses it (an info log, not an error), otherwise the planned fingerprint (`None` for a
-/// Go producer) after checking the current inputs still hash to it.
+/// Check current inputs for a selected plan row, then skip reuse or return the build fingerprint.
 ///
 /// # Errors
 ///
@@ -244,10 +290,13 @@ pub(super) fn gate(
     target: &str,
     debug: bool,
 ) -> Result<Option<Option<String>>> {
-    let Some(row) = plan.build_row(&config.name, &profile.name, target)? else {
-        tracing::info!("Skipping `{}` for `{target}`: the plan reuses it", profile.name);
-        return Ok(None);
-    };
+    let row = plan
+        .row(&config.name, &profile.name, target)
+        .with_context(|| format!("{}/{} for {target} is not in the plan", config.name, profile.name))?;
+    ensure!(
+        row.input_hash.is_some(),
+        "component planning requires an input fingerprint"
+    );
     check_plan_host(row.host_family, fingerprinter.host(), target)?;
     let current = fingerprinter.input_hash(config, profile, resolved, target, debug)?;
     ensure!(
@@ -255,6 +304,11 @@ pub(super) fn gate(
         "inputs of `{}` for `{target}` changed since the plan was made",
         profile.name
     );
+    verify_source_row(row, config, profile, resolved, fingerprinter)?;
+    if row.action == PlanAction::Reuse {
+        tracing::info!("Skipping `{}` for `{target}`: the plan reuses it", profile.name);
+        return Ok(None);
+    }
     Ok(Some(row.input_hash.clone()))
 }
 
@@ -340,9 +394,11 @@ pub(super) fn clear_sidecar(library: &Path) -> Result<()> {
 }
 
 /// Record the fingerprint a library was built at.
-pub(super) fn write_sidecar(library: &Path, input_hash: &str) -> Result<()> {
+pub(super) fn write_sidecar(library: &Path, input_hash: &str, version: &str) -> Result<()> {
     let path = sidecar_path(library);
-    std::fs::write(&path, format!("{input_hash}\n")).with_context(|| format!("failed to write {}", path.display()))
+    let library_hash = sha256_file(library)?;
+    std::fs::write(&path, format!("{input_hash}\n{library_hash}\n{version}\n"))
+        .with_context(|| format!("failed to write {}", path.display()))
 }
 
 /// Require that `library` was built by `build --plan` at the planned fingerprint.
@@ -351,7 +407,7 @@ pub(super) fn write_sidecar(library: &Path, input_hash: &str) -> Result<()> {
 ///
 /// Fails when the sidecar is missing, unreadable or holds a different fingerprint. Nothing is
 /// required when the plan has no fingerprint (`expected` is `None`).
-pub(super) fn check_sidecar(library: &Path, expected: Option<&str>) -> Result<()> {
+pub(super) fn check_sidecar(library: &Path, expected: Option<&str>, library_hash: &str, version: &str) -> Result<()> {
     let Some(expected) = expected else { return Ok(()) };
     let path = sidecar_path(library);
     let recorded = std::fs::read_to_string(&path).with_context(|| {
@@ -360,11 +416,23 @@ pub(super) fn check_sidecar(library: &Path, expected: Option<&str>) -> Result<()
             path.display()
         )
     })?;
+    let mut lines = recorded.lines();
+    let recorded_input = lines.next().unwrap_or_default();
     ensure!(
-        recorded.trim() == expected,
+        recorded_input == expected,
         "{} was built at a different fingerprint ({}) than the plan ({expected}); rebuild it with `alef component build --plan`",
         library.display(),
-        recorded.trim()
+        recorded_input
+    );
+    ensure!(
+        lines.next() == Some(library_hash),
+        "{} library bytes differ from the planned build; rebuild it with `alef component build --plan`",
+        library.display()
+    );
+    ensure!(
+        lines.next() == Some(version) && lines.next().is_none(),
+        "{} was not built for the planned release version {version}; rebuild it with `alef component build --plan`",
+        library.display()
     );
     Ok(())
 }
@@ -394,6 +462,18 @@ pub(super) fn check_records_against_plan(
             path.display(),
             identity.component,
             identity.target
+        );
+        ensure!(
+            row.input_hash.is_some(),
+            "planned artifact {} requires an input fingerprint",
+            path.display()
+        );
+        ensure!(
+            row.version.as_deref() == Some(identity.version.as_str()),
+            "{} version {} does not match the planned version {:?}",
+            path.display(),
+            identity.version,
+            row.version
         );
         ensure!(
             record.input_hash == row.input_hash,
@@ -511,6 +591,74 @@ pub(super) fn check_reuse_rows(
                 row.target
             );
         }
+    }
+    Ok(())
+}
+
+/// Revalidate selected rows against the current portable inputs on the lock assembly host.
+pub(super) fn verify_lock_inputs(
+    plan: &ComponentPlan,
+    config: &ResolvedCrateConfig,
+    config_path: &Path,
+    components: &[String],
+    targets: &[String],
+) -> Result<()> {
+    let rows = plan.rows.iter().filter(|row| {
+        row.crate_name == config.name
+            && (components.is_empty() || components.contains(&row.component))
+            && (targets.is_empty() || targets.contains(&row.target))
+    });
+    let mut rows = rows.peekable();
+    if rows.peek().is_none() {
+        return Ok(());
+    }
+    let contracts = extract_contracts(config, config_path)?;
+    let mut fingerprinter = Fingerprinter::new(&[], &[])?;
+    for row in rows {
+        let profile = config
+            .components
+            .iter()
+            .find(|profile| profile.name == row.component)
+            .context("planned component is not configured")?;
+        let resolved = contracts
+            .get(&row.component)
+            .context("planned component has no contract")?;
+        verify_source_row(row, config, profile, resolved, &mut fingerprinter)?;
+    }
+    Ok(())
+}
+
+fn verify_source_row(
+    row: &crate::component::plan::PlanRow,
+    config: &ResolvedCrateConfig,
+    profile: &ComponentConfig,
+    resolved: &ResolvedComponent,
+    fingerprinter: &mut Fingerprinter,
+) -> Result<()> {
+    ensure!(
+        row.input_hash.is_some() && profile.producer_language == ComponentProducerLanguage::Rust,
+        "component planning requires an input fingerprint; Go producers are unsupported"
+    );
+    ensure!(
+        row.version.is_some() && row.version == config.resolved_version(),
+        "component `{}` does not match the planned version; create a new plan",
+        row.component
+    );
+    let producer = fingerprinter.producer(config, profile)?;
+    let source_hash = plan_source_hash(producer, config, profile, resolved)?;
+    ensure!(
+        row.source_hash.as_deref() == Some(source_hash.as_str()),
+        "inputs of `{}` for `{}` changed since the plan was made; create a new plan",
+        row.component,
+        row.target
+    );
+    if let Some(previous) = &row.previous {
+        ensure!(
+            previous.identity.feature_hash == feature_hash(&profile.features, profile.default_features)
+                && previous.identity.contract_hash == primary_contract_hash(resolved)?,
+            "previous artifact identity does not match the current component `{}`",
+            row.component
+        );
     }
     Ok(())
 }

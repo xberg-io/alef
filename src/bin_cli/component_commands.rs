@@ -84,8 +84,12 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                             plan::clear_sidecar(&library)?;
                         }
                         build_component(config, profile, &rust_target, debug, dry_run, target_dir.as_deref())?;
-                        if let (false, Some(hash)) = (dry_run, planned_hash.as_deref()) {
-                            plan::write_sidecar(&library, hash)?;
+                        if let (false, Some(plan), Some(hash)) = (dry_run, &plan, planned_hash.as_deref()) {
+                            let version = plan
+                                .row(&config.name, &profile.name, &rust_target)
+                                .and_then(|row| row.version.as_deref())
+                                .context("planned build has no release version")?;
+                            plan::write_sidecar(&library, hash, version)?;
                         }
                     }
                 }
@@ -178,6 +182,10 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     .clone()
                     .or_else(|| config.resolved_version())
                     .with_context(|| format!("could not determine component version for `{}`", config.name))?;
+                ensure!(
+                    plan.is_none() || config.resolved_version().as_deref() == Some(resolved_version.as_str()),
+                    "--version must match the configured version when packaging with --plan"
+                );
                 if let Some(signing_key_id) = key_id.as_deref() {
                     let distribution = config
                         .component_distribution
@@ -228,7 +236,6 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                                 else {
                                     continue;
                                 };
-                                plan::check_sidecar(&library_path, hash.as_deref())?;
                                 hash
                             }
                             None => None,
@@ -245,6 +252,12 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                                 default_features: profile.default_features,
                                 feature_hash: &profile_feature_hash,
                             },
+                        )?;
+                        plan::check_sidecar(
+                            &library_path,
+                            input_hash.as_deref(),
+                            &manifest.library.sha256,
+                            &resolved_version,
                         )?;
                         let signature = match (loaded_key.as_ref(), key_id.as_deref()) {
                             (Some(private_key), Some(signing_key_id)) => {
@@ -351,6 +364,9 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 }
                 let reused =
                     plan::reuse_for_crate(reuse.as_ref(), config, &crate_records, signed_keys, &component, &target)?;
+                if let Some((_, reuse_plan)) = &reuse {
+                    plan::verify_lock_inputs(reuse_plan, config, &context.config_path, &component, &target)?;
+                }
                 let reused_keys = reused
                     .iter()
                     .map(|entry| (entry.identity.component.clone(), entry.identity.target.clone()))

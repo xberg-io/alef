@@ -562,6 +562,8 @@ fn reuse_plan(rows: &[(&str, &str)]) -> ComponentPlan {
                 target: (*target).into(),
                 input_hash: Some("h".into()),
                 action: PlanAction::Reuse,
+                version: Some("1.0.0".into()),
+                source_hash: None,
                 host_family: None,
                 previous: Some(previous.clone()),
             })
@@ -657,6 +659,15 @@ fn fresh_records_need_a_build_row_in_the_plan() {
     let mut stamped = record_for("fast");
     stamped.1.input_hash = Some("h".into());
     plan::check_records_against_plan(&build, "demo-core", &[&stamped]).unwrap();
+    let mut stale = stamped.clone();
+    stale.1.manifest.identity.version = "0.9.0".into();
+    let error = plan::check_records_against_plan(&build, "demo-core", &[&stale]).unwrap_err();
+    assert!(error.to_string().contains("planned version"), "{error}");
+
+    build.rows[0].input_hash = None;
+    stamped.1.input_hash = None;
+    let error = plan::check_records_against_plan(&build, "demo-core", &[&stamped]).unwrap_err();
+    assert!(error.to_string().contains("requires an input fingerprint"), "{error}");
 }
 
 #[test]
@@ -718,6 +729,8 @@ fn build_row_checks_honour_filters_and_cover_every_row() {
         target: target.into(),
         input_hash: None,
         action,
+        version: Some("1.0.0".into()),
+        source_hash: None,
         host_family: None,
         previous: None,
     };

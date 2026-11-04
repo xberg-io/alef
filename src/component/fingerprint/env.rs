@@ -108,6 +108,30 @@ pub fn cargo_home() -> Option<PathBuf> {
 ///
 /// Fails when a found file cannot be read.
 pub fn implicit_config(starts: &[(&str, &Path)], cargo_home: Option<&Path>) -> Result<Vec<(String, String)>> {
+    collect_config(starts, cargo_home, |_| None)
+}
+
+pub(super) fn checkout_config(starts: &[(&str, &Path)], workspace_root: &Path) -> Result<Vec<(String, String)>> {
+    let workspace_root = workspace_root.canonicalize()?;
+    collect_config(starts, None, |start| {
+        let root = start
+            .ancestors()
+            .find(|ancestor| ancestor.join(".git").exists())
+            .or_else(|| {
+                start
+                    .ancestors()
+                    .find(|ancestor| ancestor.canonicalize().is_ok_and(|path| path == workspace_root))
+            })
+            .unwrap_or(start);
+        Some(root.to_path_buf())
+    })
+}
+
+fn collect_config(
+    starts: &[(&str, &Path)],
+    cargo_home: Option<&Path>,
+    checkout_root: impl Fn(&Path) -> Option<PathBuf>,
+) -> Result<Vec<(String, String)>> {
     let mut found = Vec::new();
     let mut seen = BTreeSet::new();
     if let Some(home) = cargo_home {
@@ -120,7 +144,11 @@ pub fn implicit_config(starts: &[(&str, &Path)], cargo_home: Option<&Path>) -> R
     }
     for (scope, start) in starts {
         let start = std::path::absolute(start).unwrap_or_else(|_| start.to_path_buf());
-        for (depth, dir) in start.ancestors().enumerate() {
+        let root = checkout_root(&start);
+        let dirs = start
+            .ancestors()
+            .take_while(|dir| root.as_ref().is_none_or(|root| dir.starts_with(root)));
+        for (depth, dir) in dirs.enumerate() {
             for name in CONFIG_FILES {
                 let path = dir.join(name);
                 if path.is_file() && seen.insert(path.clone()) {
