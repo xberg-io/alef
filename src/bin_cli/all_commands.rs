@@ -767,7 +767,8 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 // without ever formatting: nothing was written this run, and the tree is still
                 // non-canonical. `generated_tree_needs_formatting` answers "no" on a settled tree,
                 // so the fast path is unchanged -- see `pipeline::format::stamp_gate`. ~keep
-                if any_output_changed || pipeline::generated_tree_needs_formatting(&base_dir) {
+                let components_only = resolved_cfg.is_components_only();
+                if any_output_changed || (!components_only && pipeline::generated_tree_needs_formatting(&base_dir)) {
                     tracing::info!("Formatting generated files...");
                     // Scope-symmetric by construction: `finalize_hashes_sweeping` below re-stamps
                     // `current_gen_paths` plus everything under `cleanup_roots`, a superset of what
@@ -785,7 +786,16 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     // this run did not generate. ~keep
                     // `strict` must reach this pass too: until it did, `--strict` guarded the e2e
                     // tree while `packages/<lang>` -- the shipped bindings -- went unguarded. ~keep
-                    let skipped = pipeline::format_generated_reporting(resolved_cfg, &base_dir, None, strict)?;
+                    let skipped = if components_only {
+                        let owned: std::collections::BTreeSet<_> = current_gen_paths
+                            .iter()
+                            .chain(scaffold_report.changed_paths.iter())
+                            .cloned()
+                            .collect();
+                        pipeline::format_owned_paths_reporting(&base_dir, &owned, strict)?
+                    } else {
+                        pipeline::format_generated_reporting(resolved_cfg, &base_dir, None, strict)?
+                    };
                     deferred_formatting.extend(skipped);
                 }
 
