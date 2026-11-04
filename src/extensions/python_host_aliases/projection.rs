@@ -1,6 +1,6 @@
 use super::PythonHostAliases;
 use crate::core::config::{Language, ResolvedCrateConfig};
-use crate::core::ir::{ApiSurface, MethodDef};
+use crate::core::ir::ApiSurface;
 use anyhow::{Result, ensure};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -57,22 +57,12 @@ impl PythonHostAliases {
         }
 
         let mut projected = api.clone();
-        for typ in &mut projected.types {
-            let trait_path = typ.is_trait.then_some(typ.rust_path.as_str());
-            typ.methods.retain(|method| !is_hidden(method, trait_path, &hidden));
-        }
-        for enm in &mut projected.enums {
-            enm.methods.retain(|method| !is_hidden(method, None, &hidden));
+        // Concrete methods can carry trait_source inferred from the name alone.
+        for typ in projected.types.iter_mut().filter(|typ| typ.is_trait) {
+            if let Some(names) = hidden.get(&typ.rust_path) {
+                typ.methods.retain(|method| !names.contains(&method.name));
+            }
         }
         Ok(Some(projected))
     }
-}
-
-fn is_hidden(method: &MethodDef, own_trait_path: Option<&str>, hidden: &HiddenMethods) -> bool {
-    method
-        .trait_source
-        .as_deref()
-        .or(own_trait_path)
-        .and_then(|path| hidden.get(path))
-        .is_some_and(|names| names.contains(&method.name))
 }

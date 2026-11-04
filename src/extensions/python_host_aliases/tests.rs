@@ -116,13 +116,13 @@ fn python_only_projection_matches_qualified_trait_identity() {
     api.types.push(sibling);
 
     let inherent = api.types[0].methods[1].clone();
-    let mut projected_copy = inherent.clone();
-    projected_copy.trait_source = Some("sample::Counter".into());
-    let mut sibling_copy = inherent.clone();
-    sibling_copy.trait_source = Some("other::Counter".into());
+    let mut matching_hint = inherent.clone();
+    matching_hint.trait_source = Some("sample::Counter".into());
+    let mut sibling_hint = inherent.clone();
+    sibling_hint.trait_source = Some("other::Counter".into());
     api.types.push(TypeDef {
         name: "Concrete".into(),
-        methods: vec![inherent, projected_copy, sibling_copy],
+        methods: vec![inherent, matching_hint, sibling_hint],
         ..Default::default()
     });
 
@@ -132,11 +132,14 @@ fn python_only_projection_matches_qualified_trait_identity() {
     assert_eq!(projected.types[0].methods.len(), 1);
     assert_eq!(projected.types[0].methods[0].name, "count");
     assert_eq!(projected.types[1].methods.len(), 2);
-    assert_eq!(projected.types[2].methods.len(), 2);
-    assert_eq!(projected.types[2].methods[0].trait_source, None);
+    let concrete_sources: Vec<_> = projected.types[2]
+        .methods
+        .iter()
+        .map(|method| method.trait_source.as_deref())
+        .collect();
     assert_eq!(
-        projected.types[2].methods[1].trait_source.as_deref(),
-        Some("other::Counter")
+        concrete_sources,
+        vec![None, Some("sample::Counter"), Some("other::Counter")]
     );
     assert_eq!(api.types[0].methods.len(), 2);
     assert_eq!(api.types[2].methods.len(), 3);

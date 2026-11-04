@@ -33,9 +33,11 @@ try_count_tokens = { fallback = "count_tokens", python_only = true }
 ```
 
 The opt-in companion remains available to PyO3 as an optional callback. Python
-reference pages omit it to match the public protocol. The string form keeps the
-original visibility in other bindings. Rust source and Rust reference documentation
-retain the defaulted companion in either form.
+reference pages omit it to match the public protocol. The projection applies to
+the configured trait declaration. Methods exposed on concrete structs and enums,
+including explicit overrides of a defaulted trait method, remain in their existing
+host APIs. The string form keeps the original visibility in other bindings. Rust
+source and Rust reference documentation retain the defaulted companion in either form.
 
 The built-in extension validates aliases before emitting bindings. Normal generation
 and read-only verification use the same configured emitter, and the raw extension
