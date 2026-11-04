@@ -485,7 +485,8 @@ fn gen_type_stub(
             // `Foo.new(data: {a: 1})`, where `String::try_convert` fails and the field silently
             // falls back to its default instead of raising — a wrong value, not an error.
             let field_type = rbs_marshalled_type(&f.ty);
-            if typ.has_default {
+            // The core fills a carried private-field value; a Ruby-built value may omit it.
+            if typ.has_default || crate::codegen::private_accessors::is_private_accessor_field(typ, f) {
                 format!("?{}: {}", f.name, field_type)
             } else if f.optional {
                 format!("?{}: {}", f.name, field_type)

@@ -85,7 +85,7 @@ fn node_context_api() -> ApiSurface {
 fn config(language: &str) -> crate::core::config::ResolvedCrateConfig {
     let cfg: crate::core::config::new_config::NewAlefConfig = toml::from_str(&format!(
         "[workspace]\nlanguages = [\"{language}\"]\n\n[[crates]]\nname = \"test-lib\"\nsources = [\"src/lib.rs\"]\n\n\
-         [crates.python]\nmodule_name = \"test_lib\"\nstubs = {{ output = \"stubs\" }}\n\n[crates.php]\nstubs = {{ output = \"stubs\" }}\n"
+         [crates.python]\nmodule_name = \"test_lib\"\nstubs = {{ output = \"stubs\" }}\n\n[crates.php]\nstubs = {{ output = \"stubs\" }}\n\n[crates.ruby]\ngem_name = \"test_lib\"\nstubs = {{ output = \"sig\" }}\n"
     ))
     .unwrap();
     cfg.resolve().unwrap().remove(0)
@@ -232,12 +232,23 @@ fn type_with_a_static_new_carries_the_value_through_it() {
 }
 
 #[test]
-fn accessor_returning_another_type_than_its_field_is_not_promoted() {
+fn accessor_materializing_a_differently_stored_field_is_carried_with_its_return_type() {
     let mut typ = node_context_api().types.remove(0);
-    typ.private_fields[0].ty = TypeRef::Primitive(PrimitiveType::Usize);
+    typ.private_fields[0].ty = TypeRef::Named("AttributesSource".to_string());
     promote_private_accessors(&mut typ);
-    assert!(typ.fields.iter().all(|field| field.name != "attributes"));
-    assert!(typ.methods.iter().any(|method| method.name == "attributes"));
+    let carried = typ.fields.iter().find(|field| field.name == "attributes").unwrap();
+    assert_eq!(carried.ty, map_ty());
+}
+
+#[test]
+fn optional_accessor_is_carried_as_an_optional_field() {
+    let mut typ = node_context_api().types.remove(0);
+    let optional_map = TypeRef::Optional(Box::new(map_ty()));
+    typ.methods[0].return_type = optional_map.clone();
+    typ.methods[1].params[1].ty = optional_map;
+    promote_private_accessors(&mut typ);
+    let carried = typ.fields.iter().find(|field| field.name == "attributes").unwrap();
+    assert_eq!((&carried.ty, carried.optional), (&map_ty(), true));
 }
 
 #[test]
@@ -281,7 +292,6 @@ fn serde_renamed_private_field_keeps_its_wire_name() {
 #[test]
 fn carried_value_without_a_renderable_zero_gets_no_default() {
     let mut typ = node_context_api().types.remove(0);
-    typ.private_fields[0].ty = TypeRef::Named("Other".to_string());
     typ.methods[0].return_type = TypeRef::Named("Other".to_string());
     typ.methods[1].params[1].ty = TypeRef::Named("Other".to_string());
     promote_private_accessors(&mut typ);
@@ -495,6 +505,18 @@ fn magnus_carries_the_accessor_value_as_the_attributes_method() {
         1,
         "Ruby keeps exactly one `attributes` method:\n{content}"
     );
+}
+
+#[test]
+fn magnus_rbs_takes_the_carried_value_as_an_optional_keyword() {
+    let rbs = crate::backends::magnus::MagnusBackend
+        .generate_type_stubs(&node_context_api(), &config("ruby"))
+        .unwrap()
+        .iter()
+        .map(|file| file.content.clone())
+        .collect::<String>();
+    assert!(rbs.contains("?attributes: Hash[String, String]"), "{rbs}");
+    assert!(rbs.contains("attr_reader attributes: Hash[String, String]"), "{rbs}");
 }
 
 #[test]

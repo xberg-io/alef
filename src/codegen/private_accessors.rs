@@ -153,9 +153,11 @@ fn full_type(ty: &TypeRef, optional: bool) -> TypeRef {
     }
 }
 
-/// The private field `method` returns unchanged: same name and same type. A derived accessor
-/// (`self.depth + 1`) cannot be told apart from the IR, but one returning another type is left
-/// alone, and so is a field serde skips (a JSON round trip could not carry it).
+/// The private field a plain `&self` getter of the same name reads. The field's storage type is
+/// not compared: an accessor may materialize it (html-to-markdown stores a lazy attribute source
+/// and returns the map), and what has to agree is the accessor's type with the constructor
+/// parameter that takes the value back ([`constructor_accepts`]). A field serde skips is left
+/// alone, since a JSON round trip could not carry it.
 fn returned_private_field<'a>(typ: &'a TypeDef, method: &MethodDef) -> Option<&'a FieldDef> {
     let simple_getter = method.receiver == Some(ReceiverKind::Ref)
         && !method.is_static
@@ -167,29 +169,25 @@ fn returned_private_field<'a>(typ: &'a TypeDef, method: &MethodDef) -> Option<&'
     if !simple_getter || typ.fields.iter().any(|field| field.name == method.name) {
         return None;
     }
-    typ.private_fields.iter().find(|private| {
-        private.name == method.name
-            && !private.serde_skip
-            && full_type(&private.ty, private.optional) == method.return_type
-    })
+    typ.private_fields
+        .iter()
+        .find(|private| private.name == method.name && !private.serde_skip)
 }
 
 /// A static constructor the binding-to-core conversion calls (a lifetime-bearing type's, or a
-/// type's beside its own static `new`) takes every binding field plus the private field, with
-/// the private field's type, so the carried value goes back to the core.
-fn constructor_accepts(typ: &TypeDef, private: &FieldDef) -> bool {
+/// type's beside its own static `new`) takes every binding field plus a parameter named after
+/// the accessor with the accessor's own type, so the carried value goes back to the core.
+fn constructor_accepts(typ: &TypeDef, accessor: &MethodDef) -> bool {
     let has_static_new = typ
         .methods
         .iter()
         .any(|method| method.is_static && method.name == "new");
-    let private_ty = full_type(&private.ty, private.optional);
     (typ.has_lifetime_params || has_static_new)
         && typ.methods.iter().any(|method| {
             method.receiver.is_none()
-                && method
-                    .params
-                    .iter()
-                    .any(|param| param.name == private.name && full_type(&param.ty, param.optional) == private_ty)
+                && method.params.iter().any(|param| {
+                    param.name == accessor.name && full_type(&param.ty, param.optional) == accessor.return_type
+                })
                 && typ
                     .fields
                     .iter()
@@ -243,19 +241,23 @@ pub fn promote_private_accessors(typ: &mut TypeDef) {
         .filter_map(|method| returned_private_field(typ, method).map(|private| (method.clone(), private.clone())))
         .collect();
     for (accessor, private) in candidates {
-        if !constructor_accepts(typ, &private) {
+        if !constructor_accepts(typ, &accessor) {
             warn_once(typ, &accessor.name);
             continue;
         }
+        let (ty, optional) = match &accessor.return_type {
+            TypeRef::Optional(inner) => (inner.as_ref().clone(), true),
+            other => (other.clone(), false),
+        };
         typ.fields.push(FieldDef {
             name: private.name.clone(),
-            ty: private.ty.clone(),
-            optional: private.optional,
+            // The core fills the value itself, so a host-built value may start empty.
+            typed_default: has_renderable_zero(&ty).then_some(DefaultValue::Empty),
+            ty,
+            optional,
             doc: accessor.doc.clone(),
             cfg: accessor.cfg.clone(),
             serde_rename: private.serde_rename.clone(),
-            // The core fills the value itself, so a host-built value may start empty.
-            typed_default: has_renderable_zero(&private.ty).then_some(DefaultValue::Empty),
             ..FieldDef::default()
         });
     }
