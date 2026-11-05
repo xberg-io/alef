@@ -457,7 +457,7 @@ fn sample_duration_value(lang: Language) -> String {
         Language::Rust => "std::time::Duration::from_secs(1)".to_string(),
         Language::Ffi | Language::C | Language::Jni => "1000".to_string(),
         Language::Kotlin | Language::KotlinAndroid => "1.seconds".to_string(),
-        Language::Swift => ".seconds(1)".to_string(),
+        Language::Swift => "1.0".to_string(),
         Language::Dart => "Duration(seconds: 1)".to_string(),
         Language::Gleam | Language::Zig => "1000".to_string(),
     }

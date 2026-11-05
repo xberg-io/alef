@@ -175,7 +175,7 @@ fn the_swift_error_is_built_from_the_bridge_error_with_status_and_retry_delay() 
     );
     assert!(
         swift.contains(
-            "self = .rateLimited(message: try alefBridgeErrorField(error, \"message\", as: (String).self), retryAfter: retryAfterMs < 0 ? nil : Duration.milliseconds(retryAfterMs), status: UInt16(clamping: status))"
+            "self = .rateLimited(message: try alefBridgeErrorField(error, \"message\", as: (String).self), retryAfter: retryAfterMs < 0 ? nil : TimeInterval(retryAfterMs) / 1000, status: UInt16(clamping: status))"
         ),
         "a variant with a retry delay gets it, and a variant without a status field gets one: {swift}"
     );

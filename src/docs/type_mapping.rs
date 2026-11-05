@@ -355,7 +355,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::Rust => "std::time::Duration".to_string(),
             Language::Ffi | Language::C | Language::Jni => "uint64_t".to_string(),
             Language::Kotlin | Language::KotlinAndroid => "Duration".to_string(),
-            Language::Swift => "Duration".to_string(),
+            Language::Swift => "TimeInterval".to_string(),
             Language::Dart => "Duration".to_string(),
             Language::Gleam => "Int".to_string(),
             Language::Zig => "i64".to_string(),

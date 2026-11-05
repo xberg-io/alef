@@ -24,6 +24,19 @@ pub(crate) fn swift_min_macos(config: &ResolvedCrateConfig) -> String {
         .unwrap_or_else(|| crate::core::template_versions::toolchain::SWIFT_MIN_MACOS.to_string())
 }
 
+/// The SwiftPM platform-version case for a deployment target, without the leading `.v`.
+///
+/// SwiftPM names releases from 11 on by the major alone (`.v13`), and the 10.x releases by
+/// major and minor (`.v10_15`), so `"10.15"` gives `"10_15"` and `"13.0"` gives `"13"`.
+pub(crate) fn swiftpm_version_case(version: &str) -> String {
+    let mut parts = version.split('.');
+    let major = parts.next().unwrap_or(version);
+    match (major, parts.next()) {
+        ("10", Some(minor)) => format!("10_{minor}"),
+        _ => major.to_string(),
+    }
+}
+
 /// Get the resolved minimum iOS deployment target.
 pub(crate) fn swift_min_ios(config: &ResolvedCrateConfig) -> String {
     config
@@ -163,5 +176,13 @@ package_id = "MyCompany.TestLib"
 "#,
         );
         assert_eq!(csharp_package_id(&r), "MyCompany.TestLib");
+    }
+
+    #[test]
+    fn swiftpm_version_case_keeps_the_minor_for_10_x_releases() {
+        assert_eq!(swiftpm_version_case("10.15"), "10_15");
+        assert_eq!(swiftpm_version_case("10.13"), "10_13");
+        assert_eq!(swiftpm_version_case("13.0"), "13");
+        assert_eq!(swiftpm_version_case("16"), "16");
     }
 }

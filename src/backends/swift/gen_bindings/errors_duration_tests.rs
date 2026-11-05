@@ -32,14 +32,14 @@ fn optional_duration_metadata_preserves_bridge_absence() {
         (
             TypeRef::Duration,
             true,
-            "retryAfterMs < 0 ? nil : Duration.milliseconds(retryAfterMs)",
+            "retryAfterMs < 0 ? nil : TimeInterval(retryAfterMs) / 1000",
         ),
         (
             TypeRef::Optional(Box::new(TypeRef::Duration)),
             false,
-            "retryAfterMs < 0 ? nil : Duration.milliseconds(retryAfterMs)",
+            "retryAfterMs < 0 ? nil : TimeInterval(retryAfterMs) / 1000",
         ),
-        (TypeRef::Duration, false, "Duration.milliseconds(max(retryAfterMs, 0))"),
+        (TypeRef::Duration, false, "TimeInterval(max(retryAfterMs, 0)) / 1000"),
     ] {
         error.variants[0].fields[0].ty = ty;
         error.variants[0].fields[0].optional = optional;
@@ -51,9 +51,9 @@ fn optional_duration_metadata_preserves_bridge_absence() {
         assert_eq!(
             duration.swift_type,
             if expected.contains("nil") {
-                "Duration?"
+                "TimeInterval?"
             } else {
-                "Duration"
+                "TimeInterval"
             }
         );
         assert_eq!(bridge_value_expression(duration, &error).as_deref(), Some(expected));
@@ -77,14 +77,22 @@ fn compile_probe(directory: &std::path::Path, swiftc: &std::path::Path, declarat
     let path = directory.join("main.swift");
     let binary = directory.join("probe");
     std::fs::write(&path, source).unwrap();
-    let compilation = std::process::Command::new(swiftc)
-        .current_dir(directory)
-        .arg("-warnings-as-errors")
-        .arg(&path)
-        .arg("-o")
-        .arg(&binary)
-        .output()
-        .unwrap();
+    let mut command = std::process::Command::new(swiftc);
+    command.current_dir(directory).arg("-warnings-as-errors");
+    // On macOS, type-check against the generated floor, so an API newer than the floor fails
+    // here. A Linux toolchain has no Apple standard library to target.
+    if cfg!(target_os = "macos") {
+        command.arg("-target").arg(format!(
+            "{}-apple-macos{}",
+            if cfg!(target_arch = "aarch64") {
+                "arm64"
+            } else {
+                "x86_64"
+            },
+            crate::core::template_versions::toolchain::SWIFT_MIN_MACOS
+        ));
+    }
+    let compilation = command.arg(&path).arg("-o").arg(&binary).output().unwrap();
     assert!(
         compilation.status.success(),
         "{}",
@@ -106,8 +114,8 @@ fn generated_optional_duration_initializer_executes_in_swift() {
     let mut declaration = String::new();
     emit_errors(&[extracted_error()], "SampleCore", &mut declaration, &SwiftMapper);
     let old = declaration.replace(
-        "retryAfterMs < 0 ? nil : Duration.milliseconds(retryAfterMs)",
-        "Duration.milliseconds(max(retryAfterMs, 0))",
+        "retryAfterMs < 0 ? nil : TimeInterval(retryAfterMs) / 1000",
+        "TimeInterval(max(retryAfterMs, 0)) / 1000",
     );
     assert_ne!(old, declaration);
     let negative = compile_probe(directory.path(), &swiftc, &old);

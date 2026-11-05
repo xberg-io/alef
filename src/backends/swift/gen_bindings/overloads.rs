@@ -499,7 +499,7 @@ pub(super) fn swift_type_name(ty: &TypeRef) -> String {
         .to_string(),
         TypeRef::Unit => "Void".to_string(),
         TypeRef::Json => "String".to_string(),
-        TypeRef::Duration => "Duration".to_string(),
+        TypeRef::Duration => "TimeInterval".to_string(),
         TypeRef::Char => "Character".to_string(),
     }
 }

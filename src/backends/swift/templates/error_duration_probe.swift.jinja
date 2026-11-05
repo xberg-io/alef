@@ -27,7 +27,7 @@ for milliseconds in cases {
     if milliseconds < 0 {
         precondition(duration == nil, "missing duration must remain nil")
     } else {
-        precondition(duration == Duration.milliseconds(milliseconds), "present duration must retain its value")
+        precondition(duration == TimeInterval(milliseconds) / 1000, "present duration must retain its value")
     }
 }
 print("verified \(cases.count) duration cases")

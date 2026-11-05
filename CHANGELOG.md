@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking for Swift:** a Rust `Duration` is a `TimeInterval` in seconds in the generated Swift, instead of Swift's `Duration`, which needs macOS 13. This changes the type of every generated `retryAfter` error value ([ADR 0021](adrs/0021-generate-the-lowest-macos-the-swift-code-needs.md)).
+
+### Fixed
+
+- Swift: every generated `Package.swift` declares macOS 10.15 and iOS 13, the lowest versions that the generated async/await code runs on, instead of macOS 26 and iOS 16. No generated code needs macOS 26. Platform cases for 10.x releases render as `.v10_15`; `[crates.swift] min_macos_version` and `min_ios_version` still override the defaults ([ADR 0021](adrs/0021-generate-the-lowest-macos-the-swift-code-needs.md), #892).
+
 ## [0.124.2] - 2026-11-05
 
 ### Fixed

@@ -626,14 +626,18 @@ pub mod toolchain {
     #[deprecated(since = "0.16.4", note = "use JAVA_JVM_TARGET or KOTLIN_JVM_TARGET")]
     pub const JVM_TARGET: &str = "25";
 
-    /// Minimum macOS deployment target for every emitted `Package.swift`. SwiftPM platform
-    /// enums take the major only, so `"26.0"` renders as `.macOS(.v26)`.
-    pub const SWIFT_MIN_MACOS: &str = "26.0";
+    /// Minimum macOS deployment target for every emitted `Package.swift`: the lowest macOS
+    /// that the generated Swift needs (ADR 0021). Every generated package uses async/await,
+    /// which runs on macOS 10.15 and later. Renders as `.macOS(.v10_15)`.
+    pub const SWIFT_MIN_MACOS: &str = "10.15";
 
-    pub const SWIFT_MIN_IOS: &str = "16.0";
+    /// Minimum iOS deployment target for every emitted `Package.swift`: the lowest iOS that
+    /// the generated Swift needs, for the same reason as [`SWIFT_MIN_MACOS`] (ADR 0021).
+    pub const SWIFT_MIN_IOS: &str = "13.0";
 
-    /// `// swift-tools-version:` of every emitted `Package.swift`. `.macOS(.v26)` (see
-    /// [`SWIFT_MIN_MACOS`]) only exists in PackageDescription 6.2 and later.
+    /// `// swift-tools-version:` of every emitted `Package.swift`. Published packages consume a
+    /// `staticLibrary` artifact bundle, which SwiftPM reads from 6.2 on (SE-0482). It sets the
+    /// toolchain that builds the package, not the macOS that the package runs on.
     pub const SWIFT_TOOLS_VERSION: &str = "6.2";
 
     /// `go` directive of every emitted `go.mod`.

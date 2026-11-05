@@ -315,13 +315,13 @@ fn bridge_value_expression(value: &AssociatedValue<'_>, error: &ErrorDef) -> Opt
     {
         match crate::codegen::error_gen::duration_shape(&field.ty) {
             Some(crate::codegen::error_gen::DurationShape::Optional) => {
-                return Some("retryAfterMs < 0 ? nil : Duration.milliseconds(retryAfterMs)".to_string());
+                return Some("retryAfterMs < 0 ? nil : TimeInterval(retryAfterMs) / 1000".to_string());
             }
             Some(crate::codegen::error_gen::DurationShape::Bare) if field.optional => {
-                return Some("retryAfterMs < 0 ? nil : Duration.milliseconds(retryAfterMs)".to_string());
+                return Some("retryAfterMs < 0 ? nil : TimeInterval(retryAfterMs) / 1000".to_string());
             }
             Some(crate::codegen::error_gen::DurationShape::Bare) => {
-                return Some("Duration.milliseconds(max(retryAfterMs, 0))".to_string());
+                return Some("TimeInterval(max(retryAfterMs, 0)) / 1000".to_string());
             }
             None => {}
         }

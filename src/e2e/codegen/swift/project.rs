@@ -365,10 +365,9 @@ pub(super) fn render_package_swift(
     }
     // The consumer takes the library's own minimums: SwiftPM refuses a test target whose
     // minimum is lower than its product's, and hides a product above the consumer's.
-    // SwiftPM platform enums use the major version only (.v13, .v14, ...);
-    // strip patch components to match the scaffold's `Package.swift`.
-    let min_macos_major = min_macos.split('.').next().unwrap_or(min_macos);
-    let min_ios_major = min_ios.split('.').next().unwrap_or(min_ios);
+    // Render the platform cases the way the scaffold's `Package.swift` does (`.v10_15`, `.v13`).
+    let min_macos_major = crate::scaffold::naming::swiftpm_version_case(min_macos);
+    let min_ios_major = crate::scaffold::naming::swiftpm_version_case(min_ios);
     let swift_tools_version = toolchain::SWIFT_TOOLS_VERSION;
     let harness_target = if include_harness_target {
         format!(

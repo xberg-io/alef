@@ -6,7 +6,7 @@ use std::borrow::Cow;
 ///
 /// Maps Rust/alef IR types to their idiomatic Swift equivalents.
 /// Unsigned integers retain distinct types (Swift has native unsigned support),
-/// paths map to `URL`, bytes to `Data`, and durations to `Duration` (Swift 5.7+).
+/// paths map to `URL`, bytes to `Data`, and durations to `TimeInterval` seconds (Swift's `Duration` needs macOS 13, above the generated floor).
 pub struct SwiftMapper;
 
 impl TypeMapper for SwiftMapper {
@@ -49,7 +49,7 @@ impl TypeMapper for SwiftMapper {
     }
 
     fn duration(&self) -> Cow<'static, str> {
-        Cow::Borrowed("Duration")
+        Cow::Borrowed("TimeInterval")
     }
 
     fn optional(&self, inner: &str) -> String {
@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     fn test_duration() {
-        assert_eq!(SwiftMapper.map_type(&TypeRef::Duration), "Duration");
+        assert_eq!(SwiftMapper.map_type(&TypeRef::Duration), "TimeInterval");
     }
 
     #[test]

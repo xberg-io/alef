@@ -22,12 +22,12 @@ fn test_scaffold_swift() {
         package_swift.content
     );
     assert!(
-        package_swift.content.contains(".macOS(.v26)"),
+        package_swift.content.contains(".macOS(.v10_15)"),
         "got: {}",
         package_swift.content
     );
     assert!(
-        package_swift.content.contains(".iOS(.v16)"),
+        package_swift.content.contains(".iOS(.v13)"),
         "got: {}",
         package_swift.content
     );

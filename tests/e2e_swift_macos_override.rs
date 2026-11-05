@@ -51,7 +51,10 @@ fn swift_e2e_preserves_configured_minimum_in_local_and_registry_modes() {
             "{mode}: {}",
             manifest.content
         );
-        assert!(!manifest.content.contains(".macOS(.v26)"), "{mode}: override ignored");
+        assert!(
+            !manifest.content.contains(".macOS(.v10_15)"),
+            "{mode}: override ignored"
+        );
     }
 }
 
@@ -67,7 +70,7 @@ fn swift_e2e_default_minimum_is_the_declared_language_floor() {
         .iter()
         .find(|f| f.path.file_name().is_some_and(|name| name == "Package.swift"))
         .unwrap();
-    assert!(manifest.content.contains(".macOS(.v26)"), "{}", manifest.content);
+    assert!(manifest.content.contains(".macOS(.v10_15)"), "{}", manifest.content);
 }
 
 #[test]
