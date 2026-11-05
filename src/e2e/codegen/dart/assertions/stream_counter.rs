@@ -31,11 +31,18 @@ pub(super) fn try_render(out: &mut String, assertion: &Assertion, result_var: &s
     let Some(expr) = StreamingFieldResolver::accessor(field, "dart", result_var) else {
         return false;
     };
-    render(out, &expr, matcher, value);
+    render(out, &expr, matcher, &dart_format_value(value));
     true
 }
 
-pub(super) fn try_render_with_expression(out: &mut String, assertion: &Assertion, expression: &str) -> bool {
+/// Render `assertion` against `expression`, whose binding value has type `declared`: a number
+/// compared against a `BigInt`-typed value is rendered as a `BigInt` literal.
+pub(super) fn try_render_with_expression(
+    out: &mut String,
+    assertion: &Assertion,
+    expression: &str,
+    declared: &crate::core::ir::TypeRef,
+) -> bool {
     let Some(value) = assertion.value.as_ref() else {
         return false;
     };
@@ -47,15 +54,20 @@ pub(super) fn try_render_with_expression(out: &mut String, assertion: &Assertion
         ("less_than_or_equal", true) => "lessThanOrEqualTo",
         _ => return false,
     };
-    render(out, expression, matcher, value);
+    render(
+        out,
+        expression,
+        matcher,
+        &crate::e2e::codegen::dart::values::render_expected_value(value, Some(declared)),
+    );
     true
 }
 
-fn render(out: &mut String, expression: &str, matcher: &str, value: &serde_json::Value) {
+fn render(out: &mut String, expression: &str, matcher: &str, value: &str) {
     out.push_str(&crate::e2e::template_env::render(
         "dart/stream_counter.jinja",
         crate::alef_context! {
-            expression => expression, matcher => matcher, value => dart_format_value(value),
+            expression => expression, matcher => matcher, value => value,
         },
     ));
 }
@@ -69,11 +81,11 @@ pub(in crate::e2e::codegen::dart) fn render_streaming_assertion_dart_with_usage_
     if let Some(context) = context.filter(|context| context.has_declared_item())
         && let Some(field) = assertion.field.as_deref().filter(|field| is_stream_scoped_field(field))
     {
-        let Some(expression) = context.accessor(field, result_var) else {
+        let Some((expression, declared)) = context.typed_accessor(field, result_var) else {
             crate::e2e::codegen::streaming_assertions::render_usage_unavailable(out, field, "    ");
             return;
         };
-        if try_render_with_expression(out, assertion, &expression) {
+        if try_render_with_expression(out, assertion, &expression, &declared) {
             return;
         }
     }
@@ -152,6 +164,73 @@ mod tests {
         super::super::render_assertion_dart(&mut out, &assertion, "result", false, &resolver);
         assert!(out.contains("result.usage"), "must read the response. Emitted:\n{out}");
         assert!(!out.contains("lastOrNull"), "must not read the chunks. Emitted:\n{out}");
+    }
+
+    /// flutter_rust_bridge exposes a `u64` chunk field as `BigInt`, and `BigInt == int` is never
+    /// true, so the typed streaming path must type the expected value the way the non-streaming
+    /// path does: `expect(result.lastOrNull?.usage?.totalTokens, equals(18))` failed with
+    /// "Expected: <18> Actual: BigInt:<18>".
+    #[test]
+    fn a_u64_chunk_counter_is_compared_as_a_bigint() {
+        use crate::core::config::{Language, ResolvedCrateConfig};
+        use crate::core::ir::{FieldDef, PrimitiveType, TypeDef, TypeRef};
+        let field = |name: &str, ty: TypeRef| FieldDef {
+            name: name.into(),
+            optional: matches!(ty, TypeRef::Optional(_)),
+            ty,
+            ..FieldDef::default()
+        };
+        let types = vec![
+            TypeDef {
+                name: "Chunk".into(),
+                has_serde: true,
+                fields: vec![field(
+                    "usage",
+                    TypeRef::Optional(Box::new(TypeRef::Named("Usage".into()))),
+                )],
+                ..TypeDef::default()
+            },
+            TypeDef {
+                name: "Usage".into(),
+                has_serde: true,
+                fields: vec![
+                    field("total_tokens", TypeRef::Primitive(PrimitiveType::U64)),
+                    field("prompt_tokens", TypeRef::Primitive(PrimitiveType::U32)),
+                ],
+                ..TypeDef::default()
+            },
+        ];
+        let config = ResolvedCrateConfig::default();
+        let context = crate::e2e::codegen::streaming_assertions::UsageAccessContext {
+            language: Language::Dart,
+            item_type: "Chunk",
+            types: &types,
+            config: &config,
+            swift_map: None,
+        };
+        let emit = |assertion_type: &str, field: &str, value: serde_json::Value| {
+            let assertion = Assertion {
+                assertion_type: assertion_type.to_string(),
+                field: Some(field.to_string()),
+                value: Some(value),
+                ..Assertion::default()
+            };
+            let mut out = String::new();
+            render_streaming_assertion_dart_with_usage_ir(&mut out, &assertion, "result", Some(&context));
+            out
+        };
+        assert_eq!(
+            emit("equals", "usage.total_tokens", serde_json::json!(18)),
+            "    expect(result.lastOrNull?.usage?.totalTokens, equals(BigInt.parse('18')));\n"
+        );
+        assert_eq!(
+            emit("greater_than_or_equal", "usage.total_tokens", serde_json::json!(1)),
+            "    expect(result.lastOrNull?.usage?.totalTokens, greaterThanOrEqualTo(BigInt.parse('1')));\n"
+        );
+        assert_eq!(
+            emit("equals", "usage.prompt_tokens", serde_json::json!(10)),
+            "    expect(result.lastOrNull?.usage?.promptTokens, equals(10));\n"
+        );
     }
 
     #[test]

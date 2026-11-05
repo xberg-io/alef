@@ -13,6 +13,12 @@ pub(crate) struct UsageAccessContext<'a> {
 
 impl UsageAccessContext<'_> {
     pub fn accessor(&self, path: &str, chunks: &str) -> Option<String> {
+        self.typed_accessor(path, chunks).map(|(expression, _)| expression)
+    }
+
+    /// [`Self::accessor`] plus the declared type of the value it reads, so a backend whose
+    /// binding widens a primitive (Dart's `u64` → `BigInt`) can type the expected literal.
+    pub fn typed_accessor(&self, path: &str, chunks: &str) -> Option<(String, TypeRef)> {
         if !super::is_stream_scoped_field(path) {
             return None;
         }
@@ -55,7 +61,7 @@ impl UsageAccessContext<'_> {
                 }
             }
         }
-        Some(expression)
+        Some((expression, current))
     }
 
     fn field_access(&self, owner: &TypeDef, field: &crate::core::ir::FieldDef) -> Option<(String, bool)> {

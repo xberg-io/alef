@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Render a Dart streaming expectation on a `u64` chunk field as `BigInt.parse('N')`, as non-streaming results already
+  were. The typed stream-item path now carries the field's declared type, so liter-llm's
+  `expect(result.lastOrNull?.usage?.totalTokens, equals(18))` no longer fails with `Expected: <18> Actual: BigInt:<18>`.
+
 ## [0.124.1] - 2026-11-04
 
 ### Fixed
