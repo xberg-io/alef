@@ -57,7 +57,8 @@ class SwiftOwnedVectorGate(unittest.TestCase):
         block = workflow.split(name, 1)[1].split("- name:", 1)[0]
         assert "if: runner.os == 'macOS'" in block
         assert "mise exec -- python scripts/ci/test_swift_owned_vector_gate.py" in block
-        assert 'SWIFT_EXEC="$(xcrun --find swiftc)" mise run gate:swift-owned-vector-inputs' in block
+        assert "SWIFT_EXEC" not in block
+        assert "          mise run gate:swift-owned-vector-inputs\n" in block
         script = SCRIPT.read_text()
         assert "--ignored --exact --nocapture --test-threads=1" in script
         assert 'check_log "$log_file"' in script
