@@ -46,6 +46,10 @@ fn owned_vector_forwarders_prepare_distinct_native_values() {
         .unwrap()
         .content;
     assert!(rust.contains("fn __alef_clone_owned_input"), "{rust}");
+    assert!(
+        rust.contains("::std::clone::Clone::clone(&value.0)"),
+        "use declared trait Clone, not an inherent clone"
+    );
     assert_eq!(
         rust.matches("type OwnedInput;").count(),
         1,
@@ -181,4 +185,85 @@ fn dto_and_primitive_vector_inputs_keep_their_existing_conversion() {
         .content;
     assert!(facade.contains("JSONEncoder().encode(item)"));
     assert!(facade.contains("RustVec<UInt32>"));
+}
+
+#[test]
+fn outer_borrow_and_optional_owned_vectors_keep_owned_intermediate_preparation() {
+    let root = tempfile::tempdir().unwrap();
+    let (_, mut config) = fixture(root.path());
+    config.swift.as_mut().unwrap().client_constructor_body.clear();
+    write(
+        root.path(),
+        "controls.rs",
+        r#"
+        #[derive(Clone)]
+        pub struct Input { value: u32 }
+        pub fn outer_borrow(inputs: &Vec<Input>) -> usize { inputs.len() }
+        pub fn optional_owned(inputs: Option<Vec<Input>>) -> usize { inputs.map_or(0, |v| v.len()) }
+    "#,
+    );
+    let source = root.path().join("controls.rs");
+    let api = crate::extract::extractor::extract(&[source.as_path()], "sample_core", "0.0.0", None).unwrap();
+    let outer = &api.functions.iter().find(|f| f.name == "outer_borrow").unwrap().params[0];
+    assert!(outer.is_ref && !outer.vec_inner_is_ref && !outer.optional);
+    let optional = &api
+        .functions
+        .iter()
+        .find(|f| f.name == "optional_owned")
+        .unwrap()
+        .params[0];
+    assert!(optional.optional && !optional.is_ref && !optional.vec_inner_is_ref);
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+    let facade = &files
+        .iter()
+        .find(|file| file.path.ends_with("Sources/SampleCore/SampleCore.swift"))
+        .unwrap()
+        .content;
+    assert_eq!(facade.matches("x.__alefOwnedVectorInput()").count(), 2);
+    assert!(facade.contains("inputs.map { xs -> RustVec<Input>"));
+}
+
+#[test]
+fn method_only_owned_vectors_do_not_claim_free_facade_preparation() {
+    let root = tempfile::tempdir().unwrap();
+    let (_, mut config) = fixture(root.path());
+    config.swift.as_mut().unwrap().client_constructor_body.clear();
+    write(
+        root.path(),
+        "controls.rs",
+        r#"
+        #[derive(Clone)]
+        pub struct Input { value: u32 }
+        pub struct Engine { marker: () }
+        impl Engine {
+            pub fn extract_batch_with_input_options(&self, inputs: Vec<Input>) -> usize { inputs.len() }
+        }
+    "#,
+    );
+    let source = root.path().join("controls.rs");
+    let api = crate::extract::extractor::extract(&[source.as_path()], "sample_core", "0.0.0", None).unwrap();
+    assert!(api.functions.is_empty());
+    assert_eq!(api.types.iter().find(|t| t.name == "Engine").unwrap().methods.len(), 1);
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+    assert!(
+        !files
+            .iter()
+            .any(|file| file.path.ends_with("ZSwiftOwnedVectorInputs.swift"))
+    );
+    let facade = &files
+        .iter()
+        .find(|file| file.path.ends_with("Sources/SampleCore/SampleCore.swift"))
+        .unwrap()
+        .content;
+    assert!(facade.contains("public typealias Engine = RustBridge.Engine"));
+    assert!(!facade.contains("public func extractBatchWithInputOptions"));
+    let rust = &files
+        .iter()
+        .find(|file| file.path.ends_with("rust/src/lib.rs"))
+        .unwrap()
+        .content;
+    assert!(
+        rust.contains("inputs: Vec<Input>"),
+        "opaque method stays a raw RustVec bridge"
+    );
 }

@@ -3,6 +3,6 @@
 #[cfg({{ input.cfg }})]
 {% endif %}
 fn {{ input.clone_function }}(value: &{{ input.name }}) -> {{ input.name }} {
-    {{ input.name }}(value.0{% if not input.is_copy %}.clone(){% endif %})
+    {{ input.name }}({% if input.is_copy %}value.0{% else %}::std::clone::Clone::clone(&value.0){% endif %})
 }
 {% endfor %}

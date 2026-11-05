@@ -14,3 +14,7 @@ pub fn consume_moving_inputs(inputs: Vec<MovingInput>) -> u32 { inputs.iter().ma
 pub async fn consume_owned_inputs_async(inputs: Vec<OwnedInput>) -> u32 {
     inputs.iter().map(|input| input.value).sum()
 }
+
+impl OwnedInput {
+    pub fn clone(&self) -> Self { make_owned_input(self.value + 1000) }
+}
