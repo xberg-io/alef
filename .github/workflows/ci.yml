@@ -349,6 +349,12 @@ jobs:
         if: runner.os == 'macOS'
         timeout-minutes: 10
         run: mise run gate:swift-callback-policy
+      - name: Verify Swift opaque vector input ownership
+        if: runner.os == 'macOS'
+        timeout-minutes: 10
+        run: |
+          mise exec -- python scripts/ci/test_swift_owned_vector_gate.py
+          SWIFT_EXEC="$(xcrun --find swiftc)" mise run gate:swift-owned-vector-inputs
       # Every Elixir escaping oracle is #[ignore]d, so the step above runs none of them and
       # still exits 0. They evaluate generated Elixir through the real interpreter -- the only
       # checks in this repo that do -- so dropping `--ignored` or the filter here retires them
