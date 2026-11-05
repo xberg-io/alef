@@ -365,6 +365,7 @@ mod tests {
             "SampleError",
             "SampleError::Message { message: {msg} }",
             &api,
+            None,
         )
         .expect("visitor bridge definition should generate");
         assert!(

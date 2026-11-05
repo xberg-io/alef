@@ -7,13 +7,14 @@ use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
 
 /// Generate all trait bridge code for a given trait type and bridge config.
-pub fn gen_trait_bridge(
+pub(crate) fn gen_trait_bridge(
     trait_type: &TypeDef,
     bridge_cfg: &TraitBridgeConfig,
     core_import: &str,
     error_type: &str,
     error_constructor: &str,
     api: &ApiSurface,
+    accessor: Option<&crate::codegen::visitor_accessor::VisitorAccessorSpec>,
 ) -> anyhow::Result<String> {
     if !crate::codegen::generators::trait_bridge::bridge_targets_language(
         bridge_cfg,
@@ -58,6 +59,7 @@ pub fn gen_trait_bridge(
                 core_crate: core_import,
                 type_paths: &type_paths,
                 api,
+                accessor,
             },
         )?;
         Ok(out)

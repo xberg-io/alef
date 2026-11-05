@@ -4,8 +4,10 @@ fn nodecontext_to_rb_hash(
     let ruby = unsafe { magnus::Ruby::get_unchecked() };
     let h = ruby.hash_new();
 {{ context_field_lines }}
+{{ accessor_lines }}
     h
 }
+{{ scope_lines }}
 
 pub struct {{ struct_name }} {
     rb_obj: magnus::Value,

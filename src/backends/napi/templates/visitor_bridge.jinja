@@ -9,8 +9,10 @@ fn nodecontext_to_js_object<'e>(
 ) -> napi::Result<napi::bindgen_prelude::Object<'e>> {
     let mut obj = napi::bindgen_prelude::Object::new(env)?;
 {{ context_field_lines }}
+{{ accessor_lines }}
     Ok(obj)
 }
+{{ scope_lines }}
 
 pub struct {{ struct_name }} {
     env: napi::sys::napi_env,

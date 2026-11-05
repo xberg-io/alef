@@ -8,10 +8,10 @@
         };
 
 {% if empty_args %}
-        let result = fn_robj.call(extendr_api::Pairlist::new());
+        let result = {{ scope_call_prefix }}fn_robj.call(extendr_api::Pairlist::new()){{ scope_call_suffix }};
 {% else %}
         let args = extendr_api::Pairlist::from_pairs(&[{{ args_pairs }}]);
-        let result = fn_robj.call(args);
+        let result = {{ scope_call_prefix }}fn_robj.call(args){{ scope_call_suffix }};
 {% endif %}
 
         match result {

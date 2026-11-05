@@ -19,7 +19,7 @@ fn {{ name }}({{ sig }}) -> {{ ret_ty }} {
     args.push(&{{ param }});
 {% endfor %}
 
-    let result = func.apply(&self.js_obj, &args);
+    let result = {{ scope_call_prefix }}func.apply(&self.js_obj, &args){{ scope_call_suffix }};
 
     match result {
         Err(_) => {{ default_result_expr }},

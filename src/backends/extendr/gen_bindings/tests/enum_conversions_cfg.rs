@@ -72,6 +72,7 @@ fn make_config_with_core_default(dir: &std::path::Path, core_features_body: &str
             extra_lint_paths: Vec::new(),
             extra_makevars_prelude: Vec::new(),
             extra_pkg_libs: Vec::new(),
+            visitor_context_accessors: Default::default(),
         }),
         ..Default::default()
     }

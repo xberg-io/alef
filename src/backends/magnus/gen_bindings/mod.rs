@@ -150,6 +150,13 @@ impl Backend for MagnusBackend {
         let mapper = MagnusMapper;
         let core_import = config.core_import_name();
         let active_trait_bridges: Vec<_> = config.trait_bridges_for(Language::Ruby).cloned().collect();
+        let lazy_readers = config
+            .ruby
+            .as_ref()
+            .map(|ruby| ruby.visitor_context_accessors.clone())
+            .unwrap_or_default();
+        let visitor_accessors =
+            crate::codegen::visitor_accessor::VisitorAccessorSpec::resolve(api, &active_trait_bridges, &lazy_readers)?;
         // This binding's own configured feature set (already expanded through the core crate's
         // `[features]` graph), used to decide whether a FOREIGN-owned cfg-gated enum variant is
         // provably unreachable for this binding -- see
@@ -556,6 +563,10 @@ impl Backend for MagnusBackend {
                     &config.error_type_name(),
                     &config.error_constructor_expr(),
                     api,
+                    bridge_cfg
+                        .context_type
+                        .as_deref()
+                        .and_then(|context| visitor_accessors.get(context)),
                 )?;
                 let bridge_debug_count = bridge_code.matches("impl std::fmt::Debug").count();
                 if bridge_debug_count != 1 {

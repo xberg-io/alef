@@ -643,7 +643,15 @@ impl Backend for WasmBackend {
             }
         }
 
-        for bridge_cfg in config.trait_bridges_for(Language::Wasm) {
+        let active_wasm_bridges: Vec<_> = config.trait_bridges_for(Language::Wasm).cloned().collect();
+        let lazy_readers = config
+            .wasm
+            .as_ref()
+            .map(|wasm| wasm.visitor_context_accessors.clone())
+            .unwrap_or_default();
+        let visitor_accessors =
+            crate::codegen::visitor_accessor::VisitorAccessorSpec::resolve(api, &active_wasm_bridges, &lazy_readers)?;
+        for bridge_cfg in &active_wasm_bridges {
             if let Some(trait_type) = trait_bridge_docs::active_bridge_trait(bridge_cfg, api) {
                 let bridge = crate::backends::wasm::trait_bridge::gen_trait_bridge(
                     trait_type,
@@ -652,6 +660,10 @@ impl Backend for WasmBackend {
                     &config.error_type_name(),
                     &config.error_constructor_expr(),
                     api,
+                    bridge_cfg
+                        .context_type
+                        .as_deref()
+                        .and_then(|context| visitor_accessors.get(context)),
                 )?;
                 for imp in &bridge.imports {
                     builder.add_import(imp);

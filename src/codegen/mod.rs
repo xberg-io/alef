@@ -34,6 +34,7 @@ pub mod private_accessors;
 pub mod serde_enum_repr;
 pub mod shared;
 pub mod type_mapper;
+pub(crate) mod visitor_accessor;
 pub(crate) mod visitor_context;
 pub(crate) mod visitor_context_abi;
 #[cfg(test)]

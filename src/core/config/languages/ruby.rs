@@ -74,4 +74,12 @@ pub struct RubyConfig {
     /// (no upper bound, so the gem installs on Ruby 4.x). ~keep
     #[serde(default)]
     pub required_ruby_version: Option<String>,
+    /// Callback-only borrowed string-map accessors, keyed by visitor context type.
+    ///
+    /// With `[crates.ruby.visitor_context_accessors]` the context hash gains a singleton method
+    /// such as `ctx.attributes` that reads the borrowed core context during the visitor callback,
+    /// instead of copying the map into the hash on every callback. A visitor that never calls it
+    /// never builds the map. A context that does not opt in keeps the copied symbol key.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub visitor_context_accessors: BTreeMap<String, String>,
 }

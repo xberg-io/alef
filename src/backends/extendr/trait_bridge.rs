@@ -5,12 +5,16 @@
 
 pub use crate::codegen::generators::trait_bridge::find_bridge_param;
 use crate::codegen::generators::trait_bridge::{
-    BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type, format_type_ref,
-    gen_bridge_all, visitor_param_type,
+    BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, format_type_ref, gen_bridge_all,
 };
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
+
+mod visitor_accessor;
+mod visitor_method;
+use visitor_accessor::accessor_support;
+use visitor_method::gen_visitor_method_extendr;
 
 /// Extendr-specific trait bridge generator.
 /// Implements code generation for bridging R objects to Rust traits.
@@ -454,13 +458,14 @@ fn field_is_extendr_incompatible(ty: &TypeRef) -> bool {
 }
 
 /// Generate all trait bridge code for a given trait type and bridge config.
-pub fn gen_trait_bridge(
+pub(crate) fn gen_trait_bridge(
     trait_type: &TypeDef,
     bridge_cfg: &TraitBridgeConfig,
     core_import: &str,
     error_type: &str,
     error_constructor: &str,
     api: &crate::core::ir::ApiSurface,
+    accessor: Option<&crate::codegen::visitor_accessor::VisitorAccessorSpec>,
 ) -> anyhow::Result<BridgeOutput> {
     let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("R", bridge_cfg);
     let trait_path = trait_type.rust_path.replace('-', "_");
@@ -497,6 +502,7 @@ pub fn gen_trait_bridge(
             core_import,
             &type_paths,
             api,
+            accessor,
         )?;
         Ok(BridgeOutput {
             imports: vec![],
@@ -590,18 +596,31 @@ fn gen_visitor_bridge(
     core_crate: &str,
     type_paths: &std::collections::HashMap<String, String>,
     api: &ApiSurface,
+    accessor: Option<&crate::codegen::visitor_accessor::VisitorAccessorSpec>,
 ) -> anyhow::Result<()> {
     let result_metadata = crate::codegen::visitor_result::required_visitor_result_metadata(api, bridge_cfg)?;
-    let context_helper = crate::codegen::visitor_context::visitor_context_helper(
+    let context_helper = crate::codegen::visitor_context::visitor_context_helper_excluding(
         api,
         bridge_cfg,
         core_crate,
         crate::codegen::visitor_context::VisitorContextBackend::Extendr,
+        accessor.map(crate::codegen::visitor_accessor::VisitorAccessorSpec::method),
     )?;
     let context_type = bridge_cfg.context_type.as_deref();
+    let (accessor_lines, scope_lines) = match accessor {
+        Some(spec) => accessor_support(spec, &context_helper.type_path),
+        None => (String::new(), String::new()),
+    };
     let mut method_impls = String::with_capacity(4096);
     for method in crate::codegen::generators::trait_bridge::visitor_callback_methods(trait_type, bridge_cfg) {
-        gen_visitor_method_extendr(&mut method_impls, method, context_type, type_paths, &result_metadata);
+        gen_visitor_method_extendr(
+            &mut method_impls,
+            method,
+            context_type,
+            type_paths,
+            &result_metadata,
+            accessor,
+        );
     }
 
     out.push_str(&crate::backends::extendr::template_env::render(
@@ -610,74 +629,14 @@ fn gen_visitor_bridge(
             core_crate => core_crate,
             context_type_path => context_helper.type_path,
             context_field_lines => context_helper.field_lines,
+            accessor_lines => accessor_lines,
+            scope_lines => scope_lines,
             struct_name => struct_name,
             trait_path => trait_path,
             method_impls => method_impls,
         },
     ));
     Ok(())
-}
-
-/// Generate a single visitor method that checks if the R list has an element with this name
-/// and calls it as a function.
-fn gen_visitor_method_extendr(
-    out: &mut String,
-    method: &MethodDef,
-    context_type: Option<&str>,
-    type_paths: &std::collections::HashMap<String, String>,
-    result_metadata: &crate::codegen::visitor_result::VisitorResultMetadata,
-) {
-    let name = &method.name;
-
-    let mut sig_parts = vec!["&mut self".to_string()];
-    for p in &method.params {
-        let ty_str = visitor_param_type(&p.ty, p.is_ref, p.optional, type_paths);
-        sig_parts.push(format!("{}: {}", p.name, ty_str));
-    }
-    let signature = sig_parts.join(", ");
-
-    let return_type = match &method.return_type {
-        TypeRef::Named(n) => type_paths
-            .get(n.as_str())
-            .map(|p| p.replace('-', "_"))
-            .unwrap_or_else(|| n.clone()),
-        other => param_type(other, "", false, type_paths),
-    };
-
-    let empty_args = method.params.is_empty();
-    let args: Vec<String> = method
-        .params
-        .iter()
-        .map(|p| build_extendr_arg(p, context_type))
-        .collect();
-    let args_pairs: Vec<String> = method
-        .params
-        .iter()
-        .zip(args.iter())
-        .map(|(p, expr)| format!("(\"{}\", {})", p.name.trim_start_matches('_'), expr))
-        .collect();
-    let args_pairs = args_pairs.join(", ");
-
-    out.push_str(&crate::backends::extendr::template_env::render(
-        "visitor_method.jinja",
-        crate::alef_context! {
-            method_name => name,
-            signature => signature,
-            return_type => return_type,
-            default_result_expr => crate::codegen::visitor_result::default_result_expr(&return_type, result_metadata),
-            unknown_string_result_expr => crate::codegen::visitor_result::unknown_string_result_expr(
-                &return_type,
-                result_metadata,
-                "s.to_string()",
-            ),
-            unit_result_variants => crate::codegen::visitor_result::variant_contexts(&result_metadata.unit_variants),
-            payload_result_variants => crate::codegen::visitor_result::variant_contexts(
-                &result_metadata.string_payload_variants,
-            ),
-            empty_args => empty_args,
-            args_pairs => args_pairs,
-        },
-    ));
 }
 
 /// Build a single extendr `Pairlist` arg expression for a visitor method parameter.
@@ -954,5 +913,7 @@ pub fn gen_bridge_function(
     )
 }
 
+/// The generated R getter and its callback-scoped reader (ADR 0019's R port).
+///
 #[cfg(test)]
 mod tests;

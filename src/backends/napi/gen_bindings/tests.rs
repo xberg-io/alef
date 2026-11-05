@@ -9,6 +9,7 @@ use ahash::AHashSet;
 mod adapter_fallible_inputs;
 mod adjacent_enum_contracts;
 mod native_dto_nullability;
+mod visitor_accessor_tests;
 
 pub(super) fn transparent_string_wrapper(paths: Vec<Vec<crate::core::ir::NewtypeContainer>>) -> String {
     transparent_string_wrapper_with_methods(paths, "from", "into_inner")

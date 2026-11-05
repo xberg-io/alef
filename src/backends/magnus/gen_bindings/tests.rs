@@ -4,6 +4,8 @@ use crate::core::config::new_config::NewAlefConfig;
 use crate::core::ir::*;
 use tracing_test::traced_test;
 
+mod visitor_accessor_tests;
+
 fn resolved_one(toml: &str) -> ResolvedCrateConfig {
     let cfg: NewAlefConfig = toml::from_str(toml).unwrap();
     cfg.resolve().unwrap().remove(0)

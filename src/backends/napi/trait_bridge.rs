@@ -12,11 +12,25 @@ mod visitor_bridge;
 
 use crate::core::config::{Language, TraitBridgeConfig};
 
-pub use bridge::{gen_trait_bridge, is_visitor_bridge};
+pub(crate) use bridge::{gen_trait_bridge, is_visitor_bridge};
 pub use bridge_functions::gen_bridge_function;
 pub use bridge_generator::NapiBridgeGenerator;
 pub use options_field_bridge::gen_options_field_bridge_function;
 pub use typescript_bridge::gen_typescript_trait_bridge_files;
+
+/// The configured lazy visitor-context accessors, resolved against the active bridges.
+pub(crate) fn visitor_accessors(
+    config: &crate::core::config::ResolvedCrateConfig,
+    api: &crate::core::ir::ApiSurface,
+    bridges: &[TraitBridgeConfig],
+) -> anyhow::Result<std::collections::BTreeMap<String, crate::codegen::visitor_accessor::VisitorAccessorSpec>> {
+    let lazy_readers = config
+        .node
+        .as_ref()
+        .map(|node| node.visitor_context_accessors.clone())
+        .unwrap_or_default();
+    crate::codegen::visitor_accessor::VisitorAccessorSpec::resolve(api, bridges, &lazy_readers)
+}
 
 /// Find the first parameter index and bridge config where the parameter's named type
 /// matches a trait bridge's `type_alias`.
@@ -106,6 +120,7 @@ mod tests {
             "SampleError",
             "SampleError::Message { message: {msg} }",
             &api,
+            None,
         )
         .expect("visitor bridge should generate");
 
@@ -126,6 +141,7 @@ mod tests {
             "SampleError",
             "SampleError::Message { message: {msg} }",
             &api,
+            None,
         )
         .expect("visitor bridge should generate");
 
@@ -228,6 +244,7 @@ mod tests {
             "SampleCoreError",
             "SampleCoreError::from({msg})",
             &api,
+            None,
         )
         .expect("gen_trait_bridge must succeed for TextProcessor");
 
