@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserve cloneable opaque Swift inputs passed through free-function vector arguments, including repeated
+  references and asynchronous calls, and check ownership before transferring non-cloneable values.
+- Reconcile root Cargo dependency pins for the selected component family while preserving unrelated manifests.
+- Discover Cargo lock files under Windows verbatim paths and roots containing glob metacharacters.
+
 ## [0.124.2] - 2026-11-05
 
 ### Fixed
