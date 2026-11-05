@@ -1,0 +1,16 @@
+use std::sync::atomic::{AtomicU32, Ordering};
+static OWNED_DROPS: AtomicU32 = AtomicU32::new(0);
+#[derive(Clone, Deserialize)]
+pub struct OwnedInput { value: u32, payload: Vec<u8> }
+impl Drop for OwnedInput { fn drop(&mut self) { OWNED_DROPS.fetch_add(1, Ordering::SeqCst); } }
+pub fn make_owned_input(value: u32) -> OwnedInput { OwnedInput { value, payload: vec![17; 128] } }
+pub fn consume_owned_inputs(inputs: Vec<OwnedInput>) -> u32 { inputs.iter().map(|input| input.value).sum() }
+pub fn owned_input_drops() -> u32 { OWNED_DROPS.load(Ordering::SeqCst) }
+#[derive(Deserialize)]
+pub struct MovingInput { value: u32, payload: Vec<u8> }
+pub fn make_moving_input(value: u32) -> MovingInput { MovingInput { value, payload: vec![19; 128] } }
+pub fn consume_moving_inputs(inputs: Vec<MovingInput>) -> u32 { inputs.iter().map(|input| input.value).sum() }
+
+pub async fn consume_owned_inputs_async(inputs: Vec<OwnedInput>) -> u32 {
+    inputs.iter().map(|input| input.value).sum()
+}

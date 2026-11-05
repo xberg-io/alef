@@ -8,13 +8,13 @@ use std::path::{Path, PathBuf};
 
 const SOURCE: &str = include_str!("../../../../tests/fixtures/swift_owned_values/core.rs.txt");
 
-fn write(root: &Path, name: &str, content: &str) {
+pub(super) fn write(root: &Path, name: &str, content: &str) {
     let path = root.join(name);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, content).unwrap();
 }
 
-fn fixture(root: &Path) -> (ApiSurface, ResolvedCrateConfig) {
+pub(super) fn fixture(root: &Path) -> (ApiSurface, ResolvedCrateConfig) {
     write(root, "src/lib.rs", SOURCE);
     let source = root.join("src/lib.rs");
     let api = crate::extract::extractor::extract(&[source.as_path()], "sample_core", "0.0.0", None).unwrap();
@@ -179,7 +179,12 @@ fn native_target(root: &Path) -> PathBuf {
     target
 }
 
-fn run(root: &Path, task: &str, case: &str, materialize: bool) -> crate::snippets::validators::CapturedStreams {
+pub(super) fn run(
+    root: &Path,
+    task: &str,
+    case: &str,
+    materialize: bool,
+) -> crate::snippets::validators::CapturedStreams {
     let mut command = crate::test_support::mise_task::mise_run(root, task);
     command
         .env("CARGO_TARGET_DIR", native_target(root))
@@ -187,13 +192,21 @@ fn run(root: &Path, task: &str, case: &str, materialize: bool) -> crate::snippet
         .env("RUSTC_WORKSPACE_WRAPPER", "")
         .env("ALEF_OWNED_VALUES_CASE", case)
         .env("TEST_BINARY", std::env::current_exe().unwrap());
+    if let Some(compiler) = std::env::var_os("SWIFT_EXEC") {
+        let compiler = PathBuf::from(compiler);
+        assert!(
+            compiler.is_absolute() && compiler.is_file(),
+            "explicit Swift compiler must exist"
+        );
+        command.env("SWIFT_EXEC", compiler);
+    }
     if materialize {
         command.env("ALEF_SWIFT_OWNED_MATERIALIZE", root);
     }
     crate::snippets::validators::run_command_streams(&mut command, 600).unwrap()
 }
 
-fn prepare(root: &Path, api: &ApiSurface, config: &ResolvedCrateConfig) {
+pub(super) fn prepare(root: &Path, api: &ApiSurface, config: &ResolvedCrateConfig) {
     for file in SwiftBackend
         .generate_bindings(api, config)
         .unwrap()

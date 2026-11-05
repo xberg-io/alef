@@ -1,5 +1,13 @@
 pub(super) static TEMPLATES: &[(&str, &str)] = &[
     (
+        "owned_vector_inputs.swift.jinja",
+        include_str!("../templates/owned_vector_inputs.swift.jinja"),
+    ),
+    (
+        "owned_vector_input_conversion.swift.jinja",
+        include_str!("../templates/owned_vector_input_conversion.swift.jinja"),
+    ),
+    (
         "swift_alias_decoding.swift.jinja",
         include_str!("../templates/swift_alias_decoding.swift.jinja"),
     ),

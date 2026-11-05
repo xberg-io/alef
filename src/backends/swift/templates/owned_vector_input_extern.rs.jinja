@@ -1,0 +1,9 @@
+{% for input in inputs if input.is_clone %}
+{% if input.cfg %}
+    #[cfg({{ input.cfg }})]
+{% endif %}
+    extern "Rust" {
+        #[swift_bridge(swift_name = "{{ input.swift_clone_function }}")]
+        fn {{ input.clone_function }}(value: &{{ input.name }}) -> {{ input.name }};
+    }
+{% endfor %}

@@ -231,7 +231,8 @@ fn async_forwarder_decodes_unit_enum_return_via_raw_value_not_positional_init() 
         &known_dto_names,
         &enum_names,
         &unit_enum_names,
-        AsyncForwarderContext {
+        FreeFunctionForwarderContext {
+            owned_vector_types: &HashSet::new(),
             client_class_names: &HashSet::new(),
             handle_returned_types: &HashSet::new(),
             error_type_name: "MyLibError",
@@ -276,8 +277,12 @@ fn sync_forwarder_decodes_unit_enum_return_via_raw_value_not_positional_init() {
         "currentOutcome",
         &known_dto_names,
         &unit_enum_names,
-        "MyLibError",
-        &client_class_names,
+        FreeFunctionForwarderContext {
+            handle_returned_types: &HashSet::new(),
+            error_type_name: "MyLibError",
+            client_class_names: &client_class_names,
+            owned_vector_types: &HashSet::new(),
+        },
         &mut out,
     );
 
@@ -464,7 +469,8 @@ fn async_forwarder_json_encodes_enum_param_and_wraps_in_rust_string() {
         &known_dto_names,
         &enum_names,
         &unit_enum_names,
-        AsyncForwarderContext {
+        FreeFunctionForwarderContext {
+            owned_vector_types: &HashSet::new(),
             client_class_names: &HashSet::new(),
             handle_returned_types: &HashSet::new(),
             error_type_name: "MyLibError",
@@ -510,7 +516,8 @@ fn async_forwarder_void_return_emits_no_result_binding_or_return() {
         &known_dto_names,
         &enum_names,
         &unit_enum_names,
-        AsyncForwarderContext {
+        FreeFunctionForwarderContext {
+            owned_vector_types: &HashSet::new(),
             client_class_names: &HashSet::new(),
             handle_returned_types: &HashSet::new(),
             error_type_name: "MyLibError",
@@ -556,7 +563,8 @@ fn async_forwarder_string_return_converts_via_to_string() {
         &known_dto_names,
         &enum_names,
         &unit_enum_names,
-        AsyncForwarderContext {
+        FreeFunctionForwarderContext {
+            owned_vector_types: &HashSet::new(),
             client_class_names: &HashSet::new(),
             handle_returned_types: &HashSet::new(),
             error_type_name: "MyLibError",
@@ -604,7 +612,8 @@ fn infallible_async_forwarders_always_try_the_result_bridge() {
             &known_dto_names,
             &HashSet::new(),
             &unit_enum_names,
-            AsyncForwarderContext {
+            FreeFunctionForwarderContext {
+                owned_vector_types: &HashSet::new(),
                 client_class_names: &HashSet::new(),
                 handle_returned_types: &HashSet::new(),
                 error_type_name: "MyLibError",
@@ -721,7 +730,8 @@ fn infallible_async_json_result_payloads_agree_across_all_generated_surfaces() {
             &enum_names,
             &enum_names,
             &enum_names,
-            AsyncForwarderContext {
+            FreeFunctionForwarderContext {
+                owned_vector_types: &HashSet::new(),
                 client_class_names: &HashSet::new(),
                 handle_returned_types: &handle_returned_types,
                 error_type_name: "MyLibError",
@@ -795,7 +805,8 @@ fn async_optional_handle_result_remains_native_in_all_generated_surfaces() {
         &enum_names,
         &enum_names,
         &enum_names,
-        AsyncForwarderContext {
+        FreeFunctionForwarderContext {
+            owned_vector_types: &HashSet::new(),
             client_class_names: &HashSet::new(),
             handle_returned_types: &handle_returned_types,
             error_type_name: "MyLibError",

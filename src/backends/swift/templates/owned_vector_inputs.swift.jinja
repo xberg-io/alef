@@ -1,0 +1,14 @@
+{{ header }}
+
+{% for input in inputs %}
+extension {{ input.name }} {
+    public func __alefOwnedVectorInput() -> {{ input.name }} {
+        precondition(isOwned, "alef: opaque vector input already transferred")
+{% if input.is_clone %}
+        return {{ input.swift_clone_function }}(self)
+{% else %}
+        return self
+{% endif %}
+    }
+}
+{% endfor %}

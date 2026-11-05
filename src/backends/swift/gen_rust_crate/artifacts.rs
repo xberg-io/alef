@@ -32,6 +32,10 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         files.push(callback_file);
     }
     let sources = package_root.join("Sources").join("RustBridge");
+    if let Some(inputs) = crate::backends::swift::owned_vector_inputs::swift_file(&owned_vec_accessors.inputs, &sources)
+    {
+        files.push(inputs);
+    }
     if let Some(accessors) = owned_vec::emit_swift_file(&owned_vec_accessors, &sources) {
         files.push(accessors);
     }

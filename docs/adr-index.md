@@ -6,26 +6,27 @@ Organization-wide decisions live in the
 `org ADR-NNNN` instead of restated. This index lives outside `adrs/` because adrlint lints every Markdown file in the
 log; add a row in the same change as a new record.
 
-| ADR | Title | Status | Date |
-|-----|-------|--------|------|
-| [0000](../adrs/0000-record-architecture-decisions.md) | Record architecture decisions | accepted | 2026-10-30 |
-| [0001](../adrs/0001-extract-the-rust-api-into-an-ir-with-syn.md) | Extract the Rust API into an IR with syn | accepted | 2026-04-01 |
-| [0002](../adrs/0002-structured-values-cross-the-c-ffi-as-serde-json.md) | Structured values cross the C FFI as serde JSON | accepted | 2026-04-01 |
-| [0003](../adrs/0003-file-ownership-by-an-embedded-alef-marker.md) | File ownership by an embedded alef marker | accepted | 2026-09-26 |
-| [0004](../adrs/0004-generated-code-goes-through-minijinja-templates.md) | Generated code goes through minijinja templates | accepted | 2026-05-08 |
-| [0005](../adrs/0005-one-root-crate-for-the-generator.md) | One root crate for the generator | accepted | 2026-05-23 |
-| [0006](../adrs/0006-a-project-agnostic-generator.md) | A project-agnostic generator | accepted | 2026-05-27 |
-| [0007](../adrs/0007-generational-handles-across-the-c-abi.md) | Generational handles across the C ABI | accepted | 2026-08-13 |
-| [0008](../adrs/0008-share-immutable-metadata-within-snippet-render-sessions.md) | Share immutable metadata within snippet render sessions | accepted | 2026-10-31 |
-| [0009](../adrs/0009-publish-source-bound-draft-releases-before-public-promotion.md) | Publish source-bound draft releases before public promotion | proposed | 2026-10-31 |
-| [0010](../adrs/0010-represent-rust-u64-losslessly-in-the-next-major-dart-api.md) | Represent Rust u64 losslessly in the next major Dart API | proposed | 2026-10-31 |
+| ADR                                                                                     | Title                                                           | Status   | Date       |
+| --------------------------------------------------------------------------------------- | --------------------------------------------------------------- | -------- | ---------- |
+| [0000](../adrs/0000-record-architecture-decisions.md)                                   | Record architecture decisions                                   | accepted | 2026-10-30 |
+| [0001](../adrs/0001-extract-the-rust-api-into-an-ir-with-syn.md)                        | Extract the Rust API into an IR with syn                        | accepted | 2026-04-01 |
+| [0002](../adrs/0002-structured-values-cross-the-c-ffi-as-serde-json.md)                 | Structured values cross the C FFI as serde JSON                 | accepted | 2026-04-01 |
+| [0003](../adrs/0003-file-ownership-by-an-embedded-alef-marker.md)                       | File ownership by an embedded alef marker                       | accepted | 2026-09-26 |
+| [0004](../adrs/0004-generated-code-goes-through-minijinja-templates.md)                 | Generated code goes through minijinja templates                 | accepted | 2026-05-08 |
+| [0005](../adrs/0005-one-root-crate-for-the-generator.md)                                | One root crate for the generator                                | accepted | 2026-05-23 |
+| [0006](../adrs/0006-a-project-agnostic-generator.md)                                    | A project-agnostic generator                                    | accepted | 2026-05-27 |
+| [0007](../adrs/0007-generational-handles-across-the-c-abi.md)                           | Generational handles across the C ABI                           | accepted | 2026-08-13 |
+| [0008](../adrs/0008-share-immutable-metadata-within-snippet-render-sessions.md)         | Share immutable metadata within snippet render sessions         | accepted | 2026-10-31 |
+| [0009](../adrs/0009-publish-source-bound-draft-releases-before-public-promotion.md)     | Publish source-bound draft releases before public promotion     | proposed | 2026-10-31 |
+| [0010](../adrs/0010-represent-rust-u64-losslessly-in-the-next-major-dart-api.md)        | Represent Rust u64 losslessly in the next major Dart API        | proposed | 2026-10-31 |
 | [0011](../adrs/0011-share-error-variants-without-breaking-existing-client-contracts.md) | Share error variants without breaking existing client contracts | proposed | 2026-11-01 |
-| [0012](../adrs/0012-raise-the-generated-python-minimum.md) | Raise the generated Python minimum | accepted | 2026-11-02 |
-| [0013](../adrs/0013-inspect-swift-archives-with-the-selected-rust-toolchain-s-llvm.md) | Inspect Swift archives with the selected Rust toolchain's LLVM | accepted | 2026-11-03 |
-| [0014](../adrs/0014-raise-the-generated-minimums-for-the-other-host-languages.md) | Raise the generated minimums for the other host languages | accepted | 2026-11-03 |
-| [0015](../adrs/0015-abi-and-runtime-stability-policy-for-component-crates.md) | ABI and runtime stability policy for component crates | accepted | 2026-11-03 |
-| [0016](../adrs/0016-apply-fixture-client-options-through-configured-json-factories.md) | Apply fixture client options through configured JSON factories | accepted | 2026-11-03 |
-| [0017](../adrs/0017-framed-stdio-transport-for-component-sidecars.md) | Framed stdio transport for component sidecars | accepted | 2026-11-03 |
-| [0018](../adrs/0018-go-c-shared-component-producers.md) | Go c-shared component producers | accepted | 2026-11-03 |
-| [0019](../adrs/0019-scope-borrowed-python-visitor-context-accessors.md) | Scope borrowed Python visitor context accessors | proposed | 2026-11-04 |
-| [0020](../adrs/0020-copy-private-field-accessor-values-where-no-lazy-reader-exists.md) | Copy private-field accessor values where no lazy reader exists | proposed | 2026-11-04 |
+| [0012](../adrs/0012-raise-the-generated-python-minimum.md)                              | Raise the generated Python minimum                              | accepted | 2026-11-02 |
+| [0013](../adrs/0013-inspect-swift-archives-with-the-selected-rust-toolchain-s-llvm.md)  | Inspect Swift archives with the selected Rust toolchain's LLVM  | accepted | 2026-11-03 |
+| [0014](../adrs/0014-raise-the-generated-minimums-for-the-other-host-languages.md)       | Raise the generated minimums for the other host languages       | accepted | 2026-11-03 |
+| [0015](../adrs/0015-abi-and-runtime-stability-policy-for-component-crates.md)           | ABI and runtime stability policy for component crates           | accepted | 2026-11-03 |
+| [0016](../adrs/0016-apply-fixture-client-options-through-configured-json-factories.md)  | Apply fixture client options through configured JSON factories  | accepted | 2026-11-03 |
+| [0017](../adrs/0017-framed-stdio-transport-for-component-sidecars.md)                   | Framed stdio transport for component sidecars                   | accepted | 2026-11-03 |
+| [0018](../adrs/0018-go-c-shared-component-producers.md)                                 | Go c-shared component producers                                 | accepted | 2026-11-03 |
+| [0019](../adrs/0019-scope-borrowed-python-visitor-context-accessors.md)                 | Scope borrowed Python visitor context accessors                 | proposed | 2026-11-04 |
+| [0020](../adrs/0020-copy-private-field-accessor-values-where-no-lazy-reader-exists.md)  | Copy private-field accessor values where no lazy reader exists  | proposed | 2026-11-04 |
+| [0021](../adrs/0021-preserve-swift-opaque-vector-input-ownership.md)                    | Preserve Swift opaque vector input ownership                    | proposed | 2026-11-05 |

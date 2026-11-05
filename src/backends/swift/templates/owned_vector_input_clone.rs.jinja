@@ -1,0 +1,8 @@
+{% for input in inputs if input.is_clone %}
+{% if input.cfg %}
+#[cfg({{ input.cfg }})]
+{% endif %}
+fn {{ input.clone_function }}(value: &{{ input.name }}) -> {{ input.name }} {
+    {{ input.name }}(value.0{% if not input.is_copy %}.clone(){% endif %})
+}
+{% endfor %}

@@ -18,10 +18,11 @@ pub(super) struct ForwarderArg {
     arg_expr: String,
 }
 
-pub(super) struct AsyncForwarderContext<'a> {
+pub(super) struct FreeFunctionForwarderContext<'a> {
     handle_returned_types: &'a HashSet<String>,
     error_type_name: &'a str,
     client_class_names: &'a HashSet<String>,
+    owned_vector_types: &'a HashSet<String>,
 }
 
 fn forwarder_param_signature(
@@ -206,6 +207,23 @@ fn forwarder_param_signature(
     }
 }
 
+fn prepared_param_signature(
+    param: &crate::core::ir::ParamDef,
+    swift_name: &str,
+    known_dto_names: &HashSet<String>,
+    owned_types: &HashSet<String>,
+) -> (String, ForwarderArg) {
+    let (signature, mut argument) = forwarder_param_signature(&param.ty, swift_name, param.optional, known_dto_names);
+    if crate::backends::swift::owned_vector_inputs::element(param).is_some_and(|name| owned_types.contains(name)) {
+        argument.setup_line = Some(crate::backends::swift::owned_vector_inputs::conversion(
+            param,
+            &argument.arg_expr,
+            swift_name,
+        ));
+    }
+    (signature, argument)
+}
+
 /// Recursively collect every `TypeRef::Named(...)` reference inside `ty` into `out`.
 ///
 /// Mirrors `crate::backends::pyo3::gen_bindings::types::collect_named_types` but is
@@ -283,6 +301,13 @@ pub(super) fn emit_free_function_forwarders(
         .map(|t| t.name.clone())
         .collect();
     let handle_returned_types = compute_handle_returned_types(api);
+    let owned_vector_types: HashSet<String> =
+        crate::backends::swift::owned_vector_inputs::collect(api, exclude_types, &exclude_functions, |name| {
+            known_dto_names.contains(name)
+        })
+        .into_iter()
+        .map(|input| input.name)
+        .collect();
 
     for func in &api.functions {
         if func.binding_excluded || exclude_functions.contains(&func.name) {
@@ -330,10 +355,11 @@ pub(super) fn emit_free_function_forwarders(
                 known_dto_names,
                 enum_names,
                 unit_enum_names,
-                AsyncForwarderContext {
+                FreeFunctionForwarderContext {
                     handle_returned_types: &handle_returned_types,
                     error_type_name,
                     client_class_names,
+                    owned_vector_types: &owned_vector_types,
                 },
                 out,
             );
@@ -343,8 +369,12 @@ pub(super) fn emit_free_function_forwarders(
                 &swift_name,
                 known_dto_names,
                 unit_enum_names,
-                error_type_name,
-                client_class_names,
+                FreeFunctionForwarderContext {
+                    handle_returned_types: &handle_returned_types,
+                    error_type_name,
+                    client_class_names,
+                    owned_vector_types: &owned_vector_types,
+                },
                 out,
             );
         }
@@ -356,10 +386,12 @@ pub(super) fn emit_single_free_function_forwarder(
     swift_name: &str,
     known_dto_names: &HashSet<String>,
     unit_enum_names: &HashSet<String>,
-    error_type_name: &str,
-    client_class_names: &HashSet<String>,
+    context: FreeFunctionForwarderContext<'_>,
     out: &mut String,
 ) {
+    let error_type_name = context.error_type_name;
+    let client_class_names = context.client_class_names;
+    let owned_vector_types = context.owned_vector_types;
     let return_conversion_throws = return_value_conversion_throws(&func.return_type, known_dto_names);
     let any_param_throws = func
         .params
@@ -384,7 +416,7 @@ pub(super) fn emit_single_free_function_forwarder(
     for param in &func.params {
         let swift_param_name = swift_ident(&param.name.to_lower_camel_case());
         let (swift_ty, local_expr) =
-            forwarder_param_signature(&param.ty, &swift_param_name, param.optional, known_dto_names);
+            prepared_param_signature(param, &swift_param_name, known_dto_names, owned_vector_types);
         let param_default = if param.optional { " = nil" } else { "" };
         sig_params.push(format!("{swift_param_name}: {swift_ty}{param_default}"));
         if let Some(line) = local_expr.setup_line.clone() {
@@ -508,7 +540,7 @@ pub(super) fn emit_async_free_function_forwarder(
     known_dto_names: &HashSet<String>,
     enum_names: &HashSet<String>,
     unit_enum_names: &HashSet<String>,
-    context: AsyncForwarderContext<'_>,
+    context: FreeFunctionForwarderContext<'_>,
     out: &mut String,
 ) {
     let return_ty = forwarder_return_type(&func.return_type);
@@ -525,7 +557,7 @@ pub(super) fn emit_async_free_function_forwarder(
     for param in &func.params {
         let swift_param_name = swift_ident(&param.name.to_lower_camel_case());
         let (swift_ty, local_expr) =
-            forwarder_param_signature(&param.ty, &swift_param_name, param.optional, known_dto_names);
+            prepared_param_signature(param, &swift_param_name, known_dto_names, context.owned_vector_types);
         let param_default = if param.optional { " = nil" } else { "" };
         sig_params.push(format!("{swift_param_name}: {swift_ty}{param_default}"));
         let is_enum_param = matches!(&param.ty, TypeRef::Named(name) if enum_names.contains(name));
