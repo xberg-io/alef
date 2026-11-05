@@ -104,7 +104,7 @@ pub(super) fn gen_visitor_bridge(
 fn accessor_support(spec: &crate::codegen::visitor_accessor::VisitorAccessorSpec, core_type: &str) -> (String, String) {
     let ident = spec.ident();
     let method = spec.method();
-    let scope = format!("ALEF_VISITOR_SCOPE_{ident}");
+    let scope = format!("ALEF_VISITOR_SCOPE_{}", ident.to_ascii_uppercase());
     let runtime = crate::codegen::visitor_accessor::SCOPE_RUNTIME;
     let accessor_lines = format!(
         r#"    let __alef_accessor_id = ctx as *const {core_type} as usize;
