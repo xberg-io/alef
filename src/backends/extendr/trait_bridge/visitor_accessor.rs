@@ -11,14 +11,14 @@ pub(super) fn accessor_support(
 ) -> (String, String) {
     let ident = spec.ident();
     let method = spec.method();
-    let scope = format!("ALEF_VISITOR_SCOPE_{ident}");
+    let scope = format!("ALEF_VISITOR_SCOPE_{}", ident.to_ascii_uppercase());
     let helper = crate::codegen::visitor_accessor::scope_read_helper(spec.context());
     let runtime = crate::codegen::visitor_accessor::SCOPE_RUNTIME;
     let accessor_lines = format!(
         r#"        ("{method}", {{
             let __alef_accessor_id = ctx as *const {core_type} as usize;
             extendr_api::functions::eval_string_with_params(
-                "local({{ id <- param.0; function() .Call(\"{helper}\", id) }})",
+                "local({{ id <- param.0; function() .Call(\"wrap__{helper}\", id) }})",
                 &[&extendr_api::Robj::from(__alef_accessor_id as f64)],
             ).unwrap_or_else(|_| extendr_api::Robj::from(extendr_api::NULL))
         }}),"#
