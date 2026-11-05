@@ -147,10 +147,6 @@ pub(super) fn sync_workspace_cargo_toml_versions(
         }
     }
 
-    if components_only {
-        return;
-    }
-
     match patch_family_dependency_versions("Cargo.toml", version, &version_family) {
         Ok(true) => {
             if !updated.contains(&"Cargo.toml".to_string()) {
