@@ -48,6 +48,14 @@ pub(crate) fn handle_generate(
     let multi = dispatch::is_multi_crate(&crates_to_process);
     let base_dir = std::env::current_dir()?;
 
+    if clean {
+        // `--clean` promises "recompute every stage from source". Bypassing this run's cache
+        // reads is not enough: the entries left behind are read by the next subcommand
+        // (`alef stubs` after `alef generate --clean` was the reported case), so clear the
+        // shared cache too. ~keep
+        cache::clear_generation_cache()?;
+    }
+
     let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
 
     // Accumulated across every writing phase and reported once: a refusal is a
@@ -756,6 +764,26 @@ pub(crate) fn handle_generate(
         // so a language this run skipped or whose bookkeeping is broken is refused, not
         // scanned -- see that function's doc for the measured evidence behind the gate. ~keep
         pipeline::sweep_manifest_orphans(&previous_paths, &cleanup_keep_paths, &cleanup_roots, &cleanup_roots)?;
+        // A file the sweep (or an earlier e2e/docs run) deleted leaves its `owned_paths` entry
+        // behind, and nothing else prunes it: alef#885's `smoke_cylc.md` entries survived every
+        // generate and verify. Drop entries for paths that are gone under the roots this run
+        // judges, keeping ownership for anything still on disk. ~keep
+        let mut prune_roots: Vec<std::path::PathBuf> = cleanup_roots.clone();
+        if let Some(e2e) = &resolved_cfg.e2e {
+            prune_roots.push(base_dir.join(e2e.effective_output()));
+            prune_roots.push(base_dir.join(&e2e.registry.output));
+            if let Some(snippets) = &e2e.snippets {
+                prune_roots.push(base_dir.join(&snippets.output));
+            }
+        }
+        let prune_root_refs: Vec<&std::path::Path> = prune_roots.iter().map(std::path::PathBuf::as_path).collect();
+        let pruned = cache::prune_absent_owned_paths(&base_dir, &prune_root_refs)?;
+        if pruned > 0 {
+            tracing::info!(
+                "Pruned {pruned} stale entr{} from the alef ownership record",
+                if pruned == 1 { "y" } else { "ies" }
+            );
+        }
         pipeline::reclaim_components_only_leftovers(resolved_cfg, &resolved, &base_dir)?;
         for (language, paths) in &generation_owned_paths {
             let paths: Vec<_> = paths.iter().cloned().collect();

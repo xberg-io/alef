@@ -121,3 +121,44 @@ pub(crate) fn previous_binding_ownership(
         })
         .collect()
 }
+
+/// Drop ownership entries whose file is gone under `roots` (plus the crate's e2e output roots).
+///
+/// alef#885: a dropped fixture or language has its output swept, but its `.alef-ownership.toml`
+/// entry survived every later generate and verify. Kept here so `all_commands.rs` stays under the
+/// file-modularization cap and the identical repair can be called from more than one stage.
+pub(crate) fn prune_stale_ownership(
+    resolved_cfg: &crate::core::config::ResolvedCrateConfig,
+    base_dir: &std::path::Path,
+    roots: &[PathBuf],
+) {
+    let mut prune_roots = roots.to_vec();
+    if let Some(e2e) = &resolved_cfg.e2e {
+        prune_roots.push(base_dir.join(e2e.effective_output()));
+        prune_roots.push(base_dir.join(&e2e.registry.output));
+        if let Some(snippets) = &e2e.snippets {
+            prune_roots.push(base_dir.join(&snippets.output));
+        }
+    }
+    let refs: Vec<&std::path::Path> = prune_roots.iter().map(PathBuf::as_path).collect();
+    match crate::cli::cache::prune_absent_owned_paths(base_dir, &refs) {
+        Ok(0) => {}
+        Ok(pruned) => tracing::info!(
+            "Pruned {pruned} stale entr{} from the alef ownership record",
+            if pruned == 1 { "y" } else { "ies" }
+        ),
+        Err(error) => tracing::warn!("Could not prune stale ownership entries: {error}"),
+    }
+}
+
+/// Honor `alef all --clean`'s promise across commands by clearing the shared generation cache.
+///
+/// Bypassing this run's cache reads was never enough: the entries it leaves behind are read by
+/// the next subcommand (`alef stubs` after `alef generate --clean` was the reported case), and an
+/// entry written by an older build then answers "up to date" for the new one.
+pub(crate) fn clear_cache_on_clean(clean: bool) -> Result<()> {
+    if clean {
+        crate::cli::cache::clear_generation_cache()?;
+    }
+    Ok(())
+}

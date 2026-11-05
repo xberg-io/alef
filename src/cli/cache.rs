@@ -1,9 +1,11 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+mod maintenance;
 mod ownership;
 mod toml_merge;
 
+pub use maintenance::{clear_generation_cache, prune_absent_owned_paths};
 pub(crate) use ownership::is_committed_scaffold_owned_path;
 pub use ownership::is_scaffold_owned_path;
 use toml_merge::TOML_MERGE_PROVENANCE_MANIFEST;

@@ -523,3 +523,84 @@ fn is_alef_derived_output_requires_the_reserved_namespace_not_only_list_membersh
         "the reserved prefix alone is not enough: membership in the registry is still required"
     );
 }
+
+/// alef#885: an owned path whose file is gone is stale bookkeeping, and nothing pruned it, so
+/// `.alef-ownership.toml` grew one dead entry per removed fixture/language forever.
+#[test]
+fn prune_absent_owned_paths_drops_missing_entries_under_the_given_roots() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let base = dir.path();
+    let present = base.join("docs-site/src/snippets/generated/python/smoke/keep.md");
+    std::fs::create_dir_all(present.parent().unwrap()).expect("mkdir");
+    std::fs::write(&present, "# kept\n").expect("write present file");
+
+    for relative in [
+        "docs-site/src/snippets/generated/python/smoke/keep.md",
+        "docs-site/src/snippets/generated/python/smoke/gone.md",
+        "packages/java/pom.xml",
+    ] {
+        record_scaffold_owned_path(base, &base.join(relative)).expect("record ownership");
+    }
+
+    let root = base.join("docs-site/src/snippets/generated");
+    let pruned = prune_absent_owned_paths(base, &[root.as_path()]).expect("prune");
+
+    assert_eq!(pruned, 1, "exactly the absent snippet under the root must go");
+    let recorded = read_committed_owned_paths(base);
+    assert!(recorded.contains(&"docs-site/src/snippets/generated/python/smoke/keep.md".to_string()));
+    assert!(!recorded.contains(&"docs-site/src/snippets/generated/python/smoke/gone.md".to_string()));
+    assert!(
+        recorded.contains(&"packages/java/pom.xml".to_string()),
+        "an entry outside every root is not this run's output to reason about"
+    );
+}
+
+/// Negative control for the test above: a tree that is fully present must not rewrite the
+/// record at all. Without this, an unconditional rewrite would pass the pruning test.
+#[test]
+fn prune_absent_owned_paths_is_a_no_op_when_every_file_exists() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let base = dir.path();
+    let file = base.join("packages/java/pom.xml");
+    std::fs::create_dir_all(file.parent().unwrap()).expect("mkdir");
+    std::fs::write(&file, "<project/>\n").expect("write");
+    record_scaffold_owned_path(base, &file).expect("record ownership");
+    let before = std::fs::read_to_string(base.join(OWNERSHIP_MANIFEST)).expect("read record");
+
+    let pruned = prune_absent_owned_paths(base, &[base.join("packages").as_path()]).expect("prune");
+
+    assert_eq!(pruned, 0);
+    let after = std::fs::read_to_string(base.join(OWNERSHIP_MANIFEST)).expect("read record");
+    assert_eq!(before, after, "a converged record must not be rewritten");
+}
+
+/// alef#886: `--clean` must clear the shared cache, not merely bypass this run's reads, or the
+/// next subcommand (`alef stubs` after `alef generate --clean`) reads what this run left behind.
+#[test]
+fn clear_generation_cache_removes_skip_entries_but_keeps_non_cache_records() {
+    use std::path::Path;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let _cwd = crate::test_support::CwdGuard::enter(dir.path());
+    let cache_dir = Path::new(CACHE_DIR);
+    std::fs::create_dir_all(cache_dir.join("sample-crate/hashes")).expect("per-crate dir");
+    std::fs::write(cache_dir.join("sample-crate/ir.hash"), "hash").expect("ir hash");
+    std::fs::create_dir_all(cache_dir.join("hashes")).expect("hashes dir");
+    std::fs::write(cache_dir.join("hashes/node.hash"), "hash").expect("lang hash");
+    std::fs::write(cache_dir.join(PER_FILE_CACHE_NAME), "aggregate\tx\n").expect("memo");
+    std::fs::write(cache_dir.join("last_synced_version"), "1.2.3").expect("version record");
+
+    clear_generation_cache().expect("clear");
+
+    assert!(
+        !cache_dir.join("sample-crate").exists(),
+        "per-crate cache entries must go"
+    );
+    assert!(!cache_dir.join("hashes").exists(), "language manifests must go");
+    assert!(!cache_dir.join(PER_FILE_CACHE_NAME).exists(), "the stat memo must go");
+    assert_eq!(
+        std::fs::read_to_string(cache_dir.join("last_synced_version")).expect("read"),
+        "1.2.3",
+        "a non-cache record must survive"
+    );
+}
