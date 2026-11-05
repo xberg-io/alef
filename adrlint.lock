@@ -80,3 +80,8 @@ blake3 = "cf77672a8688d919bdddb54296a7cfb682a547d480ccea9f5f50c657473285a9"
 number = 18
 status = "accepted"
 blake3 = "f90f1d89af81198cddae1a1503d6e57abede23a062fd40dc2679fb33bdef79ee"
+
+[adrs."adrs/0021-preserve-swift-opaque-vector-input-ownership.md"]
+number = 21
+status = "accepted"
+blake3 = "be0e5b6d6e502440085a75905ab14debfa4a332456972b3928717cfbdd43f3cc"

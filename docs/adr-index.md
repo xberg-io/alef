@@ -29,4 +29,4 @@ log; add a row in the same change as a new record.
 | [0018](../adrs/0018-go-c-shared-component-producers.md)                                 | Go c-shared component producers                                 | accepted | 2026-11-03 |
 | [0019](../adrs/0019-scope-borrowed-python-visitor-context-accessors.md)                 | Scope borrowed Python visitor context accessors                 | proposed | 2026-11-04 |
 | [0020](../adrs/0020-copy-private-field-accessor-values-where-no-lazy-reader-exists.md)  | Copy private-field accessor values where no lazy reader exists  | proposed | 2026-11-04 |
-| [0021](../adrs/0021-preserve-swift-opaque-vector-input-ownership.md)                    | Preserve Swift opaque vector input ownership                    | proposed | 2026-11-05 |
+| [0021](../adrs/0021-preserve-swift-opaque-vector-input-ownership.md)                    | Preserve Swift opaque vector input ownership                    | accepted | 2026-11-05 |
