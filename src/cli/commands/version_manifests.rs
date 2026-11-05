@@ -310,7 +310,7 @@ fn dependency_tables(manifest: &toml::Value) -> Vec<&toml::Table> {
 
 pub(crate) fn local_cargo_package_versions(workspace_root: &Path, canonical: &str) -> HashMap<String, String> {
     let writable = crate::cli::git::IgnoreFilter::for_root(workspace_root);
-    let root = glob::Pattern::escape(&workspace_root.to_string_lossy());
+    let root = escaped_glob_root(workspace_root);
     let allowed = writable.glob(&format!("{root}/**/Cargo.toml")).into_iter().collect();
     cargo_manifest_versions(
         workspace_root,
@@ -395,7 +395,7 @@ fn manifest_workspace_version(manifest: &toml::Value) -> Option<String> {
 }
 
 fn glob_under(workspace_root: &Path, directory: &str, suffix: &str, tracked: TrackedPaths<'_>) -> Vec<PathBuf> {
-    let root = glob::Pattern::escape(&workspace_root.to_string_lossy());
+    let root = escaped_glob_root(workspace_root);
     let directory = directory.trim_matches(['/', '\\']);
     let pattern = if directory.is_empty() {
         format!("{root}/{suffix}")
@@ -408,6 +408,16 @@ fn glob_under(workspace_root: &Path, directory: &str, suffix: &str, tracked: Tra
         .flatten()
         .filter(|path| tracked.is_none_or(|tracked| tracked.contains(path)))
         .collect()
+}
+
+fn escaped_glob_root(root: &Path) -> String {
+    let prefix_length = match root.components().next() {
+        Some(std::path::Component::Prefix(prefix)) => prefix.as_os_str().to_string_lossy().len(),
+        _ => 0,
+    };
+    let root = root.to_string_lossy();
+    let (prefix, directory) = root.split_at(prefix_length);
+    format!("{prefix}{}", glob::Pattern::escape(directory))
 }
 
 // ~keep `vendor` (Cargo/Go-style vendoring) and `deps` (Mix's fetched-dependency
