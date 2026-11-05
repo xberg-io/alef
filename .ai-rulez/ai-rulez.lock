@@ -2,9 +2,9 @@
 # Refresh it with `ai-rulez lock`; `ai-rulez generate --locked` fails when it is stale.
 
 version = 1
-ai_rulez_version = '5.9.8'
+ai_rulez_version = '5.10.0'
 scope = 'all'
-tree = 'sha256:016704f3b3b85e05bf135a14a8db114b3d04a5ac6d4edf5235656dd80854ea34'
+tree = 'sha256:2f7e77a04ed7cdb635951ee46ca4d4a7cb5d86c19ef2628c5a531a3cef72a3c0'
 
 [[include]]
 name = 'xberg-cicd'
@@ -232,7 +232,7 @@ digest = 'sha256:c649f407e8b301c2ada2f312de42d4e0e912c7d4bf8db255ee5cd0a8ca6e1e5
 kind = 'rule'
 id = 'codegen-structure'
 path = 'rules/codegen-structure.md'
-digest = 'sha256:b15cd8562858cfd7c0b30acf4bf214cc27b1ecac5ff9bd3d69aef5a55b4ef6d9'
+digest = 'sha256:b71022e9fdb7dee1f6830e8ca7e5ede6313cdb214e6ac8f19c4b2cd982a6d2b9'
 
 [[item]]
 kind = 'rule'
