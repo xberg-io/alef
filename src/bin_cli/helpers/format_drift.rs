@@ -526,6 +526,31 @@ fn compare_binary_drift(file: &crate::core::backend::GeneratedFile, full_path: &
     }
 }
 
+/// alef#889: `build.zig.zon`'s `.hash` line is an external input resolved from a local cache or
+/// `zig fetch`, so a CI runner with neither renders no hash while a developer machine renders
+/// one. When this run could not resolve a hash, treat the committed line as unmodelled instead of
+/// reporting the file as drifted. A run that *did* resolve one (or a pinned `alef.toml` hash) still
+/// compares hashes, so a genuinely stale pin is still caught.
+fn ignore_unresolved_zig_hash<'a>(path: &Path, existing: &'a str, rendered: &str) -> std::borrow::Cow<'a, str> {
+    let is_zig_manifest = path.file_name().is_some_and(|name| name == "build.zig.zon");
+    if !is_zig_manifest || rendered.contains(".hash = ") || !existing.contains(".hash = ") {
+        return std::borrow::Cow::Borrowed(existing);
+    }
+    let mut stripped = String::with_capacity(existing.len());
+    for line in existing.lines() {
+        if line.trim_start().starts_with(".hash = ") {
+            continue;
+        }
+        stripped.push_str(line);
+        stripped.push('\n');
+    }
+    if existing.ends_with('\n') {
+        std::borrow::Cow::Owned(stripped)
+    } else {
+        std::borrow::Cow::Owned(stripped.trim_end_matches('\n').to_string())
+    }
+}
+
 /// Route one authoritative text output through the same normalization and formatter ownership
 /// policy as the writer, recording either a direct comparison or a real-formatter candidate. ~keep
 fn compare_text_drift(
@@ -544,20 +569,22 @@ fn compare_text_drift(
             return;
         }
     };
-    if writer_skips_unchanged_stamped_file(&full_path, &existing, &rendered) {
+    let existing = ignore_unresolved_zig_hash(&full_path, &existing, &rendered);
+    let existing = existing.as_ref();
+    if writer_skips_unchanged_stamped_file(&full_path, existing, &rendered) {
         result.matched_render += 1;
         result.content_verified_paths.insert(full_path);
         return;
     }
     if render_predicts_final_bytes(&full_path, context.poly_available) {
-        record_direct_comparison(&full_path, &existing, &rendered, result);
+        record_direct_comparison(&full_path, existing, &rendered, result);
         return;
     }
     match formatting_owner(&full_path, context.config, context.base_dir, context.coverage) {
-        FormattingOwner::None => record_direct_comparison(&full_path, &existing, &rendered, result),
+        FormattingOwner::None => record_direct_comparison(&full_path, existing, &rendered, result),
         FormattingOwner::Poly => result.real_format_candidates.push(RealFormatCandidate {
             full_path,
-            disk_content: existing,
+            disk_content: existing.to_string(),
             rendered_content: rendered,
             format_context: context
                 .coverage
