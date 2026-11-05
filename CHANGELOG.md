@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.125.0] - 2026-11-05
+
+### Added
+
+- Add `--clean` to `alef stubs`, and make `--clean` on `alef generate`/`alef all` clear the shared
+  `.alef/` generation cache rather than only bypassing this run's reads. A following stage command
+  no longer reports "up to date" from an entry an older build wrote. (#886)
+
+### Fixed
+
+- Release the rustler async wrapper's `std::sync::RwLock` read guard before awaiting a `&self`
+  core method on a `Clone` opaque type. `cargo clippy -- -D warnings` no longer fails with
+  `clippy::await_holding_lock` in Elixir NIF crates, and a writer is no longer blocked for the
+  whole request. A non-`Clone` type, or a `&mut self` method, keeps the guard with a narrow
+  `#[allow]` because cloning it out would discard mutations. (#888)
+- Drop `.alef-ownership.toml` entries whose file is gone under a generation or e2e output root, so
+  removing a fixture or language no longer leaves dead paths that no command pruned and
+  `alef verify` could not report. (#885)
+- Pin a prepared Swift artifact bundle's checksum on a plain `alef sync-versions`, without
+  `--regen`. `--regen` now formats only the files it rewrote and writes create-once seeds with the
+  same policy as `alef all`, so a tree that `alef verify` holds byte for byte is no longer rewritten
+  (`composer.json` authors, PHP constraint, unrelated test apps). (#884)
+
 ## [0.124.2] - 2026-11-05
 
 ### Fixed
