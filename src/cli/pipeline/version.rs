@@ -210,7 +210,10 @@ pub(crate) fn prepare_version_sync(
     no_regen: bool,
     skip_swift_checksum: bool,
 ) -> anyhow::Result<PreparedVersionSync> {
-    let swift = if no_regen || skip_swift_checksum || !has_prebuilt(config)? {
+    // Inspect prebuilt Swift staging regardless of `no_regen`: a receipt is exactly the prepared
+    // checksum a plain `alef sync-versions` is supposed to pin, and `--regen` is a separate
+    // concern about rewriting unrelated generated files. ~keep
+    let swift = if skip_swift_checksum || !has_prebuilt(config)? {
         None
     } else {
         let current = read_version(&config.version_from)?;
@@ -1423,8 +1426,7 @@ fn finalize_version_sync(
 ) -> anyhow::Result<()> {
     run_post_write_side_effects(state, version, config.is_components_only());
 
-    // `sync_registry_package_versions` must run *before* `finalize_hashes` below, not after it.
-    // `finalize_hashes` re-derives `inputs_hash` by reading `config_path` (`alef.toml`) off disk
+    // `sync_registry_package_versions` must run *before* `finalize_hashes` below, not after it.    // `finalize_hashes` re-derives `inputs_hash` by reading `config_path` (`alef.toml`) off disk
     // right before stamping — so whatever bytes are on disk at that moment become the hash every
     // file in `finalize_paths` is stamped against. `[crates.e2e.registry.packages.*].version` is a
     // real generation input (it feeds registry-mode test_apps content via
@@ -1434,6 +1436,20 @@ fn finalize_version_sync(
     // files this very run just wrote were born stale: the next `alef verify` recomputes
     // `inputs_hash` from the (by-then bumped) `alef.toml` and finds a mismatch immediately. ~keep
     sync_registry_and_log(config_path, version);
+
+    // Pin a prepared Swift bundle even when `--regen` was not passed. The receipt beside the ZIP
+    // *is* the prepared checksum, and requiring `--regen` made the release workflows run a
+    // whole-tree rewrite to apply one literal (alef#884). Done before `finalize_hashes_for_updated`
+    // so the rewritten `Package.swift` is stamped by the same pass as every other synced file.
+    if prepared.no_regen
+        && !prepared.skip_swift_checksum
+        && let Some(bundle) = prepared.swift.as_ref()
+    {
+        apply_prepared_swift_checksum(config, bundle)?;
+        if !state.updated.iter().any(|path| path == "Package.swift") {
+            state.updated.push("Package.swift".to_string());
+        }
+    }
 
     finalize_hashes_for_updated(config, config_path, state);
 

@@ -2,35 +2,27 @@ use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use anyhow::Context as _;
 
-use super::{extract, format_generated, readme};
+use super::{extract, readme};
 
-/// Run the post-generation formatters over a freshly written set of scaffold /
-/// e2e files, mirroring exactly what the `alef all` generate path does between
-/// writing files and finalizing hashes (see `bin_cli/all_commands.rs`).
+/// Run the post-generation formatters over a freshly written set of scaffold / e2e files.
 ///
-/// The bug this fixes: `sync-versions` regenerated manifests
-/// (`package.json`, `composer.json`, `Package.swift`, …) by writing the raw
-/// scaffold serializer output (2-space JSON, scaffold key order, trailing comma
-/// on single-element Swift arrays) and then finalizing hashes — but it never ran
-/// the formatter the generate path applies afterwards (oxfmt, php-cs-fixer,
-/// swift-format, …). The committed files are the *formatted* form, so
-/// `sync-versions` rewrote already-committed bytes into a different shape and the
-/// downstream `alef verify` → `sync-versions` → `git diff --exit-code` freshness
-/// gate failed. Running the same formatter here makes the two paths produce
-/// byte-identical output.
-///
-/// `format_generated`'s `None` argument selects its whole-tree convergence pass, which formats
-/// every generated package under `base_dir` regardless of which files this call actually wrote
-/// -- so nothing here needs to repackage `files` by language the way earlier versions of this
-/// function did. `files`/`config.languages` remain solely to decide whether there is anything to
-/// format at all: an empty write, or a crate with no configured languages, has nothing under
-/// `base_dir` this pass would usefully touch. Formatter failures are best-effort warnings inside
-/// `format_generated` and never abort the sync.
+/// Only the paths this call actually regenerated are formatted. A whole-tree pass
+/// (`format_generated` with `None`) is what `alef all` needs, but it also reflows every other
+/// generated file in the tree -- and, on a consumer, every `cargo fmt`/`cargo sort`/`mix format`
+/// target as well. `alef sync-versions --regen` rewrote dozens of files unrelated to the version
+/// that way even though `alef verify` held the same tree byte for byte (alef#884). Scoping the
+/// pass to `files` keeps the two paths in agreement.
 fn format_regenerated_files(config: &ResolvedCrateConfig, files: &[GeneratedFile], base_dir: &std::path::Path) {
     if files.is_empty() || config.languages.is_empty() {
         return;
     }
-    format_generated(config, base_dir, None);
+    let paths: std::collections::BTreeSet<std::path::PathBuf> =
+        files.iter().map(|file| base_dir.join(&file.path)).collect();
+    // `format_owned_paths_reporting` already warns about skipped formatters; only a hard
+    // formatter failure (poly ran and rejected the code) reaches the `Err` arm. ~keep
+    if let Err(error) = crate::cli::pipeline::format_owned_paths_reporting(base_dir, &paths, false) {
+        tracing::warn!("Could not format regenerated files: {error:#}");
+    }
 }
 
 /// Regenerate registry-mode test_apps scaffold files after a version sync so
@@ -185,7 +177,12 @@ pub(super) fn regenerate_scaffold_after_sync(
     if scaffold_files.is_empty() {
         return Ok(0);
     }
-    let count = super::generate::write_scaffold_files_with_overwrite(&scaffold_files, &base_dir, true)?;
+    // `overwrite: false`, exactly like `alef all`'s scaffold write. A create-once seed
+    // (`composer.json`, `pubspec.yaml`) is deliberately not refreshed here: forcing it rewrote a
+    // consumer's `authors` and downgraded its PHP constraint during `--regen` while a normal
+    // generate left them alone (alef#884). Marker-carrying manifests are still refreshed, because
+    // ownership is proven by the marker rather than by `overwrite`. ~keep
+    let count = super::generate::write_scaffold_files(&scaffold_files, &base_dir)?;
 
     let managed_files = super::managed_generated_files(&scaffold_files);
     format_regenerated_files(&fresh_config, &managed_files, &base_dir);
