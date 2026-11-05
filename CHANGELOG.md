@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.124.2] - 2026-11-05
+
 ### Fixed
 
 - Render a Dart streaming expectation on a `u64` chunk field as `BigInt.parse('N')`, as non-streaming results already
