@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.126.0] - 2026-11-05
+
+### Added
+
+- Opt-in lazy visitor-context accessors for Node (`[crates.node.visitor_context_accessors]`),
+  WebAssembly (`[crates.wasm.visitor_context_accessors]`) and Ruby
+  (`[crates.ruby.visitor_context_accessors]`), following ADR 0019's callback-scoped reader, and
+  for R (`[crates.r.visitor_context_accessors]`) as a callable list element. An opted-in getter
+  (`ctx.attributes` in Node/WASM and Ruby, `ctx$attributes()` in R) reads the borrowed core
+  context only when called, so a visitor that never reads it never builds the string map. A
+  context that does not opt in keeps the existing eagerly copied value. (#879, #880, #881, #883)
+
 ## [0.125.0] - 2026-11-05
 
 ### Added
