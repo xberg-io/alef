@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.126.1] - 2026-11-05
+
+### Fixed
+
+- `alef sync-versions --bump` now moves a hand-written crate's `{ path = ..., version = ... }` pin
+  on every workspace member whose version is synced, including members that inherit
+  `[workspace.package] version` rather than carrying a literal. liter-llm's
+  `liter-llm-cli` pin on `liter-llm-proxy` no longer keeps the previous release. (#890)
+- `alef verify` treats a `test_apps/zig/build.zig.zon` `.hash` line as unmodelled when this run
+  cannot resolve it (no local hash cache and no `zig`), instead of reporting the committed file as
+  drifted on a CI runner that has neither. A run that resolves a hash, or reads a pinned one from
+  `alef.toml`, still compares it. (#889)
+
 ## [0.126.0] - 2026-11-05
 
 ### Added
