@@ -85,7 +85,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_method(
     let can_delegate =
         shared::can_auto_delegate(method, opaque_types) || has_default_params || can_delegate_refmut_opaque;
 
-    let deser_preamble = build_default_deser_preamble(
+    let mut deser_preamble = build_default_deser_preamble(
         &method.params,
         opaque_types,
         default_types,
@@ -94,21 +94,49 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_method(
         types_by_name,
     );
 
+    let mut guard_held_across_await = false;
     let body = if can_delegate {
         let call_args = gen_rustler_method_call_args(&method.params, opaque_types, default_types);
         let core_call = if let (true, Some(receiver)) = (is_opaque, method.receiver.as_ref()) {
+            let cloneable = types_by_name.get(struct_name).is_some_and(|typ| typ.is_clone);
             match receiver {
-                ReceiverKind::Ref => format!(
-                    "resource.inner.read().unwrap_or_else(|e| e.into_inner()).{}({})",
-                    method.name, call_args
-                ),
+                // Clone the handle out of the guard before `block_on` runs the future. Holding a
+                // `std::sync::RwLock` read guard across `.await` trips `clippy::await_holding_lock`
+                // in every consumer that lints the generated NIF, and blocks a writer for the whole
+                // request. The core type must be `Clone`; when it is not there is no way to keep a
+                // `&self` future alive without the guard, so the old shape stays and the lint is
+                // allowed on that function alone. ~keep
+                ReceiverKind::Ref if cloneable => {
+                    deser_preamble.push_str(
+                        "let __alef_inner = resource.inner.read().unwrap_or_else(|e| e.into_inner()).clone();\n",
+                    );
+                    format!("__alef_inner.{}({})", method.name, call_args)
+                }
+                ReceiverKind::Ref => {
+                    guard_held_across_await = true;
+                    format!(
+                        "resource.inner.read().unwrap_or_else(|e| e.into_inner()).{}({})",
+                        method.name, call_args
+                    )
+                }
+                // A `&mut self` future mutates through the write guard; cloning the value out
+                // would silently discard those mutations, so the guard is held and the lint is
+                // allowed on this function alone. ~keep
                 ReceiverKind::RefMut => {
+                    guard_held_across_await = true;
                     format!(
                         "resource.inner.write().unwrap_or_else(|e| e.into_inner()).{}({})",
                         method.name, call_args
                     )
                 }
+                ReceiverKind::Owned if cloneable => {
+                    deser_preamble.push_str(
+                        "let __alef_inner = resource.inner.read().unwrap_or_else(|e| e.into_inner()).clone();\n",
+                    );
+                    format!("__alef_inner.{}({})", method.name, call_args)
+                }
                 ReceiverKind::Owned => {
+                    guard_held_across_await = true;
                     format!(
                         "resource.inner.read().unwrap_or_else(|e| e.into_inner()).clone().{}({})",
                         method.name, call_args
@@ -163,8 +191,19 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_method(
     };
     let mut out = String::new();
     doc_emission::emit_rustdoc(&mut out, &method.doc, "");
+    let function_template = if guard_held_across_await {
+        tracing::warn!(
+            "[{}::{}] holds a std::sync lock across .await: the core type is not Clone or the method needs &mut self, \
+             so the lock cannot be released before the future runs (clippy::await_holding_lock is allowed here)",
+            struct_name,
+            method.name
+        );
+        "dirty_cpu_nif_function_allow_lock.rs.jinja"
+    } else {
+        "dirty_cpu_nif_function.rs.jinja"
+    };
     out.push_str(&template_env::render(
-        "dirty_cpu_nif_function.rs.jinja",
+        function_template,
         crate::alef_context! {
             func_name => &method_fn_name,
             params_str => &params.join(", "),

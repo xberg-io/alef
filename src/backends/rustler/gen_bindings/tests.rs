@@ -5,6 +5,7 @@ use crate::core::config::new_config::NewAlefConfig;
 use crate::core::ir::ApiSurface;
 use tracing_test::traced_test;
 
+mod async_lock_tests;
 mod config_marshalling_fixtures;
 mod config_marshalling_tests;
 mod determinism;

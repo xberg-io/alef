@@ -120,6 +120,10 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
         "#[rustler::nif(schedule = \"DirtyCpu\")]\npub fn {{ func_name }}({{ params_str }}) -> {{ ret }} {\n    {{ body }}\n}\n",
     ),
     (
+        "dirty_cpu_nif_function_allow_lock.rs.jinja",
+        "#[rustler::nif(schedule = \"DirtyCpu\")]\n#[allow(clippy::await_holding_lock)]\npub fn {{ func_name }}({{ params_str }}) -> {{ ret }} {\n    {{ body }}\n}\n",
+    ),
+    (
         "visitor_method.rs.jinja",
         include_str!("../templates/visitor_method.rs.jinja"),
     ),
