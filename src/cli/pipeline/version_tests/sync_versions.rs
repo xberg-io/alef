@@ -1302,3 +1302,72 @@ fn sync_versions_preserves_already_current_local_override() {
         "\n[patch.crates-io]\nmy-lib = { path = \".\", version = \"1.0.0\" }\n",
     );
 }
+
+/// alef#890: a hand-written crate's pin on a *non-core* workspace member must move with the
+/// bump when that member inherits `[workspace.package] version`. Only the core's name used to
+/// enter the version family, so `liter-llm-cli`'s `liter-llm-proxy` pin kept the old release.
+#[test]
+fn sync_versions_bumps_path_pins_on_inherited_workspace_members() {
+    use crate::core::config::NewAlefConfig;
+    let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let original_cwd = std::env::current_dir().expect("cwd");
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[workspace.package]\nversion = \"1.0.0\"\n\n[workspace]\nresolver = \"2\"\nmembers = [\"crates/core\", \"crates/proxy\", \"crates/cli\"]\n",
+    )
+    .expect("write root Cargo.toml");
+    for (name, version) in [
+        ("core", "version = \"1.0.0\""),
+        ("proxy", "version.workspace = true"),
+        ("cli", "version = \"1.0.0\""),
+    ] {
+        std::fs::create_dir_all(root.join("crates").join(name)).expect("mkdir member");
+        std::fs::write(
+            root.join("crates").join(name).join("Cargo.toml"),
+            format!("[package]\nname = \"{name}\"\n{version}\nedition = \"2021\"\n"),
+        )
+        .expect("write member manifest");
+    }
+    std::fs::write(
+        root.join("crates/cli/Cargo.toml"),
+        "[package]\nname = \"cli\"\nversion = \"1.0.0\"\nedition = \"2021\"\n\n\
+         [dependencies]\ncore = { path = \"../core\", version = \"1.0.0\" }\n\
+         proxy = { path = \"../proxy\", version = \"1.0.0\" }\n",
+    )
+    .expect("write cli manifest");
+
+    let alef_toml = format!(
+        "[workspace]\nlanguages = [\"node\"]\n[[crates]]\nname = \"core\"\nsources = []\nversion_from = \"{}\"\n",
+        root.join("Cargo.toml").display().to_string().replace('\\', "/")
+    );
+    let alef_toml_path = root.join("alef.toml");
+    std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+    let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+    let mut resolved = cfg.resolve().expect("resolve config");
+    let resolved_cfg = resolved.remove(0);
+
+    std::env::set_current_dir(root).expect("set_current_dir");
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, Some("minor"), true, true, None);
+    let cli = std::fs::read_to_string(root.join("crates/cli/Cargo.toml")).ok();
+    let root_manifest = std::fs::read_to_string(root.join("Cargo.toml")).ok();
+    let _ = std::env::set_current_dir(&original_cwd);
+    sync_result.expect("sync_versions ok");
+
+    let root_manifest = root_manifest.expect("read root manifest");
+    assert!(
+        root_manifest.contains("version = \"1.1.0\""),
+        "workspace version must bump:\n{root_manifest}"
+    );
+    let cli = cli.expect("read cli manifest");
+    assert!(
+        cli.contains("core = { path = \"../core\", version = \"1.1.0\" }"),
+        "the core pin must bump:\n{cli}"
+    );
+    assert!(
+        cli.contains("proxy = { path = \"../proxy\", version = \"1.1.0\" }"),
+        "the pin on an inherited workspace member must bump too:\n{cli}"
+    );
+}

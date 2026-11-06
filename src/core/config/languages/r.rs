@@ -53,4 +53,12 @@ pub struct RConfig {
     /// downstream-managed link flags (e.g. `$(HEIF_LIBS)`).
     #[serde(default)]
     pub extra_pkg_libs: Vec<String>,
+    /// Callback-only borrowed string-map accessors, keyed by visitor context type.
+    ///
+    /// With `[crates.r.visitor_context_accessors]` the context list gains a function element
+    /// (`ctx$attributes()`) that reads the borrowed core context during the visitor callback,
+    /// instead of copying the map into the list on every callback. A visitor that never calls it
+    /// never builds the map. A context that does not opt in keeps the copied element.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub visitor_context_accessors: BTreeMap<String, String>,
 }

@@ -55,11 +55,14 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             strict,
             skip_compile,
         } => generate::handle_generate(lang, clean, skip_frb, strict, skip_compile, config_path, context),
-        Commands::Stubs { lang } => {
+        Commands::Stubs { lang, clean } => {
             let (_workspace, resolved) = load_config(config_path)?;
             let crates_to_process = dispatch::select_crates(&resolved, &context.crate_filter)?;
             let multi = dispatch::is_multi_crate(&crates_to_process);
             let base_dir = std::env::current_dir()?;
+            if clean {
+                cache::clear_generation_cache()?;
+            }
             let mut grand_total: usize = 0;
             for resolved_cfg in &crates_to_process {
                 let languages = resolve_languages(resolved_cfg, lang.as_deref())?;

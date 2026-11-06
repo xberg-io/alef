@@ -4,9 +4,11 @@ fn nodecontext_to_robj(
     use extendr_api::prelude::*;
     let pairs: Vec<(&str, extendr_api::Robj)> = vec![
 {{ context_field_lines }}
+{{ accessor_lines }}
     ];
     List::from_pairs(pairs).into()
 }
+{{ scope_lines }}
 
 pub struct {{ struct_name }} {
     r_obj: extendr_api::Robj,

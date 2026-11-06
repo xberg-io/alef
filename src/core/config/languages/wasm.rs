@@ -122,6 +122,15 @@ pub struct WasmConfig {
     /// (the historical default; unchanged for consumers that don't set it).
     #[serde(default)]
     pub wasm_opt: Vec<String>,
+    /// Callback-only borrowed string-map accessors, keyed by visitor context type.
+    ///
+    /// With `[crates.wasm.visitor_context_accessors]` a context getter such as
+    /// `NodeContext.attributes` is defined as a JS property accessor that reads the borrowed
+    /// core context during the visitor callback, instead of copying the map into the context
+    /// object on every callback. A visitor that never reads the property never builds the map.
+    /// A context that does not opt in keeps the copied property.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub visitor_context_accessors: std::collections::BTreeMap<String, String>,
 }
 
 /// The default wasm-pack target set: every target wasm-pack supports.

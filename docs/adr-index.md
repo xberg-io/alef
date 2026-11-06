@@ -20,13 +20,14 @@ log; add a row in the same change as a new record.
 | [0009](../adrs/0009-publish-source-bound-draft-releases-before-public-promotion.md)     | Publish source-bound draft releases before public promotion     | proposed | 2026-10-31 |
 | [0010](../adrs/0010-represent-rust-u64-losslessly-in-the-next-major-dart-api.md)        | Represent Rust u64 losslessly in the next major Dart API        | proposed | 2026-10-31 |
 | [0011](../adrs/0011-share-error-variants-without-breaking-existing-client-contracts.md) | Share error variants without breaking existing client contracts | proposed | 2026-11-01 |
-| [0012](../adrs/0012-raise-the-generated-python-minimum.md)                              | Raise the generated Python minimum                              | accepted | 2026-11-02 |
-| [0013](../adrs/0013-inspect-swift-archives-with-the-selected-rust-toolchain-s-llvm.md)  | Inspect Swift archives with the selected Rust toolchain's LLVM  | accepted | 2026-11-03 |
-| [0014](../adrs/0014-raise-the-generated-minimums-for-the-other-host-languages.md)       | Raise the generated minimums for the other host languages       | accepted | 2026-11-03 |
-| [0015](../adrs/0015-abi-and-runtime-stability-policy-for-component-crates.md)           | ABI and runtime stability policy for component crates           | accepted | 2026-11-03 |
-| [0016](../adrs/0016-apply-fixture-client-options-through-configured-json-factories.md)  | Apply fixture client options through configured JSON factories  | accepted | 2026-11-03 |
-| [0017](../adrs/0017-framed-stdio-transport-for-component-sidecars.md)                   | Framed stdio transport for component sidecars                   | accepted | 2026-11-03 |
-| [0018](../adrs/0018-go-c-shared-component-producers.md)                                 | Go c-shared component producers                                 | accepted | 2026-11-03 |
-| [0019](../adrs/0019-scope-borrowed-python-visitor-context-accessors.md)                 | Scope borrowed Python visitor context accessors                 | proposed | 2026-11-04 |
-| [0020](../adrs/0020-copy-private-field-accessor-values-where-no-lazy-reader-exists.md)  | Copy private-field accessor values where no lazy reader exists  | proposed | 2026-11-04 |
-| [0021](../adrs/0021-preserve-swift-opaque-vector-input-ownership.md)                    | Preserve Swift opaque vector input ownership                    | accepted | 2026-11-05 |
+| [0012](../adrs/0012-raise-the-generated-python-minimum.md) | Raise the generated Python minimum | accepted | 2026-11-02 |
+| [0013](../adrs/0013-inspect-swift-archives-with-the-selected-rust-toolchain-s-llvm.md) | Inspect Swift archives with the selected Rust toolchain's LLVM | accepted | 2026-11-03 |
+| [0014](../adrs/0014-raise-the-generated-minimums-for-the-other-host-languages.md) | Raise the generated minimums for the other host languages | accepted | 2026-11-03 |
+| [0015](../adrs/0015-abi-and-runtime-stability-policy-for-component-crates.md) | ABI and runtime stability policy for component crates | accepted | 2026-11-03 |
+| [0016](../adrs/0016-apply-fixture-client-options-through-configured-json-factories.md) | Apply fixture client options through configured JSON factories | accepted | 2026-11-03 |
+| [0017](../adrs/0017-framed-stdio-transport-for-component-sidecars.md) | Framed stdio transport for component sidecars | accepted | 2026-11-03 |
+| [0018](../adrs/0018-go-c-shared-component-producers.md) | Go c-shared component producers | accepted | 2026-11-03 |
+| [0019](../adrs/0019-scope-borrowed-python-visitor-context-accessors.md) | Scope borrowed Python visitor context accessors | proposed | 2026-11-04 |
+| [0020](../adrs/0020-copy-private-field-accessor-values-where-no-lazy-reader-exists.md) | Copy private-field accessor values where no lazy reader exists | proposed | 2026-11-04 |
+| [0021](../adrs/0021-generate-the-oldest-macos-apple-still-supports.md) | Generate the oldest macOS Apple still supports | accepted | 2026-11-06 |
+| [0022](../adrs/0022-preserve-swift-opaque-vector-input-ownership.md) | Preserve Swift opaque vector input ownership | accepted | 2026-11-05 |

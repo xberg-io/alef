@@ -450,7 +450,7 @@ pub mod maven {
 
     // Android Gradle plugin — hosted on Google's Maven repo, not Maven Central.
     // renovate: datasource=maven depName=com.android.tools.build:gradle
-    pub const ANDROID_GRADLE_PLUGIN: &str = "9.5.0";
+    pub const ANDROID_GRADLE_PLUGIN: &str = "9.5.1";
 
     // renovate: datasource=maven depName=org.jlleitschuh.gradle:ktlint-gradle
     pub const KTLINT_GRADLE_PLUGIN: &str = "14.2.0";
@@ -626,14 +626,16 @@ pub mod toolchain {
     #[deprecated(since = "0.16.4", note = "use JAVA_JVM_TARGET or KOTLIN_JVM_TARGET")]
     pub const JVM_TARGET: &str = "25";
 
-    /// Minimum macOS deployment target for every emitted `Package.swift`. SwiftPM platform
-    /// enums take the major only, so `"26.0"` renders as `.macOS(.v26)`.
-    pub const SWIFT_MIN_MACOS: &str = "26.0";
+    /// Minimum macOS deployment target for every emitted `Package.swift`: the oldest macOS Apple
+    /// still supports, raised when Apple drops a release (ADR 0021). SwiftPM platform enums take
+    /// the major only, so `"15.0"` renders as `.macOS(.v15)`.
+    pub const SWIFT_MIN_MACOS: &str = "15.0";
 
     pub const SWIFT_MIN_IOS: &str = "16.0";
 
-    /// `// swift-tools-version:` of every emitted `Package.swift`. `.macOS(.v26)` (see
-    /// [`SWIFT_MIN_MACOS`]) only exists in PackageDescription 6.2 and later.
+    /// `// swift-tools-version:` of every emitted `Package.swift`. Consumers ship `staticLibrary`
+    /// artifact bundles, which SwiftPM reads from 6.2 on; it must also name the
+    /// [`SWIFT_MIN_MACOS`] platform enum.
     pub const SWIFT_TOOLS_VERSION: &str = "6.2";
 
     /// `go` directive of every emitted `go.mod`.
@@ -669,7 +671,7 @@ pub mod cran {
 }
 
 pub mod precommit {
-    pub const ALEF_REV: &str = "v0.124.2";
+    pub const ALEF_REV: &str = "v0.127.0";
 
     /// Codegen format version — bumped only when output-affecting codegen
     /// changes require all generated files to be re-stamped. Unlike

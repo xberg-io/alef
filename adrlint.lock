@@ -81,7 +81,12 @@ number = 18
 status = "accepted"
 blake3 = "f90f1d89af81198cddae1a1503d6e57abede23a062fd40dc2679fb33bdef79ee"
 
-[adrs."adrs/0021-preserve-swift-opaque-vector-input-ownership.md"]
+[adrs."adrs/0021-generate-the-oldest-macos-apple-still-supports.md"]
 number = 21
+status = "accepted"
+blake3 = "1b195c9a594b847bd0a4de805bcac3168922e9ed5defd4d35de2216087da2e20"
+
+[adrs."adrs/0022-preserve-swift-opaque-vector-input-ownership.md"]
+number = 22
 status = "accepted"
 blake3 = "be0e5b6d6e502440085a75905ab14debfa4a332456972b3928717cfbdd43f3cc"

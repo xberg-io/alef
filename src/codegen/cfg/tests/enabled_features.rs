@@ -143,6 +143,7 @@ fn r_config_defaults() -> RConfig {
         extra_lint_paths: Vec::new(),
         extra_makevars_prelude: Vec::new(),
         extra_pkg_libs: Vec::new(),
+        visitor_context_accessors: Default::default(),
     }
 }
 

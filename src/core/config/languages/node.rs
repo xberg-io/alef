@@ -128,6 +128,15 @@ pub struct NodeConfig {
     /// generated `Cargo.toml`. See [`super::FfiConfig::target_dep_overrides`].
     #[serde(default)]
     pub target_dep_overrides: Vec<FfiTargetDepOverride>,
+    /// Callback-only borrowed string-map accessors, keyed by visitor context type.
+    ///
+    /// With `[crates.node.visitor_context_accessors]` a context getter such as
+    /// `NodeContext.attributes` is defined as a JS property accessor that reads the borrowed
+    /// core context during the visitor callback, instead of copying the map into the context
+    /// object on every callback. A visitor that never reads the property never builds the map.
+    /// A context that does not opt in keeps the copied property.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub visitor_context_accessors: std::collections::BTreeMap<String, String>,
     /// Feature names that should be declared as opt-in flags in the generated wrapper
     /// crate's `[features]` table but excluded from its `default = [...]` array and
     /// from the core-crate dependency's own explicit `features = [...]` list.

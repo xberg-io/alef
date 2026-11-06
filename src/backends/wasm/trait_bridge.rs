@@ -366,13 +366,14 @@ impl WasmBridgeGenerator {
 }
 
 /// Generate all trait bridge code for a given trait type and bridge config.
-pub fn gen_trait_bridge(
+pub(crate) fn gen_trait_bridge(
     trait_type: &TypeDef,
     bridge_cfg: &TraitBridgeConfig,
     core_import: &str,
     error_type: &str,
     error_constructor: &str,
     api: &ApiSurface,
+    accessor: Option<&crate::codegen::visitor_accessor::VisitorAccessorSpec>,
 ) -> anyhow::Result<BridgeOutput> {
     let type_paths: HashMap<String, String> = api
         .types
@@ -408,6 +409,7 @@ pub fn gen_trait_bridge(
             core_import,
             &type_paths,
             api,
+            accessor,
         )?;
         BridgeOutput {
             imports: vec![],
@@ -471,19 +473,32 @@ fn gen_visitor_bridge(
     core_crate: &str,
     type_paths: &HashMap<String, String>,
     api: &ApiSurface,
+    accessor: Option<&crate::codegen::visitor_accessor::VisitorAccessorSpec>,
 ) -> anyhow::Result<()> {
     let result_metadata = crate::codegen::visitor_result::required_visitor_result_metadata(api, bridge_cfg)?;
-    let context_helper = crate::codegen::visitor_context::visitor_context_helper(
+    let context_helper = crate::codegen::visitor_context::visitor_context_helper_excluding(
         api,
         bridge_cfg,
         core_crate,
         crate::codegen::visitor_context::VisitorContextBackend::Wasm,
+        accessor.map(crate::codegen::visitor_accessor::VisitorAccessorSpec::method),
     )?;
+    let (accessor_lines, scope_lines) = match accessor {
+        Some(spec) => accessor_support(spec, &context_helper.type_path),
+        None => (String::new(), String::new()),
+    };
     let methods: Vec<_> = crate::codegen::generators::trait_bridge::visitor_callback_methods(trait_type, bridge_cfg)
         .into_iter()
         .map(|method| {
             let mut method_out = String::new();
-            gen_visitor_method_wasm(&mut method_out, method, bridge_cfg, type_paths, &result_metadata);
+            gen_visitor_method_wasm(
+                &mut method_out,
+                method,
+                bridge_cfg,
+                type_paths,
+                &result_metadata,
+                accessor,
+            );
             crate::alef_context! {
                 code => method_out,
             }
@@ -494,6 +509,8 @@ fn gen_visitor_bridge(
         core_crate => core_crate.to_string(),
         context_type_path => context_helper.type_path,
         context_field_lines => context_helper.field_lines,
+        accessor_lines => accessor_lines,
+        scope_lines => scope_lines,
         struct_name => struct_name.to_string(),
         trait_path => trait_path.to_string(),
         methods => methods,
@@ -504,6 +521,60 @@ fn gen_visitor_bridge(
     Ok(())
 }
 
+/// The generated getter and its callback-scoped reader (ADR 0019's WebAssembly port).
+///
+/// The JS accessor is a bound function: the base Rust closure takes the borrowed context's
+/// address as its first argument, and binding it per context object supplies that argument when
+/// the host reads `ctx.attributes`. That keeps `ctx.attributes` a property, avoids a closure per
+/// object, and leaves a saved context reading `undefined` after its callback has returned.
+fn accessor_support(spec: &crate::codegen::visitor_accessor::VisitorAccessorSpec, core_type: &str) -> (String, String) {
+    let ident = spec.ident();
+    let method = spec.method();
+    let scope = format!("ALEF_VISITOR_SCOPE_{}", ident.to_ascii_uppercase());
+    let getter = format!("ALEF_VISITOR_GETTER_{}", ident.to_ascii_uppercase());
+    let runtime = crate::codegen::visitor_accessor::SCOPE_RUNTIME;
+    let accessor_lines = format!(
+        r#"    let __alef_accessor_id = ctx as *const {core_type} as usize;
+    let __alef_getter: js_sys::Function = {getter}.with(|getter| {{
+        let base: js_sys::Function = getter.as_ref().clone().unchecked_into();
+        base.bind1(&wasm_bindgen::JsValue::UNDEFINED, &wasm_bindgen::JsValue::from_f64(__alef_accessor_id as f64))
+            .unchecked_into()
+    }});
+    let __alef_descriptor = js_sys::Object::new();
+    js_sys::Reflect::set(&__alef_descriptor, &wasm_bindgen::JsValue::from_str("get"), __alef_getter.as_ref()).ok();
+    js_sys::Reflect::set(&__alef_descriptor, &wasm_bindgen::JsValue::from_str("enumerable"), &wasm_bindgen::JsValue::TRUE).ok();
+    js_sys::Object::define_property(&obj, &wasm_bindgen::JsValue::from_str("{method}"), &__alef_descriptor);"#
+    );
+    let scope_lines = format!(
+        r#"
+mod alef_visitor_scope_{ident} {{
+{runtime}
+}}
+
+std::thread_local! {{
+    static {scope}: alef_visitor_scope_{ident}::CallbackAccessorScope<std::collections::HashMap<String, String>> =
+        const {{ alef_visitor_scope_{ident}::CallbackAccessorScope::new() }};
+    static {getter}: wasm_bindgen::closure::Closure<dyn Fn(f64) -> wasm_bindgen::JsValue> =
+        wasm_bindgen::closure::Closure::wrap(Box::new(|id: f64| {{
+            match {scope}.with(|scope| scope.read(id as usize)) {{
+                Some(map) => serde_wasm_bindgen::to_value(&map).unwrap_or(wasm_bindgen::JsValue::NULL),
+                None => wasm_bindgen::JsValue::UNDEFINED,
+            }}
+        }}) as Box<dyn Fn(f64) -> wasm_bindgen::JsValue>);
+}}
+
+fn alef_call_with_scope_{ident}<R>(ctx: &{core_type}, call: impl FnOnce() -> R) -> R {{
+    alef_visitor_scope_{ident}::CallbackAccessorScope::with(
+        &{scope},
+        ctx as *const {core_type} as usize,
+        || ctx.{method}().iter().map(|(key, value)| (key.clone(), value.clone())).collect(),
+        call,
+    )
+}}"#
+    );
+    (accessor_lines, scope_lines)
+}
+
 /// Generate a single visitor method that checks for a camelCase JS property and calls it.
 fn gen_visitor_method_wasm(
     out: &mut String,
@@ -511,6 +582,7 @@ fn gen_visitor_method_wasm(
     bridge_cfg: &TraitBridgeConfig,
     type_paths: &HashMap<String, String>,
     result_metadata: &crate::codegen::visitor_result::VisitorResultMetadata,
+    accessor: Option<&crate::codegen::visitor_accessor::VisitorAccessorSpec>,
 ) {
     let name = &method.name;
     let js_name = to_camel_case(name);
@@ -531,6 +603,27 @@ fn gen_visitor_method_wasm(
     };
 
     let params: Vec<String> = method.params.iter().map(|p| build_wasm_arg(p, bridge_cfg)).collect();
+    let (scope_call_prefix, scope_call_suffix) = match accessor {
+        Some(spec) => match method
+            .params
+            .iter()
+            .find(|p| matches!(&p.ty, TypeRef::Named(n) if Some(n.as_str()) == bridge_cfg.context_type.as_deref()))
+        {
+            Some(param) => {
+                let borrow = if param.is_ref {
+                    param.name.clone()
+                } else {
+                    format!("&{}", param.name)
+                };
+                (
+                    format!("alef_call_with_scope_{}({borrow}, || ", spec.ident()),
+                    ")".to_string(),
+                )
+            }
+            None => (String::new(), String::new()),
+        },
+        None => (String::new(), String::new()),
+    };
 
     let ctx = crate::alef_context! {
         name => name.clone(),
@@ -548,6 +641,8 @@ fn gen_visitor_method_wasm(
         ),
         js_name => js_name,
         params => params,
+        scope_call_prefix => scope_call_prefix,
+        scope_call_suffix => scope_call_suffix,
     };
     let rendered = crate::backends::wasm::template_env::render("gen_visitor_method_wasm", ctx);
     let indented = rendered
@@ -1021,6 +1116,7 @@ mod tests {
             "SampleError",
             "SampleError::Message { message: {msg} }",
             &api,
+            None,
         )
         .expect("visitor bridge should generate");
 

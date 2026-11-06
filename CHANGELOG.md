@@ -14,6 +14,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reconcile root Cargo dependency pins for the selected component family while preserving unrelated manifests.
 - Discover Cargo lock files under Windows verbatim paths and roots containing glob metacharacters.
 
+## [0.127.0] - 2026-11-06
+
+### Changed
+
+- Swift: every generated `Package.swift` declares macOS 15, the oldest macOS Apple still supports, instead of
+  macOS 26 (`.macOS(.v15)`). The default follows Apple's support list and moves when Apple drops a release;
+  `swift-tools-version` stays 6.2 and `[crates.swift] min_macos_version` still overrides it
+  ([ADR 0021](adrs/0021-generate-the-oldest-macos-apple-still-supports.md)).
+
+## [0.126.1] - 2026-11-05
+
+### Fixed
+
+- `alef sync-versions --bump` now moves a hand-written crate's `{ path = ..., version = ... }` pin
+  on every workspace member whose version is synced, including members that inherit
+  `[workspace.package] version` rather than carrying a literal. liter-llm's
+  `liter-llm-cli` pin on `liter-llm-proxy` no longer keeps the previous release. (#890)
+- `alef verify` treats a `test_apps/zig/build.zig.zon` `.hash` line as unmodelled when this run
+  cannot resolve it (no local hash cache and no `zig`), instead of reporting the committed file as
+  drifted on a CI runner that has neither. A run that resolves a hash, or reads a pinned one from
+  `alef.toml`, still compares it. (#889)
+
+## [0.126.0] - 2026-11-05
+
+### Added
+
+- Opt-in lazy visitor-context accessors for Node (`[crates.node.visitor_context_accessors]`),
+  WebAssembly (`[crates.wasm.visitor_context_accessors]`) and Ruby
+  (`[crates.ruby.visitor_context_accessors]`), following ADR 0019's callback-scoped reader, and
+  for R (`[crates.r.visitor_context_accessors]`) as a callable list element. An opted-in getter
+  (`ctx.attributes` in Node/WASM and Ruby, `ctx$attributes()` in R) reads the borrowed core
+  context only when called, so a visitor that never reads it never builds the string map. A
+  context that does not opt in keeps the existing eagerly copied value. (#879, #880, #881, #883)
+
+## [0.125.0] - 2026-11-05
+
+### Added
+
+- Add `--clean` to `alef stubs`, and make `--clean` on `alef generate`/`alef all` clear the shared
+  `.alef/` generation cache rather than only bypassing this run's reads. A following stage command
+  no longer reports "up to date" from an entry an older build wrote. (#886)
+
+### Fixed
+
+- Release the rustler async wrapper's `std::sync::RwLock` read guard before awaiting a `&self`
+  core method on a `Clone` opaque type. `cargo clippy -- -D warnings` no longer fails with
+  `clippy::await_holding_lock` in Elixir NIF crates, and a writer is no longer blocked for the
+  whole request. A non-`Clone` type, or a `&mut self` method, keeps the guard with a narrow
+  `#[allow]` because cloning it out would discard mutations. (#888)
+- Drop `.alef-ownership.toml` entries whose file is gone under a generation or e2e output root, so
+  removing a fixture or language no longer leaves dead paths that no command pruned and
+  `alef verify` could not report. (#885)
+- Pin a prepared Swift artifact bundle's checksum on a plain `alef sync-versions`, without
+  `--regen`. `--regen` now formats only the files it rewrote and writes create-once seeds with the
+  same policy as `alef all`, so a tree that `alef verify` holds byte for byte is no longer rewritten
+  (`composer.json` authors, PHP constraint, unrelated test apps). (#884)
+
 ## [0.124.2] - 2026-11-05
 
 ### Fixed

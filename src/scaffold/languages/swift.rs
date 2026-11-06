@@ -29,7 +29,7 @@ const RUST_BRIDGE_SWIFT_SETTINGS: &str =
 pub(crate) fn scaffold_swift(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let (module, package_name) = (config.swift_module(), config.swift_package_name());
-    // SwiftPM platform enums take the major only: "26.0" renders as `.macOS(.v26)`.
+    // SwiftPM platform enums take the major only: "15.0" renders as `.macOS(.v15)`.
     let min_macos = swift_min_macos(config);
     let min_macos_major = min_macos.split('.').next().unwrap_or(&min_macos).to_string();
     let min_ios = swift_min_ios(config);

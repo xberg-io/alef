@@ -165,6 +165,17 @@ fn manifest_carries_alef_marker(path: &str) -> bool {
     std::fs::read_to_string(path).is_ok_and(|content| crate::core::hash::content_has_alef_marker(&content))
 }
 
+/// Whether this manifest's `[package] version` is inherited from `[workspace.package] version`.
+fn inherits_workspace_version(document: &toml::Table) -> bool {
+    document
+        .get("package")
+        .and_then(|package| package.get("version"))
+        .and_then(toml::Value::as_table)
+        .and_then(|version| version.get("workspace"))
+        .and_then(toml::Value::as_bool)
+        == Some(true)
+}
+
 fn collect_workspace_cargo_toml_paths(
     config: &ResolvedCrateConfig,
     writable: &IgnoreFilter,
@@ -314,6 +325,16 @@ fn selected_version_family(
             .collect(),
         names: HashSet::from([config.name.clone()]),
     };
+    // A member whose `[package] version` inherits `[workspace.package] version` moves with the
+    // same bump even though it carries no literal to rewrite. Its path dependencies must move
+    // too: `liter-llm-cli`'s `liter-llm-proxy = { path = ..., version = ... }` kept the old
+    // version because only the core's name entered the family (alef#890). ~keep
+    for manifest in &candidates {
+        if inherits_workspace_version(&manifest.document) {
+            family.manifests.insert(manifest.path.clone());
+            family.names.insert(manifest.name.clone());
+        }
+    }
     loop {
         let previous_count = family.manifests.len();
         for manifest in &candidates {

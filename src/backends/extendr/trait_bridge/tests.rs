@@ -8,6 +8,7 @@ fn visitor_bridge_uses_configured_context_and_result_metadata() {
         "SampleError",
         "SampleError::Message { message: {msg} }",
         &api,
+        None,
     )
     .expect("visitor bridge should generate");
 
@@ -28,6 +29,7 @@ fn visitor_context_helper_builds_pairs_as_a_vec_literal_not_init_then_push() {
         "SampleError",
         "SampleError::Message { message: {msg} }",
         &api,
+        None,
     )
     .expect("visitor bridge should generate");
 

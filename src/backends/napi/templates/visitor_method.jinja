@@ -19,12 +19,12 @@
         };
 
 {% if empty_args %}
-        let result = func.call(());
+        let result = {{ scope_call_prefix }}func.call(()){{ scope_call_suffix }};
 {% else %}
 {% for arg_expr in arg_exprs %}
         let arg_{{ loop.index0 }}: napi::bindgen_prelude::Unknown = {{ arg_expr }};
 {% endfor %}
-        let result = func.call(napi::bindgen_prelude::FnArgs::from({{ tuple_args }}));
+        let result = {{ scope_call_prefix }}func.call(napi::bindgen_prelude::FnArgs::from({{ tuple_args }})){{ scope_call_suffix }};
 {% endif %}
 
         match result {

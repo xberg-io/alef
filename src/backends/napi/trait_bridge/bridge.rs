@@ -25,13 +25,14 @@ pub fn is_visitor_bridge(trait_type: &TypeDef, bridge_cfg: &TraitBridgeConfig) -
         && trait_type.methods.iter().all(|m| m.has_default_impl)
 }
 
-pub fn gen_trait_bridge(
+pub(crate) fn gen_trait_bridge(
     trait_type: &TypeDef,
     bridge_cfg: &TraitBridgeConfig,
     core_import: &str,
     error_type: &str,
     error_constructor: &str,
     api: &ApiSurface,
+    accessor: Option<&crate::codegen::visitor_accessor::VisitorAccessorSpec>,
 ) -> anyhow::Result<BridgeOutput> {
     validate_input_returns(trait_type, api, core_import)?;
     let type_paths: HashMap<String, String> = api
@@ -61,6 +62,7 @@ pub fn gen_trait_bridge(
             core_import,
             &type_paths,
             api,
+            accessor,
         )?;
         Ok(BridgeOutput { imports: vec![], code })
     } else {

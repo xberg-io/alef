@@ -5,9 +5,9 @@
         }
 
 {%- if has_args %}
-        let result: Result<magnus::Value, magnus::Error> = self.rb_obj.funcall("{{ name }}", {{ args_tuple }});
+        let result: Result<magnus::Value, magnus::Error> = {{ scope_call_prefix }}self.rb_obj.funcall("{{ name }}", {{ args_tuple }}){{ scope_call_suffix }};
 {%- else %}
-        let result: Result<magnus::Value, magnus::Error> = self.rb_obj.funcall("{{ name }}", ());
+        let result: Result<magnus::Value, magnus::Error> = {{ scope_call_prefix }}self.rb_obj.funcall("{{ name }}", ()){{ scope_call_suffix }};
 {%- endif %}
 
         match result {

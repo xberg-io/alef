@@ -128,6 +128,13 @@ impl Backend for ExtendrBackend {
             .map(|t| t.name.clone())
             .collect();
         let active_trait_bridges: Vec<_> = config.trait_bridges_for(Language::R).cloned().collect();
+        let lazy_readers = config
+            .r
+            .as_ref()
+            .map(|r| r.visitor_context_accessors.clone())
+            .unwrap_or_default();
+        let visitor_accessors =
+            crate::codegen::visitor_accessor::VisitorAccessorSpec::resolve(api, &active_trait_bridges, &lazy_readers)?;
         let arc_incompatible_opaque: ahash::AHashSet<String> = api
             .types
             .iter()
@@ -709,6 +716,10 @@ impl Backend for ExtendrBackend {
                     &config.error_type_name(),
                     &config.error_constructor_expr(),
                     api,
+                    bridge_cfg
+                        .context_type
+                        .as_deref()
+                        .and_then(|context| visitor_accessors.get(context)),
                 )?;
                 for imp in &bridge.imports {
                     builder.add_import(imp);
@@ -766,6 +777,15 @@ impl Backend for ExtendrBackend {
                 + &collect_trait_bridge_functions(config)
                     .iter()
                     .map(|tb| format!("    fn {};\n", tb.name))
+                    .collect::<String>()
+                + &visitor_accessors
+                    .keys()
+                    .map(|context| {
+                        format!(
+                            "    fn {};\n",
+                            crate::codegen::visitor_accessor::scope_read_helper(context)
+                        )
+                    })
                     .collect::<String>()
                 + if config.components.is_empty() {
                     ""

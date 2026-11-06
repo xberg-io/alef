@@ -902,3 +902,36 @@ fn first_run_all_command() -> crate::bin_cli::args::Commands {
         skip_compile: true,
     }
 }
+
+/// alef#889: a `build.zig.zon` hash is resolved from a local cache or `zig fetch`, so a runner
+/// with neither renders no hash line. Verification must not report the committed hash as drift in
+/// that case, or the same tree passes locally and fails in CI.
+#[test]
+fn unresolved_zig_hash_line_is_treated_as_unmodelled() {
+    let disk = ".{\n    .name = .demo,\n    .hash = \"demo-1.0.0-abc\",\n    .paths = .{ \"\" },\n}\n";
+    let rendered = ".{\n    .name = .demo,\n    .paths = .{ \"\" },\n}\n";
+    let stripped = ignore_unresolved_zig_hash(Path::new("test_apps/zig/build.zig.zon"), disk, rendered);
+    assert!(
+        !stripped.contains(".hash = "),
+        "a hash this run could not resolve must not be compared: {stripped}"
+    );
+}
+
+/// The negative control: when the render *did* resolve a hash it is still compared, so a stale
+/// pin is reported rather than silently accepted.
+#[test]
+fn resolved_zig_hash_line_is_still_compared() {
+    let disk = ".{ .name = .demo, .hash = \"demo-1.0.0-old\" }\n";
+    let rendered = ".{ .name = .demo, .hash = \"demo-1.0.0-new\" }\n";
+    let compared = ignore_unresolved_zig_hash(Path::new("test_apps/zig/build.zig.zon"), disk, rendered);
+    assert_eq!(compared, disk, "a resolved hash must remain part of the comparison");
+}
+
+/// Only `build.zig.zon` gets the exception; an ordinary TOML hash-shaped literal is not eroded.
+#[test]
+fn unrelated_manifest_hash_literals_are_not_ignored() {
+    let disk = "[package]\nhash = \"old\"\n";
+    let rendered = "[package]\n";
+    let compared = ignore_unresolved_zig_hash(Path::new("Cargo.toml"), disk, rendered);
+    assert_eq!(compared, disk);
+}

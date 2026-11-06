@@ -11,6 +11,7 @@ pub(super) struct VisitorBridgeCtx<'a> {
     pub(super) core_crate: &'a str,
     pub(super) type_paths: &'a std::collections::HashMap<String, String>,
     pub(super) api: &'a ApiSurface,
+    pub(super) accessor: Option<&'a crate::codegen::visitor_accessor::VisitorAccessorSpec>,
 }
 
 /// Generate a visitor-style bridge wrapping a Magnus `magnus::Value`.
@@ -26,18 +27,24 @@ pub(super) fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -
         core_crate,
         type_paths,
         api,
+        accessor,
     } = ctx;
     let result_metadata = crate::codegen::visitor_result::required_visitor_result_metadata(api, bridge_cfg)?;
-    let context_helper = crate::codegen::visitor_context::visitor_context_helper(
+    let context_helper = crate::codegen::visitor_context::visitor_context_helper_excluding(
         api,
         bridge_cfg,
         core_crate,
         crate::codegen::visitor_context::VisitorContextBackend::Magnus,
+        accessor.map(crate::codegen::visitor_accessor::VisitorAccessorSpec::method),
     )?;
+    let (accessor_lines, scope_lines) = match accessor {
+        Some(spec) => accessor_support(spec, &context_helper.type_path),
+        None => (String::new(), String::new()),
+    };
     let methods: Vec<String> =
         crate::codegen::generators::trait_bridge::visitor_callback_methods(trait_type, bridge_cfg)
             .into_iter()
-            .map(|m| gen_visitor_method_magnus(m, bridge_cfg, type_paths, &result_metadata))
+            .map(|m| gen_visitor_method_magnus(m, bridge_cfg, type_paths, &result_metadata, *accessor))
             .collect();
 
     let rendered = crate::backends::magnus::template_env::render(
@@ -46,6 +53,8 @@ pub(super) fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -
             core_crate => core_crate,
             context_type_path => context_helper.type_path,
             context_field_lines => context_helper.field_lines,
+            accessor_lines => accessor_lines,
+            scope_lines => scope_lines,
             struct_name => struct_name,
             trait_path => trait_path,
             methods => methods,
@@ -76,6 +85,7 @@ fn gen_visitor_method_magnus(
     bridge_cfg: &TraitBridgeConfig,
     type_paths: &std::collections::HashMap<String, String>,
     result_metadata: &crate::codegen::visitor_result::VisitorResultMetadata,
+    accessor: Option<&crate::codegen::visitor_accessor::VisitorAccessorSpec>,
 ) -> String {
     let name = &method.name;
 
@@ -105,6 +115,27 @@ fn gen_visitor_method_magnus(
     } else {
         String::new()
     };
+    let (scope_call_prefix, scope_call_suffix) = match accessor {
+        Some(spec) => match method
+            .params
+            .iter()
+            .find(|p| matches!(&p.ty, TypeRef::Named(n) if Some(n.as_str()) == bridge_cfg.context_type.as_deref()))
+        {
+            Some(param) => {
+                let borrow = if param.is_ref {
+                    param.name.clone()
+                } else {
+                    format!("&{}", param.name)
+                };
+                (
+                    format!("alef_call_with_scope_{}({borrow}, || ", spec.ident()),
+                    ")".to_string(),
+                )
+            }
+            None => (String::new(), String::new()),
+        },
+        None => (String::new(), String::new()),
+    };
 
     crate::backends::magnus::template_env::render(
         "visitor_method.rs.jinja",
@@ -124,6 +155,8 @@ fn gen_visitor_method_magnus(
             ),
             has_args => has_args,
             args_tuple => args_tuple,
+            scope_call_prefix => scope_call_prefix,
+            scope_call_suffix => scope_call_suffix,
         },
     )
 }
@@ -161,6 +194,52 @@ fn build_magnus_arg(p: &crate::core::ir::ParamDef, bridge_cfg: &TraitBridgeConfi
         );
     }
     p.name.to_string()
+}
+
+/// The generated Ruby singleton method and its callback-scoped reader (ADR 0019's Ruby port).
+///
+/// The context stays a Hash, and the opted-in accessor becomes `ctx.attributes` rather than
+/// `ctx[:attributes]`: a `Proc` created per callback captures the borrowed context's address,
+/// reads the thread-local entry installed under that address, and builds the Ruby Hash only when
+/// called. Outside the callback the entry is gone and the call returns an empty Hash.
+fn accessor_support(spec: &crate::codegen::visitor_accessor::VisitorAccessorSpec, core_type: &str) -> (String, String) {
+    let ident = spec.ident();
+    let method = spec.method();
+    let scope = format!("ALEF_VISITOR_SCOPE_{}", ident.to_ascii_uppercase());
+    let runtime = crate::codegen::visitor_accessor::SCOPE_RUNTIME;
+    let accessor_lines = format!(
+        r#"    let __alef_accessor_id = ctx as *const {core_type} as usize;
+    let __alef_accessor = ruby.proc_from_fn(move |ruby, _args: &[magnus::Value], _block: Option<magnus::block::Proc>| {{
+        let map = {scope}.with(|scope| scope.read(__alef_accessor_id)).unwrap_or_default();
+        let hash = ruby.hash_new();
+        for (key, value) in map {{
+            let _ = hash.aset(ruby.str_new(&key), ruby.str_new(&value));
+        }}
+        hash
+    }});
+    let _ = h.funcall::<_, _, magnus::Value>("define_singleton_method", (ruby.to_symbol("{method}"), __alef_accessor));"#
+    );
+    let scope_lines = format!(
+        r#"
+mod alef_visitor_scope_{ident} {{
+{runtime}
+}}
+
+std::thread_local! {{
+    static {scope}: alef_visitor_scope_{ident}::CallbackAccessorScope<std::collections::HashMap<String, String>> =
+        const {{ alef_visitor_scope_{ident}::CallbackAccessorScope::new() }};
+}}
+
+fn alef_call_with_scope_{ident}<R>(ctx: &{core_type}, call: impl FnOnce() -> R) -> R {{
+    alef_visitor_scope_{ident}::CallbackAccessorScope::with(
+        &{scope},
+        ctx as *const {core_type} as usize,
+        || ctx.{method}().iter().map(|(key, value)| (key.clone(), value.clone())).collect(),
+        call,
+    )
+}}"#
+    );
+    (accessor_lines, scope_lines)
 }
 
 #[cfg(test)]
@@ -205,7 +284,7 @@ mod tests {
         let bridge_cfg = TraitBridgeConfig::default();
         let type_paths = std::collections::HashMap::new();
 
-        let generated = gen_visitor_method_magnus(&method, &bridge_cfg, &type_paths, &metadata);
+        let generated = gen_visitor_method_magnus(&method, &bridge_cfg, &type_paths, &metadata, None);
 
         assert_eq!(
             generated.matches("#[cfg(feature = \"thumbnails\")]").count(),
@@ -240,7 +319,7 @@ mod tests {
         let bridge_cfg = TraitBridgeConfig::default();
         let type_paths = std::collections::HashMap::new();
 
-        let generated = gen_visitor_method_magnus(&method, &bridge_cfg, &type_paths, &metadata);
+        let generated = gen_visitor_method_magnus(&method, &bridge_cfg, &type_paths, &metadata, None);
 
         assert!(
             !generated.contains("#[cfg("),

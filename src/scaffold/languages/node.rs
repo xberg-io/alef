@@ -228,6 +228,16 @@ pub(crate) fn scaffold_node_cargo(
     };
 
     let mut napi_features = vec!["async"];
+    // `Property::with_getter_closure` (the lazy visitor-context accessor, ADR 0019) is gated on
+    // the `napi5` feature. Node-API 5 is Node 10+, so opting in costs nothing older targets
+    // would notice. ~keep
+    if config
+        .node
+        .as_ref()
+        .is_some_and(|node| !node.visitor_context_accessors.is_empty())
+    {
+        napi_features.push("napi5");
+    }
     if config
         .node
         .as_ref()

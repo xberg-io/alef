@@ -4551,6 +4551,13 @@
             "string",
             "null"
           ]
+        },
+        "visitor_context_accessors": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Callback-only borrowed string-map accessors, keyed by visitor context type.\n\nWith `[crates.node.visitor_context_accessors]` a context getter such as\n`NodeContext.attributes` is defined as a JS property accessor that reads the borrowed\ncore context during the visitor callback, instead of copying the map into the context\nobject on every callback. A visitor that never reads the property never builds the map.\nA context that does not opt in keeps the copied property.",
+          "type": "object"
         }
       },
       "type": "object"
@@ -5713,6 +5720,13 @@
             "string",
             "null"
           ]
+        },
+        "visitor_context_accessors": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Callback-only borrowed string-map accessors, keyed by visitor context type.\n\nWith `[crates.r.visitor_context_accessors]` the context list gains a function element\n(`ctx$attributes()`) that reads the borrowed core context during the visitor callback,\ninstead of copying the map into the list on every callback. A visitor that never calls it\nnever builds the map. A context that does not opt in keeps the copied element.",
+          "type": "object"
         }
       },
       "type": "object"
@@ -6697,6 +6711,13 @@
             "$ref": "#/$defs/FfiTargetDepOverride"
           },
           "type": "array"
+        },
+        "visitor_context_accessors": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Callback-only borrowed string-map accessors, keyed by visitor context type.\n\nWith `[crates.ruby.visitor_context_accessors]` the context hash gains a singleton method\nsuch as `ctx.attributes` that reads the borrowed core context during the visitor callback,\ninstead of copying the map into the hash on every callback. A visitor that never calls it\nnever builds the map. A context that does not opt in keeps the copied symbol key.",
+          "type": "object"
         }
       },
       "type": "object"
@@ -8088,6 +8109,13 @@
             "null"
           ]
         },
+        "visitor_context_accessors": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Callback-only borrowed string-map accessors, keyed by visitor context type.\n\nWith `[crates.wasm.visitor_context_accessors]` a context getter such as\n`NodeContext.attributes` is defined as a JS property accessor that reads the borrowed\ncore context during the visitor callback, instead of copying the map into the context\nobject on every callback. A visitor that never reads the property never builds the map.\nA context that does not opt in keeps the copied property.",
+          "type": "object"
+        },
         "wasm_opt": {
           "default": [],
           "description": "`wasm-opt` pass arguments, emitted as\n`[package.metadata.wasm-pack.profile.release] wasm-opt = [...]`. When set to\na non-empty list, wasm-pack runs `wasm-opt` with these flags (e.g. `[\"-Oz\"]`\nto minimize binary size, keeping large builds under a CDN per-file cap).\nDefaults to empty, which emits `wasm-opt = false` so wasm-pack skips the pass\n(the historical default; unchanged for consumers that don't set it).",
@@ -8642,7 +8670,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/xberg-io/alef/releases/download/v0.124.2/alef.schema.json",
+  "$id": "https://github.com/xberg-io/alef/releases/download/v0.127.0/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -8774,6 +8802,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.124.2",
-  "x-alef-version": "0.124.2"
+  "version": "0.127.0",
+  "x-alef-version": "0.127.0"
 }

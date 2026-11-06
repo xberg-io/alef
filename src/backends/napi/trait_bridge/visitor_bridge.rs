@@ -27,14 +27,20 @@ pub(super) fn gen_visitor_bridge(
     core_crate: &str,
     type_paths: &HashMap<String, String>,
     api: &ApiSurface,
+    accessor: Option<&crate::codegen::visitor_accessor::VisitorAccessorSpec>,
 ) -> anyhow::Result<String> {
     let result_metadata = crate::codegen::visitor_result::required_visitor_result_metadata(api, bridge_cfg)?;
-    let context_helper = crate::codegen::visitor_context::visitor_context_helper(
+    let context_helper = crate::codegen::visitor_context::visitor_context_helper_excluding(
         api,
         bridge_cfg,
         core_crate,
         crate::codegen::visitor_context::VisitorContextBackend::Napi,
+        accessor.map(crate::codegen::visitor_accessor::VisitorAccessorSpec::method),
     )?;
+    let (accessor_lines, scope_lines) = match accessor {
+        Some(spec) => accessor_support(spec, &context_helper.type_path),
+        None => (String::new(), String::new()),
+    };
     let mut method_impls = String::with_capacity(4096);
     let unsupported: RefCell<Vec<UnsupportedArg>> = RefCell::new(Vec::new());
     let json_safe = json_safe_named_types(api);
@@ -50,6 +56,7 @@ pub(super) fn gen_visitor_bridge(
             &trait_type.name,
             &unsupported,
             &json_safe,
+            accessor,
         );
     }
 
@@ -79,11 +86,55 @@ pub(super) fn gen_visitor_bridge(
             core_crate => core_crate,
             context_type_path => context_helper.type_path,
             context_field_lines => context_helper.field_lines,
+            accessor_lines => accessor_lines,
+            scope_lines => scope_lines,
             struct_name => struct_name,
             trait_path => trait_path,
             method_impls => method_impls,
         },
     ))
+}
+
+/// The generated getter and its callback-scoped reader (ADR 0019's Node port).
+///
+/// The property is defined as a real JS accessor, so `ctx.attributes` keeps its existing shape.
+/// The getter captures the borrowed core context's address and reads the thread-local entry the
+/// callback installed under that same address. Once the callback returns the entry is gone and a
+/// saved context reads an empty map instead of reaching freed data.
+fn accessor_support(spec: &crate::codegen::visitor_accessor::VisitorAccessorSpec, core_type: &str) -> (String, String) {
+    let ident = spec.ident();
+    let method = spec.method();
+    let scope = format!("ALEF_VISITOR_SCOPE_{}", ident.to_ascii_uppercase());
+    let runtime = crate::codegen::visitor_accessor::SCOPE_RUNTIME;
+    let accessor_lines = format!(
+        r#"    let __alef_accessor_id = ctx as *const {core_type} as usize;
+    obj.define_properties(&[napi::bindgen_prelude::Property::new()
+        .with_utf8_name("{method}").unwrap()
+        .with_getter_closure(move |_env, _this| -> napi::Result<std::collections::HashMap<String, String>> {{
+            Ok({scope}.with(|scope| scope.read(__alef_accessor_id)).unwrap_or_default())
+        }})])?;"#
+    );
+    let scope_lines = format!(
+        r#"
+mod alef_visitor_scope_{ident} {{
+{runtime}
+}}
+
+std::thread_local! {{
+    static {scope}: alef_visitor_scope_{ident}::CallbackAccessorScope<std::collections::HashMap<String, String>> =
+        const {{ alef_visitor_scope_{ident}::CallbackAccessorScope::new() }};
+}}
+
+fn alef_call_with_scope_{ident}<R>(ctx: &{core_type}, call: impl FnOnce() -> R) -> R {{
+    alef_visitor_scope_{ident}::CallbackAccessorScope::with(
+        &{scope},
+        ctx as *const {core_type} as usize,
+        || ctx.{method}().iter().map(|(key, value)| (key.clone(), value.clone())).collect(),
+        call,
+    )
+}}"#
+    );
+    (accessor_lines, scope_lines)
 }
 
 /// Named enum types safe to JSON-encode as a trait-bridge callback argument: real,
@@ -122,6 +173,7 @@ fn gen_visitor_method_napi(
     trait_name: &str,
     unsupported: &RefCell<Vec<UnsupportedArg>>,
     json_safe_named_types: &std::collections::HashSet<String>,
+    accessor: Option<&crate::codegen::visitor_accessor::VisitorAccessorSpec>,
 ) {
     let name = &method.name;
     let js_method_name = to_camel_case(name);
@@ -173,6 +225,28 @@ fn gen_visitor_method_napi(
         String::new()
     };
 
+    let (scope_call_prefix, scope_call_suffix) = match accessor {
+        Some(spec) => match method
+            .params
+            .iter()
+            .find(|p| matches!(&p.ty, TypeRef::Named(n) if Some(n.as_str()) == bridge_cfg.context_type.as_deref()))
+        {
+            Some(param) => {
+                let borrow = if param.is_ref {
+                    param.name.clone()
+                } else {
+                    format!("&{}", param.name)
+                };
+                (
+                    format!("alef_call_with_scope_{}({borrow}, || ", spec.ident()),
+                    ")".to_string(),
+                )
+            }
+            None => (String::new(), String::new()),
+        },
+        None => (String::new(), String::new()),
+    };
+
     out.push_str(&crate::backends::napi::template_env::render(
         "visitor_method.jinja",
         crate::alef_context! {
@@ -194,6 +268,8 @@ fn gen_visitor_method_napi(
             arg_exprs => arg_exprs,
             tuple_args => tuple_args,
             args_tuple_ty => args_tuple_ty,
+            scope_call_prefix => scope_call_prefix,
+            scope_call_suffix => scope_call_suffix,
         },
     ));
 }

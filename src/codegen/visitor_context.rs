@@ -21,6 +21,22 @@ pub(crate) fn visitor_context_helper(
     core_crate: &str,
     backend: VisitorContextBackend,
 ) -> anyhow::Result<VisitorContextHelper> {
+    visitor_context_helper_excluding(api, bridge_cfg, core_crate, backend, None)
+}
+
+/// [`visitor_context_helper`] with one binding field left out of `field_lines`.
+///
+/// A backend that reads a private accessor lazily (ADR 0019) passes the accessor's name here so
+/// the generated context object does not also carry the eagerly copied map. The accessor itself
+/// is served by the backend's host-language getter, which reads the borrowed core context during
+/// the callback.
+pub(crate) fn visitor_context_helper_excluding(
+    api: &ApiSurface,
+    bridge_cfg: &TraitBridgeConfig,
+    core_crate: &str,
+    backend: VisitorContextBackend,
+    exclude_field: Option<&str>,
+) -> anyhow::Result<VisitorContextHelper> {
     let context_type = bridge_cfg.context_type.as_deref().ok_or_else(|| {
         anyhow::anyhow!(
             "trait bridge `{}` must configure context_type for visitor context conversion",
@@ -41,6 +57,7 @@ pub(crate) fn visitor_context_helper(
     let field_lines = context_def
         .fields
         .iter()
+        .filter(|field| exclude_field != Some(field.name.as_str()))
         .map(|field| context_field_line(api, context_def, field, &backend))
         .collect::<anyhow::Result<Vec<_>>>()?
         .join("\n");

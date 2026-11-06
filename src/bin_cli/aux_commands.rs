@@ -216,7 +216,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                                 snippet_output_root.as_deref(),
                             )
                         } else {
-                            vec![e2e_output_root]
+                            vec![e2e_output_root.clone()]
                         };
                         if let Some(error) = generator_error {
                             if e2e_stage_error.is_some() {
@@ -226,6 +226,21 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                         } else {
                             let previous_paths = cache::read_stage_paths(&e2e_crate.name, &cache_key);
                             pipeline::sweep_manifest_orphans(&previous_paths, &path_set, &sweep_roots, &[])?;
+                            let mut prune_roots: Vec<PathBuf> = vec![e2e_output_root.clone()];
+                            if let Some(snippets) = &e2e_ref.snippets {
+                                prune_roots.push(base_dir.join(&snippets.output));
+                            }
+                            let prune_root_refs: Vec<&std::path::Path> =
+                                prune_roots.iter().map(PathBuf::as_path).collect();
+                            // alef#885: `prune_orphaned_snippets` deletes a dropped fixture's
+                            // files, but its ownership entries used to outlive it. ~keep
+                            let pruned = cache::prune_absent_owned_paths(&base_dir, &prune_root_refs)?;
+                            if pruned > 0 {
+                                tracing::info!(
+                                    "Pruned {pruned} stale entr{} from the alef ownership record",
+                                    if pruned == 1 { "y" } else { "ies" }
+                                );
+                            }
 
                             cache::write_stage_hash(&e2e_crate.name, &cache_key, stage_hash.as_str(), &output_paths)?;
                         }
@@ -532,6 +547,19 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                             e2e_stage_error.get_or_insert(error);
                         } else {
                             pipeline::sweep_manifest_orphans(&previous_paths, &path_set, &sweep_roots, &[])?;
+                            let mut prune_roots: Vec<PathBuf> = sweep_roots.clone();
+                            if let Some(snippets) = &e2e_ref.snippets {
+                                prune_roots.push(base_dir.join(&snippets.output));
+                            }
+                            let prune_root_refs: Vec<&std::path::Path> =
+                                prune_roots.iter().map(PathBuf::as_path).collect();
+                            let pruned = cache::prune_absent_owned_paths(&base_dir, &prune_root_refs)?;
+                            if pruned > 0 {
+                                tracing::info!(
+                                    "Pruned {pruned} stale entr{} from the alef ownership record",
+                                    if pruned == 1 { "y" } else { "ies" }
+                                );
+                            }
 
                             cache::write_stage_hash(&e2e_crate.name, &cache_key, stage_hash.as_str(), &output_paths)?;
                         }

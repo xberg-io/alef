@@ -3,8 +3,10 @@ fn nodecontext_to_js_value(
 ) -> wasm_bindgen::JsValue {
     let obj = js_sys::Object::new();
 {{ context_field_lines }}
+{{ accessor_lines }}
     obj.into()
 }
+{{ scope_lines }}
 
 pub struct {{ struct_name }} {
     js_obj: wasm_bindgen::JsValue,

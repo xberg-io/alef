@@ -51,6 +51,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             let _ = skip_frb;
             let overwrite_create_once = create_once_overwrite(clean, clobber_create_once_seeds);
             let (mut workspace, mut resolved) = load_config(config_path)?;
+            all_commands_run_setup::clear_cache_on_clean(clean)?;
             crate::bin_cli::version_pin_sync::sync_alef_version_pin(
                 &workspace,
                 config_path,
@@ -747,6 +748,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 // skipped this run -- which leaves `current_gen_paths` with zero entries under that
                 // language's root, not merely a stale one -- from being scanned at all. ~keep
                 pipeline::sweep_manifest_orphans(&previous_paths, &current_gen_paths, &cleanup_roots, &cleanup_roots)?;
+                all_commands_run_setup::prune_stale_ownership(resolved_cfg, &base_dir, &cleanup_roots);
                 for (language, paths) in &binding_ownership {
                     cache::write_stage_hash(
                         &resolved_cfg.name,

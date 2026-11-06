@@ -289,8 +289,24 @@ fn run_e2e_substage(
             if let Some(error) = generator_error {
                 record_error(resolved_cfg, &mut outcome.error, "e2e codegen", error);
             } else {
-                let e2e_output_root = base_dir.join(&e2e_config.output);
-                pipeline::sweep_manifest_orphans(&previous_paths, &path_set, &[e2e_output_root], &[])?;
+                let e2e_output_root = base_dir.join(e2e_config.effective_output());
+                let sweep_roots = [e2e_output_root];
+                pipeline::sweep_manifest_orphans(&previous_paths, &path_set, &sweep_roots, &[])?;
+                let snippet_root = e2e_config
+                    .snippets
+                    .as_ref()
+                    .map(|snippets| base_dir.join(&snippets.output));
+                let mut prune_roots: Vec<std::path::PathBuf> = sweep_roots.to_vec();
+                prune_roots.extend(snippet_root);
+                let prune_root_refs: Vec<&Path> = prune_roots.iter().map(std::path::PathBuf::as_path).collect();
+                // alef#885: a dropped fixture's output is swept; its ownership entry must go too. ~keep
+                let pruned = cache::prune_absent_owned_paths(base_dir, &prune_root_refs)?;
+                if pruned > 0 {
+                    tracing::info!(
+                        "Pruned {pruned} stale entr{} from the alef ownership record",
+                        if pruned == 1 { "y" } else { "ies" }
+                    );
+                }
                 cache::write_stage_hash(&resolved_cfg.name, "e2e", e2e_stage_hash.as_str(), &output_paths)?;
             }
 
@@ -390,7 +406,14 @@ fn run_test_apps_substage(
                 record_error(resolved_cfg, &mut outcome.error, "test-apps codegen", error);
             } else {
                 let test_apps_root = base_dir.join(registry_e2e_ref.effective_output());
-                pipeline::sweep_manifest_orphans(&previous_paths, &path_set, &[test_apps_root], &[])?;
+                pipeline::sweep_manifest_orphans(&previous_paths, &path_set, &[test_apps_root.clone()], &[])?;
+                let pruned = cache::prune_absent_owned_paths(base_dir, &[test_apps_root.as_path()])?;
+                if pruned > 0 {
+                    tracing::info!(
+                        "Pruned {pruned} stale entr{} from the alef ownership record",
+                        if pruned == 1 { "y" } else { "ies" }
+                    );
+                }
                 cache::write_stage_hash(
                     &resolved_cfg.name,
                     "test-apps",

@@ -111,6 +111,10 @@ pub(crate) enum Commands {
         /// Comma-separated list of languages.
         #[arg(long, value_delimiter = ',')]
         lang: Option<Vec<String>>,
+        /// Ignore the cache and rewrite every stub, and clear the shared `.alef/` cache so a later
+        /// stage cannot read an entry this run left behind.
+        #[arg(long)]
+        clean: bool,
     },
     /// Generate package scaffolding (pyproject.toml, package.json, etc.).
     Scaffold {

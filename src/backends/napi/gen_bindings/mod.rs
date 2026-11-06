@@ -113,6 +113,8 @@ impl Backend for NapiBackend {
             .with_private_accessor_fields();
         let api = &deduped_api;
         let active_trait_bridges: Vec<_> = config.trait_bridges_for(Language::Node).cloned().collect();
+        let visitor_accessors =
+            crate::backends::napi::trait_bridge::visitor_accessors(config, api, &active_trait_bridges)?;
 
         let prefix = config.node_type_prefix();
         let trait_type_names: AHashSet<String> = api
@@ -528,6 +530,10 @@ impl Backend for NapiBackend {
                     &config.error_type_name(),
                     &config.error_constructor_expr(),
                     api,
+                    bridge_cfg
+                        .context_type
+                        .as_deref()
+                        .and_then(|context| visitor_accessors.get(context)),
                 )?;
                 for imp in &bridge.imports {
                     builder.add_import(imp);
