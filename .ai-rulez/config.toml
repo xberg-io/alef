@@ -65,6 +65,11 @@ name = "playwright"
 command = "npx"
 args = ["-y", "@playwright/mcp@0.0.83"]
 
+[exposure]
+mcp_server_tokens = 1150
+start_budget = 7350
+codex_start_budget = 8250
+
 [lock]
 include_outputs = false
 
