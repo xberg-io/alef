@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.127.3] - 2026-11-07
+
 ### Fixed
 
 - Python: a synchronous function that carries a trait bridge (an `options_field` visitor or a function-parameter
