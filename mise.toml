@@ -80,6 +80,10 @@ CARGO_TARGET_DIR=
 description = "Compile and verify emitted Swift callback link policy"
 run = "mise run test:run -- --lib swift_callback_link_tests -- --ignored --test-threads=1"
 
+[tasks."gate:swift-owned-vector-inputs"]
+description = "Qualify owned opaque Swift vector input lifetimes"
+run = "bash scripts/ci/run-swift-owned-vector-inputs.sh"
+
 [tasks."test:lib:sync"]
 description = "Synchronize the pinned shared Bats library"
 run = "python3 scripts/sync_bats_lib.py"

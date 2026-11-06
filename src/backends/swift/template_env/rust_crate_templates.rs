@@ -1,5 +1,13 @@
 pub(super) static TEMPLATES: &[(&str, &str)] = &[
     (
+        "owned_vector_input_extern.rs.jinja",
+        include_str!("../templates/owned_vector_input_extern.rs.jinja"),
+    ),
+    (
+        "owned_vector_input_clone.rs.jinja",
+        include_str!("../templates/owned_vector_input_clone.rs.jinja"),
+    ),
+    (
         "rust_error_pattern_probe.rs.jinja",
         include_str!("../templates/rust_error_pattern_probe.rs.jinja"),
     ),

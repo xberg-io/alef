@@ -26,6 +26,8 @@ pub(crate) mod extern_block;
 pub(crate) mod feature_gate;
 mod json_bridge;
 #[cfg(test)]
+mod owned_inputs_tests;
+#[cfg(test)]
 mod owned_values_tests;
 pub(crate) mod owned_vec;
 #[cfg(test)]
@@ -235,7 +237,12 @@ fn emit_lib_rs(
 
     let enum_names_owned: std::collections::HashSet<String> = enum_names.iter().map(|s| s.to_string()).collect();
     let mut extern_blocks: Vec<String> = Vec::new();
-    let mut owned_vec_accessors = owned_vec::OwnedVecAccessors::default();
+    let mut owned_vec_accessors = owned_vec::OwnedVecAccessors {
+        inputs: super::owned_vector_inputs::collect(api, exclude_types, exclude_functions, |name| {
+            first_class_names.contains(name) || !visible_type_names.contains(name)
+        }),
+        ..Default::default()
+    };
     // `BTreeSet` so the paired `extern "Rust"` declaration (`extern_block::
     // emit_extern_block_for_functions`) and no-op shim (`deferred_noop::emit_shims`) are
     // emitted in the same deterministic order across runs. ~keep
@@ -544,7 +551,11 @@ fn emit_lib_rs(
         }
     }
 
+    out.push_str(&super::owned_vector_inputs::externs(&owned_vec_accessors.inputs));
     out.push_str("}\n\n");
+    out.push_str(&super::owned_vector_inputs::implementations(
+        &owned_vec_accessors.inputs,
+    ));
     out.push_str(&bridge_error::definition(api, &source_crate));
     out.push('\n');
     if let Some(component_implementation) = components::implementation(config) {

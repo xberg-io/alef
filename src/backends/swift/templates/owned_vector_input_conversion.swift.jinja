@@ -1,0 +1,5 @@
+{% if optional %}
+let {{ local }} = {{ parameter }}.map { xs -> RustVec<{{ name }}> in let v = RustVec<{{ name }}>(); for x in xs { v.push(value: x.__alefOwnedVectorInput()) }; return v }
+{% else %}
+let {{ local }}: RustVec<{{ name }}> = { let v = RustVec<{{ name }}>(); for x in {{ parameter }} { v.push(value: x.__alefOwnedVectorInput()) }; return v }()
+{% endif %}

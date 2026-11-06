@@ -261,6 +261,7 @@ pub(crate) type TypeOwnedVecGetters = (String, Vec<OwnedVecGetter>);
 /// Everything the generated Swift accessor file declares.
 #[derive(Debug, Default)]
 pub(crate) struct OwnedVecAccessors {
+    pub inputs: Vec<crate::backends::swift::owned_vector_inputs::OwnedInputType>,
     pub types: Vec<TypeOwnedVecGetters>,
     pub functions: Vec<OwnedVecFunction>,
 }

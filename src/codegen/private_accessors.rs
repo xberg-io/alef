@@ -2,8 +2,8 @@
 //!
 //! A mirroring backend (pyo3, napi, PHP, ...) copies a core struct's public fields into its own
 //! binding struct and runs a method by converting that struct back to the core type. A
-//! `&self` accessor that reads a private field (html-to-markdown's `NodeContext::attributes()`)
-//! then reads whatever the binding-to-core conversion put there, which is an empty default:
+//! `&self` accessor that reads a private field then reads whatever the binding-to-core
+//! conversion put there, which is an empty default:
 //! the binding never held the value (xberg-io/alef#865).
 //!
 //! [`promote_private_accessors`] makes such an accessor's value a binding field, read through
@@ -158,10 +158,9 @@ fn full_type(ty: &TypeRef, optional: bool) -> TypeRef {
 }
 
 /// The private field a plain `&self` getter of the same name reads. The field's storage type is
-/// not compared: an accessor may materialize it (html-to-markdown stores a lazy attribute source
-/// and returns the map), and what has to agree is the accessor's type with the constructor
-/// parameter that takes the value back ([`constructor_accepts`]). A field serde skips is left
-/// alone, since a JSON round trip could not carry it.
+/// not compared: an accessor may materialize a map from lazy storage, and what has to agree
+/// is the accessor's type with the constructor parameter that takes the value back
+/// ([`constructor_accepts`]). A field serde skips is left alone, since a JSON round trip could not carry it.
 fn returned_private_field<'a>(typ: &'a TypeDef, method: &MethodDef) -> Option<&'a FieldDef> {
     let simple_getter = method.receiver == Some(ReceiverKind::Ref)
         && !method.is_static

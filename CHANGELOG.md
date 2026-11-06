@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so a `#[serde(skip_serializing_if = "...")]` `data` on one struct no longer guards a required
   `data` on another or rewrites unrelated fixtures. The bare-name set remains the fallback only
   when the anchored IR cannot resolve the path. (#899)
+- Preserve cloneable opaque Swift inputs passed through free-function vector arguments, including repeated
+  references and asynchronous calls, and check ownership before transferring non-cloneable values.
+- Reconcile root Cargo dependency pins for the selected component family while preserving unrelated manifests.
+- Discover Cargo lock files under Windows verbatim paths and roots containing glob metacharacters.
 
 ## [0.127.1] - 2026-11-06
 
