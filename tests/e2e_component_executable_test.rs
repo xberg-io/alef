@@ -18,7 +18,11 @@ const WINDOWS: &str = "x86_64-pc-windows-msvc";
 
 fn fixture(build: &str) -> tempfile::TempDir {
     let directory = tempfile::tempdir().unwrap();
-    let root = directory.path();
+    populate(directory.path(), build);
+    directory
+}
+
+fn populate(root: &Path, build: &str) {
     fs::create_dir_all(root.join("src")).unwrap();
     fs::create_dir_all(root.join("exe")).unwrap();
     fs::write(root.join("src/lib.rs"), "pub trait Engine { fn run(&self) -> u32; }\n").unwrap();
@@ -72,7 +76,6 @@ release = {public:?}
         ),
     )
     .unwrap();
-    directory
 }
 
 const COPY: &str = "cp main.sh {out} && chmod +x {out}";
@@ -372,4 +375,207 @@ fn generate_and_verify_accept_an_executable_component_without_emitting_a_bridge(
         "the Rust component still generates"
     );
     success(alef(root, &["verify"]));
+}
+
+#[test]
+fn an_out_path_with_a_space_and_a_quote_reaches_the_command_as_one_word() {
+    let directory = tempfile::Builder::new().prefix("it's a dir ").tempdir().unwrap();
+    populate(directory.path(), COPY);
+    let root = directory.path();
+    success(component(root, &["build", "--component", "tiny", "--target", HOST]));
+    assert!(built(root, HOST, "tiny").is_file());
+}
+
+#[test]
+fn a_failed_build_deletes_its_partial_output_and_reports_the_exit_status() {
+    let directory = fixture("printf partial > {out}; exit 7");
+    let root = directory.path();
+    failure(
+        component(root, &["build", "--component", "tiny", "--target", HOST]),
+        "exit status: 7",
+    );
+    assert!(
+        !built(root, HOST, "tiny").exists(),
+        "a partial payload must not survive"
+    );
+}
+
+#[test]
+fn a_built_payload_is_made_executable() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = fixture("cp main.sh {out}");
+    let root = directory.path();
+    fs::set_permissions(root.join("exe/main.sh"), fs::Permissions::from_mode(0o644)).unwrap();
+    success(component(root, &["build", "--component", "tiny", "--target", HOST]));
+    let mode = fs::metadata(built(root, HOST, "tiny")).unwrap().permissions().mode();
+    assert_eq!(mode & 0o777, 0o755);
+}
+
+#[test]
+fn a_missing_shell_stops_the_build_and_the_plan_early() {
+    let directory = fixture(COPY);
+    let root = directory.path();
+    let empty = tempfile::tempdir().unwrap();
+    for args in [
+        vec!["build", "--component", "tiny", "--target", HOST],
+        vec!["plan", "--component", "tiny", "--output", "plan.json"],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_alef"))
+            .current_dir(root)
+            .env("PATH", empty.path())
+            .arg("component")
+            .args(&args)
+            .output()
+            .unwrap();
+        failure(output, "no `sh` was found on PATH");
+    }
+}
+
+#[test]
+fn the_fingerprint_does_not_depend_on_the_working_directory() {
+    let directory = fixture(COPY);
+    let root = directory.path();
+    // Core crate paths stay relative to the working directory; only component paths and
+    // `inputs` follow the config directory.
+    fs::create_dir_all(root.join("work/src")).unwrap();
+    fs::copy(root.join("src/lib.rs"), root.join("work/src/lib.rs")).unwrap();
+    fs::copy(root.join("Cargo.toml"), root.join("work/Cargo.toml")).unwrap();
+    let from_root = plan(root, "plan.json", None);
+    let from_work = alef(
+        &root.join("work"),
+        &[
+            "--config",
+            "../alef.toml",
+            "component",
+            "plan",
+            "--component",
+            "tiny",
+            "--output",
+            "plan.json",
+        ],
+    );
+    success(from_work);
+    let from_work = json(&root.join("work"), "plan.json");
+    assert_eq!(
+        row(&from_root, HOST)["input_hash"],
+        row(&from_work, HOST)["input_hash"],
+        "labels must be rooted at the config directory, not the working directory"
+    );
+}
+
+#[test]
+fn a_producer_dir_containing_the_alef_build_directory_is_rejected() {
+    let directory = fixture(COPY);
+    let root = directory.path();
+    let output = alef(
+        &root.join("exe"),
+        &["--config", "../alef.toml", "component", "plan", "--output", "plan.json"],
+    );
+    failure(output, "must not contain the alef build directory");
+}
+
+#[test]
+fn the_alef_build_directory_is_not_an_input_of_a_broad_inputs_glob() {
+    let directory = fixture(COPY);
+    let root = directory.path();
+    let alef_toml = fs::read_to_string(root.join("alef.toml")).unwrap();
+    fs::write(
+        root.join("alef.toml"),
+        alef_toml.replace(
+            "toolchain_version_cmd = \"cat ../tool.txt\" }",
+            "toolchain_version_cmd = \"cat ../tool.txt\", inputs = [\"*\"] }",
+        ),
+    )
+    .unwrap();
+    let plans = tempfile::tempdir().unwrap();
+    let first_path = plans.path().join("first.json");
+    let second_path = plans.path().join("second.json");
+    let plan_to = |path: &Path| {
+        success(component(
+            root,
+            &["plan", "--component", "tiny", "--output", path.to_str().unwrap()],
+        ));
+        serde_json::from_slice::<Value>(&fs::read(path).unwrap()).unwrap()
+    };
+    let before = plan_to(&first_path);
+    success(component(root, &["build", "--component", "tiny", "--target", HOST]));
+    assert!(root.join(".alef").is_dir());
+    let after = plan_to(&second_path);
+    assert_eq!(
+        row(&before, HOST)["input_hash"],
+        row(&after, HOST)["input_hash"],
+        "a build must not change its own fingerprint"
+    );
+}
+
+#[test]
+fn a_toolchain_command_is_run_once_per_producer_directory() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/lib.rs"), "pub trait Engine { fn run(&self) -> u32; }\n").unwrap();
+    fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"dev-core\"\nversion = \"1.0.0\"\nedition = \"2024\"\n",
+    )
+    .unwrap();
+    let component = |name: &str| {
+        fs::create_dir_all(root.join(name)).unwrap();
+        fs::write(root.join(name).join("main.sh"), "#!/bin/sh\n").unwrap();
+        fs::write(root.join(name).join("toolchain.txt"), "go 1\n").unwrap();
+        format!(
+            r#"
+[[crates.components]]
+name = "{name}"
+producer_language = "executable"
+producer_dir = "{name}"
+provides = [{{ contract = "engine", implementation = "New" }}]
+targets = ["{HOST}"]
+executable = {{ build = "cp main.sh {{out}}", toolchain_version_cmd = "cat toolchain.txt", inputs = ["{name}/main.sh"] }}
+"#
+        )
+    };
+    let components = format!("{}{}", component("one"), component("two"));
+    fs::write(
+        root.join("alef.toml"),
+        format!(
+            r#"[workspace]
+
+[[crates]]
+name = "dev-core"
+sources = ["src/lib.rs"]
+version_from = "Cargo.toml"
+
+[[crates.component_contracts]]
+name = "engine"
+trait_path = "dev_core::Engine"
+{components}
+[crates.component_distribution]
+url_template = "https://example.test/{{artifact}}"
+"#
+        ),
+    )
+    .unwrap();
+    let hash_of_two = |output: &str| {
+        success(component_cmd(root, output));
+        let planned = json(root, output);
+        planned["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["component"] == "two")
+            .unwrap()["input_hash"]
+            .clone()
+    };
+    let before = hash_of_two("plan1.json");
+    fs::write(root.join("two/toolchain.txt"), "go 2\n").unwrap();
+    let after = hash_of_two("plan2.json");
+    assert_ne!(
+        before, after,
+        "`two` must see its own toolchain, not `one`'s cached answer"
+    );
+}
+
+fn component_cmd(root: &Path, output: &str) -> Output {
+    component(root, &["plan", "--output", output])
 }
