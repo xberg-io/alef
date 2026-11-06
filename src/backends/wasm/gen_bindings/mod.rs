@@ -653,7 +653,7 @@ impl Backend for WasmBackend {
             crate::codegen::visitor_accessor::VisitorAccessorSpec::resolve(api, &active_wasm_bridges, &lazy_readers)?;
         for bridge_cfg in &active_wasm_bridges {
             if let Some(trait_type) = trait_bridge_docs::active_bridge_trait(bridge_cfg, api) {
-                let bridge = crate::backends::wasm::trait_bridge::gen_trait_bridge(
+                let bridge = crate::backends::wasm::trait_bridge::gen_trait_bridge_with_accessor(
                     trait_type,
                     bridge_cfg,
                     &core_import,

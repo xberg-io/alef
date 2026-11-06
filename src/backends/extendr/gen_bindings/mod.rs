@@ -709,7 +709,7 @@ impl Backend for ExtendrBackend {
                     builder.add_item(crate::backends::extendr::trait_bridge::gen_send_robj_helper());
                     emitted_send_robj_helper = true;
                 }
-                let bridge = crate::backends::extendr::trait_bridge::gen_trait_bridge(
+                let bridge = crate::backends::extendr::trait_bridge::gen_trait_bridge_with_accessor(
                     trait_type,
                     bridge_cfg,
                     &core_import,

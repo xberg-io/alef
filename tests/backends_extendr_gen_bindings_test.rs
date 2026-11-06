@@ -1724,6 +1724,7 @@ mod trait_bridge {
             extra_lint_paths: vec![],
             extra_makevars_prelude: vec![],
             extra_pkg_libs: vec![],
+            visitor_context_accessors: Default::default(),
         });
 
         let generated_bindings = backend.generate_bindings(&api, &config).unwrap();
