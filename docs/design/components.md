@@ -241,6 +241,13 @@ differs from the plan, or for a pair the plan reuses. Reused entries count towar
 configured-matrix completeness check. When every row is `reuse` no archives are built, so `--input`
 may be absent or empty; a `build` row of the plan with no record in `--input` is an error.
 
+## Executable components
+
+A component with `producer_language = "executable"` is planned, built, packaged and locked in the
+same flow, with its own fingerprint (declared input files, build command, toolchain identity)
+instead of the Rust one. See "Build an executable producer with alef" in
+[component-stdio-and-go.md](component-stdio-and-go.md).
+
 ## Host services
 
 A component can call back into its host through an optional service table appended to

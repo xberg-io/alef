@@ -1,6 +1,6 @@
 # Component stdio transport and Go producers
 
-The [component distribution reference](components.md) covers signing, locks and cache installation. Executable sidecars reuse that distribution path. Go c-shared producers use the existing native C ABI. The design choices are recorded in [ADR-0017](../../adrs/0017-framed-stdio-transport-for-component-sidecars.md) and [ADR-0018](../../adrs/0018-go-c-shared-component-producers.md).
+The [component distribution reference](components.md) covers signing, locks and cache installation. Executable sidecars reuse that distribution path. Go c-shared producers use the existing native C ABI. The design choices are recorded in [ADR-0017](../../adrs/0017-framed-stdio-transport-for-component-sidecars.md), [ADR-0018](../../adrs/0018-go-c-shared-component-producers.md) and, for executables built by your own toolchain, [ADR-0023](../../adrs/0023-executable-component-producers.md).
 
 ## Choose a transport
 
@@ -48,6 +48,44 @@ let output = codec.invoke_bytes("transform", b"hello")?;
 ```
 
 The entry-symbol argument is retained for the common native/stdio API; stdio dispatch uses the contract name. The default deadline is 30 seconds. One long-lived child serves every contract of the component, with calls serialized across them.
+
+## Build an executable producer with alef
+
+Instead of packaging a hand-built executable with `--library`, declare it as a component with
+`producer_language = "executable"`. alef then plans, builds, packages and locks it with the Rust
+components, so one lock covers both and an unchanged executable is reused across releases.
+
+```toml
+[[crates.components]]
+name = "sh"
+producer_language = "executable"
+producer_dir = "components/sidecars/sh"
+provides = [{ contract = "poly", implementation = "NewShComponent" }]
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+executable = { build = "mise run sidecar:build sh {target} --out {out}", toolchain_version_cmd = "go version", inputs = ["components/sidecars/sh"] }
+```
+
+| Key | Meaning |
+| --- | --- |
+| `producer_dir` | Required. The directory the build command runs in and, by default, the fingerprinted inputs. alef writes nothing there. |
+| `executable.build` | Required. `sh -c` command that builds one target. `{target}` is the Rust triple, `{out}` the absolute path it must write (required), `{profile}` is `release` or `debug`; the same values are exported as `ALEF_COMPONENT_TARGET`, `ALEF_COMPONENT_OUT` and `ALEF_COMPONENT_PROFILE`. Mapping the triple to GOOS/GOARCH or another toolchain is the command's job, and cross-compiling is allowed. |
+| `executable.file` | Payload name, default the component name. `.exe` is appended for `*-windows-*` targets. |
+| `executable.target_files` | Exact payload name per triple, overriding `file` and the `.exe` rule. |
+| `executable.inputs` | Globs relative to `alef.toml`; a directory matches every file below it (`.git` excluded). Default: `producer_dir`. When set it replaces the default, so list the producer directory too if it should still count. A pattern that matches nothing is an error. |
+| `executable.toolchain_version_cmd` | `sh -c` command whose trimmed output identifies the toolchain. It must succeed and print something. |
+
+`features` may be empty and `implementation` is an opaque name recorded in the manifest.
+`alef generate` emits no producer or bridge for an executable component, `alef verify` has nothing to
+compare, and the generated standalone host selects it as a stdio component without an entry in
+`component_host.stdio_components`. The built payload is `<target-dir>/<target>/<release|debug>/<file>`,
+so `package` finds it like a native library; `package --library` still overrides it.
+
+`alef component plan` fingerprints the build: the contract hashes, distribution settings, target,
+profile, payload name, the `build` template, the SHA-256 of every input file, the trimmed
+`toolchain_version_cmd` output, `--env` variables and `--extra` pairs. The alef version is not an
+input. `lock` never runs `toolchain_version_cmd`; it re-hashes only the input files and the build
+template. An input alef is not told about (a downloaded module, a generated file outside `inputs`)
+is not fingerprinted, so declare it in `inputs` or pass it through `--extra`.
 
 ## Implement the stdio protocol
 
