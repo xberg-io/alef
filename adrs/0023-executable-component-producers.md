@@ -30,7 +30,9 @@ Chosen option: "A third `producer_language`, `executable`", because it keeps the
 
 An executable component declares `producer_dir` and an `executable` table: `build` (a `sh -c` command run in `producer_dir` with `{target}`, `{out}` and `{profile}` substituted, `{out}` required), optional `file` and `target_files` (the payload name, `.exe` appended for Windows targets by default), `inputs` (globs, default `producer_dir`) and `toolchain_version_cmd`. Alef generates no producer or bridge for it, `alef verify` has nothing to compare, and host generation selects it as a stdio component without listing it in `component_host.stdio_components`. The contract is still the Rust trait named in `provides`; `implementation` is an opaque name recorded in the manifest.
 
-`alef component plan` fingerprints the contract hashes, distribution settings, target, profile, payload name, build command template, the SHA-256 of every input file, the trimmed output of `toolchain_version_cmd`, `--env` variables and `--extra` pairs. The alef version is not an input, because alef does not shape the bytes of a command it only runs. Cross-compilation is the command's business, so a plan for any configured target can be built on any host. `build`, `package` and `lock` follow the existing plan flow, so one lock holds both kinds of component.
+`alef component plan` fingerprints the contract hashes, distribution settings, target, profile, payload name, build command template, the SHA-256 of every input file, the trimmed output of `toolchain_version_cmd`, `--env` variables and `--extra` pairs. The alef version is not an input, because alef does not shape the bytes of a command it only runs. Cross-compilation is the command's business, so a plan for any configured target can be built on any host. `build`, `package` and `lock` follow the existing plan flow, so one lock holds both kinds of component. `lock` does not run `toolchain_version_cmd`, so `lock --reuse` re-verification covers the input files and the build command but not the toolchain; it relies on the plan that produced the reused artifact.
+
+Substituted placeholder values are inserted POSIX single-quoted (`{out}` with forward slashes on Windows). Input labels are rooted at the `alef.toml` directory, symbolic links are hashed by target and never followed, and `.git` and the `.alef` build directory are not inputs.
 
 This amends ADR-0017 by adding a way to produce the executable a stdio host loads; the transport, framing and trust model are unchanged.
 
@@ -39,7 +41,8 @@ This amends ADR-0017 by adding a way to produce the executable a stdio host load
 * Good, because a pure-Go or otherwise non-Rust sidecar ships through the same signed lock, plan and reuse path as native components.
 * Good, because no unused bridge is generated and no lock merge is needed.
 * Bad, because the fingerprint is only as complete as the declared inputs and toolchain command; an undeclared input (a network fetch, an undeclared file) can leave a stale build reused.
-* Bad, because the build command runs through `sh`, so Windows build hosts need one.
+* Bad, because the build command runs through `sh`, so Windows build hosts need one on `PATH` (Git for Windows or MSYS2); alef stops early with a clear error when it is missing.
+* Bad, because `lock --reuse` cannot re-verify the toolchain.
 
 ### Confirmation
 
