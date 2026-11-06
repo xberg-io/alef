@@ -2,6 +2,7 @@
 
 pub mod default_value_for_enum;
 pub mod extractor;
+pub(crate) mod primitive_ident;
 pub(crate) mod type_resolver;
 pub mod validation;
 
