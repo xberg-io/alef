@@ -7,12 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Dependency requirements are unpinned: `icu_casemap` and `unicode-general-category` now use caret
+  ranges instead of exact pins, and `serde-saphyr`/`toml` moved to their latest majors (2.1 and
+  1.2). The identifier-grammar behavior tests, not a version pin, guard a Unicode table bump.
+
 ### Fixed
 
+- Restore the public six-argument `gen_trait_bridge` entry points for Node, WASM, Ruby and R. The
+  earlier `pub(crate)` narrowing plus an extra accessor parameter left the integration-test targets
+  unable to compile against them; each backend now keeps the published signature and calls a new
+  accessor-aware function internally.
+- Regain clippy `-D warnings` cleanliness: the Node visitor-bridge generator groups its parameters
+  into `VisitorBridgeParams`, and the E2E orphan sweep passes a slice reference instead of cloning
+  into a temporary array.
 - Preserve cloneable opaque Swift inputs passed through free-function vector arguments, including repeated
   references and asynchronous calls, and check ownership before transferring non-cloneable values.
 - Reconcile root Cargo dependency pins for the selected component family while preserving unrelated manifests.
 - Discover Cargo lock files under Windows verbatim paths and roots containing glob metacharacters.
+
+### Removed
+
+- Five size/complexity exemptions are paid off (#338): the primitive-identifier table moved to
+  `extract::primitive_ident`, the WASM service parameter annotations and the two C# JSON converters
+  were split into named helpers, and the now-clean `adapters/streaming.rs` exemption was dropped.
 
 ## [0.127.0] - 2026-11-06
 

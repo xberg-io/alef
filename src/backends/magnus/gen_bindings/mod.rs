@@ -556,7 +556,7 @@ impl Backend for MagnusBackend {
 
         for bridge_cfg in &active_trait_bridges {
             if let Some(trait_type) = crate::backends::magnus::trait_bridge::active_bridge_trait(bridge_cfg, api) {
-                let bridge_code = crate::backends::magnus::trait_bridge::gen_trait_bridge(
+                let bridge_code = crate::backends::magnus::trait_bridge::gen_trait_bridge_with_accessor(
                     trait_type,
                     bridge_cfg,
                     &core_import,

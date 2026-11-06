@@ -523,7 +523,7 @@ impl Backend for NapiBackend {
 
         for bridge_cfg in &active_trait_bridges {
             if let Some(trait_type) = crate::backends::napi::trait_bridge::active_bridge_trait(bridge_cfg, api) {
-                let bridge = crate::backends::napi::trait_bridge::gen_trait_bridge(
+                let bridge = crate::backends::napi::trait_bridge::gen_trait_bridge_with_accessor(
                     trait_type,
                     bridge_cfg,
                     &core_import,

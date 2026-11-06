@@ -11,7 +11,8 @@ mod visitor_bridge;
 
 pub use crate::codegen::generators::trait_bridge::find_bridge_param;
 pub use bridge_functions::gen_bridge_function;
-pub(crate) use bridge_generator::gen_trait_bridge;
+pub use bridge_generator::gen_trait_bridge;
+pub(crate) use bridge_generator::gen_trait_bridge_with_accessor;
 pub use options_field::{find_options_field_binding, gen_options_field_bridge_function};
 
 use crate::core::config::TraitBridgeConfig;
@@ -44,7 +45,6 @@ mod tests {
             "SampleError",
             "SampleError::Message { message: {msg} }",
             &api,
-            None,
         )
         .expect("visitor bridge should generate");
 

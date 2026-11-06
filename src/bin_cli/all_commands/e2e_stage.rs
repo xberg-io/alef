@@ -406,7 +406,12 @@ fn run_test_apps_substage(
                 record_error(resolved_cfg, &mut outcome.error, "test-apps codegen", error);
             } else {
                 let test_apps_root = base_dir.join(registry_e2e_ref.effective_output());
-                pipeline::sweep_manifest_orphans(&previous_paths, &path_set, &[test_apps_root.clone()], &[])?;
+                pipeline::sweep_manifest_orphans(
+                    &previous_paths,
+                    &path_set,
+                    std::slice::from_ref(&test_apps_root),
+                    &[],
+                )?;
                 let pruned = cache::prune_absent_owned_paths(base_dir, &[test_apps_root.as_path()])?;
                 if pruned > 0 {
                     tracing::info!(

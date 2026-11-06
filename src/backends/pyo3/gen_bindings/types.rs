@@ -448,32 +448,7 @@ fn typed_default_to_python(
             // goes through `default_factory` — the same mechanism the empty case already uses. ~keep
             format!("field(default_factory=lambda: [{}])", rendered.join(", "))
         }
-        DefaultValue::Empty => {
-            if let TypeRef::Named(name) = ty
-                && data_enum_names.contains(name.as_str())
-            {
-                return "None".to_string();
-            }
-            if let TypeRef::Named(name) = ty
-                && let Some(default_variant) = enum_defaults.get(name)
-            {
-                return format!("\"{}\"", default_variant);
-            }
-            match ty {
-                TypeRef::Primitive(p) => match p {
-                    crate::core::ir::PrimitiveType::Bool => "False".to_string(),
-                    crate::core::ir::PrimitiveType::F32 | crate::core::ir::PrimitiveType::F64 => "0.0".to_string(),
-                    _ => "0".to_string(),
-                },
-                TypeRef::String | TypeRef::Char | TypeRef::Path => "\"\"".to_string(),
-                TypeRef::Json => "None".to_string(),
-                TypeRef::Bytes => "b\"\"".to_string(),
-                TypeRef::Duration => "None".to_string(),
-                TypeRef::Vec(_) => "field(default_factory=list)".to_string(),
-                TypeRef::Map(_, _) => "field(default_factory=dict)".to_string(),
-                _ => "None".to_string(),
-            }
-        }
+        DefaultValue::Empty => empty_default_to_python(ty, enum_defaults, data_enum_names),
         // alef could not read the real default out of `impl Default`. Falling through to the
         // `Empty` arm above (as this used to) renders the *type's* zero — or even guesses an
         // enum's default variant — underneath a doc comment quoting the real (unreadable) Rust
@@ -491,6 +466,40 @@ fn typed_default_to_python(
         DefaultValue::TupleVariant(..) | DefaultValue::StructVariant(..) => "None".to_string(),
         DefaultValue::None => "None".to_string(),
         DefaultValue::FunctionCall(_) | DefaultValue::PublicFunctionCall(_) => "None".to_string(),
+    }
+}
+
+/// Render `DefaultValue::Empty`: the enum's declared default where the IR carries one, else the
+/// type's honest zero.
+fn empty_default_to_python(
+    ty: &crate::core::ir::TypeRef,
+    enum_defaults: &AHashMap<String, String>,
+    data_enum_names: &AHashSet<&str>,
+) -> String {
+    use crate::core::ir::TypeRef;
+    if let TypeRef::Named(name) = ty
+        && data_enum_names.contains(name.as_str())
+    {
+        return "None".to_string();
+    }
+    if let TypeRef::Named(name) = ty
+        && let Some(default_variant) = enum_defaults.get(name)
+    {
+        return format!("\"{}\"", default_variant);
+    }
+    match ty {
+        TypeRef::Primitive(p) => match p {
+            crate::core::ir::PrimitiveType::Bool => "False".to_string(),
+            crate::core::ir::PrimitiveType::F32 | crate::core::ir::PrimitiveType::F64 => "0.0".to_string(),
+            _ => "0".to_string(),
+        },
+        TypeRef::String | TypeRef::Char | TypeRef::Path => "\"\"".to_string(),
+        TypeRef::Json => "None".to_string(),
+        TypeRef::Bytes => "b\"\"".to_string(),
+        TypeRef::Duration => "None".to_string(),
+        TypeRef::Vec(_) => "field(default_factory=list)".to_string(),
+        TypeRef::Map(_, _) => "field(default_factory=dict)".to_string(),
+        _ => "None".to_string(),
     }
 }
 

@@ -83,7 +83,7 @@ pylint_max_returns = 10
 "src/e2e/codegen/python/lint_clean_python_tests.rs" = ["lazy-ignore"]
 "src/scaffold/languages/poly.rs" = ["cyclomatic-complexity", "function-too-long", "lazy-ignore"]
 # --- quality-debt baseline (generated) ---
-# 1160 size/complexity rule/file exemptions across 600 files that predate these
+# 1155 size/complexity rule/file exemptions across 595 files that predate these
 # metrics. Listed per file rather than switching the rules off, so the metrics still
 # fire on every file NOT listed here -- new code stays covered, and each path below is
 # one discrete unit of work.
@@ -92,7 +92,6 @@ pylint_max_returns = 10
 "CHANGELOG.md" = ["file-too-long"]
 "poly.toml" = ["file-too-long"]
 "scripts/collapse-workspace.py" = ["function-too-long", "nesting-too-deep"]
-"src/adapters/streaming.rs" = ["function-too-long"]
 "src/backends/csharp/gen_bindings/enums.rs" = ["cyclomatic-complexity", "function-too-long", "nesting-too-deep"]
 "src/backends/csharp/gen_bindings/errors.rs" = ["function-too-long", "too-many-parameters"]
 "src/backends/csharp/gen_bindings/functions.rs" = [
@@ -118,7 +117,6 @@ pylint_max_returns = 10
 ]
 "src/backends/csharp/gen_bindings/mod.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/backends/csharp/gen_bindings/service_api/tests.rs" = ["function-too-long"]
-"src/backends/csharp/gen_bindings/types/converters.rs" = ["function-too-long"]
 "src/backends/csharp/gen_bindings/types/opaque.rs" = [
   "cyclomatic-complexity",
   "function-too-long",
@@ -421,7 +419,6 @@ pylint_max_returns = 10
 "src/backends/pyo3/gen_bindings/service_api/helpers.rs" = ["nesting-too-deep"]
 "src/backends/pyo3/gen_bindings/service_api/python_service.rs" = ["function-too-long"]
 "src/backends/pyo3/gen_bindings/service_api/rust_service.rs" = ["function-too-long", "nesting-too-deep"]
-"src/backends/pyo3/gen_bindings/types.rs" = ["function-too-long"]
 "src/backends/pyo3/gen_bindings/types/options_py.rs" = [
   "cyclomatic-complexity",
   "function-too-long",
@@ -564,7 +561,6 @@ pylint_max_returns = 10
   "too-many-parameters",
 ]
 "src/backends/wasm/gen_bindings/mod.rs" = ["cyclomatic-complexity", "function-too-long", "nesting-too-deep"]
-"src/backends/wasm/gen_bindings/service_api.rs" = ["function-too-long"]
 "src/backends/wasm/gen_bindings/ts_union.rs" = ["function-too-long"]
 "src/backends/wasm/gen_bindings/types.rs" = ["cyclomatic-complexity", "function-too-long", "too-many-parameters"]
 "src/backends/wasm/gen_bindings/types/opaque.rs" = ["cyclomatic-complexity", "function-too-long", "too-many-parameters"]
@@ -1033,7 +1029,6 @@ pylint_max_returns = 10
 "src/extract/extractor/service.rs" = ["function-too-long"]
 "src/extract/extractor/service/tests.rs" = ["function-too-long"]
 "src/extract/extractor/types.rs" = ["function-too-long", "nesting-too-deep"]
-"src/extract/type_resolver.rs" = ["function-too-long"]
 "src/extract/validation.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/publish/mod.rs" = ["function-too-long", "nesting-too-deep", "too-many-parameters"]
 "src/publish/package/csharp.rs" = ["function-too-long"]

@@ -300,7 +300,6 @@ fn infallible_callback_rejects_a_fallible_return_without_a_default() {
         "TestError",
         "TestError::Message { message: {msg} }",
         &api,
-        None,
     );
     let error = result
         .err()
@@ -314,7 +313,6 @@ fn infallible_callback_rejects_a_fallible_return_without_a_default() {
         "TestError",
         "TestError::Message { message: {msg} }",
         &api,
-        None,
     )
     .expect("the same callback can propagate a typed error when its contract is fallible");
     assert!(supported.code.contains("test_lib::Envelope::try_from(__decoded)"));

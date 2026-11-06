@@ -1,5 +1,5 @@
 use super::bridge_generator::NapiBridgeGenerator;
-use super::visitor_bridge::gen_visitor_bridge;
+use super::visitor_bridge::{VisitorBridgeParams, gen_visitor_bridge};
 use crate::codegen::generators::trait_bridge::{BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec};
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{ApiSurface, TypeDef};
@@ -25,7 +25,30 @@ pub fn is_visitor_bridge(trait_type: &TypeDef, bridge_cfg: &TraitBridgeConfig) -
         && trait_type.methods.iter().all(|m| m.has_default_impl)
 }
 
-pub(crate) fn gen_trait_bridge(
+/// The trait-bridge generator without a lazy visitor-context accessor.
+///
+/// Kept public for the integration tests that exercise one bridge in isolation; the backend
+/// itself calls [`gen_trait_bridge_with_accessor`] so a configured accessor reaches the bridge.
+pub fn gen_trait_bridge(
+    trait_type: &TypeDef,
+    bridge_cfg: &TraitBridgeConfig,
+    core_import: &str,
+    error_type: &str,
+    error_constructor: &str,
+    api: &ApiSurface,
+) -> anyhow::Result<BridgeOutput> {
+    gen_trait_bridge_with_accessor(
+        trait_type,
+        bridge_cfg,
+        core_import,
+        error_type,
+        error_constructor,
+        api,
+        None,
+    )
+}
+
+pub(crate) fn gen_trait_bridge_with_accessor(
     trait_type: &TypeDef,
     bridge_cfg: &TraitBridgeConfig,
     core_import: &str,
@@ -54,16 +77,16 @@ pub(crate) fn gen_trait_bridge(
     if is_visitor_bridge(trait_type, bridge_cfg) {
         let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Js", bridge_cfg);
         let trait_path = trait_type.rust_path.replace('-', "_");
-        let code = gen_visitor_bridge(
+        let code = gen_visitor_bridge(VisitorBridgeParams {
             trait_type,
             bridge_cfg,
-            &struct_name,
-            &trait_path,
-            core_import,
-            &type_paths,
+            struct_name: &struct_name,
+            trait_path: &trait_path,
+            core_crate: core_import,
+            type_paths: &type_paths,
             api,
             accessor,
-        )?;
+        })?;
         Ok(BridgeOutput { imports: vec![], code })
     } else {
         // `#[napi(object)]` DTO, built via the same `From<core::T>` conversion used for return

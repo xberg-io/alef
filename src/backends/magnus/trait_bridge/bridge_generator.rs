@@ -7,7 +7,30 @@ use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
 
 /// Generate all trait bridge code for a given trait type and bridge config.
-pub(crate) fn gen_trait_bridge(
+/// The trait-bridge generator without a lazy visitor-context accessor.
+///
+/// Kept public for the integration tests that exercise one bridge in isolation; the backend
+/// itself calls [`gen_trait_bridge_with_accessor`] so a configured accessor reaches the bridge.
+pub fn gen_trait_bridge(
+    trait_type: &TypeDef,
+    bridge_cfg: &TraitBridgeConfig,
+    core_import: &str,
+    error_type: &str,
+    error_constructor: &str,
+    api: &ApiSurface,
+) -> anyhow::Result<String> {
+    gen_trait_bridge_with_accessor(
+        trait_type,
+        bridge_cfg,
+        core_import,
+        error_type,
+        error_constructor,
+        api,
+        None,
+    )
+}
+
+pub(crate) fn gen_trait_bridge_with_accessor(
     trait_type: &TypeDef,
     bridge_cfg: &TraitBridgeConfig,
     core_import: &str,

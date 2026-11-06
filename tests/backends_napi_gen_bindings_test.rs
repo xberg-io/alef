@@ -2441,6 +2441,7 @@ package_name = "test-lib"
         crate_dir: None,
         target_dep_overrides: Vec::new(),
         excluded_default_features: Vec::new(),
+        visitor_context_accessors: Default::default(),
     });
     resolved
 }

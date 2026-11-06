@@ -19,16 +19,30 @@ pub(crate) struct UnsupportedArg {
     pub type_desc: String,
 }
 
-pub(super) fn gen_visitor_bridge(
-    trait_type: &TypeDef,
-    bridge_cfg: &TraitBridgeConfig,
-    struct_name: &str,
-    trait_path: &str,
-    core_crate: &str,
-    type_paths: &HashMap<String, String>,
-    api: &ApiSurface,
-    accessor: Option<&crate::codegen::visitor_accessor::VisitorAccessorSpec>,
-) -> anyhow::Result<String> {
+/// Everything one visitor-bridge emission needs, grouped so the generator stays within clippy's
+/// argument limit.
+pub(super) struct VisitorBridgeParams<'a> {
+    pub(super) trait_type: &'a TypeDef,
+    pub(super) bridge_cfg: &'a TraitBridgeConfig,
+    pub(super) struct_name: &'a str,
+    pub(super) trait_path: &'a str,
+    pub(super) core_crate: &'a str,
+    pub(super) type_paths: &'a HashMap<String, String>,
+    pub(super) api: &'a ApiSurface,
+    pub(super) accessor: Option<&'a crate::codegen::visitor_accessor::VisitorAccessorSpec>,
+}
+
+pub(super) fn gen_visitor_bridge(params: VisitorBridgeParams<'_>) -> anyhow::Result<String> {
+    let VisitorBridgeParams {
+        trait_type,
+        bridge_cfg,
+        struct_name,
+        trait_path,
+        core_crate,
+        type_paths,
+        api,
+        accessor,
+    } = params;
     let result_metadata = crate::codegen::visitor_result::required_visitor_result_metadata(api, bridge_cfg)?;
     let context_helper = crate::codegen::visitor_context::visitor_context_helper_excluding(
         api,

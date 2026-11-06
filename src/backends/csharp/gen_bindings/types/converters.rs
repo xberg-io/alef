@@ -12,6 +12,13 @@ pub(crate) fn gen_byte_array_to_int_array_converter(namespace: &str) -> String {
     out.push_str(&render("namespace_decl.jinja", crate::alef_context! { namespace }));
     out.push('\n');
 
+    push_byte_array_converter(&mut out);
+
+    out
+}
+
+/// Split out of [`gen_byte_array_to_int_array_converter`] to keep that generator under the length metric.
+fn push_byte_array_converter(out: &mut String) {
     out.push_str("/// <summary>\n");
     out.push_str("/// Converts byte arrays to and from JSON integer arrays.\n");
     out.push_str("/// </summary>\n");
@@ -83,8 +90,6 @@ pub(crate) fn gen_byte_array_to_int_array_converter(namespace: &str) -> String {
     out.push_str("        writer.WriteEndArray();\n");
     out.push_str("    }\n");
     out.push_str("}\n");
-
-    out
 }
 
 /// Generate `DurationMillisJsonConverter.cs`: converters that round-trip a millisecond
@@ -137,6 +142,13 @@ pub(crate) fn gen_duration_millis_converter(namespace: &str) -> String {
     out.push_str("    }\n");
     out.push_str("}\n\n");
 
+    push_nullable_duration_converter(&mut out);
+
+    out
+}
+
+/// Split out of [`gen_duration_millis_converter`] to keep that generator under the length metric.
+fn push_nullable_duration_converter(out: &mut String) {
     out.push_str("/// <summary>\n");
     out.push_str("/// Nullable counterpart of <see cref=\"DurationMillisJsonConverter\"/> for optional\n");
     out.push_str("/// Duration fields.\n");
@@ -180,8 +192,6 @@ pub(crate) fn gen_duration_millis_converter(namespace: &str) -> String {
     out.push_str("        writer.WriteEndObject();\n");
     out.push_str("    }\n");
     out.push_str("}\n");
-
-    out
 }
 
 /// Generate `FfiJsonExtensions.cs`: the `ToFfiJson` serializer every marshalled `Named`

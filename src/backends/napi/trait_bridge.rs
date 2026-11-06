@@ -12,7 +12,8 @@ mod visitor_bridge;
 
 use crate::core::config::{Language, TraitBridgeConfig};
 
-pub(crate) use bridge::{gen_trait_bridge, is_visitor_bridge};
+pub(crate) use bridge::gen_trait_bridge_with_accessor;
+pub use bridge::{gen_trait_bridge, is_visitor_bridge};
 pub use bridge_functions::gen_bridge_function;
 pub use bridge_generator::NapiBridgeGenerator;
 pub use options_field_bridge::gen_options_field_bridge_function;
@@ -120,7 +121,6 @@ mod tests {
             "SampleError",
             "SampleError::Message { message: {msg} }",
             &api,
-            None,
         )
         .expect("visitor bridge should generate");
 
@@ -141,7 +141,6 @@ mod tests {
             "SampleError",
             "SampleError::Message { message: {msg} }",
             &api,
-            None,
         )
         .expect("visitor bridge should generate");
 
@@ -244,7 +243,6 @@ mod tests {
             "SampleCoreError",
             "SampleCoreError::from({msg})",
             &api,
-            None,
         )
         .expect("gen_trait_bridge must succeed for TextProcessor");
 

@@ -9,6 +9,22 @@ use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, RegistrationDef, RegistrationVariant, RegistrationVariantStyle, TypeRef};
 use std::path::PathBuf;
 
+/// Render each parameter's TypeScript annotation, marking optional parameters with
+/// `= undefined`.
+fn js_param_annotations(params: &[crate::core::ir::ParamDef]) -> Vec<String> {
+    params
+        .iter()
+        .map(|p| {
+            let ty = js_type_annotation(&p.ty);
+            if p.optional {
+                format!("{}: {} = undefined", p.name, ty)
+            } else {
+                format!("{}: {}", p.name, ty)
+            }
+        })
+        .collect()
+}
+
 /// Convert a `TypeRef` to a JavaScript type annotation string.
 fn js_type_annotation(ty: &TypeRef) -> String {
     match ty {
@@ -55,19 +71,7 @@ pub(super) fn gen_service_js(api: &ApiSurface) -> String {
         },
     ));
 
-    let constructor_params: Vec<String> = service
-        .constructor
-        .params
-        .iter()
-        .map(|p| {
-            let ty = js_type_annotation(&p.ty);
-            if p.optional {
-                format!("{}: {} = undefined", p.name, ty)
-            } else {
-                format!("{}: {}", p.name, ty)
-            }
-        })
-        .collect();
+    let constructor_params = js_param_annotations(&service.constructor.params);
 
     let constructor_param_names: Vec<&str> = service
         .constructor
@@ -84,18 +88,7 @@ pub(super) fn gen_service_js(api: &ApiSurface) -> String {
     ));
 
     for method in &service.configurators {
-        let method_params: Vec<String> = method
-            .params
-            .iter()
-            .map(|p| {
-                let ty = js_type_annotation(&p.ty);
-                if p.optional {
-                    format!("{}: {} = undefined", p.name, ty)
-                } else {
-                    format!("{}: {}", p.name, ty)
-                }
-            })
-            .collect();
+        let method_params = js_param_annotations(&method.params);
 
         out.push_str(&crate::backends::wasm::template_env::render(
             "service_js_configurator.jinja",
