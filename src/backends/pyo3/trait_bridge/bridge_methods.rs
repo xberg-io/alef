@@ -25,10 +25,15 @@ pub fn gen_bridge_function(
     let is_optional = bridge_param.optional || matches!(&bridge_param.ty, TypeRef::Optional(_));
     let arc_trait = bridge_param.core_wrapper == crate::core::ir::CoreWrapper::Arc;
 
-    let mut sig_parts = Vec::new();
     let func_needs_py = func.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
+    // Same predicate as the plain free-function path: only a pyo3 sync wrapper detaches. ~keep
+    let pyo3_sync = !func.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
+    let mut sig_parts = Vec::new();
     if func_needs_py {
         sig_parts.push("py: Python<'py>".to_string());
+    } else if pyo3_sync {
+        // A sync wrapper takes the GIL token too, to release the GIL around the core call. ~keep
+        sig_parts.push("py: Python<'_>".to_string());
     }
 
     for (idx, p) in func.params.iter().enumerate() {
@@ -50,6 +55,7 @@ pub fn gen_bridge_function(
     }
 
     let params_str = sig_parts.join(", ");
+    let too_many_arguments = sig_parts.len() > 7;
     let return_type = mapper.map_type(&func.return_type);
     let ret = mapper.wrap_return(&return_type, func.error_type.is_some() || arc_trait);
     let ret = if func_needs_py {
@@ -193,6 +199,13 @@ pub fn gen_bridge_function(
         }
     };
     let core_call = format!("{core_fn_path}({call_args_str})");
+    // The bridge re-attaches for each callback, so a sync core call runs detached like the
+    // plain free functions (#136). ~keep
+    let core_call = if pyo3_sync {
+        format!("py.detach(|| {core_call})")
+    } else {
+        core_call
+    };
 
     let return_wrap = match &func.return_type {
         TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
@@ -283,6 +296,7 @@ pub fn gen_bridge_function(
         "trait_bridge/function_wrapper.jinja",
         crate::alef_context! {
             has_error => func.error_type.is_some(),
+            too_many_arguments => too_many_arguments,
             attr_inner => attr_inner,
             needs_signature => cfg.needs_signature,
             signature_prefix => cfg.signature_prefix,

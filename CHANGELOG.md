@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Python: a synchronous function that carries a trait bridge (an `options_field` visitor or a function-parameter
+  host) releases the GIL around its core call, like every other synchronous free function. Both wrappers called
+  the core with the GIL held, so one long call stalled every other Python thread. The wrappers now take a
+  `py: Python<'_>` token; arguments, the bridge object and the result are still converted with the GIL held, and
+  each callback re-acquires it. The `release_gil` setting documents that it governs only `capsule_types` calls.
+  ([xberg-io/html-to-markdown#974](https://github.com/xberg-io/html-to-markdown/issues/974))
+
 ## [0.127.2] - 2026-11-06
 
 ### Fixed

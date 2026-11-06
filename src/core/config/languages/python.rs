@@ -94,7 +94,9 @@ pub struct PythonConfig {
     /// round-trips and `CapsuleTypeConfig::ConstructFrom` for Python-side construction.
     #[serde(default)]
     pub capsule_types: HashMap<String, CapsuleTypeConfig>,
-    /// When true, wrap blocking function bodies in py.allow_threads() to release the GIL.
+    /// When true, release the GIL around the core call of synchronous `capsule_types`
+    /// functions and methods. Every other synchronous free function, trait-bridge
+    /// wrappers included, releases it regardless of this setting.
     #[serde(default)]
     pub release_gil: bool,
     /// Functions to exclude from Python binding generation.

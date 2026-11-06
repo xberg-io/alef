@@ -76,9 +76,14 @@ pub fn gen_bridge_field_function(
     let is_async = func.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
     let lifetime = if is_async { "<'py>" } else { "" };
 
+    // Same predicate as the plain free-function path: only a pyo3 sync wrapper detaches. ~keep
+    let pyo3_sync = !func.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
     let mut sig_parts = Vec::new();
     if is_async {
         sig_parts.push("py: Python<'py>".to_string());
+    } else if pyo3_sync {
+        // A sync wrapper takes the GIL token too, to release the GIL around the core call. ~keep
+        sig_parts.push("py: Python<'_>".to_string());
     }
     for (p, is_optional) in func.params.iter().zip(&optional_flags) {
         let ty = if *is_optional {
@@ -91,6 +96,7 @@ pub fn gen_bridge_field_function(
     sig_parts.push(format!("{visitor_kwarg}: Option<Py<PyAny>>"));
 
     let params_str = sig_parts.join(", ");
+    let too_many_arguments = sig_parts.len() > 7;
     let return_type = mapper.map_type(&func.return_type);
     let ret = if is_async {
         "PyResult<Bound<'py, PyAny>>".to_string()
@@ -200,6 +206,14 @@ pub fn gen_bridge_field_function(
         }
     };
     let core_call = format!("{core_fn_path}({call_args_str})");
+    // Every argument is an owned Rust value by now and the bridge re-attaches for each
+    // callback, so a sync core call runs detached like the plain free functions (#136). An
+    // async one already runs on the runtime, off the GIL. ~keep
+    let core_call = if pyo3_sync {
+        format!("py.detach(|| {core_call})")
+    } else {
+        core_call
+    };
 
     let wrap_expr = |var: &str| match &func.return_type {
         TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
@@ -284,6 +298,7 @@ pub fn gen_bridge_field_function(
         "trait_bridge/options_field_wrapper.jinja",
         crate::alef_context! {
             has_error => func.error_type.is_some(),
+            too_many_arguments => too_many_arguments,
             attr_inner => attr_inner,
             needs_signature => cfg.needs_signature,
             signature_prefix => cfg.signature_prefix,

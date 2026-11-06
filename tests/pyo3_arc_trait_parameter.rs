@@ -119,7 +119,7 @@ fn arc_trait_parameter_matches_fallible_wrapper_constructor_and_core_type() {
 fn infallible_core_still_has_fallible_host_construction() {
     let code = generated(false, false);
     assert!(
-        code.contains("pub fn register_parser_host(host: Py<PyAny>) -> PyResult<()>"),
+        code.contains("pub fn register_parser_host(py: Python<'_>, host: Py<PyAny>) -> PyResult<()>"),
         "{code}"
     );
     assert!(code.contains("Ok(val)"), "{code}");

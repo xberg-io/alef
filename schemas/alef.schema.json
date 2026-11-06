@@ -5535,7 +5535,7 @@
         },
         "release_gil": {
           "default": false,
-          "description": "When true, wrap blocking function bodies in py.allow_threads() to release the GIL.",
+          "description": "When true, release the GIL around the core call of synchronous `capsule_types`\nfunctions and methods. Every other synchronous free function, trait-bridge\nwrappers included, releases it regardless of this setting.",
           "type": "boolean"
         },
         "rename_fields": {
