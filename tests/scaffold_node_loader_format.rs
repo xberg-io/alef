@@ -37,7 +37,7 @@ fn format_check_with_path(seed: &str, config: &str, path: Option<&std::ffi::OsSt
     std::fs::write(directory.path().join("poly.toml"), config).unwrap();
     let mut command = Command::new(managed_tool::executable("poly"));
     command
-        .args(["fmt", "--check", "--no-cache", "--format", "json", "index.js"])
+        .args(["fmt", "--no-cache", "--format", "json", "index.js"])
         .current_dir(directory.path());
     if let Some(path) = path {
         command.env("PATH", path);

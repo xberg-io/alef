@@ -438,7 +438,7 @@ fn converge_full_regen(base_dir: &Path, pass: &mut FormatPass<'_>) {
     run_elixir_mix_format(base_dir, pass);
 }
 
-/// Check `poly fmt --check <base_dir>` for a clean (already-formatted) tree. Used
+/// Check a `poly fmt <base_dir>` dry run for a clean (already-formatted) tree. Used
 /// only to detect convergence inside [`converge_full_regen_formatting`]'s loop.
 ///
 /// Excludes the same Elixir globs as [`poly_format`] (see
@@ -452,11 +452,15 @@ fn converge_full_regen(base_dir: &Path, pass: &mut FormatPass<'_>) {
 /// stamp from everything this run is allowed to reformat. Adding the flag here would make the loop
 /// spin on stamped files the paired `poly fmt --fix` is not touching, and never report clean. ~keep
 fn poly_fmt_is_clean(base_dir: &Path) -> bool {
-    let path_str = base_dir.to_string_lossy().into_owned();
-    let mut args: Vec<String> = vec!["fmt".to_owned(), "--check".to_owned(), path_str];
-    push_poly_format_excludes(&mut args);
+    let args = poly_fmt_is_clean_args(base_dir);
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    run_formatter("poly", &arg_refs, base_dir).is_ok()
+    run_poly_dry_run(&arg_refs, base_dir) == PolyDryRun::Clean
+}
+
+fn poly_fmt_is_clean_args(base_dir: &Path) -> Vec<String> {
+    let mut args = poly_dry_run_args(&[], base_dir);
+    push_poly_format_excludes(&mut args);
+    args
 }
 
 /// Run `cargo fmt --all` at the workspace root, when `cargo`, `rustfmt`, and a
@@ -982,6 +986,7 @@ fn is_tool_available_on(tool: &str, path_var: Option<std::ffi::OsString>) -> boo
 
 #[path = "format/external_formatter.rs"]
 mod external_formatter;
+use external_formatter::{PolyDryRun, poly_dry_run_args, run_poly_dry_run};
 use external_formatter::{formatter_failure, resolve_crate_dir, run_formatter, run_poly_capturing};
 
 #[cfg(test)]

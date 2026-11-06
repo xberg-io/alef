@@ -221,10 +221,10 @@ fn generate_formats_a_workspace_root_scaffold_file_no_language_owns() {
     );
 
     let check = std::process::Command::new("poly")
-        .args(["fmt", "--check", "--fix-generated", ".cargo/config.toml"])
+        .args(["fmt", "--fix-generated", ".cargo/config.toml"])
         .current_dir(&root)
         .output()
-        .expect("run poly fmt --check");
+        .expect("run poly fmt");
     let check_output = format!(
         "{}{}",
         String::from_utf8_lossy(&check.stdout),
@@ -232,7 +232,7 @@ fn generate_formats_a_workspace_root_scaffold_file_no_language_owns() {
     );
     assert!(
         check.status.success(),
-        "`poly fmt --check --fix-generated .cargo/config.toml` must report the file clean after \
+        "`poly fmt --fix-generated .cargo/config.toml` must report the file clean after \
          `alef generate` -- a workspace-root scaffold file with no owning language must still \
          reach the formatter. Output:\n{check_output}"
     );
@@ -311,10 +311,10 @@ fn generate_formats_a_scaffold_manifest_changed_by_a_config_only_edit() {
     );
 
     let check = std::process::Command::new("poly")
-        .args(["fmt", "--check", "--fix-generated", "packages/java/pom.xml"])
+        .args(["fmt", "--fix-generated", "packages/java/pom.xml"])
         .current_dir(&root)
         .output()
-        .expect("run poly fmt --check");
+        .expect("run poly fmt");
     let check_output = format!(
         "{}{}",
         String::from_utf8_lossy(&check.stdout),
@@ -322,7 +322,7 @@ fn generate_formats_a_scaffold_manifest_changed_by_a_config_only_edit() {
     );
     assert!(
         check.status.success(),
-        "`poly fmt --check --fix-generated packages/java/pom.xml` must report the file clean \
+        "`poly fmt --fix-generated packages/java/pom.xml` must report the file clean \
          after a regen whose only change was a scaffold-managed manifest -- `java` must be \
          folded into `changed_languages` even when no binding-phase write touched it. \
          Output:\n{check_output}"

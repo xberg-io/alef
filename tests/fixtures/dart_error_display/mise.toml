@@ -20,7 +20,7 @@ run = "dart run check.dart"
 usage = 'arg "[paths]" var=#true'
 run = [
   'eval "set -- ${usage_paths:-}"; poly fmt --fix "$@" || true',
-  'eval "set -- ${usage_paths:-}"; poly fmt --check "$@"',
+  'eval "set -- ${usage_paths:-}"; poly fmt "$@"',
   'eval "set -- ${usage_paths:-}"; poly lint --fix --no-cache --no-workspace "$@" || true',
   'eval "set -- ${usage_paths:-}"; poly lint --no-cache --no-workspace "$@"',
 ]

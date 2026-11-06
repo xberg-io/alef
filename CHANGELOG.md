@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `alef generate` and `alef verify` work with poly 0.33, which removed `poly fmt --check` and exits 2 on it.
+  alef's formatting checks (the convergence loop, the stamped-tree gate and the verify coverage probe) now run
+  the bare `poly fmt` dry run, which means the same on 0.32 and earlier. Under 0.33 every check failed, so
+  generation left Kotlin, TOML and Ruby output unformatted and `alef verify --exit-code` reported drift
+  (`.alef-snippet-coverage.json`, Kotlin sources) on untouched trees. A failing dry run (exit 2) is now logged
+  and no longer read as "needs formatting". The generated PHP `composer.json` `format:check` script runs
+  `poly fmt` for the same reason. (#898)
 - Restore the public six-argument `gen_trait_bridge` entry points for Node, WASM, Ruby and R. The
   earlier `pub(crate)` narrowing plus an extra accessor parameter left the integration-test targets
   unable to compile against them; each backend now keeps the published signature and calls a new

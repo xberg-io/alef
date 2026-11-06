@@ -25,11 +25,64 @@ pub(super) fn run_formatter(command: &str, args: &[&str], work_dir: &Path) -> an
     Ok(())
 }
 
+/// What a `poly fmt` dry run reported through its exit status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PolyDryRun {
+    /// Exit 0: nothing would change.
+    Clean,
+    /// Exit 1: at least one file would be rewritten.
+    WouldChange,
+    /// Any other exit (2 is a usage error or a file poly could not process), or no exit code.
+    Failed,
+}
+
+pub(super) fn classify_poly_dry_run(exit_code: Option<i32>) -> PolyDryRun {
+    match exit_code {
+        Some(0) => PolyDryRun::Clean,
+        Some(1) => PolyDryRun::WouldChange,
+        _ => PolyDryRun::Failed,
+    }
+}
+
+/// `poly fmt <flags...> <target>`: a dry run, because that is poly's default without `--fix`.
+///
+/// Never `--check`. poly up to 0.32 accepted it as a redundant spelling of the default; 0.33 removed
+/// it and exits 2 ("`poly fmt --check` was removed"), which every caller that reads only the exit
+/// status would mistake for "needs formatting" (alef #898). The bare dry run means the same on
+/// both. ~keep
+pub(super) fn poly_dry_run_args(flags: &[&str], target: &Path) -> Vec<String> {
+    let mut args = vec!["fmt".to_owned()];
+    args.extend(flags.iter().map(|flag| (*flag).to_owned()));
+    args.push(target.to_string_lossy().into_owned());
+    args
+}
+
+/// Run a `poly fmt` dry run and classify its exit status. A failure is logged with poly's own
+/// output, so a usage error is visible instead of reading as a tree that needs formatting.
+pub(super) fn run_poly_dry_run(args: &[&str], work_dir: &Path) -> PolyDryRun {
+    let output = match crate::core::tool_command("poly")
+        .args(args)
+        .current_dir(work_dir)
+        .output()
+    {
+        Ok(output) => output,
+        Err(error) => {
+            tracing::warn!("could not run poly fmt dry run: {error}");
+            return PolyDryRun::Failed;
+        }
+    };
+    let outcome = classify_poly_dry_run(output.status.code());
+    if outcome == PolyDryRun::Failed {
+        tracing::warn!("poly fmt dry run failed: {}", formatter_failure(&output));
+    }
+    outcome
+}
+
 /// Run `poly` and return its stdout, for the one caller that reads a machine-readable payload
 /// rather than only an exit status (`owner::PolyCoverage::probe`, which parses
-/// `poly fmt --check --format json`).
+/// `poly fmt --format json`).
 ///
-/// Accepts exit code **1** as success, and that is not a leniency: `poly fmt --check` exits 1
+/// Accepts exit code **1** as success, and that is not a leniency: a `poly fmt` dry run exits 1
 /// whenever any file WOULD change, which on a real tree is the ordinary case. Treating 1 as
 /// failure would discard a perfectly good JSON payload every time the tree was not already
 /// pristine, and the probe would silently degrade to "coverage unknown" exactly when it had the

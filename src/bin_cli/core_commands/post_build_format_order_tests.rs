@@ -250,10 +250,10 @@ fn generate_formats_post_build_output_before_stamping_it() {
     // regardless of the hash line, so this assertion is a genuine second check on the same
     // property, not a check that cannot fail. ~keep
     let check = std::process::Command::new(poly)
-        .args(["fmt", "--check", "--fix-generated", "."])
+        .args(["fmt", "--fix-generated", "."])
         .current_dir(&root)
         .output()
-        .expect("run poly fmt --check");
+        .expect("run poly fmt");
     let check_output = format!(
         "{}{}",
         String::from_utf8_lossy(&check.stdout),
@@ -261,7 +261,7 @@ fn generate_formats_post_build_output_before_stamping_it() {
     );
     assert!(
         check.status.success(),
-        "`poly fmt --check --fix-generated .` must report the tree clean immediately after `alef \
+        "`poly fmt --fix-generated .` must report the tree clean immediately after `alef \
          generate` -- a post-build-owned file was formatted after being stamped, not before. \
          Output:\n{check_output}"
     );
@@ -423,10 +423,10 @@ fn poly_would_reformat(file_name: &str, content: &str) -> bool {
     let poly = crate::test_support::tool_path_with_stable_path("poly")
         .expect("poly was available at test entry but disappeared before the format probe");
     let output = crate::test_support::spawn_from_stable_dir(poly)
-        .args(["fmt", "--check", "--fix-generated", "--no-cache"])
+        .args(["fmt", "--fix-generated", "--no-cache"])
         .arg(&path)
         .output()
-        .expect("run poly fmt --check on the probe file");
+        .expect("run poly fmt on the probe file");
     !output.status.success()
 }
 

@@ -130,7 +130,7 @@ impl PolyCoverage {
     /// stamp by the time it runs; this probe reads a tree that is still stamped, so it must ask
     /// for the same view explicitly. ~keep
     ///
-    /// `--check` throughout: this writes nothing.
+    /// No `--fix` anywhere: poly's default dry run writes nothing.
     pub(crate) fn probe(roots: &[PathBuf], base_dir: &Path) -> Self {
         if roots.is_empty() || !super::is_tool_available("poly") {
             return Self { scopes: None };
@@ -139,15 +139,7 @@ impl PolyCoverage {
             .iter()
             .map(|root| {
                 let root = normalize_path(root, base_dir);
-                let mut args: Vec<String> = vec![
-                    "fmt".to_owned(),
-                    "--check".to_owned(),
-                    "--format".to_owned(),
-                    "json".to_owned(),
-                    "--fix-generated".to_owned(),
-                    root.to_string_lossy().into_owned(),
-                ];
-                push_poly_format_excludes(&mut args);
+                let args = probe_args(&root);
                 let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
                 let covered = match super::run_poly_capturing(&arg_refs, &root) {
                     Ok(stdout) => parse_poly_coverage(&stdout, &root),
@@ -222,6 +214,13 @@ impl PolyCoverage {
             .filter(|scope| path.starts_with(&scope.root))
             .max_by_key(|scope| scope.root.components().count())
     }
+}
+
+/// The coverage probe's arguments: a JSON dry run with `--fix-generated`, scoped to `root`.
+fn probe_args(root: &Path) -> Vec<String> {
+    let mut args = super::poly_dry_run_args(&["--format", "json", "--fix-generated"], root);
+    push_poly_format_excludes(&mut args);
+    args
 }
 
 /// Absolutise every path poly reported into a set, or `None` when the payload could not be read.

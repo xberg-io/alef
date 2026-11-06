@@ -41,9 +41,9 @@ pub(crate) const POLY_FMT_LANE_EXCLUSIONS: &[PolyFmtExclusion] = &[PolyFmtExclus
              and format toolchains that no runner has installed in full').",
 }];
 
-/// `poly fmt --check .`, plus one `--exclude <glob>` per [`POLY_FMT_LANE_EXCLUSIONS`] entry.
+/// `poly fmt .` (a dry run), plus one `--exclude <glob>` per [`POLY_FMT_LANE_EXCLUSIONS`] entry.
 pub(crate) fn poly_fmt_check_args() -> Vec<String> {
-    let mut args: Vec<String> = vec!["fmt".to_string(), "--check".to_string(), ".".to_string()];
+    let mut args: Vec<String> = vec!["fmt".to_string(), ".".to_string()];
     for exclusion in POLY_FMT_LANE_EXCLUSIONS {
         args.push("--exclude".to_string());
         args.push(exclusion.glob.to_string());
