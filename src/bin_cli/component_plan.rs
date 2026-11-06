@@ -31,8 +31,9 @@ pub(super) struct Fingerprinter {
     host: HostFamily,
     probe: Box<dyn ToolProbe>,
     producers: HashMap<PathBuf, ProducerInputs>,
-    executable_files: HashMap<String, Vec<(String, String)>>,
-    executable_toolchains: HashMap<String, String>,
+    config_dir: PathBuf,
+    executable_files: HashMap<(String, String), Vec<(String, String)>>,
+    executable_toolchains: HashMap<(String, PathBuf), String>,
 }
 
 impl Fingerprinter {
@@ -57,9 +58,17 @@ impl Fingerprinter {
             host: HostFamily::current(),
             probe: Box::new(SystemProbe),
             producers: HashMap::new(),
+            config_dir: PathBuf::new(),
             executable_files: HashMap::new(),
             executable_toolchains: HashMap::new(),
         })
+    }
+
+    /// Root executable input labels at the directory of the `alef.toml` at `config_path`, so the
+    /// same tree fingerprints identically from any working directory.
+    pub(super) fn with_config_path(mut self, config_path: &Path) -> Self {
+        self.config_dir = crate::core::config::component::config_dir_relative_to(config_path, &self.cwd);
+        self
     }
 
     /// The native toolchain records for `target`, probed once per target.
@@ -187,13 +196,14 @@ impl Fingerprinter {
     }
 
     /// `(label, sha256)` of the files an executable component's `inputs` (default: its
-    /// `producer_dir`) match, computed once per component.
+    /// `producer_dir`) match, computed once per component of each crate.
     fn executable_files(
         &mut self,
         config: &ResolvedCrateConfig,
         profile: &ComponentConfig,
     ) -> Result<&Vec<(String, String)>> {
-        if !self.executable_files.contains_key(&profile.name) {
+        let key = (config.name.clone(), profile.name.clone());
+        if !self.executable_files.contains_key(&key) {
             let patterns = match profile
                 .executable
                 .as_ref()
@@ -206,14 +216,15 @@ impl Fingerprinter {
                         .replace('\\', "/"),
                 ],
             };
-            let files = executable_inputs(&patterns)
+            let files = executable_inputs(&patterns, &self.config_dir, &[super::build::alef_build_root()])
                 .with_context(|| format!("cannot fingerprint the inputs of component `{}`", profile.name))?;
-            self.executable_files.insert(profile.name.clone(), files);
+            self.executable_files.insert(key.clone(), files);
         }
-        Ok(&self.executable_files[&profile.name])
+        Ok(&self.executable_files[&key])
     }
 
-    /// The identity `toolchain_version_cmd` prints, empty when none is configured.
+    /// The identity `toolchain_version_cmd` prints, empty when none is configured. Cached per
+    /// command and directory: the same command can answer differently in two producer directories.
     fn executable_toolchain(&mut self, config: &ResolvedCrateConfig, profile: &ComponentConfig) -> Result<String> {
         let Some(command) = profile
             .executable
@@ -222,12 +233,13 @@ impl Fingerprinter {
         else {
             return Ok(String::new());
         };
-        if let Some(identity) = self.executable_toolchains.get(command) {
+        let dir = super::build::executable_producer_dir(config, profile);
+        let key = (command.to_string(), dir);
+        if let Some(identity) = self.executable_toolchains.get(&key) {
             return Ok(identity.clone());
         }
-        let dir = super::build::executable_producer_dir(config, profile);
-        let identity = toolchain_identity(command, &dir)?;
-        self.executable_toolchains.insert(command.to_string(), identity.clone());
+        let identity = toolchain_identity(command, &key.1)?;
+        self.executable_toolchains.insert(key, identity.clone());
         Ok(identity)
     }
 
@@ -325,7 +337,7 @@ pub(super) fn read_lock(path: &Path) -> Result<ComponentLock> {
 pub(super) fn run(crates: &[&ResolvedCrateConfig], config_path: &Path, args: PlanArgs) -> Result<()> {
     let previous = args.previous_lock.as_deref().map(read_lock).transpose()?;
     let previous_entries = previous.as_ref().map_or(&[][..], |lock| lock.artifacts.as_slice());
-    let mut fingerprinter = Fingerprinter::new(&args.extra, &args.env)?;
+    let mut fingerprinter = Fingerprinter::new(&args.extra, &args.env)?.with_config_path(config_path);
     let mut rows = Vec::new();
     for config in crates {
         let version = config
@@ -731,7 +743,7 @@ pub(super) fn verify_lock_inputs(
         return Ok(());
     }
     let contracts = extract_contracts(config, config_path)?;
-    let mut fingerprinter = Fingerprinter::new(&[], &[])?;
+    let mut fingerprinter = Fingerprinter::new(&[], &[])?.with_config_path(config_path);
     for row in rows {
         let profile = config
             .components

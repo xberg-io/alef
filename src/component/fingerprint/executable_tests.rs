@@ -1,4 +1,5 @@
 use super::*;
+use std::path::Path;
 
 fn input<'a>() -> ExecutableFingerprintInput<'a> {
     ExecutableFingerprintInput {
@@ -107,20 +108,23 @@ fn inputs_expand_directories_and_globs_and_reject_empty_matches() {
     std::fs::write(dir.path().join("go.mod"), "module x").unwrap();
     std::fs::write(dir.path().join("README.md"), "docs").unwrap();
 
-    let by_dir = executable_inputs(&[format!("{root}/src")]).unwrap();
+    let by_dir = executable_inputs(&[format!("{root}/src")], Path::new(""), &[]).unwrap();
     assert_eq!(by_dir.len(), 2, "{by_dir:?}");
     assert!(by_dir.iter().all(|(label, _)| !label.contains(".git")), "{by_dir:?}");
 
-    let mixed = executable_inputs(&[format!("{root}/src"), format!("{root}/go.*")]).unwrap();
+    let mixed = executable_inputs(&[format!("{root}/src"), format!("{root}/go.*")], Path::new(""), &[]).unwrap();
     assert_eq!(mixed.len(), 3, "{mixed:?}");
     assert!(mixed.iter().any(|(label, _)| label.ends_with("go.mod")));
     assert!(!mixed.iter().any(|(label, _)| label.ends_with("README.md")));
 
-    let before = executable_inputs(&[format!("{root}/src")]).unwrap();
+    let before = executable_inputs(&[format!("{root}/src")], Path::new(""), &[]).unwrap();
     std::fs::write(dir.path().join("src/a.go"), "changed").unwrap();
-    assert_ne!(before, executable_inputs(&[format!("{root}/src")]).unwrap());
+    assert_ne!(
+        before,
+        executable_inputs(&[format!("{root}/src")], Path::new(""), &[]).unwrap()
+    );
 
-    let error = executable_inputs(&[format!("{root}/nothing/**/*.go")])
+    let error = executable_inputs(&[format!("{root}/nothing/**/*.go")], Path::new(""), &[])
         .unwrap_err()
         .to_string();
     assert!(error.contains("matched no files"), "{error}");
@@ -134,4 +138,112 @@ fn toolchain_identity_runs_the_command_and_rejects_failure_and_silence() {
     assert!(toolchain_identity("exit 3", dir.path()).is_err());
     let silent = toolchain_identity("true", dir.path()).unwrap_err().to_string();
     assert!(silent.contains("printed nothing"), "{silent}");
+}
+
+fn labels(inputs: &[(String, String)]) -> Vec<&str> {
+    inputs.iter().map(|(label, _)| label.as_str()).collect()
+}
+
+#[test]
+fn record_keys_are_length_prefixed_so_a_key_cannot_forge_a_record() {
+    let forged = [("a=1:b\nextra:c".to_string(), "d".to_string())];
+    let genuine = [("a".to_string(), "b".to_string()), ("c".to_string(), "d".to_string())];
+    let mut one = input();
+    one.extras = &forged;
+    let mut two = input();
+    two.extras = &genuine;
+    assert_ne!(compute_executable(&one, &files()), compute_executable(&two, &files()));
+    assert_eq!(EXECUTABLE_FINGERPRINT_VERSION, 2);
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinks_are_hashed_by_target_and_never_followed() {
+    use std::os::unix::fs::symlink;
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("src");
+    std::fs::create_dir_all(src.join("sub")).unwrap();
+    std::fs::write(src.join("a.go"), "a").unwrap();
+    std::fs::write(dir.path().join("real.go"), "r").unwrap();
+    // A cycle back to the parent, a dangling link and a link to a file outside the tree.
+    symlink("..", src.join("sub/up")).unwrap();
+    symlink("missing.go", src.join("dangling")).unwrap();
+    symlink("../real.go", src.join("outside.go")).unwrap();
+    let patterns = [src.to_str().unwrap().to_string()];
+
+    let before = executable_inputs(&patterns, Path::new(""), &[]).unwrap();
+    assert_eq!(before.len(), 4, "{before:?}");
+
+    std::fs::remove_file(src.join("dangling")).unwrap();
+    symlink("other.go", src.join("dangling")).unwrap();
+    let retargeted = executable_inputs(&patterns, Path::new(""), &[]).unwrap();
+    assert_ne!(before, retargeted, "retargeting a link must change the hash");
+
+    // The content behind a link is not an input: only its target string is.
+    std::fs::write(dir.path().join("real.go"), "changed").unwrap();
+    assert_eq!(retargeted, executable_inputs(&patterns, Path::new(""), &[]).unwrap());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_producer_directory_is_read_but_links_below_it_are_not() {
+    use std::os::unix::fs::symlink;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("real")).unwrap();
+    std::fs::write(dir.path().join("real/a.go"), "a").unwrap();
+    symlink("..", dir.path().join("real/loop")).unwrap();
+    symlink("real", dir.path().join("link")).unwrap();
+    let inputs = executable_inputs(
+        &[dir.path().join("link").to_str().unwrap().to_string()],
+        Path::new(""),
+        &[],
+    )
+    .unwrap();
+    assert_eq!(inputs.len(), 2, "{inputs:?}");
+}
+
+#[test]
+fn labels_are_relative_to_the_config_directory_not_the_working_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("exe")).unwrap();
+    std::fs::write(dir.path().join("exe/main.go"), "m").unwrap();
+    std::fs::write(dir.path().join("go.work"), "w").unwrap();
+    let root = dir.path().to_str().unwrap().replace('\\', "/");
+    let from_sub = executable_inputs(
+        &[format!("{root}/exe"), format!("{root}/go.work")],
+        Path::new(&root),
+        &[],
+    )
+    .unwrap();
+    assert_eq!(labels(&from_sub), ["exe/main.go", "go.work"]);
+}
+
+#[test]
+fn git_is_skipped_for_glob_matches_and_excluded_directories_are_not_inputs() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_str().unwrap().replace('\\', "/");
+    std::fs::create_dir_all(dir.path().join("p/.git")).unwrap();
+    std::fs::create_dir_all(dir.path().join("p/.alef/build")).unwrap();
+    std::fs::write(dir.path().join("p/.git/HEAD"), "h").unwrap();
+    std::fs::write(dir.path().join("p/.alef/build/out"), "o").unwrap();
+    std::fs::write(dir.path().join("p/main.go"), "m").unwrap();
+    let globbed = executable_inputs(&[format!("{root}/p/*")], Path::new(&root), &[]).unwrap();
+    assert_eq!(labels(&globbed), ["p/.alef/build/out", "p/main.go"]);
+    let exclude = [dir.path().join("p/.alef")];
+    let inputs = executable_inputs(&[format!("{root}/p/*")], Path::new(&root), &exclude).unwrap();
+    assert_eq!(labels(&inputs), ["p/main.go"]);
+    let literal = executable_inputs(&[format!("{root}/p")], Path::new(&root), &exclude).unwrap();
+    assert_eq!(labels(&literal), ["p/main.go"]);
+}
+
+#[test]
+fn a_missing_shell_is_reported_with_the_fix() {
+    let empty = tempfile::tempdir().unwrap();
+    let error = ensure_shell(Some(empty.path().as_os_str())).unwrap_err().to_string();
+    assert!(error.contains("no `sh` was found on PATH"), "{error}");
+    assert!(ensure_shell(None).is_err());
+    let with_sh = tempfile::tempdir().unwrap();
+    let name = if cfg!(windows) { "sh.exe" } else { "sh" };
+    std::fs::write(with_sh.path().join(name), "").unwrap();
+    assert!(ensure_shell(Some(with_sh.path().as_os_str())).is_ok());
 }

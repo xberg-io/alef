@@ -46,7 +46,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             env,
         } => {
             let plan = plan::load_selection(plan.as_deref(), debug)?;
-            let mut fingerprinter = Fingerprinter::new(&extra, &env)?;
+            let mut fingerprinter = Fingerprinter::new(&extra, &env)?.with_config_path(&context.config_path);
             for config in &crates {
                 let contracts = extract_contracts(config, &context.config_path)?;
                 for profile in plan::plan_profiles(config, &component, plan.as_ref())? {
@@ -138,7 +138,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             plan,
         } => {
             let plan = plan::load_selection(plan.as_deref(), debug)?;
-            let mut fingerprinter = Fingerprinter::new(&extra, &env)?;
+            let mut fingerprinter = Fingerprinter::new(&extra, &env)?.with_config_path(&context.config_path);
             let mut package_count = 0_usize;
             let requested_count = crates
                 .iter()

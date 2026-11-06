@@ -114,3 +114,32 @@ fn generated_schema_documents_the_executable_surface() {
         "producer_language must offer `executable`"
     );
 }
+
+#[test]
+fn a_producer_dir_that_contains_the_alef_build_directory_is_rejected() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("exe");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let config = executable_config(
+        r#"
+producer_language = "executable"
+producer_dir = "exe"
+executable = { build = "make {out}" }
+"#,
+    );
+    let mut resolved = config.resolve_crates().unwrap();
+    // `alef -c ../alef.toml` run from `exe/`: `exe/.alef` lies inside the producer directory.
+    for component in &mut resolved[0].components {
+        component.rebase_paths(std::path::Path::new(".."));
+    }
+    let error = validate_physical_producer_paths(&resolved, &cwd, std::path::Path::new(".."))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("must not contain the alef build directory"), "{error}");
+    // From the config directory, `.alef` is a sibling of the producer directory.
+    let mut resolved = config.resolve_crates().unwrap();
+    for component in &mut resolved[0].components {
+        component.rebase_paths(std::path::Path::new(""));
+    }
+    validate_physical_producer_paths(&resolved, root.path(), std::path::Path::new("")).unwrap();
+}

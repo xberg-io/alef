@@ -201,6 +201,21 @@ fn validate_producer_dirs(
                 component.producer_dir.as_deref(),
             );
             let path = resolve(&dir)?;
+            if component.producer_language == crate::core::config::ComponentProducerLanguage::Executable {
+                // The alef build directory would sit inside the default fingerprint input.
+                let build_root = resolve(Path::new(".alef"))?;
+                if build_root.starts_with(&path) {
+                    return invalid_component_config(
+                        &config.name,
+                        format!(
+                            "executable component `{}` producer_dir `{}` must not contain the alef build directory `{}`",
+                            component.name,
+                            path.join("/"),
+                            build_root.join("/")
+                        ),
+                    );
+                }
+            }
             validate_producer_path(&config.name, &component.name, &path, &inputs, &producers)?;
             producers.push((path, &component.name));
         }
