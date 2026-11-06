@@ -110,6 +110,7 @@ fn generate_component_preserves_unrelated_workspace_versions_and_reconciles_core
     let root = temporary.path().join("workspace");
     fixture(&root);
     let protected = [
+        "crates/core/Cargo.toml",
         "crates/helper/Cargo.toml",
         "crates/helper-sdk/Cargo.toml",
         "crates/client/Cargo.toml",

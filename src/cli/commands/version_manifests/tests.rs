@@ -611,3 +611,54 @@ fn drift_resolvable_from_a_path_dependency_is_not_labelled_unresolvable() {
         "a lockfile cargo can refresh right now is plain drift: {app_check:?}"
     );
 }
+
+#[cfg(windows)]
+#[test]
+fn glob_root_keeps_the_windows_verbatim_disk_prefix_literal() {
+    let root = Path::new(r"\\?\C:\workspace[one]\project");
+    assert_eq!(escaped_glob_root(root), r"\\?\C:\workspace[[]one[]]\project");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn glob_root_escapes_all_posix_metacharacters() {
+    let root = Path::new("/tmp/workspace[one]?*/project");
+    assert_eq!(escaped_glob_root(root), "/tmp/workspace[[]one[]][?][*]/project");
+}
+
+#[test]
+fn canonical_roots_discover_exactly_the_tracked_lock_with_metacharacters() {
+    let temp = TempDir::new().expect("temporary directory");
+    let directory = temp.path().join("workspace[one]");
+    std::fs::create_dir(&directory).expect("workspace directory");
+    let root = directory.canonicalize().expect("canonical workspace root");
+    #[cfg(windows)]
+    assert!(matches!(
+        root.components().next(),
+        Some(std::path::Component::Prefix(prefix)) if prefix.kind().is_verbatim()
+    ));
+    init_git_repo(&root);
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"sample\"\nversion = \"1.2.0\"\n",
+    )
+    .expect("manifest");
+    let lock = "version = 4\n[[package]]\nname = \"sample\"\nversion = \"1.2.0\"\n";
+    std::fs::write(root.join("Cargo.lock"), lock).expect("tracked lock");
+    let untracked = root.join("untracked");
+    std::fs::create_dir(&untracked).expect("untracked directory");
+    std::fs::write(untracked.join("Cargo.lock"), lock).expect("untracked lock");
+    for path in ["Cargo.toml", "Cargo.lock"] {
+        git_add(&root, path);
+    }
+    let tracked = crate::cli::git::tracked_paths_under(&root).expect("tracked paths");
+    assert_eq!(tracked.len(), 2);
+    let locks = discover_cargo_locks(&root, "1.2.0", Some(&tracked));
+    assert_eq!(
+        locks.len(),
+        1,
+        "the root lock must be discovered without the untracked copy"
+    );
+    assert_eq!(locks[0].path, root.join("Cargo.lock"));
+    assert_eq!(locks[0].packages.len(), 1);
+}

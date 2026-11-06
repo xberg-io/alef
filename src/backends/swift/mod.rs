@@ -8,6 +8,7 @@
 pub mod gen_bindings;
 pub mod gen_rust_crate;
 pub mod naming;
+pub(crate) mod owned_vector_inputs;
 mod template_env;
 pub(crate) mod type_map;
 

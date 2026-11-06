@@ -1,6 +1,6 @@
-//! A public `&self` accessor over a private core field (html-to-markdown's
-//! `NodeContext::attributes()`, xberg-io/alef#865) must carry its value through every mirroring
-//! binding instead of reading it from a core value rebuilt with an empty default.
+//! A public `&self` accessor over a private core field must carry its value through every
+//! mirroring binding instead of reading it from a core value rebuilt with an empty default
+//! (xberg-io/alef#865).
 
 use super::*;
 use crate::backends::napi::NapiBackend;
