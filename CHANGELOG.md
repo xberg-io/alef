@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.127.2] - 2026-11-06
+
 ### Fixed
 
 - Zig e2e assertions resolve a field's wire-optionality on the owning type along the access path,
