@@ -11,7 +11,7 @@ fn dependency_requirement<'a>(dependencies: &'a toml::Table, name: &str) -> &'a 
 }
 
 #[test]
-fn unicode_tables_are_exactly_pinned() {
+fn unicode_tables_are_unpinned() {
     let manifest_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
     let manifest = std::fs::read_to_string(&manifest_path).expect("read Alef Cargo.toml");
     let parsed: toml::Value = toml::from_str(&manifest).expect("parse Alef Cargo.toml");
@@ -20,11 +20,13 @@ fn unicode_tables_are_exactly_pinned() {
         .and_then(toml::Value::as_table)
         .expect("Cargo.toml has dependencies");
 
-    for (name, expected) in [("icu_casemap", "=2.4.0"), ("unicode-general-category", "=1.1.0")] {
-        let actual = semver::VersionReq::parse(dependency_requirement(dependencies, name))
-            .unwrap_or_else(|error| panic!("parse {name} requirement: {error}"));
-        let expected = semver::VersionReq::parse(expected).expect("parse expected exact requirement");
-        assert_eq!(actual, expected, "{name} must remain reproducibly pinned");
+    for name in ["icu_casemap", "unicode-general-category"] {
+        let requirement = dependency_requirement(dependencies, name);
+        semver::VersionReq::parse(requirement).unwrap_or_else(|error| panic!("parse {name} requirement: {error}"));
+        assert!(
+            !requirement.starts_with('='),
+            "{name} must not be exactly pinned; the behavioral checks below guard the tables"
+        );
     }
 }
 

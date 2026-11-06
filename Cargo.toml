@@ -73,11 +73,12 @@ ed25519-dalek = { version = "3", features = ["pem", "pkcs8"] }
 flate2 = "1"
 glob = "0.3"
 heck = "0.5"
-# Exactly pinned, not caret: the identifier and case-fold sets `codegen::coordinates` and
-# `codegen::identifier_grammar` accept are read from these two Unicode tables, so a caret bump
-# silently changes which identifiers are legal (and the Unicode version `identifier_grammar`
-# states). See `tests/unicode_dependency_pins.rs`. ~keep
-icu_casemap = "=2.4.0"
+# Caret, not exact: the identifier and case-fold sets `codegen::coordinates` and
+# `codegen::identifier_grammar` accept are read from these two Unicode tables, so a minor bump can
+# change which identifiers are legal (and the Unicode version `identifier_grammar` states).
+# `tests/unicode_dependency_pins.rs` exercises the tables themselves rather than a version pin, so
+# a bump must keep that behavior green instead of freezing the dependency. ~keep
+icu_casemap = "2.4"
 jsonschema = { version = "0.60", default-features = false, features = ["resolve-file"] }
 libloading = { version = "0.9", optional = true }
 minijinja = { version = "3.0", features = ["serde"] }
@@ -88,7 +89,7 @@ regex = "1"
 schemars = "1"
 semver = "1"
 serde = { version = "1", features = ["derive"] }
-serde-saphyr = { version = "2.0", default-features = false, features = ["deserialize"] }
+serde-saphyr = { version = "2.1", default-features = false, features = ["deserialize"] }
 serde_json = "1"
 sha2 = "0.11"
 similar = "3"
@@ -96,11 +97,11 @@ syn = { version = "3", features = ["full", "parsing", "visit"] }
 tar = "0.4"
 tempfile = "3"
 thiserror = "2"
-toml = "1.1"
+toml = "1.2"
 toml_edit = "0.25"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
-unicode-general-category = "=1.1.0"
+unicode-general-category = "1.1"
 ureq = { version = "3", features = ["json"] }
 walkdir = "2"
 which = "8"
