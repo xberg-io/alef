@@ -62,6 +62,7 @@ fn a_plan_without_explicit_selection_drives_profiles_and_targets() {
                 producer_dir: None,
                 extra_dependencies: Default::default(),
                 producer_language: Default::default(),
+                executable: None,
             })
             .collect(),
         ..Default::default()

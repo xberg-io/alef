@@ -10,8 +10,9 @@ use crate::component::artifact::{
     ComponentArtifactRecord, ComponentLock, ComponentLockEntry, sha256_bytes, sha256_file,
 };
 use crate::component::fingerprint::{
-    self, FingerprintInput, HostFamily, ProducerInputs, SystemProbe, ToolProbe, build_env, compute, native_toolchain,
-    parse_extras, process_vars, rustc_version,
+    self, ExecutableFingerprintInput, FingerprintInput, HostFamily, ProducerInputs, SystemProbe, ToolProbe, build_env,
+    compute, compute_executable, executable_inputs, native_toolchain, parse_extras, portable_executable_hash,
+    process_vars, rustc_version, toolchain_identity,
 };
 use crate::component::plan::{ComponentPlan, PlanAction, PlanCandidate, decide, reused_entries};
 use crate::core::config::{ComponentConfig, ComponentProducerLanguage, ResolvedCrateConfig};
@@ -30,6 +31,8 @@ pub(super) struct Fingerprinter {
     host: HostFamily,
     probe: Box<dyn ToolProbe>,
     producers: HashMap<PathBuf, ProducerInputs>,
+    executable_files: HashMap<String, Vec<(String, String)>>,
+    executable_toolchains: HashMap<String, String>,
 }
 
 impl Fingerprinter {
@@ -54,6 +57,8 @@ impl Fingerprinter {
             host: HostFamily::current(),
             probe: Box::new(SystemProbe),
             producers: HashMap::new(),
+            executable_files: HashMap::new(),
+            executable_toolchains: HashMap::new(),
         })
     }
 
@@ -78,7 +83,8 @@ impl Fingerprinter {
     }
 
     /// The fingerprint of `profile` built for `target`, or `None` for a Go producer, which is not
-    /// fingerprinted and is therefore always rebuilt.
+    /// fingerprinted and is therefore always rebuilt. Rust producers hash their cargo workspace;
+    /// executable producers hash their declared input files, build command and toolchain.
     ///
     /// # Errors
     ///
@@ -91,6 +97,11 @@ impl Fingerprinter {
         target: &str,
         debug: bool,
     ) -> Result<Option<String>> {
+        if profile.producer_language == ComponentProducerLanguage::Executable {
+            return self
+                .executable_input_hash(config, profile, resolved, target, debug)
+                .map(Some);
+        }
         if profile.producer_language != ComponentProducerLanguage::Rust {
             return Ok(None);
         }
@@ -127,6 +138,113 @@ impl Fingerprinter {
         )))
     }
 
+    fn executable_input_hash(
+        &mut self,
+        config: &ResolvedCrateConfig,
+        profile: &ComponentConfig,
+        resolved: &ResolvedComponent,
+        target: &str,
+        debug: bool,
+    ) -> Result<String> {
+        let executable = profile.executable.as_ref().with_context(|| {
+            format!(
+                "executable component `{}` has no `executable` configuration",
+                profile.name
+            )
+        })?;
+        let toolchain = self.executable_toolchain(config, profile)?;
+        let files = self.executable_files(config, profile)?.clone();
+        let contracts = contract_hashes(resolved)?;
+        let mut env = self
+            .env_names
+            .iter()
+            .filter_map(|name| {
+                self.vars
+                    .iter()
+                    .find(|(var, _)| var == name)
+                    .map(|(var, value)| (var.clone(), value.clone()))
+            })
+            .collect::<Vec<_>>();
+        env.sort();
+        env.dedup();
+        let file = executable.file_name(&profile.name, target);
+        Ok(compute_executable(
+            &ExecutableFingerprintInput {
+                crate_name: &config.name,
+                component: &profile.name,
+                target,
+                release: !debug,
+                file: &file,
+                build: &executable.build,
+                contracts: &contracts,
+                distribution: config.component_distribution.as_ref(),
+                toolchain: &toolchain,
+                env: &env,
+                extras: &self.extras,
+            },
+            &files,
+        ))
+    }
+
+    /// `(label, sha256)` of the files an executable component's `inputs` (default: its
+    /// `producer_dir`) match, computed once per component.
+    fn executable_files(
+        &mut self,
+        config: &ResolvedCrateConfig,
+        profile: &ComponentConfig,
+    ) -> Result<&Vec<(String, String)>> {
+        if !self.executable_files.contains_key(&profile.name) {
+            let patterns = match profile
+                .executable
+                .as_ref()
+                .map(|executable| executable.inputs.as_slice())
+            {
+                Some(inputs) if !inputs.is_empty() => inputs.to_vec(),
+                _ => vec![
+                    super::build::executable_producer_dir(config, profile)
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                ],
+            };
+            let files = executable_inputs(&patterns)
+                .with_context(|| format!("cannot fingerprint the inputs of component `{}`", profile.name))?;
+            self.executable_files.insert(profile.name.clone(), files);
+        }
+        Ok(&self.executable_files[&profile.name])
+    }
+
+    /// The identity `toolchain_version_cmd` prints, empty when none is configured.
+    fn executable_toolchain(&mut self, config: &ResolvedCrateConfig, profile: &ComponentConfig) -> Result<String> {
+        let Some(command) = profile
+            .executable
+            .as_ref()
+            .and_then(|executable| executable.toolchain_version_cmd.as_deref())
+        else {
+            return Ok(String::new());
+        };
+        if let Some(identity) = self.executable_toolchains.get(command) {
+            return Ok(identity.clone());
+        }
+        let dir = super::build::executable_producer_dir(config, profile);
+        let identity = toolchain_identity(command, &dir)?;
+        self.executable_toolchains.insert(command.to_string(), identity.clone());
+        Ok(identity)
+    }
+
+    /// The portable hash of the producer's sources: what the lock assembly host can recompute.
+    fn producer_hash(&mut self, config: &ResolvedCrateConfig, profile: &ComponentConfig) -> Result<String> {
+        if profile.producer_language == ComponentProducerLanguage::Executable {
+            let build = profile
+                .executable
+                .as_ref()
+                .map(|executable| executable.build.clone())
+                .unwrap_or_default();
+            let files = self.executable_files(config, profile)?;
+            return Ok(portable_executable_hash(files, &build));
+        }
+        Ok(portable_producer_hash(self.producer(config, profile)?))
+    }
+
     fn producer(&mut self, config: &ResolvedCrateConfig, profile: &ComponentConfig) -> Result<&ProducerInputs> {
         let manifest = super::build::producer_manifest_path(config, profile);
         if !self.producers.contains_key(&manifest) {
@@ -150,7 +268,7 @@ fn portable_producer_hash(producer: &ProducerInputs) -> String {
 }
 
 fn plan_source_hash(
-    producer: &ProducerInputs,
+    producer_hash: &str,
     config: &ResolvedCrateConfig,
     profile: &ComponentConfig,
     resolved: &ResolvedComponent,
@@ -158,7 +276,7 @@ fn plan_source_hash(
     let mut contracts = contract_hashes(resolved)?;
     contracts.sort();
     let bytes = serde_json::to_vec(&(
-        portable_producer_hash(producer),
+        producer_hash,
         feature_hash(&profile.features, profile.default_features),
         contracts,
         &profile.provides,
@@ -239,8 +357,8 @@ pub(super) fn run(crates: &[&ResolvedCrateConfig], config_path: &Path, args: Pla
                 )?;
                 row.host_family = Some(fingerprinter.host());
                 row.version = Some(version.clone());
-                let producer = fingerprinter.producer(config, profile)?;
-                row.source_hash = Some(plan_source_hash(producer, config, profile, resolved)?);
+                let producer_hash = fingerprinter.producer_hash(config, profile)?;
+                row.source_hash = Some(plan_source_hash(&producer_hash, config, profile, resolved)?);
                 rows.push(row);
             }
         }
@@ -636,7 +754,7 @@ fn verify_source_row(
     fingerprinter: &mut Fingerprinter,
 ) -> Result<()> {
     ensure!(
-        row.input_hash.is_some() && profile.producer_language == ComponentProducerLanguage::Rust,
+        row.input_hash.is_some() && profile.producer_language != ComponentProducerLanguage::Go,
         "component planning requires an input fingerprint; Go producers are unsupported"
     );
     ensure!(
@@ -644,8 +762,8 @@ fn verify_source_row(
         "component `{}` does not match the planned version; create a new plan",
         row.component
     );
-    let producer = fingerprinter.producer(config, profile)?;
-    let source_hash = plan_source_hash(producer, config, profile, resolved)?;
+    let producer_hash = fingerprinter.producer_hash(config, profile)?;
+    let source_hash = plan_source_hash(&producer_hash, config, profile, resolved)?;
     ensure!(
         row.source_hash.as_deref() == Some(source_hash.as_str()),
         "inputs of `{}` for `{}` changed since the plan was made; create a new plan",

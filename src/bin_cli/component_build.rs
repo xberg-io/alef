@@ -15,6 +15,9 @@ pub(super) fn build_component(
     dry_run: bool,
     shared_target_dir: Option<&Path>,
 ) -> Result<()> {
+    if profile.producer_language == ComponentProducerLanguage::Executable {
+        return build_executable(config, profile, rust_target, debug, dry_run, shared_target_dir);
+    }
     let mut producer_manifest = producer_manifest_path(config, profile);
     if profile.producer_language == ComponentProducerLanguage::Go {
         producer_manifest.set_file_name("go.mod");
@@ -137,6 +140,7 @@ fn execute_component_build(
     let tool = match profile.producer_language {
         ComponentProducerLanguage::Rust => "cargo",
         ComponentProducerLanguage::Go => "Go (CGO_ENABLED=1; requires a CGO-compatible C compiler)",
+        ComponentProducerLanguage::Executable => "the executable build command",
     };
     if profile.producer_language == ComponentProducerLanguage::Go {
         let output_dir = library
@@ -158,6 +162,108 @@ fn execute_component_build(
         profile.name
     );
     Ok(())
+}
+
+/// Build the executable of a `producer_language = "executable"` component with its `build`
+/// command, run through `sh -c` from the producer directory.
+///
+/// Cross-compilation is the command's business: alef only passes the target triple and the output
+/// path, and checks that the file exists afterwards.
+fn build_executable(
+    config: &ResolvedCrateConfig,
+    profile: &ComponentConfig,
+    rust_target: &str,
+    debug: bool,
+    dry_run: bool,
+    shared_target_dir: Option<&Path>,
+) -> Result<()> {
+    let executable = profile.executable.as_ref().with_context(|| {
+        format!(
+            "executable component `{}` has no `executable` configuration",
+            profile.name
+        )
+    })?;
+    let producer_dir = executable_producer_dir(config, profile);
+    ensure!(
+        producer_dir.is_dir(),
+        "executable component producer directory does not exist: {}",
+        producer_dir.display()
+    );
+    let output = std::path::absolute(built_library_path_for(
+        config,
+        profile,
+        rust_target,
+        debug,
+        shared_target_dir,
+    ))
+    .context("could not resolve the executable output path")?;
+    let out = output
+        .to_str()
+        .context("executable output path is not valid UTF-8")?
+        .to_string();
+    let script = executable.render_build(rust_target, &out, debug);
+    tracing::info!(
+        "Building executable component `{}` for `{rust_target}`: {script}",
+        profile.name
+    );
+    if dry_run {
+        return Ok(());
+    }
+    let output_dir = output.parent().context("executable output has no parent directory")?;
+    fs::create_dir_all(output_dir)
+        .with_context(|| format!("could not create executable output directory {}", output_dir.display()))?;
+    if output.exists() {
+        fs::remove_file(&output).with_context(|| format!("could not remove stale {}", output.display()))?;
+    }
+    let status = Command::new("sh")
+        .arg("-c")
+        .arg(&script)
+        .current_dir(&producer_dir)
+        .env("ALEF_COMPONENT_TARGET", rust_target)
+        .env("ALEF_COMPONENT_OUT", &out)
+        .env("ALEF_COMPONENT_PROFILE", if debug { "debug" } else { "release" })
+        .status()
+        .context("failed to execute `sh` for the executable component build")?;
+    ensure!(
+        status.success(),
+        "component `{}` build command failed for target `{rust_target}`",
+        profile.name
+    );
+    ensure!(
+        output.is_file(),
+        "component `{}` build command succeeded but did not produce {}",
+        profile.name,
+        output.display()
+    );
+    Ok(())
+}
+
+/// Directory of an executable component: its mandatory `producer_dir`.
+pub(super) fn executable_producer_dir(config: &ResolvedCrateConfig, profile: &ComponentConfig) -> PathBuf {
+    crate::core::config::component::component_producer_dir(
+        &config.core_crate_dir(),
+        &profile.name,
+        profile.producer_dir.as_deref(),
+    )
+}
+
+/// Where the built payload of `profile` for `target` lives, for every producer language.
+pub(super) fn built_library_path_for(
+    config: &ResolvedCrateConfig,
+    profile: &ComponentConfig,
+    target: &str,
+    debug: bool,
+    shared_target_dir: Option<&Path>,
+) -> PathBuf {
+    match &profile.executable {
+        Some(executable) if profile.producer_language == ComponentProducerLanguage::Executable => {
+            component_target_dir(config, &profile.name, shared_target_dir)
+                .join(target)
+                .join(if debug { "debug" } else { "release" })
+                .join(executable.file_name(&profile.name, target))
+        }
+        _ => built_library_path(config, &profile.name, target, debug, shared_target_dir),
+    }
 }
 
 /// Cargo target directory for one component build: the shared `--target-dir` when given, else a

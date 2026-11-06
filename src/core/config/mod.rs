@@ -6,6 +6,7 @@ pub mod build_defaults;
 pub mod cargo_lints;
 pub mod clean_defaults;
 pub mod component;
+pub mod component_executable;
 pub mod derive;
 pub mod dto;
 pub mod e2e;
@@ -44,6 +45,7 @@ pub use component::{
     ComponentConfig, ComponentContractConfig, ComponentDistributionConfig, ComponentHostConfig,
     ComponentProducerLanguage, ComponentProvidesConfig,
 };
+pub use component_executable::ComponentExecutableConfig;
 pub use derive::{derive_go_module_from_repo, derive_repo_org, derive_reverse_dns_package};
 pub use dto::{
     CsharpDtoStyle, DtoConfig, ElixirDtoStyle, GoDtoStyle, JavaBuilderMode, JavaDtoConfig, JavaDtoStyle, NodeDtoStyle,

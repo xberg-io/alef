@@ -23,7 +23,7 @@ mod build;
 #[path = "component_plan.rs"]
 mod plan;
 
-use build::{build_component, built_library_path};
+use build::{build_component, built_library_path_for};
 use plan::{Fingerprinter, PlanArgs};
 
 pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Option<Commands>> {
@@ -79,7 +79,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                             None => None,
                         };
                         let library =
-                            built_library_path(config, &profile.name, &rust_target, debug, target_dir.as_deref());
+                            built_library_path_for(config, profile, &rust_target, debug, target_dir.as_deref());
                         if !dry_run {
                             plan::clear_sidecar(&library)?;
                         }
@@ -220,7 +220,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     let profile_feature_hash = feature_hash(&profile.features, profile.default_features);
                     for rust_target in plan::plan_targets(config, profile, &target, plan.as_ref())? {
                         let library_path = library.clone().unwrap_or_else(|| {
-                            built_library_path(config, &profile.name, &rust_target, debug, target_dir.as_deref())
+                            built_library_path_for(config, profile, &rust_target, debug, target_dir.as_deref())
                         });
                         let input_hash = match &plan {
                             Some(plan) => {

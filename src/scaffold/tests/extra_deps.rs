@@ -150,6 +150,7 @@ fn component_scaffolds_preserve_configured_dependency_overrides_without_duplicat
     let mut config = test_config();
     config.components.push(crate::core::config::ComponentConfig {
         producer_language: Default::default(),
+        executable: None,
         name: "fast".to_string(),
         provides: vec![crate::core::config::ComponentProvidesConfig {
             contract: "engine".to_string(),

@@ -30,6 +30,7 @@ fn target_filter_must_be_declared_by_profile() {
         producer_dir: None,
         extra_dependencies: Default::default(),
         producer_language: Default::default(),
+        executable: None,
     };
     let requested = vec!["x86_64-unknown-linux-gnu".to_string()];
     assert!(select_targets(&config, &profile, &requested).is_err());
@@ -51,6 +52,7 @@ fn component_extraction_uses_feature_union_without_changing_binding_features() {
                 producer_dir: None,
                 extra_dependencies: Default::default(),
                 producer_language: Default::default(),
+                executable: None,
             },
             ComponentConfig {
                 name: "gpu".into(),
@@ -63,6 +65,7 @@ fn component_extraction_uses_feature_union_without_changing_binding_features() {
                 producer_dir: None,
                 extra_dependencies: Default::default(),
                 producer_language: Default::default(),
+                executable: None,
             },
         ],
         ..ResolvedCrateConfig::default()
@@ -192,6 +195,7 @@ fn one_component_config() -> ResolvedCrateConfig {
             producer_dir: None,
             extra_dependencies: Default::default(),
             producer_language: Default::default(),
+            executable: None,
         }],
         ..ResolvedCrateConfig::default()
     }

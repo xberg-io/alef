@@ -1144,6 +1144,7 @@ module_name = "test_lib"
             }],
             components: vec![ComponentConfig {
                 producer_language: Default::default(),
+                executable: None,
                 name: "openapi".to_string(),
                 provides: vec![ComponentProvidesConfig {
                     contract: "spec".to_string(),

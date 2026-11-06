@@ -22,6 +22,9 @@ pub fn generate_component_producers(api: &ApiSurface, config: &ResolvedCrateConf
     let components = crate::codegen::component::resolve_components(api, config)?;
     let mut files = Vec::with_capacity(components.len() * 3);
     for component in components {
+        if component.producer_language == crate::core::config::ComponentProducerLanguage::Executable {
+            continue;
+        }
         if component.producer_language == crate::core::config::ComponentProducerLanguage::Go {
             files.extend(super::component_go::generate(api, config, &component)?);
             continue;
@@ -789,6 +792,7 @@ mod tests {
             }],
             components: vec![ComponentConfig {
                 producer_language: Default::default(),
+                executable: None,
                 name: "pdf".into(),
                 provides: vec![ComponentProvidesConfig {
                     contract: "extractor".into(),
@@ -918,6 +922,7 @@ mod tests {
             ],
             components: vec![ComponentConfig {
                 producer_language: Default::default(),
+                executable: None,
                 name: "bundle".into(),
                 provides: vec![
                     ComponentProvidesConfig {
