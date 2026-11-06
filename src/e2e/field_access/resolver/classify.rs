@@ -394,6 +394,18 @@ impl FieldResolver {
         self.wire_optional_fields.contains(key)
     }
 
+    /// Whether the field at `path` may be absent from the wire because the type that OWNS it
+    /// declares `#[serde(skip_serializing_if = "...")]`.
+    ///
+    /// The anchored, per-owner answer for JSON-tree walkers. `None` when the IR cannot resolve
+    /// `path` from the call's declared result type, so callers fall back to
+    /// [`Self::is_wire_optional_key`]'s bare-name set. Unlike that set, `Some(false)` is
+    /// authoritative: a required `data` on one type stays required even when another type skips a
+    /// field of the same name (alef#899).
+    pub fn is_wire_optional_at(&self, path: &str) -> Option<bool> {
+        super::super::ir_result_fields::wire_optional_at_path(&self.ir_result_field_map, self.resolve(path))
+    }
+
     /// Check if a fixture field has an explicit alias mapping.
     pub fn has_alias(&self, fixture_field: &str) -> bool {
         self.aliases.contains_key(fixture_field)

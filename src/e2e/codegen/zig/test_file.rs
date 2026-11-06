@@ -270,6 +270,7 @@ fn render_test_fn(
     );
     let (ir_reachable_fields, ir_known_excluded_fields, ir_optional_fields) = FieldResolver::ir_field_sets(type_defs);
     let lang = "zig";
+    let call_root_type = crate::e2e::codegen::call_ir::resolve_declared_result_type(call_config, lang, ir);
     let call_overrides = call_config.overrides.get(lang);
     // `field_resolver.is_enum` consults `effective_enum_fields` (hand-maintained config) first
     // and only then the IR-derived classification (`with_ir_enum_map`), so an explicit config
@@ -291,10 +292,11 @@ fn render_test_fn(
         call_config,
         call_overrides,
     ))
-    .with_ir_enum_map(
-        FieldResolver::ir_enum_fields(type_defs, enums),
-        crate::e2e::codegen::call_ir::resolve_declared_result_type(call_config, lang, ir),
-    )
+    .with_ir_enum_map(FieldResolver::ir_enum_fields(type_defs, enums), call_root_type.clone())
+    // Wire-optionality is per owner type: a skipped `data` on one struct must not guard a
+    // required `data` on another (alef#899). Anchoring also makes `is_optional` resolve the
+    // owning type along each assertion path, like the other backends. ~keep
+    .with_ir_result_fields(FieldResolver::ir_result_field_facts(type_defs, lang), call_root_type)
     // `with_ir_fields` only proves a bare field name optional, with no path context; anchors
     // this fixture's assertion paths via the IR's real per-type walk instead, matching
     // `presentation.rs`'s existing `with_anchored_optional_paths` use. ~keep

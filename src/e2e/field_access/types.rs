@@ -271,6 +271,10 @@ pub struct IrResultFieldMap {
     pub field_types: HashMap<String, HashMap<String, String>>,
     pub optional_fields: HashMap<String, HashSet<String>>,
     pub pointer_fields: HashMap<String, HashSet<String>>,
+    /// Fields carrying `#[serde(skip_serializing_if = "...")]`, keyed by owner type so a skipped
+    /// `data` on one struct never marks a required `data` on another as absent. Zig's JSON-tree
+    /// walker consults this per step; see [`FieldResolver::is_wire_optional_at`].
+    pub wire_optional_fields: HashMap<String, HashSet<String>>,
     /// Go `json.RawMessage` fields, whose byte length is meaningful even behind a pointer.
     pub raw_message_fields: HashMap<String, HashSet<String>>,
     pub data_interface_fields: HashMap<String, HashSet<String>>,

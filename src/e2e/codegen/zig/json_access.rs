@@ -40,7 +40,10 @@ pub(super) fn json_path_expr_with(
         //                   never reaches here — the caller lowers it to a loop instead.
         //   "results[0]"  → access the array, then specific index N. ~keep
         if let Some(key) = seg.strip_suffix("[]") {
-            expr = format!("{}.array.items[0]", json_get(&expr, key, unwrap, field_resolver));
+            expr = format!(
+                "{}.array.items[0]",
+                json_get(&expr, &owner_path, key, unwrap, field_resolver)
+            );
         } else if let Some(bracket_pos) = seg.find('[') {
             if let Some(end_pos) = seg.find(']')
                 && end_pos > bracket_pos + 1
@@ -49,7 +52,10 @@ pub(super) fn json_path_expr_with(
                 let key = &seg[..bracket_pos];
                 let idx = &seg[bracket_pos + 1..end_pos];
                 if idx.chars().all(|c| c.is_ascii_digit()) {
-                    expr = format!("{}.array.items[{idx}]", json_get(&expr, key, unwrap, field_resolver));
+                    expr = format!(
+                        "{}.array.items[{idx}]",
+                        json_get(&expr, &owner_path, key, unwrap, field_resolver)
+                    );
                     push_owner_segment(&mut owner_path, bare);
                     continue;
                 }
@@ -59,7 +65,8 @@ pub(super) fn json_path_expr_with(
                 // `metadata.document.open_graph[title]` alias pattern where
                 // `open_graph` is a `HashMap<String, String>`.
                 expr = json_get(
-                    &json_get(&expr, key, unwrap, field_resolver),
+                    &json_get(&expr, &owner_path, key, unwrap, field_resolver),
+                    &owner_path,
                     idx,
                     unwrap,
                     field_resolver,
@@ -67,9 +74,9 @@ pub(super) fn json_path_expr_with(
                 push_owner_segment(&mut owner_path, bare);
                 continue;
             }
-            expr = json_get(&expr, seg, unwrap, field_resolver);
+            expr = json_get(&expr, &owner_path, seg, unwrap, field_resolver);
         } else {
-            expr = json_get(&expr, seg, unwrap, field_resolver);
+            expr = json_get(&expr, &owner_path, seg, unwrap, field_resolver);
         }
         push_owner_segment(&mut owner_path, bare);
     }
@@ -92,8 +99,19 @@ pub(super) fn json_path_expr_with(
 /// `.null` enum literal: chained straight into further `.object.get(...)` with no declaration
 /// in between, a bare literal has no result type for Zig's peer resolution — an uncaught
 /// non-compiling regression in 0.62.7. ~keep
-fn json_get(expr: &str, key: &str, unwrap: Unwrap, field_resolver: &FieldResolver) -> String {
-    if field_resolver.is_wire_optional_key(key) {
+fn json_get(expr: &str, owner_path: &str, key: &str, unwrap: Unwrap, field_resolver: &FieldResolver) -> String {
+    let field_path = if owner_path.is_empty() {
+        key.to_string()
+    } else {
+        format!("{owner_path}.{key}")
+    };
+    // The anchored answer wins whenever the IR resolves this step: a bare-name hit must not
+    // mark a required field absent just because an unrelated type skips a field of the same
+    // name (alef#899). Unresolvable steps keep the historic bare-name guard. ~keep
+    let wire_optional = field_resolver
+        .is_wire_optional_at(&field_path)
+        .unwrap_or_else(|| field_resolver.is_wire_optional_key(key));
+    if wire_optional {
         return format!("({expr}.object.get(\"{key}\") orelse std.json.Value{{ .null = {{}} }})");
     }
     match unwrap {

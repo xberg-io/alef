@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Zig e2e assertions resolve a field's wire-optionality on the owning type along the access path,
+  so a `#[serde(skip_serializing_if = "...")]` `data` on one struct no longer guards a required
+  `data` on another or rewrites unrelated fixtures. The bare-name set remains the fallback only
+  when the anchored IR cannot resolve the path. (#899)
+
 ## [0.127.1] - 2026-11-06
 
 ### Changed

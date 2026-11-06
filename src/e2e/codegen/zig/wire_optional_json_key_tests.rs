@@ -97,3 +97,88 @@ fn non_wire_optional_leaf_key_keeps_force_unwrap() {
         "a field not marked wire-optional must not be guarded. Rendered:\n{out}"
     );
 }
+
+/// alef#899: adding `data: Option<String>` (skipped by serde) to one type must not guard a
+/// REQUIRED `data` field on a different type. The anchored IR resolves the owning type along the
+/// path and answers for that type; the bare-name set is only the fallback when it cannot.
+#[test]
+fn wire_optionality_is_resolved_on_the_owning_type() {
+    use crate::core::ir::{FieldDef, TypeDef, TypeRef};
+
+    let type_defs = vec![
+        TypeDef {
+            name: "Response".to_string(),
+            fields: vec![
+                FieldDef {
+                    name: "thinking".to_string(),
+                    ty: TypeRef::Named("ThinkingBlock".to_string()),
+                    ..FieldDef::default()
+                },
+                FieldDef {
+                    name: "payload".to_string(),
+                    ty: TypeRef::Named("Payload".to_string()),
+                    ..FieldDef::default()
+                },
+            ],
+            ..TypeDef::default()
+        },
+        TypeDef {
+            name: "ThinkingBlock".to_string(),
+            fields: vec![FieldDef {
+                name: "data".to_string(),
+                ty: TypeRef::Optional(Box::new(TypeRef::String)),
+                optional: true,
+                serde_skip_serializing_if: true,
+                ..FieldDef::default()
+            }],
+            ..TypeDef::default()
+        },
+        TypeDef {
+            name: "Payload".to_string(),
+            fields: vec![FieldDef {
+                name: "data".to_string(),
+                ty: TypeRef::Vec(Box::new(TypeRef::String)),
+                serde_skip_serializing_if: false,
+                ..FieldDef::default()
+            }],
+            ..TypeDef::default()
+        },
+    ];
+    let resolver = empty_resolver()
+        .with_ir_result_fields(
+            FieldResolver::ir_result_field_facts(&type_defs, "zig"),
+            Some("Response".to_string()),
+        )
+        // The bare-name set still contains `data` because ThinkingBlock skips it; the anchored
+        // answer must win for the Payload path.
+        .with_wire_optional_fields(FieldResolver::ir_wire_optional_fields(&type_defs));
+
+    let required = super::json_access::json_path_expr_with(
+        "result",
+        "",
+        "payload.data",
+        super::json_access::Unwrap::Panic,
+        &resolver,
+    );
+    assert!(
+        required.contains(".object.get(\"data\").?"),
+        "a required `data` must keep the force-unwrap even when another type skips a `data` \
+         field. Rendered:\n{required}"
+    );
+    assert!(
+        !required.contains("orelse"),
+        "a required `data` must not be guarded by another type's skip. Rendered:\n{required}"
+    );
+
+    let skipped = super::json_access::json_path_expr_with(
+        "result",
+        "",
+        "thinking.data",
+        super::json_access::Unwrap::Panic,
+        &resolver,
+    );
+    assert!(
+        skipped.contains("orelse std.json.Value{ .null = {} }"),
+        "the owner that actually skips `data` must still be guarded. Rendered:\n{skipped}"
+    );
+}

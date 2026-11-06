@@ -188,6 +188,12 @@ fn record_ir_result_field(
         .entry(type_def.name.clone())
         .or_default()
         .insert(field.name.clone(), field.ty.clone());
+    if field.serde_skip_serializing_if {
+        map.wire_optional_fields
+            .entry(type_def.name.clone())
+            .or_default()
+            .insert(field.name.clone());
+    }
     if rule.applies_to(field, type_def) {
         map.optional_fields
             .entry(type_def.name.clone())
@@ -322,6 +328,23 @@ pub(super) fn type_ref_is_display_safe(ty: &TypeRef) -> bool {
 /// `ir_collection::is_collection_path`.
 pub(super) fn is_optional_path(map: &impl MetadataView<IrResultFieldMap>, path: &str) -> bool {
     optionality_at_path(map, path).unwrap_or(false)
+}
+
+/// Whether `path`'s leaf may be ABSENT from the wire because the type that owns it declares
+/// `#[serde(skip_serializing_if = "...")]`.
+///
+/// Unlike `FieldResolver::is_wire_optional_key`'s bare-name set, this walks the IR's struct graph
+/// so a skipped `data` on one type never marks a required `data` on another. `None` means the IR
+/// cannot resolve the path; callers fall back to the bare-name answer there.
+pub(super) fn wire_optional_at_path(map: &impl MetadataView<IrResultFieldMap>, path: &str) -> Option<bool> {
+    let root = map.root()?;
+    let (owner, leaf) = walk_to_owner_from(map, root, path)?;
+    Some(
+        map.data()
+            .wire_optional_fields
+            .get(owner)
+            .is_some_and(|fields| fields.contains(&leaf)),
+    )
 }
 
 /// Return the binding's authoritative optionality when `path` resolves from the anchored root.
