@@ -19,9 +19,13 @@ pub struct ComponentExecutableConfig {
     /// Shell command that builds the executable for one target, run with `sh -c` from the
     /// component's `producer_dir`. Placeholders: `{target}` (Rust target triple), `{out}` (absolute
     /// path the command must write the executable to; required) and `{profile}` (`release` or
-    /// `debug`). The same values are exported as `ALEF_COMPONENT_TARGET`, `ALEF_COMPONENT_OUT` and
-    /// `ALEF_COMPONENT_PROFILE`. Mapping a triple to the consumer's toolchain (for example
-    /// GOOS/GOARCH) is the command's job, and cross-compilation is allowed.
+    /// `debug`). Each substituted value is inserted POSIX single-quoted, so a path containing
+    /// spaces or quotes stays one word: write `-o {out}`, never `-o "{out}"`. On Windows `{out}`
+    /// uses forward slashes. The same values are exported unquoted as `ALEF_COMPONENT_TARGET`,
+    /// `ALEF_COMPONENT_OUT` and `ALEF_COMPONENT_PROFILE`. Mapping a triple to the consumer's
+    /// toolchain (for example GOOS/GOARCH) is the command's job, and cross-compilation is allowed.
+    /// A POSIX `sh` must be on `PATH` of the build host, Windows included (Git for Windows or
+    /// MSYS2 provide one).
     pub build: String,
     /// Payload file name; defaults to the component name. `.exe` is appended for `*-windows-*`
     /// targets unless `target_files` names the target.
@@ -32,14 +36,20 @@ pub struct ComponentExecutableConfig {
     pub target_files: BTreeMap<String, String>,
     /// Glob patterns (relative to the directory of `alef.toml`) of the files whose content decides
     /// whether `alef component plan` reuses a previous build. A directory matches every file under
-    /// it. Defaults to the component's `producer_dir`; when set it replaces that default, so list
-    /// the producer directory too when it should still count, plus files outside it such as a
-    /// shared `go.work`.
+    /// it; `.git` directories and alef's own `.alef` build directory are skipped. An entry that
+    /// names an existing path is taken literally before it is tried as a glob. Symbolic links are
+    /// hashed by their target string and never followed. Defaults to the component's
+    /// `producer_dir`; when set it replaces that default, so list the producer directory too when
+    /// it should still count, plus files outside it such as a shared `go.work`. Unlike
+    /// `producer_dir`, entries may use `..` to reach files outside the producer directory.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub inputs: Vec<String>,
     /// Shell command whose trimmed standard output identifies the toolchain (for example
     /// `go version`); it is part of the fingerprint, so a compiler upgrade rebuilds. Run with
-    /// `sh -c` from the `producer_dir` by `plan`, `build` and `package`, never by `lock`.
+    /// `sh -c` from the `producer_dir` by `plan`, `build` and `package`, never by `lock`. Because
+    /// `lock` does not run it, `lock --reuse` re-verification covers the input files and the build
+    /// command but not the toolchain: the toolchain is trusted to the plan that produced the
+    /// reused artifact.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub toolchain_version_cmd: Option<String>,
 }
@@ -59,13 +69,24 @@ impl ComponentExecutableConfig {
         }
     }
 
-    /// The build command with `{target}`, `{out}` and `{profile}` substituted.
+    /// The build command with `{target}`, `{out}` and `{profile}` substituted, each value
+    /// POSIX single-quoted. On Windows `{out}` is converted to forward slashes first so `sh` does
+    /// not read its backslashes as escapes.
     #[must_use]
     pub fn render_build(&self, target: &str, out: &str, debug: bool) -> String {
+        self.render_build_for(target, out, debug, cfg!(windows))
+    }
+
+    fn render_build_for(&self, target: &str, out: &str, debug: bool, windows: bool) -> String {
+        let out = if windows {
+            out.replace('\\', "/")
+        } else {
+            out.to_string()
+        };
         self.build
-            .replace("{target}", target)
-            .replace("{out}", out)
-            .replace("{profile}", if debug { "debug" } else { "release" })
+            .replace("{target}", &shell_quote(target))
+            .replace("{out}", &shell_quote(&out))
+            .replace("{profile}", &shell_quote(if debug { "debug" } else { "release" }))
     }
 
     /// Check the fields that do not depend on the rest of the component.
@@ -85,8 +106,9 @@ impl ComponentExecutableConfig {
             let Some(end) = rest[start..].find('}') else { break };
             let name = &rest[start + 1..start + end];
             if !name.is_empty()
-                && name.bytes().all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+                && name.bytes().all(|byte| byte.is_ascii_alphabetic() || byte == b'_')
                 && !EXECUTABLE_BUILD_PLACEHOLDERS.contains(&name)
+                && !is_shell_parameter(rest, start)
             {
                 return Err(format!(
                     "executable.build placeholder `{{{name}}}` is unknown; expected one of {}",
@@ -135,6 +157,16 @@ impl ComponentExecutableConfig {
             *pattern = config_dir.join(&*pattern).to_string_lossy().replace('\\', "/");
         }
     }
+}
+
+/// `${NAME}` is a shell parameter expansion, not a placeholder.
+fn is_shell_parameter(text: &str, brace: usize) -> bool {
+    text[..brace].ends_with('$')
+}
+
+/// `value` as one POSIX single-quoted word.
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 fn validate_file_name(label: &str, value: &str) -> Result<(), String> {
@@ -187,9 +219,38 @@ mod tests {
         let executable = config("go build -o {out} # {target} {profile} {target}");
         assert_eq!(
             executable.render_build("aarch64-apple-darwin", "/tmp/out/sh", false),
-            "go build -o /tmp/out/sh # aarch64-apple-darwin release aarch64-apple-darwin"
+            "go build -o '/tmp/out/sh' # 'aarch64-apple-darwin' 'release' 'aarch64-apple-darwin'"
         );
-        assert!(executable.render_build("t", "/o", true).contains("debug"));
+        assert!(executable.render_build("t", "/o", true).contains("'debug'"));
+    }
+
+    #[test]
+    fn render_build_quotes_an_out_path_with_a_space_and_a_quote() {
+        let executable = config("printf x > {out}");
+        let rendered = executable.render_build("t", "/tmp/it's here/sh", false);
+        assert_eq!(rendered, "printf x > '/tmp/it'\\''s here/sh'");
+    }
+
+    #[test]
+    fn render_build_converts_a_windows_out_path_to_forward_slashes() {
+        let executable = config("go build -o {out} .");
+        assert_eq!(
+            executable.render_build_for("t", r"C:\Users\a b\sh.exe", false, true),
+            "go build -o 'C:/Users/a b/sh.exe' ."
+        );
+        assert_eq!(
+            executable.render_build_for("t", r"/tmp/a\b", false, false),
+            "go build -o '/tmp/a\\b' ."
+        );
+    }
+
+    #[test]
+    fn validation_rejects_a_near_miss_placeholder_in_any_case() {
+        for build in ["make {out} {OUT}", "make {out} {Target}", "make {out} {Profile}"] {
+            let error = config(build).validate().unwrap_err();
+            assert!(error.contains("is unknown"), "{build}: {error}");
+        }
+        assert!(config("make {out} ${HOME} \"${Target_Dir}\"").validate().is_ok());
     }
 
     #[test]
