@@ -270,6 +270,35 @@ fn poly_format_accepts_clean_and_reformatted_exit_codes() {
     assert!(!poly_format_exit_code_is_success(None));
 }
 
+/// poly 0.33 rejects `fmt --check` with exit 2; 0.32 and earlier take the bare dry run as the same
+/// thing, so the convergence check must never pass it (alef #898).
+#[test]
+fn poly_fmt_is_clean_runs_the_bare_dry_run_that_every_poly_accepts() {
+    assert_eq!(
+        poly_fmt_is_clean_args(Path::new("/tree")),
+        [
+            "fmt",
+            "/tree",
+            "--exclude",
+            "**/*.ex",
+            "--exclude",
+            "**/*.exs",
+            "--exclude",
+            "**/*.cs"
+        ]
+    );
+}
+
+#[test]
+fn poly_dry_run_exit_codes_separate_would_change_from_failure() {
+    use super::external_formatter::classify_poly_dry_run;
+
+    assert_eq!(classify_poly_dry_run(Some(0)), PolyDryRun::Clean);
+    assert_eq!(classify_poly_dry_run(Some(1)), PolyDryRun::WouldChange);
+    assert_eq!(classify_poly_dry_run(Some(2)), PolyDryRun::Failed);
+    assert_eq!(classify_poly_dry_run(None), PolyDryRun::Failed);
+}
+
 #[test]
 fn poly_format_rejects_engine_failures_even_when_poly_exits_successfully() {
     assert!(poly_format_output_reports_failure(

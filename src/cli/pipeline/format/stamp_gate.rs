@@ -2,9 +2,9 @@
 //! file that alef has already stamped.
 //!
 //! `poly` skips any file whose leading lines carry a well-formed `<tool>:hash:<hex>` line, under
-//! `--fix` **and** under `--check`. Measured against the `poly` binary this repository builds
+//! `--fix` **and** in the dry run. Measured against the `poly` binary this repository builds
 //! against (0.21.x): a file carrying `alef:hash:<64 hex>` is reported as
-//! `skipped <path>: hash-stamped generated file (pass --fix-generated to format)`, and `--check`
+//! `skipped <path>: hash-stamped generated file (pass --fix-generated to format)`, and the dry run
 //! exits 0 on a tree containing nothing else. That skip is correct for third-party invocations --
 //! a formatter must not fight a generator, and rewriting generated output can silence the very
 //! diagnostic that was the evidence of a generator bug. It is a lock-out for alef's *own*
@@ -79,25 +79,24 @@ pub fn unstamp_before_formatting(paths: &HashSet<PathBuf>) -> usize {
 /// the only way to tell that tree apart from a settled one.
 ///
 /// `--fix-generated` is what makes the answer meaningful -- without it poly declines to inspect a
-/// stamped file and reports the tree clean. Nothing is written either way; this is `--check`.
-/// Only the exit status is read, never poly's output text, so the gate does not depend on the
-/// spelling of poly's report. Best-effort: a missing or failing `poly` answers "no", leaving the
-/// caller's own change-detection as the sole trigger, which is the behaviour that shipped before
-/// this existed. ~keep
+/// stamped file and reports the tree clean. Nothing is written either way: without `--fix` this is
+/// poly's dry run. Only the exit status is read, never poly's output text, so the gate does not
+/// depend on the spelling of poly's report. Best-effort: a missing or failing `poly` answers "no",
+/// leaving the caller's own change-detection as the sole trigger, which is the behaviour that
+/// shipped before this existed. ~keep
 pub(crate) fn generated_tree_needs_formatting(base_dir: &Path) -> bool {
     if !super::is_tool_available("poly") {
         return false;
     }
-    let path_str = base_dir.to_string_lossy().into_owned();
-    let mut args: Vec<String> = vec![
-        "fmt".to_owned(),
-        "--check".to_owned(),
-        "--fix-generated".to_owned(),
-        path_str,
-    ];
-    super::push_poly_format_excludes(&mut args);
+    let args = gate_args(base_dir);
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    super::run_formatter("poly", &arg_refs, base_dir).is_err()
+    super::run_poly_dry_run(&arg_refs, base_dir) == super::PolyDryRun::WouldChange
+}
+
+fn gate_args(base_dir: &Path) -> Vec<String> {
+    let mut args = super::poly_dry_run_args(&["--fix-generated"], base_dir);
+    super::push_poly_format_excludes(&mut args);
+    args
 }
 
 #[cfg(test)]

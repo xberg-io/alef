@@ -423,7 +423,7 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
   }},
   "scripts": {{
     "format": "poly fmt --fix",
-    "format:check": "poly fmt --check",
+    "format:check": "poly fmt",
     "test": "php vendor/bin/phpunit",
     "lint": "poly lint",
     "lint:fix": "poly lint --fix && poly fmt --fix"

@@ -119,3 +119,23 @@ fn the_gate_stays_quiet_on_a_canonical_tree() {
         "a canonical tree must not trigger the gate"
     );
 }
+
+/// `--fix-generated` without `--check`: poly 0.33 rejects `--check` with exit 2, which this gate
+/// read as "needs formatting" on every run (alef #898). The bare dry run means the same on 0.32.
+#[test]
+fn the_gate_runs_a_bare_dry_run_with_fix_generated() {
+    assert_eq!(
+        gate_args(Path::new("/tree")),
+        [
+            "fmt",
+            "--fix-generated",
+            "/tree",
+            "--exclude",
+            "**/*.ex",
+            "--exclude",
+            "**/*.exs",
+            "--exclude",
+            "**/*.cs"
+        ]
+    );
+}

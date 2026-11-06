@@ -174,10 +174,10 @@ sources = ["src/lib.rs"]
         }
         if is_tool_available("poly") {
             let check = std::process::Command::new("poly")
-                .args(["fmt", "--check", &base.to_string_lossy()])
+                .args(["fmt", &base.to_string_lossy()])
                 .current_dir(base)
                 .status()
-                .expect("run poly fmt --check");
+                .expect("run poly fmt");
             assert!(
                 check.success(),
                 "the tree `alef fmt` leaves behind must already be poly-fmt-clean"

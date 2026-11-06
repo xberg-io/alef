@@ -265,7 +265,7 @@ const POLY: GateTool = GateTool {
     program: "poly",
     display: "poly",
     probe: &["--version"],
-    check_args: &["fmt", "--check", "."],
+    check_args: &["fmt", "."],
     install_hint: "brew install goldziher/tap/poly (or `mise run setup`)",
 };
 

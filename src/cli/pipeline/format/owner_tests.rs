@@ -364,3 +364,25 @@ fn every_exclude_glob_is_emitted_as_an_exclude_argument_pair() {
         assert_eq!(args[position - 1], "--exclude");
     }
 }
+
+/// A JSON dry run without `--check`, which poly 0.33 rejects with exit 2 and an empty payload
+/// (alef #898). `--fix-generated` stays: the probe reads a still-stamped tree.
+#[test]
+fn the_coverage_probe_runs_a_bare_json_dry_run_with_fix_generated() {
+    assert_eq!(
+        probe_args(Path::new("/tree")),
+        [
+            "fmt",
+            "--format",
+            "json",
+            "--fix-generated",
+            "/tree",
+            "--exclude",
+            "**/*.ex",
+            "--exclude",
+            "**/*.exs",
+            "--exclude",
+            "**/*.cs"
+        ]
+    );
+}
