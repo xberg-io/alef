@@ -98,17 +98,17 @@ pub(crate) fn render_host_module(
 }
 
 /// Component ids the host loads as child processes: the ones `component_host.stdio_components`
-/// names plus every executable component, in configuration order and without repeats.
+/// names, in that order, then every executable component not already named, in configuration
+/// order. Existing configs keep their generated output byte for byte.
 fn stdio_component_ids(config: &ResolvedCrateConfig, resolved: &[ResolvedComponent]) -> Vec<String> {
-    let explicit = config
+    let mut ids = config
         .component_host
         .as_ref()
-        .map(|host| host.stdio_components.as_slice())
+        .map(|host| host.stdio_components.clone())
         .unwrap_or_default();
-    let mut ids = Vec::new();
     for component in resolved {
         let name = &component.component_name;
-        if (component.producer_language.is_stdio() || explicit.contains(name)) && !ids.contains(name) {
+        if component.producer_language.is_stdio() && !ids.contains(name) {
             ids.push(name.clone());
         }
     }
