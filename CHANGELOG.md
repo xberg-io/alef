@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Swift: every generated `Package.swift` declares macOS 15, the oldest macOS Apple still supports, instead of
+  macOS 26 (`.macOS(.v15)`). The default follows Apple's support list and moves when Apple drops a release;
+  `swift-tools-version` stays 6.2 and `[crates.swift] min_macos_version` still overrides it
+  ([ADR 0021](adrs/0021-generate-the-oldest-macos-apple-still-supports.md)).
+
 ## [0.126.1] - 2026-11-05
 
 ### Fixed

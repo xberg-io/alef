@@ -314,7 +314,7 @@ const KNOWN_UNMARKED_VERSION_CONSTS: &[UnmarkedVersionConst] = &[
     UnmarkedVersionConst {
         name: "SWIFT_MIN_MACOS",
         reason: UnmarkedReason::ToolchainFloor,
-        detail: "Swift minimum macOS target, human-reviewed rather than auto-bumped",
+        detail: "Swift minimum macOS target, the oldest macOS Apple supports (ADR 0021), human-reviewed",
     },
     UnmarkedVersionConst {
         name: "SWIFT_MIN_IOS",
@@ -324,7 +324,7 @@ const KNOWN_UNMARKED_VERSION_CONSTS: &[UnmarkedVersionConst] = &[
     UnmarkedVersionConst {
         name: "SWIFT_TOOLS_VERSION",
         reason: UnmarkedReason::ToolchainFloor,
-        detail: "SwiftPM tools-version of emitted manifests, tied to SWIFT_MIN_MACOS's platform enum",
+        detail: "SwiftPM tools-version of emitted manifests, the floor for staticLibrary artifact bundles",
     },
     UnmarkedVersionConst {
         name: "GO_VERSION",
