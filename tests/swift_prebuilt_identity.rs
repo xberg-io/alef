@@ -354,13 +354,29 @@ fn explicit_skip_bypasses_leftover_prebuilt_files() {
     );
 }
 
+/// alef#884: a plain `sync-versions` pins a prepared bundle, so it validates the staging
+/// exactly as `--regen` does instead of ignoring leftover files.
 #[test]
-fn no_regeneration_does_not_consume_prebuilt_files() {
+fn no_regeneration_still_rejects_leftover_prebuilt_files() {
     let fixture = Fixture::new();
     fixture.stage();
     write(fixture.work.join("dist/swift-artifactbundle/extra.zip"), b"leftover");
-    assert!(fixture.run(&[]).status.success());
-    assert!(!fixture.work.join("target/alef-swift-checksum.txt").exists());
+    fixture.reject(&[], "exactly one canonical ZIP");
+}
+
+#[test]
+fn no_regeneration_pins_prepared_checksum() {
+    let fixture = Fixture::new();
+    let receipt = fixture.stage();
+    let output = fixture.run(&[]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let digest = receipt["sha256"].as_str().expect("digest");
+    let manifest = std::fs::read_to_string(fixture.work.join("Package.swift")).expect("manifest");
+    assert!(manifest.contains(&format!("checksum: \"{digest}\"")), "{manifest}");
+    assert_eq!(
+        std::fs::read_to_string(fixture.work.join("target/alef-swift-checksum.txt")).expect("sidecar"),
+        digest
+    );
 }
 
 #[test]
