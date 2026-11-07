@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.128.0] - 2026-11-07
+
 ### Added
 
 - `producer_language = "executable"` components: an executable built by a consumer command
