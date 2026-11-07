@@ -752,6 +752,7 @@ mod tests {
         for (name, feature) in [("pdf", "pdf"), ("office", "office")] {
             config.components.push(ComponentConfig {
                 producer_language: Default::default(),
+                executable: None,
                 name: name.into(),
                 provides: vec![ComponentProvidesConfig {
                     contract: "extractor".into(),
@@ -807,6 +808,7 @@ mod tests {
         });
         config.components.push(ComponentConfig {
             producer_language: Default::default(),
+            executable: None,
             name: "bundle".into(),
             provides: vec![
                 ComponentProvidesConfig {
@@ -845,6 +847,7 @@ mod tests {
         let config = ResolvedCrateConfig::default();
         let component = ComponentConfig {
             producer_language: Default::default(),
+            executable: None,
             name: "fast".into(),
             provides: vec![ComponentProvidesConfig {
                 contract: "extractor".into(),

@@ -166,6 +166,7 @@ fn codec_config() -> ResolvedCrateConfig {
         }],
         components: vec![ComponentConfig {
             producer_language: Default::default(),
+            executable: None,
             name: "reverse".into(),
             provides: vec![ComponentProvidesConfig {
                 contract: "codec".into(),

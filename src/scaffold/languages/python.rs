@@ -583,6 +583,7 @@ mod tests {
             name: "demo".into(),
             components: vec![ComponentConfig {
                 producer_language: Default::default(),
+                executable: None,
                 name: "fast".into(),
                 provides: vec![ComponentProvidesConfig {
                     contract: "engine".into(),
@@ -611,6 +612,7 @@ mod tests {
             name: "demo".into(),
             components: vec![ComponentConfig {
                 producer_language: Default::default(),
+                executable: None,
                 name: "fast".into(),
                 provides: vec![ComponentProvidesConfig {
                     contract: "engine".into(),

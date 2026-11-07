@@ -746,6 +746,7 @@ fn component_manager_dependencies_require_ci_staged_lock() {
         }],
         components: vec![ComponentConfig {
             producer_language: Default::default(),
+            executable: None,
             name: "fast".into(),
             provides: vec![ComponentProvidesConfig {
                 contract: "engine".into(),

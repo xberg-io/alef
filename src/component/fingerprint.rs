@@ -58,10 +58,15 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 mod env;
+mod executable;
 mod toolchain;
 mod tree;
 
 pub use env::{build_env, cargo_home, implicit_config, process_vars};
+pub use executable::{
+    EXECUTABLE_FINGERPRINT_VERSION, ExecutableFingerprintInput, compute_executable, ensure_shell, executable_inputs,
+    portable_executable_hash, toolchain_identity,
+};
 pub use toolchain::{ABSENT, HostFamily, SystemProbe, ToolProbe, apple_sdk, native_toolchain};
 pub use tree::tree_digest;
 

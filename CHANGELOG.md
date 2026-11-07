@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `producer_language = "executable"` components: an executable built by a consumer command
+  (`executable.build`, with `{target}`, `{out}` and `{profile}`) that speaks the framed stdio transport.
+  `alef generate` emits no bridge for it and `alef verify` accepts it, the generated standalone host selects it
+  as stdio without a `stdio_components` entry, `alef component plan` fingerprints its declared input files, build
+  command, target and `toolchain_version_cmd` so `--reuse` can skip an unchanged build, and `build`, `package` and
+  `lock` carry it in the same lock as the Rust components. Cross-compilation is the build command's business.
+  See ADR-0023.
+
 ## [0.127.3] - 2026-11-07
 
 ### Fixed

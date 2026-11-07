@@ -44,11 +44,7 @@ pub(crate) fn render_host_module(
     resolved: &[ResolvedComponent],
     lock_path: &str,
 ) -> Result<String> {
-    let stdio_components = config
-        .component_host
-        .as_ref()
-        .map(|host| host.stdio_components.as_slice())
-        .unwrap_or_default();
+    let stdio_components = stdio_component_ids(config, resolved);
     let native_components = resolved
         .iter()
         .filter(|component| !stdio_components.contains(&component.component_name))
@@ -97,8 +93,26 @@ pub(crate) fn render_host_module(
         "/// The host's target triple, when components are published for it.\npub fn host_target() -> Option<&'static str> {\n    alef_component_runtime::target::host_target()\n}\n\n",
     );
     out.push_str(&proxies);
-    write!(out, "{}", manager_constructor(lock_path, stdio_components))?;
+    write!(out, "{}", manager_constructor(lock_path, &stdio_components))?;
     Ok(out)
+}
+
+/// Component ids the host loads as child processes: the ones `component_host.stdio_components`
+/// names, in that order, then every executable component not already named, in configuration
+/// order. Existing configs keep their generated output byte for byte.
+fn stdio_component_ids(config: &ResolvedCrateConfig, resolved: &[ResolvedComponent]) -> Vec<String> {
+    let mut ids = config
+        .component_host
+        .as_ref()
+        .map(|host| host.stdio_components.clone())
+        .unwrap_or_default();
+    for component in resolved {
+        let name = &component.component_name;
+        if component.producer_language.is_stdio() && !ids.contains(name) {
+            ids.push(name.clone());
+        }
+    }
+    ids
 }
 
 fn manager_constructor(lock_path: &str, stdio_components: &[String]) -> String {
@@ -179,6 +193,7 @@ mod tests {
             }],
             components: vec![ComponentConfig {
                 producer_language: Default::default(),
+                executable: None,
                 name: "reverse".into(),
                 provides: vec![ComponentProvidesConfig {
                     contract: "codec".into(),
@@ -304,6 +319,27 @@ mod tests {
         assert!(!generated.contains(".with_stdio_component(\"native-codec\")"));
         assert_eq!(generated.matches("pub struct CodecProxy").count(), 1);
         assert!(generated.contains("&[\"reverse\", \"native-codec\"]"), "{generated}");
+    }
+
+    #[test]
+    fn executable_component_is_selected_as_stdio_without_being_listed() {
+        let (api, mut config) = fixture();
+        let mut component = serde_json::to_value(&config.components[0]).unwrap();
+        component["producer_language"] = serde_json::json!("executable");
+        component["producer_dir"] = serde_json::json!("sidecars/reverse");
+        component["executable"] = serde_json::json!({ "build": "make {out}" });
+        config.components[0] = serde_json::from_value(component).unwrap();
+        assert!(config.component_host.as_ref().unwrap().stdio_components.is_empty());
+        let generated = generate_component_host(&api, &config).unwrap().unwrap().content;
+        assert!(generated.contains(".with_stdio_component(\"reverse\")"), "{generated}");
+        assert!(!generated.contains("pub struct CodecProxy"), "{generated}");
+        select_stdio(&mut config, &["reverse"]);
+        let listed = generate_component_host(&api, &config).unwrap().unwrap().content;
+        assert_eq!(
+            listed.matches(".with_stdio_component(\"reverse\")").count(),
+            1,
+            "{listed}"
+        );
     }
 
     #[test]

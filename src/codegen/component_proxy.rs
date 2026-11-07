@@ -474,6 +474,7 @@ mod tests {
             component_contracts,
             components: vec![ComponentConfig {
                 producer_language: Default::default(),
+                executable: None,
                 name: "reverse".into(),
                 provides,
                 features: vec!["reverse".into()],

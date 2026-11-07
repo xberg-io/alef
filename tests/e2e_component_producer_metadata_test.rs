@@ -38,6 +38,7 @@ fn fixture(is_async: bool) -> (ApiSurface, ResolvedCrateConfig) {
         }],
         components: vec![ComponentConfig {
             producer_language: Default::default(),
+            executable: None,
             name: "native".into(),
             provides: vec![ComponentProvidesConfig {
                 contract: "codec".into(),

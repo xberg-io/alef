@@ -57,6 +57,7 @@ mod tests {
             name: "demo-core".into(),
             components: vec![ComponentConfig {
                 producer_language: Default::default(),
+                executable: None,
                 name: "fast".into(),
                 provides: vec![ComponentProvidesConfig {
                     contract: "engine".into(),

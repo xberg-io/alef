@@ -1194,6 +1194,8 @@ fn merge_generated_header(
 #[cfg(test)]
 mod c_abi_tests;
 #[cfg(test)]
+mod component_executable_tests;
+#[cfg(test)]
 mod component_tests;
 mod component_validation;
 pub(crate) use component_validation::validate_physical_producer_paths;

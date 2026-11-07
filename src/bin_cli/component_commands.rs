@@ -23,7 +23,7 @@ mod build;
 #[path = "component_plan.rs"]
 mod plan;
 
-use build::{build_component, built_library_path};
+use build::{build_component, built_library_path_for};
 use plan::{Fingerprinter, PlanArgs};
 
 pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Option<Commands>> {
@@ -46,7 +46,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             env,
         } => {
             let plan = plan::load_selection(plan.as_deref(), debug)?;
-            let mut fingerprinter = Fingerprinter::new(&extra, &env)?;
+            let mut fingerprinter = Fingerprinter::new(&extra, &env)?.with_config_path(&context.config_path);
             for config in &crates {
                 let contracts = extract_contracts(config, &context.config_path)?;
                 for profile in plan::plan_profiles(config, &component, plan.as_ref())? {
@@ -79,7 +79,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                             None => None,
                         };
                         let library =
-                            built_library_path(config, &profile.name, &rust_target, debug, target_dir.as_deref());
+                            built_library_path_for(config, profile, &rust_target, debug, target_dir.as_deref());
                         if !dry_run {
                             plan::clear_sidecar(&library)?;
                         }
@@ -138,7 +138,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             plan,
         } => {
             let plan = plan::load_selection(plan.as_deref(), debug)?;
-            let mut fingerprinter = Fingerprinter::new(&extra, &env)?;
+            let mut fingerprinter = Fingerprinter::new(&extra, &env)?.with_config_path(&context.config_path);
             let mut package_count = 0_usize;
             let requested_count = crates
                 .iter()
@@ -220,7 +220,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     let profile_feature_hash = feature_hash(&profile.features, profile.default_features);
                     for rust_target in plan::plan_targets(config, profile, &target, plan.as_ref())? {
                         let library_path = library.clone().unwrap_or_else(|| {
-                            built_library_path(config, &profile.name, &rust_target, debug, target_dir.as_deref())
+                            built_library_path_for(config, profile, &rust_target, debug, target_dir.as_deref())
                         });
                         let input_hash = match &plan {
                             Some(plan) => {

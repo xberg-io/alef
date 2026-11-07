@@ -74,11 +74,20 @@ pub enum ComponentProducerLanguage {
     Rust,
     /// Go c-shared producer using the native C ABI.
     Go,
+    /// Prebuilt executable speaking the framed stdio transport, built by a consumer command; alef
+    /// generates no producer or bridge for it.
+    Executable,
 }
 
 impl ComponentProducerLanguage {
     fn is_rust(&self) -> bool {
         *self == Self::Rust
+    }
+
+    /// Whether components of this language are served over the framed stdio transport.
+    #[must_use]
+    pub fn is_stdio(&self) -> bool {
+        *self == Self::Executable
     }
 }
 
@@ -194,6 +203,10 @@ pub struct ComponentConfig {
     /// `alef.toml`; must not contain `..`. For Go producers it is the Go module directory.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub producer_dir: Option<String>,
+    /// Build, payload and fingerprint settings of an `executable` producer. Required when
+    /// `producer_language = "executable"` and rejected otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub executable: Option<super::component_executable::ComponentExecutableConfig>,
 }
 
 impl ComponentConfig {
@@ -210,6 +223,9 @@ impl ComponentConfig {
             .flatten()
         {
             *path = config_dir.join(&*path).to_string_lossy().replace('\\', "/");
+        }
+        if let Some(executable) = &mut self.executable {
+            executable.rebase_paths(config_dir);
         }
     }
 }
@@ -722,5 +738,27 @@ mod producer_language_tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("unknown variant `python`"), "{error}");
+    }
+
+    #[test]
+    fn producer_language_accepts_executable_with_its_build_table() {
+        let value = serde_json::json!({
+            "name": "sh", "provides": [], "producer_language": "executable", "producer_dir": "sidecars/sh",
+            "executable": { "build": "make {out}", "toolchain_version_cmd": "go version" }
+        });
+        let config: ComponentConfig = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(config.producer_language, ComponentProducerLanguage::Executable);
+        assert!(config.producer_language.is_stdio());
+        assert!(!ComponentProducerLanguage::Go.is_stdio());
+        assert_eq!(
+            serde_json::to_value(&config).unwrap()["executable"],
+            value["executable"]
+        );
+        let mut unknown = value;
+        unknown["executable"]["shell"] = serde_json::json!("bash");
+        assert!(
+            serde_json::from_value::<ComponentConfig>(unknown).is_err(),
+            "unknown keys are rejected"
+        );
     }
 }

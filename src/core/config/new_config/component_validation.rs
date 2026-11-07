@@ -34,7 +34,7 @@ pub(super) fn validate_components(
         // A component built from the core crate is distinguished by its feature set, so it must name
         // one; a Go producer, or one whose implementation lives in its own `source_manifest` crate,
         // may enable none.
-        let may_omit_features = component.producer_language == crate::core::config::ComponentProducerLanguage::Go
+        let may_omit_features = component.producer_language != crate::core::config::ComponentProducerLanguage::Rust
             || component.source_manifest.is_some();
         if !may_omit_features || !component.features.is_empty() {
             validate_nonempty_values(&krate.name, &component.name, "features", &component.features)?;
@@ -48,17 +48,19 @@ pub(super) fn validate_components(
 }
 
 fn validate_component_locations(crate_name: &str, component: &ComponentConfig) -> Result<(), ResolveError> {
-    if component.producer_language == crate::core::config::ComponentProducerLanguage::Go
+    if component.producer_language != crate::core::config::ComponentProducerLanguage::Rust
         && component.source_manifest.is_some()
     {
         return invalid_component_config(
             crate_name,
             format!(
-                "Go component `{}` cannot declare `source_manifest`; it names a Cargo manifest",
+                "{} component `{}` cannot declare `source_manifest`; it names a Cargo manifest",
+                producer_label(component),
                 component.name
             ),
         );
     }
+    validate_component_executable(crate_name, component)?;
     if let Some(manifest) = &component.source_manifest {
         crate::core::config::component::validate_source_manifest(manifest).or_else(|reason| {
             invalid_component_config(crate_name, format!("component `{}`: {reason}", component.name))
@@ -70,6 +72,46 @@ fn validate_component_locations(crate_name: &str, component: &ComponentConfig) -
         })?;
     }
     Ok(())
+}
+
+fn producer_label(component: &ComponentConfig) -> &'static str {
+    match component.producer_language {
+        crate::core::config::ComponentProducerLanguage::Executable => "executable",
+        crate::core::config::ComponentProducerLanguage::Go => "Go",
+        crate::core::config::ComponentProducerLanguage::Rust => "Rust",
+    }
+}
+
+fn validate_component_executable(crate_name: &str, component: &ComponentConfig) -> Result<(), ResolveError> {
+    let is_executable = component.producer_language == crate::core::config::ComponentProducerLanguage::Executable;
+    match (&component.executable, is_executable) {
+        (Some(_), false) => invalid_component_config(
+            crate_name,
+            format!(
+                "component `{}` declares `executable` but its producer_language is not \"executable\"",
+                component.name
+            ),
+        ),
+        (None, true) => invalid_component_config(
+            crate_name,
+            format!(
+                "executable component `{}` must declare `executable` with at least a `build` command",
+                component.name
+            ),
+        ),
+        (Some(executable), true) => {
+            if component.producer_dir.is_none() {
+                return invalid_component_config(
+                    crate_name,
+                    format!("executable component `{}` must declare `producer_dir`", component.name),
+                );
+            }
+            executable.validate().or_else(|reason| {
+                invalid_component_config(crate_name, format!("component `{}`: {reason}", component.name))
+            })
+        }
+        (None, false) => Ok(()),
+    }
 }
 
 /// Split paths into case-insensitive segments for portable overlap checks. Missing paths cannot
@@ -159,6 +201,21 @@ fn validate_producer_dirs(
                 component.producer_dir.as_deref(),
             );
             let path = resolve(&dir)?;
+            if component.producer_language == crate::core::config::ComponentProducerLanguage::Executable {
+                // The alef build directory would sit inside the default fingerprint input.
+                let build_root = resolve(Path::new(".alef"))?;
+                if build_root.starts_with(&path) {
+                    return invalid_component_config(
+                        &config.name,
+                        format!(
+                            "executable component `{}` producer_dir `{}` must not contain the alef build directory `{}`",
+                            component.name,
+                            path.join("/"),
+                            build_root.join("/")
+                        ),
+                    );
+                }
+            }
             validate_producer_path(&config.name, &component.name, &path, &inputs, &producers)?;
             producers.push((path, &component.name));
         }
@@ -229,13 +286,14 @@ fn validate_producer_path(
 }
 
 fn validate_component_dependencies(crate_name: &str, component: &ComponentConfig) -> Result<(), ResolveError> {
-    if component.producer_language == crate::core::config::ComponentProducerLanguage::Go
+    if component.producer_language != crate::core::config::ComponentProducerLanguage::Rust
         && !component.extra_dependencies.is_empty()
     {
         return invalid_component_config(
             crate_name,
             format!(
-                "Go component `{}` cannot declare Rust extra_dependencies",
+                "{} component `{}` cannot declare Rust extra_dependencies",
+                producer_label(component),
                 component.name
             ),
         );
@@ -294,6 +352,18 @@ fn validate_component_implementation(
 ) -> Result<(), ResolveError> {
     if component.producer_language == crate::core::config::ComponentProducerLanguage::Rust {
         return validate_rust_item_path(crate_name, "component implementation", implementation);
+    }
+    if component.producer_language == crate::core::config::ComponentProducerLanguage::Executable {
+        if !implementation.trim().is_empty() && !implementation.chars().any(char::is_control) {
+            return Ok(());
+        }
+        return invalid_component_config(
+            crate_name,
+            format!(
+                "executable component `{}` implementation must be a non-empty name",
+                component.name
+            ),
+        );
     }
     if crate::core::config::component::is_valid_go_constructor_identifier(implementation) {
         return Ok(());
