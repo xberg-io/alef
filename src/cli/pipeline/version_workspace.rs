@@ -327,7 +327,7 @@ fn selected_version_family(
     };
     // A member whose `[package] version` inherits `[workspace.package] version` moves with the
     // same bump even though it carries no literal to rewrite. Its path dependencies must move
-    // too: `liter-llm-cli`'s `liter-llm-proxy = { path = ..., version = ... }` kept the old
+    // too: a `cli` crate's `proxy = { path = ..., version = ... }` kept the old
     // version because only the core's name entered the family (alef#890). ~keep
     for manifest in &candidates {
         if inherits_workspace_version(&manifest.document) {

@@ -1305,7 +1305,7 @@ fn sync_versions_preserves_already_current_local_override() {
 
 /// alef#890: a hand-written crate's pin on a *non-core* workspace member must move with the
 /// bump when that member inherits `[workspace.package] version`. Only the core's name used to
-/// enter the version family, so `liter-llm-cli`'s `liter-llm-proxy` pin kept the old release.
+/// enter the version family, so a `cli` crate's pin on its `proxy` sibling kept the old release.
 #[test]
 fn sync_versions_bumps_path_pins_on_inherited_workspace_members() {
     use crate::core::config::NewAlefConfig;
