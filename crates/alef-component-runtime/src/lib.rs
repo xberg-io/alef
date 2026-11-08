@@ -67,5 +67,6 @@ pub use manifest::{
     ComponentIdentity, ComponentLibrary, ComponentLock, ComponentLockEntry, ComponentManifest,
     ComponentProvidedContract, ComponentSignature, canonical_json,
 };
+pub use stdio::{SidecarRestartEvent, SidecarSession, SidecarSessionSetup};
 
 pub use ed25519_dalek::VerifyingKey;

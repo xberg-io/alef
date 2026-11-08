@@ -1,10 +1,13 @@
-use super::{STDIO_PROTOCOL_VERSION, StdioDescriptor, StdioRequest, StdioResponse, read_frame, write_frame};
+use super::{
+    STDIO_PROTOCOL_VERSION, SidecarRestartEvent, SidecarSession, SidecarSessionSetup, StdioDescriptor, StdioRequest,
+    StdioResponse, read_frame, write_frame,
+};
 use crate::loader::decode_hash;
 use crate::{ComponentError, ComponentManifest};
 use alef_component_abi::{ABI_MAJOR_V1, ABI_MINOR_V1};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Mutex, PoisonError, mpsc};
 use std::time::Duration;
 
@@ -20,11 +23,39 @@ struct Exchange {
     response: mpsc::Sender<Result<Vec<u8>, ComponentError>>,
 }
 
+/// Optional respawn knobs for a stdio connection, shared by every [`SidecarProcess`] a
+/// [`crate::ComponentManager`] spawns (see its `with_sidecar_*` builders).
+#[derive(Clone)]
+pub(crate) struct SidecarPolicy {
+    pub(crate) restart_budget: u32,
+    pub(crate) session: Option<SidecarSessionSetup>,
+    pub(crate) on_restart: Option<SidecarRestartEvent>,
+}
+
+impl Default for SidecarPolicy {
+    fn default() -> Self {
+        Self {
+            restart_budget: 1,
+            session: None,
+            on_restart: None,
+        }
+    }
+}
+
 pub(crate) struct SidecarProcess {
+    executable: PathBuf,
+    manifest: ComponentManifest,
     child: Mutex<Child>,
     sender: Mutex<Option<mpsc::Sender<Exchange>>>,
     timeout: Duration,
     stopped: AtomicBool,
+    policy: SidecarPolicy,
+    restarts: AtomicU32,
+    respawn_attempts: AtomicU32,
+    // Respawn serialization. Taken with no other lock held; inside it, `child` (in `stop`) and
+    // `sender` (to swap) are each taken briefly. `exchange` holds `sender` across a whole call,
+    // which is what keeps a respawn waiting behind an in-flight call.
+    respawn: Mutex<()>,
 }
 
 impl SidecarProcess {
@@ -32,7 +63,33 @@ impl SidecarProcess {
         executable: &Path,
         manifest: &ComponentManifest,
         timeout: Duration,
+        policy: SidecarPolicy,
     ) -> Result<Self, ComponentError> {
+        let (child, channel) = Self::start_child(executable)?;
+        let process = Self {
+            executable: executable.to_owned(),
+            manifest: manifest.clone(),
+            child: Mutex::new(child),
+            sender: Mutex::new(None),
+            timeout,
+            stopped: AtomicBool::new(false),
+            policy,
+            restarts: AtomicU32::new(0),
+            respawn_attempts: AtomicU32::new(0),
+            respawn: Mutex::new(()),
+        };
+        process.describe(&channel)?;
+        *process.sender.lock().unwrap_or_else(PoisonError::into_inner) = Some(channel);
+        if let Err(error) = process.run_session() {
+            process.stop();
+            return Err(error);
+        }
+        Ok(process)
+    }
+
+    /// Start one child for `executable` plus its framed-exchange reader thread. Shared by `spawn`
+    /// and by every respawn; the caller installs the returned pair on `self` (or cleans it up).
+    fn start_child(executable: &Path) -> Result<(Child, mpsc::Sender<Exchange>), ComponentError> {
         make_executable(executable)?;
         let mut child = retry_executable_busy(SPAWN_BUSY_RETRIES, SPAWN_BUSY_BACKOFF, || {
             Command::new(executable)
@@ -47,13 +104,7 @@ impl SidecarProcess {
         let mut stdin = child.stdin.take().expect("piped child stdin missing");
         let mut stdout = child.stdout.take().expect("piped child stdout missing");
         let (sender, receiver) = mpsc::channel::<Exchange>();
-        let process = Self {
-            child: Mutex::new(child),
-            sender: Mutex::new(Some(sender)),
-            timeout,
-            stopped: AtomicBool::new(false),
-        };
-        std::thread::Builder::new()
+        let reader = std::thread::Builder::new()
             .name("alef-sidecar-stdio".into())
             .spawn(move || {
                 while let Ok(exchange) = receiver.recv() {
@@ -63,62 +114,188 @@ impl SidecarProcess {
                         break;
                     }
                 }
-            })?;
-        let payload = process.exchange(&StdioRequest::Describe)?;
-        let descriptor: StdioDescriptor = serde_json::from_slice(&payload)
+            });
+        match reader {
+            Ok(_reader) => Ok((child, sender)),
+            Err(error) => {
+                // Without the reader thread nothing drains the child, and the streams moved into
+                // the closure die with it: do not leave the child running.
+                let _ = child.kill();
+                let _ = child.wait();
+                Err(error.into())
+            }
+        }
+    }
+
+    /// Describe a freshly started child over its not-yet-installed channel and check the descriptor
+    /// against the manifest this process was spawned from.
+    fn describe(&self, channel: &mpsc::Sender<Exchange>) -> Result<(), ComponentError> {
+        let response = Self::request(channel, self.timeout, &StdioRequest::Describe)?;
+        if response.status != 0 {
+            return Err(ComponentError::SidecarCall {
+                status: response.status,
+                message: String::from_utf8_lossy(&response.payload).into_owned(),
+            });
+        }
+        let descriptor: StdioDescriptor = serde_json::from_slice(&response.payload)
             .map_err(|error| ComponentError::SidecarProtocol(format!("invalid describe payload: {error}")))?;
-        validate_descriptor(&descriptor, manifest)?;
-        Ok(process)
+        validate_descriptor(&descriptor, &self.manifest)
+    }
+
+    /// Replay the host's session setup on this connection. Its calls bypass the liveness gate: the
+    /// setup runs while the connection is still marked stopped, and re-entering the respawn it is
+    /// part of would block on the respawn mutex forever.
+    fn run_session(&self) -> Result<(), ComponentError> {
+        let Some(setup) = self.policy.session.as_ref() else {
+            return Ok(());
+        };
+        setup(&SidecarSession { process: self })
     }
 
     pub(crate) fn invoke(&self, contract: &str, method: &str, payload: &[u8]) -> Result<Vec<u8>, ComponentError> {
+        let request = Self::call_request(contract, method, payload)?;
+        self.exchange(&request)
+    }
+
+    /// Like [`Self::invoke`], for a [`SidecarSession`]: the caller has just established that the
+    /// connection is running, so the liveness gate (which may respawn) is skipped.
+    pub(crate) fn invoke_for_session(
+        &self,
+        contract: &str,
+        method: &str,
+        payload: &[u8],
+    ) -> Result<Vec<u8>, ComponentError> {
+        let request = Self::call_request(contract, method, payload)?;
+        self.exchange_running(&request)
+    }
+
+    fn call_request(contract: &str, method: &str, payload: &[u8]) -> Result<StdioRequest, ComponentError> {
         if payload.len() > super::MAX_FRAME_SIZE {
             return Err(ComponentError::SidecarProtocol(
                 "request payload exceeds frame limit".into(),
             ));
         }
-        self.exchange(&StdioRequest::Call {
+        Ok(StdioRequest::Call {
             contract: contract.to_owned(),
             method: method.to_owned(),
             payload: payload.to_owned(),
         })
     }
 
+    pub(crate) fn restart_count(&self) -> u32 {
+        self.restarts.load(Ordering::Acquire)
+    }
+
+    /// Passive liveness probe: the connection is not stopped and the child has not exited. Never
+    /// respawns, never spends the restart budget.
+    pub(crate) fn is_running(&self) -> bool {
+        if self.stopped.load(Ordering::Acquire) {
+            return false;
+        }
+        let exited = {
+            let mut child = self.child.lock().unwrap_or_else(PoisonError::into_inner);
+            child.try_wait().is_ok_and(|status| status.is_some())
+        };
+        !exited
+    }
+
     pub(crate) fn ensure_running(&self) -> Result<(), ComponentError> {
         if self.stopped.load(Ordering::Acquire) {
-            return Err(ComponentError::SidecarStopped);
+            return self.try_respawn();
         }
-        let mut child = self.child.lock().unwrap_or_else(PoisonError::into_inner);
-        if child.try_wait()?.is_some() {
-            self.stopped.store(true, Ordering::Release);
-            return Err(ComponentError::SidecarStopped);
+        let exited = {
+            let mut child = self.child.lock().unwrap_or_else(PoisonError::into_inner);
+            child.try_wait()?.is_some()
+        };
+        if !exited {
+            return Ok(());
+        }
+        self.stopped.store(true, Ordering::Release);
+        // The child lock is dropped before respawning: `try_respawn` re-takes it in `stop`, and the
+        // respawn mutex must never be waited for while holding `child` or `sender`.
+        self.try_respawn()
+    }
+
+    /// Replace a dead connection with a fresh child, within [`SidecarPolicy::restart_budget`]. The
+    /// failing call that stopped the connection returned long ago: a respawn happens only on a
+    /// later `ensure_running`, so the next call is the first one the new child serves and no error
+    /// is ever retried transparently.
+    fn try_respawn(&self) -> Result<(), ComponentError> {
+        let restarts = {
+            let _guard = self.respawn.lock().unwrap_or_else(PoisonError::into_inner);
+            if !self.stopped.load(Ordering::Acquire) {
+                // A concurrent caller completed a respawn while this one waited for the mutex.
+                return Ok(());
+            }
+            // Attempts, not successes, consume the budget: a permanently broken executable must not
+            // cycle the connection through start-fail rounds forever.
+            if self.respawn_attempts.load(Ordering::Acquire) >= self.policy.restart_budget {
+                return Err(ComponentError::SidecarStopped);
+            }
+            self.respawn_attempts.fetch_add(1, Ordering::AcqRel);
+            // Reaps the old child, whether it was killed earlier or exited on its own.
+            self.stop();
+            let (mut child, channel) = Self::start_child(&self.executable)?;
+            if let Err(error) = self.describe(&channel) {
+                // This child is not adopted; do not leave it lingering past the failed respawn.
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
+            *self.child.lock().unwrap_or_else(PoisonError::into_inner) = child;
+            *self.sender.lock().unwrap_or_else(PoisonError::into_inner) = Some(channel);
+            if let Err(error) = self.run_session() {
+                self.stop();
+                return Err(error);
+            }
+            // Published only once the session setup has succeeded, so nothing is dispatched to the
+            // new child before it is ready to serve the host's calls (the gated call path re-checks
+            // `stopped` under the sender guard).
+            self.stopped.store(false, Ordering::Release);
+            // The count is committed while the guard is still held, so no later respawn can record
+            // itself before this one; the handler runs after the guard is released, because it may
+            // call into the component.
+            self.restarts.fetch_add(1, Ordering::AcqRel) + 1
+        };
+        if let Some(on_restart) = self.policy.on_restart.as_ref() {
+            on_restart(&self.manifest.identity.component, restarts);
         }
         Ok(())
     }
 
     fn exchange(&self, request: &StdioRequest) -> Result<Vec<u8>, ComponentError> {
         self.ensure_running()?;
-        let request = serde_json::to_vec(request)?;
-        super::validate_length(request.len())?;
+        self.exchange_gated(request)
+    }
+
+    /// The call itself, over the channel installed on `self` (the caller has ensured the process is
+    /// running). A transport failure kills the connection; the next call respawns it.
+    fn exchange_running(&self, request: &StdioRequest) -> Result<Vec<u8>, ComponentError> {
         let mut sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
+        self.dispatch(&mut sender, request)
+    }
+
+    /// The gated call path. After taking the sender guard it re-checks `stopped`: a respawn swaps
+    /// the channel under that guard and publishes `stopped = false` only once its session setup has
+    /// finished, so this re-check is what keeps a call that raced the liveness gate from reaching
+    /// the new child before it is ready to serve host calls.
+    fn exchange_gated(&self, request: &StdioRequest) -> Result<Vec<u8>, ComponentError> {
+        let mut sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.stopped.load(Ordering::Acquire) {
+            return Err(ComponentError::SidecarStopped);
+        }
+        self.dispatch(&mut sender, request)
+    }
+
+    /// Send one request over the installed channel, the sender guard already held. A transport
+    /// failure kills the connection; the next gated call respawns it.
+    fn dispatch(
+        &self,
+        sender: &mut Option<mpsc::Sender<Exchange>>,
+        request: &StdioRequest,
+    ) -> Result<Vec<u8>, ComponentError> {
         let channel = sender.as_ref().ok_or(ComponentError::SidecarStopped)?;
-        let (response_sender, response) = mpsc::channel();
-        let result = channel
-            .send(Exchange {
-                request,
-                response: response_sender,
-            })
-            .map_err(|_| ComponentError::SidecarStopped)
-            .and_then(|()| match response.recv_timeout(self.timeout) {
-                Ok(result) => result,
-                Err(mpsc::RecvTimeoutError::Timeout) => Err(ComponentError::SidecarTimeout),
-                Err(mpsc::RecvTimeoutError::Disconnected) => Err(ComponentError::SidecarStopped),
-            })
-            .and_then(|bytes| {
-                serde_json::from_slice::<StdioResponse>(&bytes)
-                    .map_err(|error| ComponentError::SidecarProtocol(format!("invalid response: {error}")))
-            });
-        let response = match result {
+        let response = match Self::request(channel, self.timeout, request) {
             Ok(response) => response,
             Err(error) => {
                 *sender = None;
@@ -133,6 +310,33 @@ impl SidecarProcess {
             });
         }
         Ok(response.payload)
+    }
+
+    /// Send one framed request over `channel` and collect its response envelope, with no side
+    /// effects of its own: the caller decides what a transport failure means for the connection.
+    fn request(
+        channel: &mpsc::Sender<Exchange>,
+        timeout: Duration,
+        request: &StdioRequest,
+    ) -> Result<StdioResponse, ComponentError> {
+        let request = serde_json::to_vec(request)?;
+        super::validate_length(request.len())?;
+        let (response_sender, response) = mpsc::channel();
+        channel
+            .send(Exchange {
+                request,
+                response: response_sender,
+            })
+            .map_err(|_| ComponentError::SidecarStopped)
+            .and_then(|()| match response.recv_timeout(timeout) {
+                Ok(result) => result,
+                Err(mpsc::RecvTimeoutError::Timeout) => Err(ComponentError::SidecarTimeout),
+                Err(mpsc::RecvTimeoutError::Disconnected) => Err(ComponentError::SidecarStopped),
+            })
+            .and_then(|bytes| {
+                serde_json::from_slice::<StdioResponse>(&bytes)
+                    .map_err(|error| ComponentError::SidecarProtocol(format!("invalid response: {error}")))
+            })
     }
 
     fn stop(&self) {

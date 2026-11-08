@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `alef-component-runtime` respawns a stdio sidecar connection from its verified executable after a fatal
+  error (a timeout, a broken frame, a dead child), up to N times per component per `ComponentManager` (default
+  1; 0 restores the previous never-respawn behavior). Each respawn re-runs the describe validation and then
+  replays a host-provided session setup (`ComponentManager::with_sidecar_session`), which also runs after
+  the first spawn — this is where a host re-sends its `Init` and per-config calls. The failing call still
+  returns its error and is never retried transparently, and once the budget is exhausted the connection
+  stays stopped. Hosts can tune the budget with `with_sidecar_restart_budget`, log rebuilds through
+  `with_sidecar_restart_event`, and read the successful respawn count with `sidecar_restart_count`. (#904)
+
 ### Fixed
 
 - `ArtifactCache::install` treated a cached object that fails verification (a corrupted library, an edited

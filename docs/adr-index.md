@@ -32,3 +32,4 @@ log; add a row in the same change as a new record.
 | [0021](../adrs/0021-generate-the-oldest-macos-apple-still-supports.md) | Generate the oldest macOS Apple still supports | accepted | 2026-11-06 |
 | [0022](../adrs/0022-preserve-swift-opaque-vector-input-ownership.md) | Preserve Swift opaque vector input ownership | accepted | 2026-11-05 |
 | [0023](../adrs/0023-executable-component-producers.md) | Executable component producers | proposed | 2026-11-06 |
+| [0024](../adrs/0024-respawn-stdio-sidecars-after-a-fatal-connection-failure.md) | Respawn stdio sidecars after a fatal connection failure | accepted | 2026-11-08 |

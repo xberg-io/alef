@@ -1,6 +1,6 @@
 use crate::loader::{decode_hash, validate_manifest};
 use crate::manifest::COMPONENT_MANIFEST_SCHEMA;
-use crate::stdio::SidecarProcess;
+use crate::stdio::{SidecarPolicy, SidecarProcess, SidecarRestartEvent, SidecarSessionSetup};
 use crate::{
     ArtifactCache, CachedArtifact, CachedObject, ComponentDeliveryMode, ComponentError, ComponentLock,
     ComponentLockEntry, ComponentRequirements, DownloadOptions, HostServices, LoadedComponent, RemovalReport, Retain,
@@ -40,6 +40,10 @@ pub struct ComponentManager {
     stdio_components: HashSet<String>,
     sidecar_processes: Mutex<HashMap<String, Arc<SidecarProcess>>>,
     sidecar_timeout: Duration,
+    /// Respawn knobs for stdio connections: the restart budget, the session setup replayed after
+    /// every spawn and respawn, and the restart event handler. Applied to every stdio component
+    /// this manager spawns; see the `with_sidecar_*` builders.
+    sidecar_policy: SidecarPolicy,
     /// One lock per (component, contract) key, used to coalesce concurrent `ensure_contract`
     /// calls for the same key onto a single download-and-load instead of racing duplicates;
     /// a call for a different key gets its own lock and proceeds independently. See
@@ -107,6 +111,7 @@ impl ComponentManager {
             stdio_components: HashSet::new(),
             sidecar_processes: Mutex::new(HashMap::new()),
             sidecar_timeout: Duration::from_secs(30),
+            sidecar_policy: SidecarPolicy::default(),
             key_locks: Mutex::new(HashMap::new()),
             verified_artifacts: Mutex::new(HashMap::new()),
             lock_is_empty,
@@ -127,12 +132,54 @@ impl ComponentManager {
         self
     }
 
-    /// Set the response deadline for stdio handshakes and calls (default: 30 seconds).
-    /// A timeout terminates the child and permanently invalidates that connection.
+    /// Set the response deadline for stdio handshakes and calls (default: 30 seconds). A timeout
+    /// terminates the child; the connection is then respawned from the verified executable on a
+    /// later call, within the restart budget (see [`Self::with_sidecar_restart_budget`]).
     #[must_use]
     pub fn with_sidecar_timeout(mut self, timeout: Duration) -> Self {
         self.sidecar_timeout = timeout;
         self
+    }
+
+    /// Set how many times a stdio connection may be respawned from its verified executable after a
+    /// fatal error (a timeout, a broken frame, a dead child: default 1). `0` restores the previous
+    /// behavior, where the first fatal error stops the connection for good. A respawn re-runs the
+    /// describe validation and replays the session setup before the connection serves calls again.
+    #[must_use]
+    pub fn with_sidecar_restart_budget(mut self, budget: u32) -> Self {
+        self.sidecar_policy.restart_budget = budget;
+        self
+    }
+
+    /// Replay `setup` after the first spawn of every stdio component and after every respawn of
+    /// its connection, where it re-sends whatever session the host had built on the previous
+    /// connection (an `Init` call, one `RegisterConfig` per engine config). A setup failure stops
+    /// the connection and fails the call that triggered the respawn. The setup must send its calls
+    /// through the [`SidecarSession`] it is given: calling back into the manager, or into a
+    /// component handle captured earlier, deadlocks.
+    #[must_use]
+    pub fn with_sidecar_session(mut self, setup: SidecarSessionSetup) -> Self {
+        self.sidecar_policy.session = Some(setup);
+        self
+    }
+
+    /// Call `handler` with the component id and the new restart count after each successful stdio
+    /// respawn, so hosts can log that a connection was rebuilt.
+    #[must_use]
+    pub fn with_sidecar_restart_event(mut self, handler: SidecarRestartEvent) -> Self {
+        self.sidecar_policy.on_restart = Some(handler);
+        self
+    }
+
+    /// How many times the stdio connection of `component_id` has been respawned, or `None` when it
+    /// was never spawned in this manager (or is not a stdio component).
+    #[must_use]
+    pub fn sidecar_restart_count(&self, component_id: &str) -> Option<u32> {
+        self.sidecar_processes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(component_id)
+            .map(|process| process.restart_count())
     }
 
     /// Expose `services` to components loaded from now on, through the host table's
@@ -340,6 +387,7 @@ impl ComponentManager {
             &cached.library,
             &cached.manifest,
             self.sidecar_timeout,
+            self.sidecar_policy.clone(),
         )?);
         self.sidecar_processes
             .lock()
@@ -418,7 +466,7 @@ impl ComponentManager {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .iter()
-            .any(|(key, component)| key.starts_with(&loaded_prefix) && component.ensure_active().is_ok())
+            .any(|(key, component)| key.starts_with(&loaded_prefix) && component.is_active())
         {
             return Ok(ComponentStatus::Ready);
         }

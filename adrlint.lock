@@ -90,3 +90,8 @@ blake3 = "1b195c9a594b847bd0a4de805bcac3168922e9ed5defd4d35de2216087da2e20"
 number = 22
 status = "accepted"
 blake3 = "be0e5b6d6e502440085a75905ab14debfa4a332456972b3928717cfbdd43f3cc"
+
+[adrs."adrs/0024-respawn-stdio-sidecars-after-a-fatal-connection-failure.md"]
+number = 24
+status = "accepted"
+blake3 = "dfc2c5dbae476fa2909d3033aceba066b82948c534fa03689e7f4f4e9dd38383"

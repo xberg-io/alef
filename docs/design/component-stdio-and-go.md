@@ -47,7 +47,7 @@ let codec = manager.ensure_contract("codec", "codec", b"alef_component_entry_v1_
 let output = codec.invoke_bytes("transform", b"hello")?;
 ```
 
-The entry-symbol argument is retained for the common native/stdio API; stdio dispatch uses the contract name. The default deadline is 30 seconds. One long-lived child serves every contract of the component, with calls serialized across them.
+The entry-symbol argument is retained for the common native/stdio API; stdio dispatch uses the contract name. The default deadline is 30 seconds. One long-lived connection serves every contract of the component, with calls serialized across them; after a fatal error it is respawned within the restart budget (default 1).
 
 ## Build an executable producer with alef
 
@@ -134,7 +134,9 @@ A call and successful response look like:
 {"status":0,"payload":[105,104]}
 ```
 
-Answer exactly once per request. A nonzero ABI status carries error-message bytes and leaves the process usable. Invalid JSON, invalid frame lengths, truncated frames, EOF and deadline expiry invalidate the connection and terminate/reap the child. Later ensure calls fail and status reports cached rather than ready. Dropping the last owner also reaps the child.
+Answer exactly once per request. A nonzero ABI status carries error-message bytes and leaves the process usable. Invalid JSON, invalid frame lengths, truncated frames, EOF and deadline expiry kill and reap the child and stop the connection. The connection is then respawned from the verified executable on a later call, up to the manager's restart budget (default 1; see [ADR-0024](../../adrs/0024-respawn-stdio-sidecars-after-a-fatal-connection-failure.md)): the describe validation runs again and a host-provided session setup is replayed before the connection serves calls. The failing call still returns its error. Once the budget is exhausted, later ensure calls fail and status reports cached rather than ready. Dropping the last owner also reaps the child.
+
+A host that builds a session on the connection (an `Init` call, one registration per engine config) passes it to `ComponentManager::with_sidecar_session`; the setup runs after the first spawn and after every respawn, and must send its calls through the `SidecarSession` it is given. `with_sidecar_restart_budget` sets the respawn budget, `with_sidecar_restart_event` logs rebuilds as they happen and `sidecar_restart_count` reports the count. A status query observes without respawning.
 
 Rust producers can use the runtime's public `stdio::{StdioDescriptor, StdioRequest, StdioResponse, read_frame, write_frame}` helpers. The helpers frame JSON bytes; producers still serialize envelopes and implement dispatch. Typed instance creation, typed contract-table access and host callback services are unsupported over this transport.
 

@@ -1,13 +1,14 @@
 #![cfg(unix)]
 
 use alef_component_abi::{AlefContract, AlefHostApiV1};
+use alef_component_runtime::stdio::{SidecarSession, SidecarSessionSetup};
 use alef_component_runtime::{ComponentLock, ComponentManager, ComponentManifest, ComponentStatus};
 use base64::Engine as _;
 use ed25519_dalek::{Signer as _, SigningKey};
 use serde_json::json;
 use sha2::{Digest as _, Sha256};
 use std::io::Cursor;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 #[repr(C)]
@@ -79,8 +80,31 @@ fn manager(scenario: &str) -> (tempfile::TempDir, ComponentManager) {
     let manager = ComponentManager::from_lock(lock, dir.path().join("cache"), "test-target", AlefHostApiV1::EMPTY)
         .unwrap()
         .with_stdio_component("demo")
-        .with_sidecar_timeout(Duration::from_millis(300));
+        // Generous enough for the describe handshake to survive the python startups of a fully
+        // parallel test run; tests that exercise the deadline themselves chain a tighter
+        // `with_sidecar_timeout`.
+        .with_sidecar_timeout(Duration::from_secs(2));
     (dir, manager)
+}
+
+/// A session setup that invokes `count` on each fresh connection and records every response, so a
+/// test can observe how many times (and on which children) the setup ran.
+fn session_recorder(calls: Arc<Mutex<Vec<Vec<u8>>>>) -> SidecarSessionSetup {
+    Arc::new(move |session: &SidecarSession| {
+        let response = session.invoke("engine", "count", b"")?;
+        calls.lock().unwrap().push(response);
+        Ok(())
+    })
+}
+
+fn is_alive(pid: &str) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", pid])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .unwrap()
+        .success()
 }
 
 #[test]
@@ -143,6 +167,11 @@ fn should_return_status_error_without_losing_process() {
 fn should_bound_hanging_calls_and_reject_broken_frames() {
     for method in ["hang", "exit", "truncated", "oversized", "malformed"] {
         let (_dir, manager) = manager("valid");
+        // Restart budget 0 pins the pre-respawn behavior this test asserts: one fatal failure
+        // stops the connection for good.
+        let manager = manager
+            .with_sidecar_restart_budget(0)
+            .with_sidecar_timeout(Duration::from_millis(300));
         let engine = manager.ensure_contract("demo", "engine", b"unused\0").unwrap();
         let start = Instant::now();
         assert!(engine.invoke_bytes(method, b"").is_err(), "{method}");
@@ -192,4 +221,142 @@ fn should_reap_child_after_manager_and_last_component_are_dropped() {
         .status()
         .unwrap();
     assert!(!status.success(), "sidecar {pid} survived its final owner");
+}
+
+#[test]
+fn should_respawn_after_a_crashed_call_and_replay_the_session_setup() {
+    let (_dir, manager) = manager("valid");
+    let setup_calls = Arc::new(Mutex::new(Vec::new()));
+    let manager = manager.with_sidecar_session(session_recorder(Arc::clone(&setup_calls)));
+    let engine = manager.ensure_contract("demo", "engine", b"unused\0").unwrap();
+
+    let error = engine.invoke_bytes("exit", b"").unwrap_err();
+    assert_eq!(
+        error.code(),
+        "sidecar_protocol",
+        "the crashing call returns its own error: {error}"
+    );
+    assert_eq!(engine.invoke_bytes("echo", b"fresh").unwrap(), b"fresh");
+    assert_eq!(
+        *setup_calls.lock().unwrap(),
+        vec![b"1".to_vec(), b"1".to_vec()],
+        "the session setup must run on the first spawn and again on the respawn"
+    );
+}
+
+#[test]
+fn should_reap_a_timed_out_child_and_serve_the_next_call_from_a_fresh_one() {
+    let (_dir, manager) = manager("valid");
+    let engine = manager.ensure_contract("demo", "engine", b"unused\0").unwrap();
+
+    let first = String::from_utf8(engine.invoke_bytes("pid", b"").unwrap()).unwrap();
+    let error = engine.invoke_bytes("hang", b"").unwrap_err();
+    assert_eq!(error.code(), "sidecar_timeout", "{error}");
+    assert!(!is_alive(&first), "the timed-out child must be killed and reaped");
+    let second = String::from_utf8(engine.invoke_bytes("pid", b"").unwrap()).unwrap();
+    assert_ne!(first, second, "the next call must be served by a fresh child");
+}
+
+#[test]
+fn should_stop_after_the_restart_budget_is_exhausted() {
+    let (_dir, manager) = manager("valid");
+    let engine = manager.ensure_contract("demo", "engine", b"unused\0").unwrap();
+
+    assert!(
+        engine.invoke_bytes("exit", b"").is_err(),
+        "the first crash stops the connection"
+    );
+    assert_eq!(engine.invoke_bytes("echo", b"respawned").unwrap(), b"respawned");
+    assert!(
+        engine.invoke_bytes("exit", b"").is_err(),
+        "the second crash stops it again"
+    );
+    let error = engine.invoke_bytes("echo", b"").unwrap_err();
+    assert_eq!(error.code(), "sidecar_stopped", "{error}");
+    assert_eq!(manager.sidecar_restart_count("demo"), Some(1));
+}
+
+#[test]
+fn should_report_restarts_through_the_event_callback() {
+    let (_dir, manager) = manager("valid");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let handler = {
+        let events = Arc::clone(&events);
+        Arc::new(move |component: &str, count: u32| {
+            events.lock().unwrap().push((component.to_owned(), count));
+        })
+    };
+    let manager = manager
+        .with_sidecar_restart_budget(2)
+        .with_sidecar_restart_event(handler);
+    let engine = manager.ensure_contract("demo", "engine", b"unused\0").unwrap();
+
+    assert!(engine.invoke_bytes("exit", b"").is_err());
+    assert_eq!(engine.invoke_bytes("echo", b"back").unwrap(), b"back");
+    assert_eq!(*events.lock().unwrap(), vec![("demo".to_owned(), 1)]);
+}
+
+#[test]
+fn should_run_the_session_setup_once_on_the_first_spawn() {
+    let (_dir, manager) = manager("valid");
+    let setup_calls = Arc::new(Mutex::new(Vec::new()));
+    let manager = manager.with_sidecar_session(session_recorder(Arc::clone(&setup_calls)));
+    let engine = manager.ensure_contract("demo", "engine", b"unused\0").unwrap();
+
+    assert_eq!(engine.invoke_bytes("echo", b"hello").unwrap(), b"hello");
+    assert_eq!(
+        *setup_calls.lock().unwrap(),
+        vec![b"1".to_vec()],
+        "the session setup runs once on the first spawn"
+    );
+}
+
+#[test]
+fn should_consume_the_budget_when_a_respawn_fails_and_fire_no_event() {
+    let (_dir, manager) = manager("valid");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let handler = {
+        let events = Arc::clone(&events);
+        Arc::new(move |component: &str, count: u32| {
+            events.lock().unwrap().push((component.to_owned(), count));
+        })
+    };
+    let manager = manager.with_sidecar_restart_event(handler);
+    let engine = manager.ensure_contract("demo", "engine", b"unused\0").unwrap();
+    assert!(engine.invoke_bytes("exit", b"").is_err());
+
+    // Corrupt the verified executable, so the respawn can start no healthy child.
+    let library = manager.cache_path("demo").unwrap().join("sidecar");
+    std::fs::write(&library, b"not a python script").unwrap();
+
+    let error = engine.invoke_bytes("echo", b"").unwrap_err();
+    assert_eq!(error.code(), "sidecar_protocol", "{error}");
+    let error = engine.invoke_bytes("echo", b"").unwrap_err();
+    assert_eq!(
+        error.code(),
+        "sidecar_stopped",
+        "the failed respawn consumed the budget: {error}"
+    );
+    assert_eq!(manager.sidecar_restart_count("demo"), Some(0));
+    assert!(events.lock().unwrap().is_empty(), "a failed respawn must not fire the restart event");
+}
+
+#[test]
+fn should_report_status_without_respawning_a_stopped_connection() {
+    let (_dir, manager) = manager("valid");
+    let setup_calls = Arc::new(Mutex::new(Vec::new()));
+    let manager = manager.with_sidecar_session(session_recorder(Arc::clone(&setup_calls)));
+    let engine = manager.ensure_contract("demo", "engine", b"unused\0").unwrap();
+    assert!(engine.invoke_bytes("exit", b"").is_err());
+
+    // A status query observes, it does not heal: a stopped connection still reports `Cached`
+    // (as before respawning existed) even though the restart budget would allow a respawn.
+    assert_eq!(manager.status("demo").unwrap(), ComponentStatus::Cached);
+    assert_eq!(manager.sidecar_restart_count("demo"), Some(0));
+    assert_eq!(*setup_calls.lock().unwrap(), vec![b"1".to_vec()]);
+
+    // The budget is untouched: the next real call still respawns and runs the setup a second time.
+    assert_eq!(engine.invoke_bytes("echo", b"back").unwrap(), b"back");
+    assert_eq!(*setup_calls.lock().unwrap(), vec![b"1".to_vec(), b"1".to_vec()]);
+    assert_eq!(manager.status("demo").unwrap(), ComponentStatus::Ready);
 }

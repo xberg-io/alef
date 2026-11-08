@@ -213,6 +213,16 @@ impl LoadedComponent {
         Ok(())
     }
 
+    /// Passive liveness probe: true when a sidecar connection is currently running, with no
+    /// healing side effect — unlike [`Self::ensure_active`], it never respawns. Status reporting
+    /// observes; only a real call may spend the restart budget.
+    pub(crate) fn is_active(&self) -> bool {
+        match &self.sidecar {
+            Some((process, _)) => process.is_running(),
+            None => true,
+        }
+    }
+
     /// Invoke a named bytes-only method on this contract's stdio component.
     ///
     /// Native typed function tables require their generated bindings and do not implement
