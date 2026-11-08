@@ -123,6 +123,65 @@ fn reuses_verified_cache_when_source_is_unavailable() {
 }
 
 #[test]
+fn verify_cached_returns_a_healthy_installed_object() {
+    let (bytes, entry) = package(None);
+    let dir = tempfile::tempdir().unwrap();
+    let cache = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly);
+    let installed = cache.install_from_reader(&entry, Cursor::new(bytes)).unwrap();
+
+    // `entry.url` is still the placeholder `package()` wrote: verification must succeed without
+    // ever looking at it, i.e. without attempting a download.
+    let verified = cache.verify_cached(&entry).unwrap();
+
+    assert_eq!(verified, installed);
+}
+
+#[test]
+fn verify_cached_reports_a_digest_mismatch_for_a_same_size_library_edit() {
+    let (bytes, entry) = package(None);
+    let dir = tempfile::tempdir().unwrap();
+    let cache = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly);
+    let installed = cache.install_from_reader(&entry, Cursor::new(bytes)).unwrap();
+    fs::write(&installed.library, b"nativf").unwrap();
+    assert!(matches!(
+        cache.verify_cached(&entry),
+        Err(ComponentError::DigestMismatch { .. })
+    ));
+}
+
+#[test]
+fn verify_cached_reports_a_size_mismatch_for_a_truncated_library() {
+    let (bytes, entry) = package(None);
+    let dir = tempfile::tempdir().unwrap();
+    let cache = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly);
+    let installed = cache.install_from_reader(&entry, Cursor::new(bytes)).unwrap();
+    let contents = fs::read(&installed.library).unwrap();
+    fs::write(&installed.library, &contents[..contents.len() - 1]).unwrap();
+    assert!(matches!(
+        cache.verify_cached(&entry),
+        Err(ComponentError::SizeMismatch { .. })
+    ));
+}
+
+#[test]
+fn verify_cached_reports_a_manifest_digest_mismatch_for_an_edited_component_json() {
+    let (bytes, entry) = package(None);
+    let dir = tempfile::tempdir().unwrap();
+    let cache = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly);
+    let installed = cache.install_from_reader(&entry, Cursor::new(bytes)).unwrap();
+    let manifest = installed.root.join("component.json");
+    let mut manifest_bytes = fs::read(&manifest).unwrap();
+    manifest_bytes[0] ^= 0xff;
+    fs::write(&manifest, manifest_bytes).unwrap();
+    // The manifest digest is checked before the manifest is parsed, so any in-place edit of
+    // `component.json` surfaces deterministically as a digest mismatch.
+    assert!(matches!(
+        cache.verify_cached(&entry),
+        Err(ComponentError::ManifestDigestMismatch)
+    ));
+}
+
+#[test]
 fn rejects_unsigned_archive_when_lock_names_a_key() {
     let (bytes, mut entry) = package(None);
     entry.key_id = "release".into();
@@ -223,6 +282,49 @@ fn offline_mode_does_not_block_a_file_url() {
     let cache = ArtifactCache::new(cache_root.path(), TrustPolicy::DigestOnly).offline(true);
 
     assert!(cache.install(&entry).is_ok());
+}
+
+#[test]
+fn offline_install_of_a_damaged_object_reports_the_verification_error() {
+    let (bytes, mut entry) = package(None);
+    entry.url = "https://example.invalid/component.tar.gz".into();
+    let dir = tempfile::tempdir().unwrap();
+    let cache = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly);
+    let installed = cache.install_from_reader(&entry, Cursor::new(bytes)).unwrap();
+    fs::write(&installed.library, b"nativf").unwrap();
+
+    let offline = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly).offline(true);
+    let error = offline.install(&entry).unwrap_err();
+
+    assert_eq!(error.code(), "cached_object_invalid");
+    assert!(
+        error.to_string().contains("fast"),
+        "display mentions the component: {error}"
+    );
+    assert!(matches!(
+        error,
+        ComponentError::CachedObjectInvalid { ref component, ref source }
+            if component == "fast" && source.code() == "digest_mismatch"
+    ));
+}
+
+#[test]
+fn offline_mode_still_repairs_a_damaged_object_from_a_file_url() {
+    let (bytes, mut entry) = package(None);
+    let source = tempfile::tempdir().unwrap();
+    let archive = source.path().join("component.tar.gz");
+    fs::write(&archive, &bytes).unwrap();
+    entry.url = format!("file://{}", archive.display());
+    let dir = tempfile::tempdir().unwrap();
+    let cache = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly);
+    let installed = cache.install_from_reader(&entry, Cursor::new(bytes)).unwrap();
+    fs::write(&installed.library, b"nativf").unwrap();
+
+    let offline = cache.offline(true);
+    let repaired = offline.install(&entry).unwrap();
+
+    assert_eq!(fs::read(repaired.library).unwrap(), b"native");
+    assert!(offline.verify_cached(&entry).is_ok());
 }
 
 #[test]
@@ -351,6 +453,25 @@ fn url_override_replaces_the_lock_url_and_integrity_still_applies() {
         cache.install(&entry),
         Err(ComponentError::SizeMismatch { .. } | ComponentError::DigestMismatch { .. })
     ));
+}
+
+#[test]
+fn install_repairs_a_damaged_object_when_not_offline() {
+    let (bytes, mut entry) = package(None);
+    entry.url = "https://origin.invalid/component.tar.gz".into();
+    let source = tempfile::tempdir().unwrap();
+    let mirror = source.path().join("mirror.tar.gz");
+    fs::write(&mirror, &bytes).unwrap();
+    let target = format!("file://{}", mirror.display());
+
+    let dir = tempfile::tempdir().unwrap();
+    let cache = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly).with_url_override(move |_| target.clone());
+    let installed = cache.install(&entry).unwrap();
+    fs::write(&installed.library, b"nativf").unwrap();
+
+    let repaired = cache.install(&entry).unwrap();
+
+    assert_eq!(fs::read(repaired.library).unwrap(), b"native");
 }
 
 #[test]

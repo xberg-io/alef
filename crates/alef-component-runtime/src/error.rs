@@ -54,6 +54,11 @@ pub enum ComponentError {
     Download { url: String, message: String },
     #[error("component `{component}` is not cached and network access is disabled (would fetch `{url}`)")]
     Offline { component: String, url: String },
+    #[error("cached component object `{component}` failed verification: {source}")]
+    CachedObjectInvalid {
+        component: String,
+        source: Box<ComponentError>,
+    },
     #[error("component download was cancelled")]
     Cancelled,
     #[error("failed to load component library `{path}`: {message}")]
@@ -149,6 +154,7 @@ impl ComponentError {
             Self::MissingLibrary(_) => "missing_library",
             Self::Download { .. } => "download_failed",
             Self::Offline { .. } => "offline",
+            Self::CachedObjectInvalid { .. } => "cached_object_invalid",
             Self::Cancelled => "cancelled",
             Self::LibraryLoad { .. } => "library_load_failed",
             Self::MissingEntrypoint(_) => "missing_entrypoint",
@@ -204,6 +210,38 @@ mod tests {
             .code(),
             "bundled_component_not_loadable"
         );
+        assert_eq!(
+            ComponentError::CachedObjectInvalid {
+                component: "demo".into(),
+                source: Box::new(ComponentError::DigestMismatch {
+                    expected: "a".into(),
+                    actual: "b".into(),
+                }),
+            }
+            .code(),
+            "cached_object_invalid"
+        );
+    }
+
+    #[test]
+    fn cached_object_invalid_preserves_its_source_chain() {
+        use std::error::Error as _;
+
+        let error = ComponentError::CachedObjectInvalid {
+            component: "demo".into(),
+            source: Box::new(ComponentError::DigestMismatch {
+                expected: "a".into(),
+                actual: "b".into(),
+            }),
+        };
+        let source = error
+            .source()
+            // The stored field is `Box<ComponentError>`, which itself implements `Error`: the
+            // `dyn Error` behind `source()` is the box, so downcast to the box, not to
+            // `ComponentError`.
+            .and_then(|source| source.downcast_ref::<Box<ComponentError>>())
+            .map(|source| source.code());
+        assert_eq!(source, Some("digest_mismatch"));
     }
 
     #[test]

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `ArtifactCache::install` treated a cached object that fails verification (a corrupted library, an edited
+  `component.json`, a bad signature) as absent: an offline cache reported the component as merely "not cached",
+  and an online one silently re-downloaded it. The new public `ArtifactCache::verify_cached` verifies an installed
+  object in place, reading and hashing only, and reports which check failed without downloading or removing
+  anything; an offline install of a damaged object now fails with `ComponentError::CachedObjectInvalid` (code
+  `cached_object_invalid`) wrapping that verification error, while online installs keep repairing the object in
+  place. (#909)
+
 ## [0.128.0] - 2026-11-07
 
 ### Added

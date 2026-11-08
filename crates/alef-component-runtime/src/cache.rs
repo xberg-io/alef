@@ -118,8 +118,9 @@ impl ArtifactCache {
     }
 
     /// Disable network downloads: [`Self::install`] fails a missing artifact with
-    /// [`ComponentError::Offline`] instead of attempting a request. An artifact already
-    /// verified on disk (or served via a `file://` URL) is unaffected.
+    /// [`ComponentError::Offline`] instead of attempting a request, and a damaged installed
+    /// artifact with [`ComponentError::CachedObjectInvalid`]. An artifact already verified on
+    /// disk (or served via a `file://` URL) is unaffected.
     #[must_use]
     pub fn offline(mut self, offline: bool) -> Self {
         self.offline = offline;
@@ -136,23 +137,46 @@ impl ArtifactCache {
         Ok(self.root.join("sha256").join(&entry.sha256))
     }
 
+    /// Verify an installed object in place: checks it against the lock entry (skipping the
+    /// library hash when a current verified stamp says it is unchanged) but never downloads or
+    /// removes anything, and writes nothing but the verified stamp when the cache was built with
+    /// [`Self::with_verified_stamp(true)`].
+    ///
+    /// Unlike [`Self::install`], a failing check is reported instead of repaired, and the error
+    /// says which check failed (digest, size, manifest, signature) -- so a caller can tell
+    /// "installed and damaged" apart from "never installed" and log or report a repair.
+    pub fn verify_cached(&self, entry: &ComponentLockEntry) -> Result<CachedArtifact, ComponentError> {
+        let destination = self.object_path(entry)?;
+        self.verify_cached_at(entry, &destination)
+    }
+
     pub fn install(&self, entry: &ComponentLockEntry) -> Result<CachedArtifact, ComponentError> {
         let destination = self.object_path(entry)?;
-        if destination.is_dir()
-            && let Ok(cached) = self.verify_cached(entry, &destination)
-        {
-            self.touch_used(&entry.sha256);
-            return Ok(cached);
+        let mut damaged = None;
+        if destination.is_dir() {
+            match self.verify_cached_at(entry, &destination) {
+                Ok(cached) => {
+                    self.touch_used(&entry.sha256);
+                    return Ok(cached);
+                }
+                Err(error) => damaged = Some(error),
+            }
         }
         let url = self.resolve_url(entry);
         if let Some(path) = url.strip_prefix("file://") {
             return self.install_from_reader(entry, File::open(path)?);
         }
         if self.offline {
-            return Err(ComponentError::Offline {
-                component: entry.identity.component.clone(),
-                url,
-            });
+            return match damaged {
+                Some(source) => Err(ComponentError::CachedObjectInvalid {
+                    component: entry.identity.component.clone(),
+                    source: Box::new(source),
+                }),
+                None => Err(ComponentError::Offline {
+                    component: entry.identity.component.clone(),
+                    url,
+                }),
+            };
         }
         let attempts = self.download.max_attempts.max(1);
         let mut attempt = 1;
@@ -235,7 +259,7 @@ impl ArtifactCache {
 
         let destination = self.object_path(entry)?;
         if destination.is_dir()
-            && let Ok(cached) = self.verify_cached(entry, &destination)
+            && let Ok(cached) = self.verify_cached_at(entry, &destination)
         {
             return Ok(cached);
         }
@@ -309,7 +333,7 @@ impl ArtifactCache {
     }
 
     /// Verify an object already in the cache, using the verified stamp when enabled.
-    fn verify_cached(&self, entry: &ComponentLockEntry, root: &Path) -> Result<CachedArtifact, ComponentError> {
+    fn verify_cached_at(&self, entry: &ComponentLockEntry, root: &Path) -> Result<CachedArtifact, ComponentError> {
         let stamp_path = self.stamp_path(&entry.sha256);
         self.verify_installation(entry, root, self.verified_stamp.then_some(stamp_path.as_path()))
     }

@@ -145,9 +145,11 @@ impl ComponentManager {
     }
 
     /// Disable network downloads: [`Self::ensure_contract`] and [`Self::prefetch`] fail a
-    /// missing artifact with [`ComponentError::Offline`] instead of attempting a request. An
-    /// artifact already cached on disk is unaffected. Generated bindings call this when the
-    /// crate-specific `{CRATE}_COMPONENT_OFFLINE` environment variable is set.
+    /// missing artifact with [`ComponentError::Offline`] instead of attempting a request, and a
+    /// damaged installed artifact with [`ComponentError::CachedObjectInvalid`]. An artifact
+    /// already verified on disk (or served via a `file://` URL) is unaffected. Generated
+    /// bindings call this when the crate-specific `{CRATE}_COMPONENT_OFFLINE` environment
+    /// variable is set.
     #[must_use]
     pub fn offline(mut self, offline: bool) -> Self {
         self.cache = self.cache.offline(offline);
