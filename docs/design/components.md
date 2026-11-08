@@ -313,6 +313,12 @@ no environment variables. The host crate depends on `alef-component-runtime`,
 `alef-component-abi` and `serde_json`. `alef component lock` stages the lock at the configured
 `lock_path`, and `alef generate` seeds an empty one when it is missing.
 
+A cached object that fails verification (a corrupted library, an edited `component.json`, a bad
+signature) is not the same as a missing one: an offline host reports
+`ComponentError::CachedObjectInvalid` wrapping the specific check that failed instead of a generic
+"not cached", and `ArtifactCache::verify_cached` verifies an installed object in place for hosts
+that want to detect or report the damage without touching the network.
+
 To check a committed hash against the lock in CI, run `alef component contract-hash [--crate X]`;
 it prints one `component contract hash crate=… component=… contract=… hash=…` line per provided
 contract, computed the same way as the lock's contract hash.
