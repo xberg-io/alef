@@ -8,6 +8,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError, mpsc};
 use std::time::Duration;
 
+// On a multi-threaded host, another thread can fork while the just-installed sidecar executable's write
+// descriptor is still open, and the child holds that descriptor until `exec` — so the start fails with
+// `ExecutableFileBusy` ("Text file busy", os error 26) on Linux. Retrying briefly is what cargo, rustup and
+// poly do for the same race.
+const SPAWN_BUSY_RETRIES: u32 = 200;
+const SPAWN_BUSY_BACKOFF: Duration = Duration::from_millis(10);
+
 struct Exchange {
     request: Vec<u8>,
     response: mpsc::Sender<Result<Vec<u8>, ComponentError>>,
@@ -27,14 +34,16 @@ impl SidecarProcess {
         timeout: Duration,
     ) -> Result<Self, ComponentError> {
         make_executable(executable)?;
-        let mut child = Command::new(executable)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|error| {
-                ComponentError::SidecarProtocol(format!("failed to start {}: {error}", executable.display()))
-            })?;
+        let mut child = retry_executable_busy(SPAWN_BUSY_RETRIES, SPAWN_BUSY_BACKOFF, || {
+            Command::new(executable)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::inherit())
+                .spawn()
+        })
+        .map_err(|error| {
+            ComponentError::SidecarProtocol(format!("failed to start {}: {error}", executable.display()))
+        })?;
         let mut stdin = child.stdin.take().expect("piped child stdin missing");
         let mut stdout = child.stdout.take().expect("piped child stdout missing");
         let (sender, receiver) = mpsc::channel::<Exchange>();
@@ -175,6 +184,28 @@ fn validate_descriptor(descriptor: &StdioDescriptor, manifest: &ComponentManifes
     Ok(())
 }
 
+/// Calls `try_start`, retrying while the error kind is `ExecutableFileBusy`.
+///
+/// `attempts` is the total number of calls (0 is treated as 1), so 1 means a single try with no retries. Any
+/// other error returns immediately, as does the final busy error once the retries run out.
+fn retry_executable_busy<T>(
+    attempts: u32,
+    backoff: Duration,
+    mut try_start: impl FnMut() -> std::io::Result<T>,
+) -> std::io::Result<T> {
+    let mut attempt = 1_u32;
+    loop {
+        match try_start() {
+            Ok(value) => return Ok(value),
+            Err(error) if error.kind() == std::io::ErrorKind::ExecutableFileBusy && attempt < attempts => {
+                attempt += 1;
+                std::thread::sleep(backoff);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
 fn make_executable(path: &Path) -> Result<(), ComponentError> {
     #[cfg(unix)]
     {
@@ -189,4 +220,65 @@ fn make_executable(path: &Path) -> Result<(), ComponentError> {
     #[cfg(not(unix))]
     let _ = path;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn busy_error() -> std::io::Error {
+        std::io::Error::new(std::io::ErrorKind::ExecutableFileBusy, "text file busy")
+    }
+
+    #[test]
+    fn retries_a_busy_spawn_until_it_succeeds() {
+        let calls = AtomicUsize::new(0);
+        let mut busy_left = 2;
+        let result = retry_executable_busy(10, Duration::ZERO, || {
+            calls.fetch_add(1, Ordering::Relaxed);
+            if busy_left > 0 {
+                busy_left -= 1;
+                Err(busy_error())
+            } else {
+                Ok(7)
+            }
+        });
+        assert_eq!(result.unwrap(), 7);
+        assert_eq!(calls.load(Ordering::Relaxed), 3);
+    }
+
+    #[test]
+    fn returns_the_last_busy_error_once_the_retries_run_out() {
+        let calls = AtomicUsize::new(0);
+        let result = retry_executable_busy(4, Duration::ZERO, || {
+            calls.fetch_add(1, Ordering::Relaxed);
+            Err::<u32, _>(busy_error())
+        });
+        let error = result.unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::ExecutableFileBusy);
+        assert_eq!(calls.load(Ordering::Relaxed), 4);
+    }
+
+    #[test]
+    fn returns_other_errors_on_the_first_call_without_retrying() {
+        let calls = AtomicUsize::new(0);
+        let result = retry_executable_busy(5, Duration::ZERO, || {
+            calls.fetch_add(1, Ordering::Relaxed);
+            Err::<u32, _>(std::io::Error::new(std::io::ErrorKind::NotFound, "no such file"))
+        });
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::NotFound);
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn a_single_attempt_makes_exactly_one_call() {
+        let calls = AtomicUsize::new(0);
+        let result = retry_executable_busy(1, Duration::ZERO, || {
+            calls.fetch_add(1, Ordering::Relaxed);
+            Err::<u32, _>(busy_error())
+        });
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::ExecutableFileBusy);
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+    }
 }

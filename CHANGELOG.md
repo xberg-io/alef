@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   anything; an offline install of a damaged object now fails with `ComponentError::CachedObjectInvalid` (code
   `cached_object_invalid`) wrapping that verification error, while online installs keep repairing the object in
   place. (#909)
+- `alef-component-runtime` spawned a stdio sidecar exactly once, so on Linux a sidecar executable that had just
+  been installed could fail to start with `Text file busy` (os error 26): another thread forks while the
+  installer's write descriptor is still open, and the child holds it until `exec`. The spawn now retries a bounded
+  number of times on `std::io::ErrorKind::ExecutableFileBusy` — 200 tries, 10 ms apart, matching the cargo,
+  rustup and poly precedent — and surfaces the final error as before. (#907)
 
 ## [0.128.0] - 2026-11-07
 
