@@ -338,7 +338,10 @@ fn should_consume_the_budget_when_a_respawn_fails_and_fire_no_event() {
         "the failed respawn consumed the budget: {error}"
     );
     assert_eq!(manager.sidecar_restart_count("demo"), Some(0));
-    assert!(events.lock().unwrap().is_empty(), "a failed respawn must not fire the restart event");
+    assert!(
+        events.lock().unwrap().is_empty(),
+        "a failed respawn must not fire the restart event"
+    );
 }
 
 #[test]
