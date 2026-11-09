@@ -310,7 +310,11 @@ impl<'a> ConversionConfig<'a> {
             return true;
         }
         if !owner.legacy_constructor_fields().is_empty() {
-            return self.optionalize_defaults && owner.is_constructor_extension(field);
+            // Recording constructor history must not change which fields an options object
+            // may omit: a recorded field that carries its own default stays optional, only a
+            // recorded field with no default keeps the requiredness it had before `Default`.
+            let defaulted = owner.has_default && (field.default.is_some() || field.typed_default.is_some());
+            return self.optionalize_defaults && (owner.is_constructor_extension(field) || defaulted);
         }
         (self.optionalize_defaults && owner.has_default)
             || (self.optionalize_bare_field_defaults && field.has_bare_serde_enum_default())

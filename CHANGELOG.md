@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- napi: recording `legacy_constructor_fields` on a `Default` type made every recorded field required in the options object and `index.d.ts`, even those with their own serde default. A recorded field that carries a default now stays optional; a recorded field without one keeps its requiredness, and types without constructor history are unchanged.
+
 ## [0.129.0] - 2026-11-08
 
 ### Added
