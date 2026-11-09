@@ -168,10 +168,12 @@ fn should_bound_hanging_calls_and_reject_broken_frames() {
     for method in ["hang", "exit", "truncated", "oversized", "malformed"] {
         let (_dir, manager) = manager("valid");
         // Restart budget 0 pins the pre-respawn behavior this test asserts: one fatal failure
-        // stops the connection for good.
+        // stops the connection for good. The 2 s deadline is what proves calls are bounded
+        // (the fixture's hang sleeps 60 s; only `hang` waits out the deadline) while leaving
+        // room for the describe handshake under a fully parallel python-spawning test run.
         let manager = manager
             .with_sidecar_restart_budget(0)
-            .with_sidecar_timeout(Duration::from_millis(300));
+            .with_sidecar_timeout(Duration::from_secs(2));
         let engine = manager.ensure_contract("demo", "engine", b"unused\0").unwrap();
         let start = Instant::now();
         assert!(engine.invoke_bytes(method, b"").is_err(), "{method}");
