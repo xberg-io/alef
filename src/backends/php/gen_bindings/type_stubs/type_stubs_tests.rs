@@ -1126,3 +1126,62 @@ fn kwargs_constructor_stub_matches_the_runtime_signature_exactly() {
         ]
     );
 }
+
+fn declared_order_php_typ(declared: bool, optionals: [bool; 4]) -> TypeDef {
+    TypeDef {
+        name: "LayoutConfig".to_string(),
+        has_serde: true,
+        fields: ["strategy", "threshold", "apply_heuristics", "model"]
+            .iter()
+            .zip(optionals)
+            .map(|(name, optional)| field(name, TypeRef::String, optional))
+            .collect(),
+        version: crate::core::ir::VersionAnnotation {
+            declared_constructor_order: declared,
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// Control: without the flag the optional field moves behind the required ones, as before.
+#[test]
+fn struct_constructor_stub_is_required_first_by_default() {
+    let typ = declared_order_php_typ(false, [false, true, false, false]);
+    let joined =
+        gen_struct_constructor_stub_params(&typ, &AHashSet::new(), &AHashSet::new(), &AHashSet::new(), true).join("\n");
+
+    let positions: Vec<usize> = ["$strategy", "$applyHeuristics", "$model", "$threshold = null"]
+        .iter()
+        .map(|needle| {
+            joined
+                .find(needle)
+                .unwrap_or_else(|| panic!("missing {needle}:\n{joined}"))
+        })
+        .collect();
+    assert!(positions.windows(2).all(|w| w[0] < w[1]), "{joined}");
+}
+
+/// A nullable parameter may precede a required one in PHP and ext-php-rs; it keeps its
+/// declared slot and loses only its `= null` default, which PHP allows on a trailing run alone.
+#[test]
+fn struct_constructor_stub_declared_order_keeps_slots_and_defaults_only_the_trailing_run() {
+    let typ = declared_order_php_typ(true, [false, true, false, true]);
+    let params = gen_struct_constructor_stub_params(&typ, &AHashSet::new(), &AHashSet::new(), &AHashSet::new(), true);
+    let joined = params.join("\n");
+
+    assert_eq!(params.len(), 4, "{joined}");
+    assert!(
+        params[0].contains("string $strategy") && !params[0].contains('?'),
+        "{joined}"
+    );
+    assert!(
+        params[1].contains("?string $threshold") && !params[1].contains("= null"),
+        "{joined}"
+    );
+    assert!(
+        params[2].contains("string $applyHeuristics") && !params[2].contains("= null"),
+        "{joined}"
+    );
+    assert!(params[3].contains("?string $model = null"), "{joined}");
+}

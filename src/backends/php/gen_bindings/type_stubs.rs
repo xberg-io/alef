@@ -697,9 +697,17 @@ fn gen_struct_constructor_stub_params(
     php_sort_constructor_fields(typ, &mut ctor_fields, serde_available);
     let optional_field_names = php_constructor_optional_field_names(typ, &ctor_fields, serde_available);
 
+    // PHP only allows omitting a trailing run of parameters. In declaration order a nullable
+    // parameter can precede a required one; it stays nullable but carries no default.
+    let defaults_from = ctor_fields
+        .iter()
+        .rposition(|f| !optional_field_names.contains(f.name.as_str()))
+        .map_or(0, |idx| idx + 1);
+
     ctor_fields
         .iter()
-        .map(|f| {
+        .enumerate()
+        .map(|(idx, f)| {
             let optional = optional_field_names.contains(f.name.as_str());
             let ptype = enum_aware_php_type(&f.ty, enum_names);
             let nullable = if optional && !ptype.starts_with('?') {
@@ -707,7 +715,11 @@ fn gen_struct_constructor_stub_params(
             } else {
                 ptype
             };
-            let default = if optional { " = null" } else { "" };
+            let default = if optional && idx >= defaults_from {
+                " = null"
+            } else {
+                ""
+            };
             let php_name = to_php_name(&f.name);
             if !is_php_prop_scalar(&f.ty, enum_names) {
                 // Constructor-representable but not a real PHP property (no `#[php(prop)]`

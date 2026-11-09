@@ -327,7 +327,12 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
         // `should_option_for_nested_default`'s actual answer. ~keep
         let is_closure_only_type = !typ.has_default;
         let mut ordered_fields: Vec<&crate::core::ir::FieldDef> = binding_fields(&typ.fields).collect();
-        if is_closure_only_type {
+        if is_closure_only_type
+            && !typ.uses_declared_constructor_order(
+                "python-dataclass",
+                ordered_fields.iter().map(|f| f.optional || f.typed_default.is_some()),
+            )
+        {
             ordered_fields.sort_by_key(|f| f.optional || f.typed_default.is_some());
         }
 

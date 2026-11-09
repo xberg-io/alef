@@ -207,7 +207,38 @@ pub(super) fn apply_filters(mut api: ApiSurface, config: &ResolvedCrateConfig) -
         apply_exclude_fields(&mut api, &exclude.fields);
     }
 
+    apply_constructor_declared_order(&mut api, &config.constructor_declared_order);
+
     Ok(api)
+}
+
+/// Mark the types named by `[[crates]] constructor_declared_order` (or every type for `"*"`).
+fn apply_constructor_declared_order(api: &mut ApiSurface, entries: &[String]) {
+    if entries.is_empty() {
+        return;
+    }
+    let all = entries.iter().any(|entry| entry == "*");
+    let mut matched = AHashSet::new();
+    for typ in &mut api.types {
+        let hit = entries
+            .iter()
+            .find(|entry| type_identity_matches(entry, &typ.name, &typ.rust_path));
+        if all || hit.is_some() {
+            typ.version.declared_constructor_order = true;
+        }
+        if let Some(entry) = hit {
+            matched.insert(entry.as_str());
+        }
+    }
+    for entry in entries
+        .iter()
+        .filter(|entry| *entry != "*" && !matched.contains(entry.as_str()))
+    {
+        tracing::warn!(
+            entry = %entry,
+            "constructor_declared_order entry matched no extracted type; check for a typo"
+        );
+    }
 }
 
 /// Resolve every `[crates.include].types` entry against the extracted surface and return the

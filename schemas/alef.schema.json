@@ -5863,6 +5863,14 @@
           },
           "type": "array"
         },
+        "constructor_declared_order": {
+          "default": [],
+          "description": "Types whose positional constructors list their parameters in field declaration\norder instead of required-first. Entries are type names, `crate::Type` paths, or `\"*\"`\nfor every type.\n\nBy default the PHP, WASM and Python constructors (and the `.pyi` stub) place required\nparameters before optional ones, so a new field moved to the end of a struct can still\nland before older optional parameters and shift them. Listing a type keeps each\nparameter at its declared position.\n\nPHP always honors it: a nullable parameter may precede a required one, and the stub\ndrops `= null` from every parameter that is not part of the trailing nullable run.\nPython (`__init__`, `#[new]` signature, `.pyi`, options dataclass) and the other\npositional constructors need parameters without a default to precede those with one:\nwhen a required field follows an optional one, the type keeps the required-first order\nand alef logs a warning. A type with recorded constructor history keeps that history's\norder. Declaration order differs from the required-first order of earlier releases\nwhenever an optional field precedes a required one, so listing a released type moves\nthose parameters; to freeze a released signature and append new fields instead, record\nit with `legacy_constructor_fields`.\n\nWhen absent or empty (the default) output is unchanged.\n\nExample:\n```toml\n[[crates]]\nname = \"sample-core\"\nconstructor_declared_order = [\"LayoutDetectionConfig\"]\n```",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "core_import": {
           "default": null,
           "description": "Rust import path for the core crate referenced from generated bindings.\nDefaults to the crate name with hyphens replaced by underscores.",

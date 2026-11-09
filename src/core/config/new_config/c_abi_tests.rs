@@ -190,3 +190,25 @@ path = "{path}"
 "#
     )
 }
+
+#[test]
+fn constructor_declared_order_resolves_per_crate_and_defaults_to_empty() {
+    let config: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
+[[crates]]
+name = "sample-core"
+sources = ["src/lib.rs"]
+constructor_declared_order = ["LayoutDetectionConfig"]
+[[crates]]
+name = "other-core"
+sources = ["src/lib.rs"]
+"#,
+    )
+    .expect("test config parses");
+    let resolved = config.resolve().expect("config resolves");
+
+    assert_eq!(resolved[0].constructor_declared_order, ["LayoutDetectionConfig"]);
+    assert!(resolved[1].constructor_declared_order.is_empty());
+}

@@ -49,6 +49,11 @@ pub(crate) fn php_field_base_constructor_optional(typ: &TypeDef, field: &FieldDe
 
 /// Preserve the backend's published required-first order, then append annotated extensions. ~keep
 pub(crate) fn php_sort_constructor_fields(typ: &TypeDef, fields: &mut [&FieldDef], serde_available: bool) {
+    // A nullable parameter before a required one is a required-nullable parameter in ext-php-rs
+    // and PHP, so declaration order is always expressible; the stub only omits `= null` there.
+    if typ.declared_constructor_order_requested() {
+        return;
+    }
     fields.sort_by_key(|field| {
         (
             typ.is_constructor_extension(field),
@@ -707,7 +712,9 @@ fn gen_struct_methods_impl(
                     .filter(|f| f.cfg.is_none())
                     .collect();
                 let carried = |f: &FieldDef| crate::codegen::private_accessors::is_private_accessor_field(typ, f);
-                ctor_fields.sort_by_key(|f| f.optional || carried(f));
+                if !typ.declared_constructor_order_requested() {
+                    ctor_fields.sort_by_key(|f| f.optional || carried(f));
+                }
 
                 let param_defs: Vec<crate::core::ir::ParamDef> = ctor_fields
                     .into_iter()

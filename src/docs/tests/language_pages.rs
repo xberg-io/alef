@@ -500,6 +500,7 @@ fn test_function_with_since_renders_version_badge() {
             version: VersionAnnotation {
                 constructor_history: Vec::new(),
                 legacy_constructor_fields: Vec::new(),
+                declared_constructor_order: false,
                 since: Some("0.5.0".to_string()),
                 deprecated: None,
             },
@@ -552,6 +553,7 @@ fn test_function_deprecated_renders_warning_admonition() {
             version: VersionAnnotation {
                 constructor_history: Vec::new(),
                 legacy_constructor_fields: Vec::new(),
+                declared_constructor_order: false,
                 since: None,
                 deprecated: Some(DeprecationInfo {
                     since: Some("1.5.0".to_string()),
@@ -623,6 +625,7 @@ fn test_enum_variant_with_since_renders_inline_in_table() {
                     version: VersionAnnotation {
                         constructor_history: Vec::new(),
                         legacy_constructor_fields: Vec::new(),
+                        declared_constructor_order: false,
                         since: Some("0.5.0".to_string()),
                         deprecated: None,
                     },
@@ -643,6 +646,7 @@ fn test_enum_variant_with_since_renders_inline_in_table() {
                     version: VersionAnnotation {
                         constructor_history: Vec::new(),
                         legacy_constructor_fields: Vec::new(),
+                        declared_constructor_order: false,
                         since: None,
                         deprecated: Some(DeprecationInfo {
                             since: Some("0.5.0".to_string()),

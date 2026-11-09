@@ -926,3 +926,50 @@ mod e2e_named_argument_parity_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod declared_constructor_order_tests {
+    use super::*;
+
+    fn typ(declared: bool) -> TypeDef {
+        TypeDef {
+            name: "LayoutConfig".to_string(),
+            fields: ["strategy", "threshold", "apply_heuristics", "model"]
+                .iter()
+                .map(|name| FieldDef {
+                    name: (*name).to_string(),
+                    ty: TypeRef::String,
+                    optional: *name == "threshold" || *name == "model",
+                    ..Default::default()
+                })
+                .collect(),
+            version: crate::core::ir::VersionAnnotation {
+                declared_constructor_order: declared,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    fn sorted_names(typ: &TypeDef) -> Vec<&str> {
+        let mut fields: Vec<&FieldDef> = typ.fields.iter().collect();
+        php_sort_constructor_fields(typ, &mut fields, true);
+        fields.iter().map(|f| f.name.as_str()).collect()
+    }
+
+    #[test]
+    fn required_first_is_the_default_order() {
+        assert_eq!(
+            sorted_names(&typ(false)),
+            ["strategy", "apply_heuristics", "threshold", "model"]
+        );
+    }
+
+    #[test]
+    fn declared_order_is_kept_even_when_a_nullable_field_precedes_a_required_one() {
+        assert_eq!(
+            sorted_names(&typ(true)),
+            ["strategy", "threshold", "apply_heuristics", "model"]
+        );
+    }
+}

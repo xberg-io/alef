@@ -273,6 +273,7 @@ mod tests {
             VersionAnnotation {
                 constructor_history: Vec::new(),
                 legacy_constructor_fields: Vec::new(),
+                declared_constructor_order: false,
                 since: Some("2.0.0".to_string()),
                 deprecated: None,
             },
@@ -302,6 +303,7 @@ mod tests {
             VersionAnnotation {
                 constructor_history: Vec::new(),
                 legacy_constructor_fields: Vec::new(),
+                declared_constructor_order: false,
                 since: Some("1.0.0".to_string()),
                 deprecated: None,
             },
@@ -320,6 +322,7 @@ mod tests {
             VersionAnnotation {
                 constructor_history: Vec::new(),
                 legacy_constructor_fields: Vec::new(),
+                declared_constructor_order: false,
                 since: Some("1.0.0".to_string()),
                 deprecated: None,
             },
@@ -338,6 +341,7 @@ mod tests {
             VersionAnnotation {
                 constructor_history: Vec::new(),
                 legacy_constructor_fields: Vec::new(),
+                declared_constructor_order: false,
                 since: None,
                 deprecated: Some(DeprecationInfo {
                     since: Some("3.0.0".to_string()),
@@ -370,6 +374,7 @@ mod tests {
             VersionAnnotation {
                 constructor_history: Vec::new(),
                 legacy_constructor_fields: Vec::new(),
+                declared_constructor_order: false,
                 since: Some("not-a-version".to_string()),
                 deprecated: None,
             },
@@ -402,6 +407,7 @@ mod tests {
             VersionAnnotation {
                 constructor_history: Vec::new(),
                 legacy_constructor_fields: Vec::new(),
+                declared_constructor_order: false,
                 since: Some("1.3".to_string()),
                 deprecated: None,
             },
@@ -427,6 +433,7 @@ mod tests {
                     VersionAnnotation {
                         constructor_history: Vec::new(),
                         legacy_constructor_fields: Vec::new(),
+                        declared_constructor_order: false,
                         since: Some("1.2.0-rc.1".to_string()),
                         deprecated: None,
                     },
@@ -436,6 +443,7 @@ mod tests {
                     VersionAnnotation {
                         constructor_history: Vec::new(),
                         legacy_constructor_fields: Vec::new(),
+                        declared_constructor_order: false,
                         since: Some("1.2.0+build".to_string()),
                         deprecated: None,
                     },
@@ -454,6 +462,7 @@ mod tests {
             VersionAnnotation {
                 constructor_history: Vec::new(),
                 legacy_constructor_fields: Vec::new(),
+                declared_constructor_order: false,
                 since: Some("9.0.0".to_string()),
                 deprecated: None,
             },
@@ -473,6 +482,7 @@ mod tests {
             VersionAnnotation {
                 constructor_history: Vec::new(),
                 legacy_constructor_fields: Vec::new(),
+                declared_constructor_order: false,
                 since: Some("9.0.0".to_string()),
                 deprecated: None,
             },
@@ -495,6 +505,7 @@ mod tests {
             VersionAnnotation {
                 constructor_history: Vec::new(),
                 legacy_constructor_fields: Vec::new(),
+                declared_constructor_order: false,
                 since: Some("2.0.0".to_string()),
                 deprecated: None,
             },

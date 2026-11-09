@@ -407,7 +407,7 @@ fn gen_new_method(
     class_type_names: &AHashSet<String>,
 ) -> String {
     use super::field_references_excluded_type;
-    use crate::codegen::shared::constructor_parts;
+    use crate::codegen::shared::constructor_parts_with_order;
 
     let map_fn = |ty: &crate::core::ir::TypeRef| {
         if is_vec_of_tagged_data_enum(ty, tagged_data_enum_names)
@@ -438,7 +438,7 @@ fn gen_new_method(
     } else if has_field_defaults {
         crate::codegen::shared::constructor_parts_with_field_defaults(&filtered_fields, &map_fn, typ)
     } else {
-        constructor_parts(&filtered_fields, &map_fn)
+        constructor_parts_with_order(&filtered_fields, &map_fn, None, &[], Some(typ))
     };
     let param_list = rewrite_complex_newtype_constructor_params(&param_list, &filtered_fields, typ.has_default);
 

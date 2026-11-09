@@ -222,16 +222,18 @@ fn gen_type_init_stub(
         .filter(|f| f.cfg.as_deref().is_none_or(cfg_present_for_pyo3_stub))
         .filter(|f| bridge_field_name != Some(f.name.as_str()))
         .collect();
-    fields.sort_by_key(|f| {
-        (
-            typ.is_constructor_extension(f),
-            f.optional,
-            typ.legacy_constructor_fields()
-                .iter()
-                .position(|name| name == &f.name)
-                .unwrap_or(0),
-        )
-    });
+    if !typ.uses_declared_constructor_order("python-stub", fields.iter().map(|f| typ.has_default || f.optional)) {
+        fields.sort_by_key(|f| {
+            (
+                typ.is_constructor_extension(f),
+                f.optional,
+                typ.legacy_constructor_fields()
+                    .iter()
+                    .position(|name| name == &f.name)
+                    .unwrap_or(0),
+            )
+        });
+    }
 
     let mut bare_defaulted = vec![false; fields.len()];
     let mut suffix_defaulted = true;
@@ -914,6 +916,62 @@ mod tests {
         assert_eq!(
             stub,
             "    def __init__(\n        self,\n        llm: LlmConfig,\n        alt_text: CaptionAltTextMode,\n        provider: CaptionProvider,\n    ) -> None: ..."
+        );
+    }
+
+    fn declared_order_stub_typ(has_default: bool, declared: bool, optionals: [bool; 3]) -> TypeDef {
+        TypeDef {
+            name: "LayoutConfig".to_string(),
+            has_default,
+            fields: ["strategy", "threshold", "model"]
+                .iter()
+                .zip(optionals)
+                .map(|(name, optional)| FieldDef {
+                    name: (*name).to_string(),
+                    ty: TypeRef::String,
+                    optional,
+                    ..Default::default()
+                })
+                .collect(),
+            version: crate::core::ir::VersionAnnotation {
+                declared_constructor_order: declared,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    fn declared_order_stub(typ: &TypeDef) -> String {
+        gen_type_init_stub(
+            typ,
+            &ApiSurface::default(),
+            &ResolvedCrateConfig::default(),
+            &OptionsFieldBridges::default(),
+        )
+    }
+
+    #[test]
+    fn type_init_stub_declared_order_keeps_field_positions() {
+        let declared = declared_order_stub(&declared_order_stub_typ(true, true, [false, true, false]));
+        let default = declared_order_stub(&declared_order_stub_typ(true, false, [false, true, false]));
+
+        assert_eq!(
+            declared,
+            "    def __init__(\n        self,\n        strategy: str = ...,\n        threshold: str | None = None,\n        model: str = ...,\n    ) -> None: ..."
+        );
+        assert_eq!(
+            default,
+            "    def __init__(\n        self,\n        strategy: str = ...,\n        model: str = ...,\n        threshold: str | None = None,\n    ) -> None: ..."
+        );
+    }
+
+    #[test]
+    fn type_init_stub_declared_order_falls_back_for_a_required_field_after_an_optional_one() {
+        let stub = declared_order_stub(&declared_order_stub_typ(false, true, [false, true, false]));
+
+        assert_eq!(
+            stub,
+            "    def __init__(self, strategy: str, model: str, threshold: str | None = None) -> None: ..."
         );
     }
 }

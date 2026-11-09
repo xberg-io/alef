@@ -26,11 +26,12 @@ pub fn gen_constructor_with_renames(
             typ,
         )
     } else {
-        crate::codegen::shared::constructor_parts_with_renames_and_cfg_restore(
+        crate::codegen::shared::constructor_parts_with_order(
             &typ.fields,
             &map_fn,
             field_renames,
             cfg.never_skip_cfg_field_names,
+            Some(typ),
         )
     };
 

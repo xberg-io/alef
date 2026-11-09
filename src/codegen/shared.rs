@@ -311,12 +311,33 @@ pub fn constructor_parts_with_renames_and_cfg_restore(
     field_renames: Option<&HashMap<String, String>>,
     never_skip_cfg_field_names: &[String],
 ) -> (String, String, String) {
+    constructor_parts_with_order(fields, type_mapper, field_renames, never_skip_cfg_field_names, None)
+}
+
+/// Like `constructor_parts_with_renames_and_cfg_restore`; when `declared_order_type` is a type
+/// listed in `constructor_declared_order`, parameters keep declaration order unless a required
+/// field follows an optional one.
+pub fn constructor_parts_with_order(
+    fields: &[FieldDef],
+    type_mapper: &dyn Fn(&TypeRef) -> String,
+    field_renames: Option<&HashMap<String, String>>,
+    never_skip_cfg_field_names: &[String],
+    declared_order_type: Option<&TypeDef>,
+) -> (String, String, String) {
     let mut sorted_fields: Vec<&FieldDef> = fields
         .iter()
         .filter(|f| !f.binding_excluded)
         .filter(|f| f.cfg.is_none() || never_skip_cfg_field_names.contains(&f.name))
         .collect();
-    sorted_fields.sort_by_key(|f| (f.optional || f.cfg.is_some()) as u8);
+    let keep_declared_order = declared_order_type.is_some_and(|typ| {
+        typ.uses_declared_constructor_order(
+            "constructor",
+            sorted_fields.iter().map(|f| f.optional || f.cfg.is_some()),
+        )
+    });
+    if !keep_declared_order {
+        sorted_fields.sort_by_key(|f| (f.optional || f.cfg.is_some()) as u8);
+    }
 
     let params: Vec<String> = sorted_fields
         .iter()
@@ -800,7 +821,15 @@ fn config_constructor_parts_inner(
         .filter(|f| !f.binding_excluded)
         .filter(|f| f.cfg.is_none() || never_skip_cfg_field_names.contains(&f.name))
         .collect();
-    sorted_fields.sort_by_key(|field| (typ.is_constructor_extension(field), field.optional));
+    let keep_declared_order = typ.uses_declared_constructor_order(
+        "constructor",
+        sorted_fields
+            .iter()
+            .map(|f| optionalize_all_fields || f.optional || f.has_bare_serde_enum_default()),
+    );
+    if !keep_declared_order {
+        sorted_fields.sort_by_key(|field| (typ.is_constructor_extension(field), field.optional));
+    }
 
     let params: Vec<String> = sorted_fields
         .iter()

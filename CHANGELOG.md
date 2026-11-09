@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `[[crates]] constructor_declared_order = ["Type", ...]` (or `"*"`) makes the listed types' positional constructors take their parameters in field declaration order instead of required-first, so a field moved to the end of a struct is the last PHP `new`, WASM `new` and Python `__init__` / `.pyi` parameter. PHP always honors it: a nullable parameter before a required one is required-nullable, and the stub drops `= null` from all but the trailing nullable run. Python and the other positional constructors need defaulted parameters to trail: when a required field follows an optional one the type keeps required-first order and alef logs a warning. A type with recorded constructor history keeps that order. Default output is unchanged.
+
 ## [0.129.0] - 2026-11-08
 
 ### Added

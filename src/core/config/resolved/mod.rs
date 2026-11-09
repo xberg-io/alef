@@ -203,6 +203,9 @@ pub struct ResolvedCrateConfig {
     /// from `[workspace] extra_clippy_allows`. Empty by default.
     pub extra_clippy_allows: Vec<String>,
 
+    /// Resolved from [`crate::core::config::raw_crate::RawCrateConfig::constructor_declared_order`].
+    pub constructor_declared_order: Vec<String>,
+
     /// Resolved from [`crate::core::config::raw_crate::RawCrateConfig::crate_attributes`].
     ///
     /// Custom inner attribute bodies (e.g. `recursion_limit = "256"`) injected into

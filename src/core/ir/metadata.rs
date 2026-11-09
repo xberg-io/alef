@@ -403,6 +403,10 @@ pub struct VersionAnnotation {
     /// Explicit constructor history used to preserve compatibility while adding defaulted fields. ~keep
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub legacy_constructor_fields: Vec<String>,
+    /// Set from `[[crates]] constructor_declared_order`: positional constructors take their
+    /// parameters in field declaration order instead of required-first. ~keep
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub declared_constructor_order: bool,
     /// Version when this item was introduced (from `#[alef(since = "...")]`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub since: Option<String>,

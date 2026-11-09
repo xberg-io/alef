@@ -114,16 +114,18 @@ pub(super) fn replace_constructor_with_serde_rename(
         .filter(|f| bridge_field_name.is_none() || f.name != bridge_field_name.unwrap())
         .filter(|f| !crate::codegen::private_accessors::is_private_accessor_field(typ, f))
         .collect();
-    sorted_fields.sort_by_key(|f| {
-        (
-            typ.is_constructor_extension(f),
-            f.optional,
-            typ.legacy_constructor_fields()
-                .iter()
-                .position(|name| name == &f.name)
-                .unwrap_or(0),
-        )
-    });
+    if !typ.uses_declared_constructor_order("python", sorted_fields.iter().map(|f| typ.has_default || f.optional)) {
+        sorted_fields.sort_by_key(|f| {
+            (
+                typ.is_constructor_extension(f),
+                f.optional,
+                typ.legacy_constructor_fields()
+                    .iter()
+                    .position(|name| name == &f.name)
+                    .unwrap_or(0),
+            )
+        });
+    }
 
     let mut bare_defaulted = vec![false; sorted_fields.len()];
     let mut suffix_defaulted = true;
@@ -510,6 +512,88 @@ mod tests {
         );
         assert!(
             rendered.contains("pub fn new(llm: LlmConfig, alt_text: CaptionAltTextMode, provider: CaptionProvider)"),
+            "{rendered}"
+        );
+    }
+
+    fn declared_order_typ(has_default: bool, declared: bool, optionals: [bool; 3]) -> TypeDef {
+        let names = ["strategy", "threshold", "model"];
+        TypeDef {
+            name: "LayoutConfig".to_string(),
+            has_default,
+            fields: names
+                .iter()
+                .zip(optionals)
+                .map(|(name, optional)| FieldDef {
+                    name: (*name).to_string(),
+                    ty: TypeRef::String,
+                    optional,
+                    ..Default::default()
+                })
+                .collect(),
+            version: crate::core::ir::VersionAnnotation {
+                declared_constructor_order: declared,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    fn render_new(typ: &TypeDef) -> String {
+        replace_constructor_with_serde_rename(
+            "impl LayoutConfig {\n    #[pyo3(signature = ())]#[new]\n    pub fn new() -> Self { Self {} }\n}",
+            typ,
+            &Pyo3Mapper::new(),
+            &binding_config("sample_core", true),
+            None,
+            &[],
+            &[],
+            &ApiSurface::default(),
+        )
+    }
+
+    #[test]
+    fn required_first_order_is_the_default_for_python_constructors() {
+        let rendered = render_new(&declared_order_typ(true, false, [false, true, false]));
+
+        assert!(
+            rendered.contains("pub fn new(strategy: String, model: String, threshold: Option<String>)"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn declared_order_keeps_every_python_parameter_at_its_field_position() {
+        let rendered = render_new(&declared_order_typ(true, true, [false, true, false]));
+
+        assert!(
+            rendered.contains("pub fn new(strategy: String, threshold: Option<String>, model: String)"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains(
+                "#[pyo3(signature = (strategy=Self::default().strategy, threshold=None, model=Self::default().model))]"
+            ),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn declared_order_falls_back_when_a_required_python_field_follows_an_optional_one() {
+        let rendered = render_new(&declared_order_typ(false, true, [false, true, false]));
+
+        assert!(
+            rendered.contains("pub fn new(strategy: String, model: String, threshold: Option<String>)"),
+            "a defaultless parameter after a defaulted one is invalid Python; keep required-first:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn declared_order_applies_to_a_python_type_whose_defaults_already_trail() {
+        let rendered = render_new(&declared_order_typ(false, true, [false, false, true]));
+
+        assert!(
+            rendered.contains("pub fn new(strategy: String, threshold: String, model: Option<String>)"),
             "{rendered}"
         );
     }

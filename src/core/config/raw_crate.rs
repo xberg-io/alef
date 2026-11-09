@@ -289,6 +289,37 @@ pub struct RawCrateConfig {
     #[serde(default)]
     pub untagged_union_text_types: Vec<String>,
 
+    /// Types whose positional constructors list their parameters in field declaration
+    /// order instead of required-first. Entries are type names, `crate::Type` paths, or `"*"`
+    /// for every type.
+    ///
+    /// By default the PHP, WASM and Python constructors (and the `.pyi` stub) place required
+    /// parameters before optional ones, so a new field moved to the end of a struct can still
+    /// land before older optional parameters and shift them. Listing a type keeps each
+    /// parameter at its declared position.
+    ///
+    /// PHP always honors it: a nullable parameter may precede a required one, and the stub
+    /// drops `= null` from every parameter that is not part of the trailing nullable run.
+    /// Python (`__init__`, `#[new]` signature, `.pyi`, options dataclass) and the other
+    /// positional constructors need parameters without a default to precede those with one:
+    /// when a required field follows an optional one, the type keeps the required-first order
+    /// and alef logs a warning. A type with recorded constructor history keeps that history's
+    /// order. Declaration order differs from the required-first order of earlier releases
+    /// whenever an optional field precedes a required one, so listing a released type moves
+    /// those parameters; to freeze a released signature and append new fields instead, record
+    /// it with `legacy_constructor_fields`.
+    ///
+    /// When absent or empty (the default) output is unchanged.
+    ///
+    /// Example:
+    /// ```toml
+    /// [[crates]]
+    /// name = "sample-core"
+    /// constructor_declared_order = ["LayoutDetectionConfig"]
+    /// ```
+    #[serde(default)]
+    pub constructor_declared_order: Vec<String>,
+
     /// Custom inner attributes (`#![...]`) injected into every generated Rust
     /// `lib.rs` for this crate — across every language backend that emits a
     /// standalone Rust crate (ffi, jni, node, python, php, wasm, ruby, elixir, R,

@@ -499,3 +499,147 @@ fn field_default_constructor_does_not_widen_non_enum_bare_defaults() {
     assert_eq!(defaults, "");
     assert_eq!(assignments, "quality_thresholds");
 }
+
+fn declared_order_field(name: &str, optional: bool) -> FieldDef {
+    FieldDef {
+        name: name.to_string(),
+        ty: TypeRef::String,
+        optional,
+        ..Default::default()
+    }
+}
+
+fn declared_order_type(has_default: bool, declared: bool, fields: Vec<FieldDef>) -> TypeDef {
+    TypeDef {
+        name: "LayoutConfig".to_string(),
+        rust_path: "sample_core::LayoutConfig".to_string(),
+        fields,
+        has_default,
+        version: crate::core::ir::VersionAnnotation {
+            declared_constructor_order: declared,
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+fn string_mapper(_: &TypeRef) -> String {
+    "String".to_string()
+}
+
+/// Positive and negative control for `constructor_declared_order`: the same fields yield
+/// required-first without the flag and declaration order with it.
+#[test]
+fn config_constructor_declared_order_replaces_required_first_for_fully_defaulted_types() {
+    let fields = vec![
+        declared_order_field("strategy", false),
+        declared_order_field("threshold", true),
+        declared_order_field("model", false),
+    ];
+
+    let (default_params, ..) = config_constructor_parts_with_options(
+        &fields,
+        &string_mapper,
+        true,
+        &declared_order_type(true, false, fields.clone()),
+    );
+    let (declared_params, declared_defaults, assignments) = config_constructor_parts_with_options(
+        &fields,
+        &string_mapper,
+        true,
+        &declared_order_type(true, true, fields.clone()),
+    );
+
+    assert_eq!(
+        default_params,
+        "strategy: Option<String>, model: Option<String>, threshold: Option<String>"
+    );
+    assert_eq!(
+        declared_params,
+        "strategy: Option<String>, threshold: Option<String>, model: Option<String>"
+    );
+    assert_eq!(declared_defaults, "strategy=None, threshold=None, model=None");
+    assert!(assignments.contains("threshold"), "{assignments}");
+}
+
+#[test]
+fn field_default_constructor_declared_order_falls_back_for_a_required_field_after_an_optional_one() {
+    let fields = vec![
+        declared_order_field("strategy", false),
+        declared_order_field("threshold", true),
+        declared_order_field("model", false),
+    ];
+    let typ = declared_order_type(false, true, fields.clone());
+
+    let (params, ..) = constructor_parts_with_field_defaults(&fields, &string_mapper, &typ);
+
+    assert_eq!(params, "strategy: String, model: String, threshold: Option<String>");
+}
+
+#[test]
+fn field_default_constructor_declared_order_applies_when_defaults_trail() {
+    let fields = vec![
+        declared_order_field("strategy", false),
+        declared_order_field("model", false),
+        declared_order_field("threshold", true),
+    ];
+    let typ = declared_order_type(false, true, fields.clone());
+
+    let (params, defaults, _) = constructor_parts_with_field_defaults(&fields, &string_mapper, &typ);
+
+    assert_eq!(params, "strategy: String, model: String, threshold: Option<String>");
+    assert_eq!(defaults, "threshold=None");
+}
+
+#[test]
+fn constructor_parts_declared_order_honored_only_when_valid() {
+    let valid = vec![
+        declared_order_field("strategy", false),
+        declared_order_field("model", false),
+        declared_order_field("threshold", true),
+    ];
+    let invalid = vec![
+        declared_order_field("strategy", false),
+        declared_order_field("threshold", true),
+        declared_order_field("model", false),
+    ];
+    let declared = declared_order_type(false, true, vec![]);
+    let plain = declared_order_type(false, false, vec![]);
+
+    let (valid_params, ..) = constructor_parts_with_order(&valid, &string_mapper, None, &[], Some(&declared));
+    let (invalid_params, ..) = constructor_parts_with_order(&invalid, &string_mapper, None, &[], Some(&declared));
+    let (plain_params, ..) = constructor_parts_with_order(&invalid, &string_mapper, None, &[], Some(&plain));
+
+    assert_eq!(
+        valid_params,
+        "strategy: String, model: String, threshold: Option<String>"
+    );
+    assert_eq!(
+        invalid_params,
+        "strategy: String, model: String, threshold: Option<String>"
+    );
+    assert_eq!(plain_params, invalid_params);
+
+    let leading_optional = vec![declared_order_field("threshold", true)];
+    let (only_optional, ..) =
+        constructor_parts_with_order(&leading_optional, &string_mapper, None, &[], Some(&declared));
+    assert_eq!(only_optional, "threshold: Option<String>");
+}
+
+#[test]
+fn recorded_constructor_history_overrides_declared_order() {
+    let fields = vec![
+        declared_order_field("strategy", false),
+        declared_order_field("threshold", true),
+        declared_order_field("model", true),
+    ];
+    let mut typ = declared_order_type(true, true, fields.clone());
+    typ.version.legacy_constructor_fields = vec!["strategy".to_string(), "model".to_string()];
+
+    let (params, ..) = config_constructor_parts_with_options(&fields, &string_mapper, true, &typ);
+
+    assert_eq!(
+        params,
+        "strategy: Option<String>, model: Option<String>, threshold: Option<String>"
+    );
+}

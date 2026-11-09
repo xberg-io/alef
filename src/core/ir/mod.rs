@@ -24,3 +24,6 @@ pub use type_ref::{PrimitiveType, TypeRef};
 
 mod constructor_history;
 pub(crate) use constructor_history::validate_constructor_history;
+
+mod constructor_order;
+pub use constructor_order::defaults_are_trailing;

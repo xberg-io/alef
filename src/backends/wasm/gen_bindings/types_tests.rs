@@ -1050,3 +1050,55 @@ fn the_core_conversion_fills_the_companion_with_the_whole_union() {
     let out = gen_from_core_to_binding_cfg(&typ, "my_lib", &AHashSet::default(), &without);
     assert!(!out.contains("content_value"), "{out}");
 }
+
+fn declared_order_typ(has_default: bool, declared: bool, optionals: [bool; 3]) -> TypeDef {
+    TypeDef {
+        name: "LayoutConfig".to_string(),
+        rust_path: "sample_core::LayoutConfig".to_string(),
+        has_default,
+        fields: ["strategy", "threshold", "model"]
+            .iter()
+            .zip(optionals)
+            .map(|(name, optional)| FieldDef {
+                name: (*name).to_string(),
+                ty: TypeRef::String,
+                optional,
+                ..Default::default()
+            })
+            .collect(),
+        version: crate::core::ir::VersionAnnotation {
+            declared_constructor_order: declared,
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+fn declared_order_new(typ: &TypeDef) -> String {
+    gen_new_method(typ, &mapper(), &[], "Wasm", &AHashSet::default(), &AHashSet::default())
+}
+
+#[test]
+fn constructor_declared_order_keeps_the_new_field_last() {
+    let default = declared_order_new(&declared_order_typ(true, false, [false, true, false]));
+    let declared = declared_order_new(&declared_order_typ(true, true, [false, true, false]));
+
+    assert!(
+        default.contains("pub fn new(strategy: Option<String>, model: Option<String>, threshold: Option<String>)"),
+        "{default}"
+    );
+    assert!(
+        declared.contains("pub fn new(strategy: Option<String>, threshold: Option<String>, model: Option<String>)"),
+        "{declared}"
+    );
+}
+
+#[test]
+fn constructor_declared_order_falls_back_when_a_required_field_follows_an_optional_one() {
+    let declared = declared_order_new(&declared_order_typ(false, true, [false, true, false]));
+
+    assert!(
+        declared.contains("pub fn new(strategy: String, model: String, threshold: Option<String>)"),
+        "{declared}"
+    );
+}

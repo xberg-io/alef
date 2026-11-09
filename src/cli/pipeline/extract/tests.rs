@@ -502,6 +502,7 @@ fn surface_with(types: Vec<crate::core::ir::TypeDef>, functions: Vec<crate::core
 }
 
 mod config_entry_matching;
+mod constructor_declared_order;
 mod external_type_roots;
 mod fixed_size_arrays;
 mod ir_cache_version_salt;

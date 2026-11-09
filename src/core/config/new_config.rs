@@ -447,6 +447,7 @@ impl NewAlefConfig {
             untagged_union_text_types: krate.untagged_union_text_types.clone(),
             poly: ws.poly.clone(),
             extra_clippy_allows: ws.extra_clippy_allows.clone(),
+            constructor_declared_order: krate.constructor_declared_order.clone(),
             crate_attributes,
             cargo_lints: krate.cargo_lints.clone(),
             verify: krate.verify.clone(),
