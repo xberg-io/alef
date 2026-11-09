@@ -184,6 +184,82 @@ fn legacy_constructor_fields_preserve_required_napi_declarations() {
     }
 }
 
+fn defaulted_legacy_cell(has_default: bool) -> TypeDef {
+    let mut typ = legacy_cell(has_default);
+    for field in typ.fields.iter_mut().filter(|f| f.name == "content" || f.name == "row") {
+        field.default = Some("/* serde(default) */".into());
+        field.typed_default = Some(crate::core::ir::DefaultValue::Empty);
+    }
+    typ
+}
+
+/// Recording constructor history must not turn a field that has its own default into a
+/// required one; the control (`has_default = false`) keeps the recorded fields required.
+#[test]
+fn legacy_constructor_fields_with_defaults_stay_optional_in_napi_structs() {
+    for (has_default, expected) in [(true, [true, true, true, true]), (false, [false, false, true, true])] {
+        let typ = defaulted_legacy_cell(has_default);
+        for (field, expected) in typ.fields.iter().zip(expected) {
+            assert_eq!(
+                napi_field_is_optional(field, &typ),
+                expected,
+                "{} default={has_default}",
+                field.name
+            );
+        }
+        let rendered = gen_struct(
+            &typ,
+            &NapiMapper::new("Js".into()),
+            "Js",
+            true,
+            &ahash::AHashSet::default(),
+            &[],
+            &[],
+            "sample_core",
+            &ahash::AHashSet::default(),
+            None,
+            &[],
+        );
+        let content = if expected[0] {
+            "pub content: Option<String>"
+        } else {
+            "pub content: String"
+        };
+        assert!(rendered.contains(content), "missing {content}: {rendered}");
+    }
+}
+
+#[test]
+fn legacy_constructor_fields_with_defaults_stay_optional_in_napi_declarations() {
+    for (has_default, content, row) in [
+        (true, "readonly content?:", "readonly row?:"),
+        (false, "readonly content: string", "readonly row: number"),
+    ] {
+        let api = crate::core::ir::ApiSurface {
+            types: vec![defaulted_legacy_cell(has_default)],
+            ..Default::default()
+        };
+        let rendered = super::super::errors::gen_dts(
+            &api,
+            "Js",
+            &Default::default(),
+            &[],
+            &Default::default(),
+            &Default::default(),
+            &Default::default(),
+            &Default::default(),
+            "sample_core",
+            None,
+        );
+        for expected in [content, row, "readonly label?:", "readonly annotations?:"] {
+            assert!(
+                rendered.contains(expected),
+                "default={has_default} missing {expected}: {rendered}"
+            );
+        }
+    }
+}
+
 #[test]
 fn default_without_legacy_constructor_keeps_optional_napi_fields() {
     let field = FieldDef {
