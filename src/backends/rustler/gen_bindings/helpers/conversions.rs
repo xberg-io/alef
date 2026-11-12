@@ -112,6 +112,25 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_struct_module(
         out.push_str("      value\n");
         out.push_str("      |> Map.from_struct()\n");
         out.push_str("      |> Enum.reject(fn {_k, v} -> v == nil end)\n");
+        let byte_keys: Vec<_> = fields
+            .iter()
+            .filter(|field| match &field.ty {
+                TypeRef::Bytes => true,
+                TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Bytes),
+                _ => false,
+            })
+            .map(|field| format!(":{}", elixir_safe_atom(&field.name.to_snake_case())))
+            .collect();
+        if !byte_keys.is_empty() {
+            let keys = byte_keys.join(", ");
+            out.push_str("      |> Enum.map(fn\n");
+            out.push_str(&format!(
+                "        {{key, bytes}} when key in [{keys}] and is_binary(bytes) ->\n"
+            ));
+            out.push_str("          {key, :binary.bin_to_list(bytes)}\n\n");
+            out.push_str("        field -> field\n");
+            out.push_str("      end)\n");
+        }
         out.push_str("      |> Enum.into(%{})\n");
         out.push_str("      |> Jason.Encoder.encode(opts)\n");
         out.push_str("    end\n");
