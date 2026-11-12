@@ -368,6 +368,54 @@ fn test_default_typed_named_param_is_json_encoded_in_public_wrapper() {
 }
 
 #[test]
+fn struct_jason_encoder_normalizes_only_binary_byte_fields() {
+    use crate::core::ir::{FieldDef, TypeDef, TypeRef};
+
+    let mut api = test_api();
+    api.types.push(TypeDef {
+        name: "ExtractInput".to_string(),
+        rust_path: "my_lib::ExtractInput".to_string(),
+        original_rust_path: "my_lib::ExtractInput".to_string(),
+        has_default: true,
+        has_serde: true,
+        fields: [
+            ("rawData", TypeRef::Bytes),
+            ("optionalData", TypeRef::Optional(Box::new(TypeRef::Bytes))),
+            ("title", TypeRef::String),
+        ]
+        .into_iter()
+        .map(|(name, ty)| FieldDef {
+            name: name.to_string(),
+            ty,
+            ..Default::default()
+        })
+        .collect(),
+        ..Default::default()
+    });
+
+    let files = RustlerBackend.generate_public_api(&api, &test_config()).unwrap();
+    let module = files
+        .iter()
+        .find(|file| file.path.ends_with("extract_input.ex"))
+        .unwrap();
+    let expected = r#"      |> Map.from_struct()
+      |> Enum.reject(fn {_k, v} -> v == nil end)
+      |> Enum.map(fn
+        {key, bytes} when key in [:raw_data, :optional_data] and is_binary(bytes) ->
+          {key, :binary.bin_to_list(bytes)}
+
+        field -> field
+      end)
+      |> Enum.into(%{})
+      |> Jason.Encoder.encode(opts)"#;
+    assert!(
+        module.content.contains(expected),
+        "unexpected struct module:\n{}",
+        module.content
+    );
+}
+
+#[test]
 fn struct_returns_are_specced_with_the_struct_module_type() {
     use crate::core::ir::{FieldDef, FunctionDef, ParamDef, TypeDef, TypeRef};
 
