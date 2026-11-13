@@ -155,6 +155,12 @@ pub(crate) fn scaffold_node_cargo(
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
     let crate_dir = format!("crates/{core_crate_dir}-node");
+    let build_dependencies = config
+        .workspace_root
+        .as_deref()
+        .filter(|root| root.join(&crate_dir).join("build.rs").is_file())
+        .map(|_| format!("[build-dependencies]\nnapi-build = \"{}\"\n", tv::cargo::NAPI_BUILD))
+        .unwrap_or_default();
     let ws = detect_workspace_inheritance_for_crate(config.workspace_root.as_deref(), &crate_dir);
     let cargo_filters = crate::scaffold::cargo_package_file_filters(config);
     let pkg_header = cargo_package_header(
@@ -357,16 +363,13 @@ crate-type = ["cdylib"]
 {features_table}[dependencies]
 {dep_block}
 
-{core_target_blocks_section}[build-dependencies]
-napi-build = "{napi_build}"
-{lints_section}"#,
+{core_target_blocks_section}{build_dependencies}{lints_section}"#,
         pkg_header = pkg_header,
         lints_section = lints_section,
         dep_block = dep_block,
         core_target_blocks_section = core_target_blocks_section,
         features_table = features_table,
         machete_ignored_str = machete_ignored_str,
-        napi_build = tv::cargo::NAPI_BUILD,
     );
 
     Ok(vec![GeneratedFile {
