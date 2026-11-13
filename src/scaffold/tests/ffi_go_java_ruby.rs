@@ -54,7 +54,7 @@ fn test_scaffold_ffi_deps_are_pinned() {
         "cbindgen should be pinned to a specific minor for reproducible headers"
     );
     assert!(cargo_toml.contains("serde = \"1\""));
-    assert!(cargo_toml.contains("ignored = [\"ahash\", \"serde\", \"serde_json\", \"tokio\"]"));
+    assert!(cargo_toml.contains("ignored = [\"serde\", \"serde_json\", \"tokio\"]"));
     assert!(cargo_toml.contains("serde_json = \"1\""));
     assert!(cargo_toml.contains("tokio = "));
     assert!(cargo_toml.contains("[dev-dependencies]"));
@@ -217,7 +217,7 @@ fn test_scaffold_ffi_target_dep_overrides_emit_cfg_blocks() {
         "override branch should emit android-target feature, got:\n{cargo_toml}"
     );
 
-    assert!(cargo_toml.contains("[dependencies]\nahash = \"0.8\""));
+    assert!(!cargo_toml.contains("\nahash = "));
     assert!(
         !cargo_toml.contains("\n[dependencies]\nmy-lib ="),
         "core-crate dep should have moved out of [dependencies], got:\n{cargo_toml}"

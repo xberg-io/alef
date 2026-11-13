@@ -185,7 +185,7 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     }
     crate::scaffold::sort_dependency_lines(&mut extra_dep_lines);
 
-    let mut machete_ignored: Vec<&str> = vec!["ahash", "serde", "serde_json", "tokio"];
+    let mut machete_ignored: Vec<&str> = vec!["serde", "serde_json", "tokio"];
     if has_trait_bridges {
         machete_ignored.push("async-trait");
         machete_ignored.push("tracing");
@@ -315,10 +315,17 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     };
 
     let mut dep_entries: Vec<String> = vec![
-        format!("ahash = \"{}\"", tv::cargo::AHASH),
         format!("serde = \"{}\"", tv::cargo::SERDE),
         format!("serde_json = \"{}\"", tv::cargo::SERDE_JSON),
     ];
+    if api.functions.iter().any(|function| {
+        !function.binding_excluded
+            && !config.exclude.functions.contains(&function.name)
+            && function.params.iter().any(|param| param.map_is_ahash)
+    }) && !extra_dep_lines.iter().any(|line| line.starts_with("ahash ="))
+    {
+        dep_entries.push(format!("ahash = \"{}\"", tv::cargo::AHASH));
+    }
     let needs_tokio = has_streaming
         || has_async_bridges
         || !api.services.is_empty()
@@ -351,7 +358,7 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     let content = format!(
         r#"{pkg_header}{repository_line}
 
-# `serde`, `serde_json`, and `ahash` are emitted unconditionally above so the
+# `serde` and `serde_json` are emitted unconditionally above so the
 # manifest is stable across regens (and so the C FFI codegen can pull them in
 # when an async / Result-typed function appears in the API surface), but for
 # umbrella crates with no async fns and no JSON-marshalled return types they
