@@ -1,0 +1,29 @@
+
+    internal ulong CreateNativeHandle()
+    {
+        var bytes = {{ property }};
+        if (bytes is null)
+        {
+            var json = JsonSerializer.Serialize(this, JsonSerializationOptions);
+            var handle = NativeMethods.{{ class_name }}FromJson(json);
+            if (handle == 0)
+                throw {{ exception_class }}.FromLastError("{{ class_name }}FromJson failed");
+            return handle;
+        }
+
+        var metadata = JsonSerializer.Serialize(this with { {{ property }} = null }, JsonSerializationOptions);
+        var pinned = global::System.Runtime.InteropServices.GCHandle.Alloc(
+            bytes, global::System.Runtime.InteropServices.GCHandleType.Pinned);
+        try
+        {
+            var handle = NativeMethods.{{ class_name }}FromJsonWithBytes(
+                pinned.AddrOfPinnedObject(), (UIntPtr)bytes.Length, metadata);
+            if (handle == 0)
+                throw {{ exception_class }}.FromLastError("{{ class_name }}FromJsonWithBytes failed");
+            return handle;
+        }
+        finally
+        {
+            pinned.Free();
+        }
+    }

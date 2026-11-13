@@ -451,3 +451,54 @@ fn record_type_scalar_defaults_agree_with_the_swift_renderer() {
         );
     }
 }
+
+#[test]
+fn split_byte_transport_preserves_public_json_and_marshals_metadata_without_payload() {
+    use crate::core::ir::{MethodDef, ParamDef};
+
+    let mut bytes = field("payload", TypeRef::Bytes);
+    bytes.optional = true;
+    let mut typ = named_record_type("Input", vec![bytes, field("filename", TypeRef::String)]);
+    let param = |name: &str, ty| ParamDef {
+        name: name.into(),
+        ty,
+        ..Default::default()
+    };
+    typ.methods.push(MethodDef {
+        name: "from_json_with_bytes".into(),
+        is_static: true,
+        return_type: TypeRef::Named(typ.name.clone()),
+        error_type: Some("Error".into()),
+        params: vec![param("bytes", TypeRef::Bytes), param("metadata_json", TypeRef::String)],
+        ..Default::default()
+    });
+    let record = render_plain_record(&typ);
+    assert!(
+        record.contains("[JsonConverter(typeof(ByteArrayJsonConverter))]"),
+        "{record}"
+    );
+    assert!(record.contains("Serialize(this with { Payload = null }, JsonSerializationOptions)"));
+    assert!(record.contains("NativeMethods.InputFromJsonWithBytes("));
+    assert!(record.contains("pinned.Free()"));
+    assert!(!record.contains("public static Input FromJsonWithBytes("));
+
+    let render_setup = |typ: &TypeDef| {
+        let mut setup = String::new();
+        super::super::emit_named_param_setup(
+            &mut setup,
+            &[param("input", TypeRef::Named(typ.name.clone()))],
+            "        ",
+            &HashSet::new(),
+            "DemoException",
+            std::slice::from_ref(typ),
+            &HashSet::new(),
+        );
+        setup
+    };
+    assert_eq!(
+        render_setup(&typ).trim(),
+        "var inputHandle = input.CreateNativeHandle();"
+    );
+    typ.methods.clear();
+    assert!(render_setup(&typ).contains("JsonSerializer.Serialize(input, JsonSerializationOptions)"));
+}

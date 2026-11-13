@@ -355,6 +355,14 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
     ));
     out.push_str(&render("record_json_options.jinja", crate::alef_context! {}));
 
+    if let Some(field) = super::super::marshalling::split_bytes_field(typ) {
+        let property = to_csharp_name(&field.name);
+        out.push_str(&render(
+            "record_split_bytes_handle.jinja",
+            crate::alef_context! { class_name, exception_class, property },
+        ));
+    }
+
     emit_record_methods(
         &mut out,
         typ,
@@ -411,6 +419,9 @@ pub(super) fn emit_record_methods(
         .collect();
 
     for method in &typ.methods {
+        if method.name == "from_json_with_bytes" && super::super::marshalling::split_bytes_field(typ).is_some() {
+            continue;
+        }
         if !matches!(&method.return_type, TypeRef::Named(name) if name == &typ.name) {
             continue;
         }

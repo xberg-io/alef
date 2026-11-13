@@ -425,6 +425,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/opaque_factory_method.jinja"),
     ),
     (
+        "record_split_bytes_handle.jinja",
+        include_str!("templates/record_split_bytes_handle.jinja"),
+    ),
+    (
         "record_from_json_method.jinja",
         include_str!("templates/record_from_json_method.jinja"),
     ),

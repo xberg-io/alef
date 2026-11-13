@@ -142,6 +142,9 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
             if method.name == "is_valid" || method.name == "default" {
                 continue;
             }
+            if method.name == "from_json_with_bytes" && super::super::marshalling::split_bytes_field(typ).is_some() {
+                continue;
+            }
             out.push_str(&gen_wrapper_method(
                 method,
                 exception_name,
