@@ -14,7 +14,7 @@ uv = "0.13.6"
 node = "26.13.0"
 go = "1.27.3"
 # Repository-owned: the shared baseline omits Dart; native codec probes match the consumer CI SDK. ~keep
-dart = "3.13.7"
+dart = "3.14.0"
 java = "temurin-25.0.5+8.0.LTS"
 maven = "3.10.0"
 zig = "0.17.0"
