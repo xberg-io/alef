@@ -8,6 +8,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
     dto: &DtoConfig,
     reexported_types: &[String],
     has_serde: bool,
+    trait_bridges: &[crate::core::config::TraitBridgeConfig],
 ) -> String {
     use crate::core::ir::TypeRef;
 
@@ -374,15 +375,25 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
             continue;
         }
 
+        let bridge_field = trait_bridges.iter().find_map(|bridge| {
+            (bridge.bind_via == crate::core::config::BridgeBinding::OptionsField
+                && bridge.options_type.as_deref() == Some(typ.name.as_str()))
+            .then(|| bridge.resolved_options_field())
+            .flatten()
+        });
         for field in ordered_fields.iter().copied() {
-            let type_hint = python_field_type(
-                &field.ty,
-                field.optional,
-                &enum_names,
-                &data_enum_names,
-                &str_coercible_data_enums,
-                EmitContext::OptionsModule,
-            );
+            let type_hint = if bridge_field == Some(field.name.as_str()) {
+                "object | None".to_string()
+            } else {
+                python_field_type(
+                    &field.ty,
+                    field.optional,
+                    &enum_names,
+                    &data_enum_names,
+                    &str_coercible_data_enums,
+                    EmitContext::OptionsModule,
+                )
+            };
 
             // Only a closure-only type's genuinely required fields skip the default entirely --
             // see the comment above `ordered_fields`. Checking `typed_default` alone is not

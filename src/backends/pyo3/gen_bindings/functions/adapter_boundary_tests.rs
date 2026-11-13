@@ -71,6 +71,7 @@ fn render(api: &ApiSurface, adapter: &AdapterConfig) -> (String, String) {
         &DtoConfig::default(),
         &[],
         false,
+        &[],
     );
     (api_py, options_py)
 }

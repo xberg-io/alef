@@ -4,8 +4,7 @@ use crate::core::ir::ApiSurface;
 /// Whether the owning struct's bridge field survives into the Python binding's own DTO.
 ///
 /// Only then can the wrapper fall back to a handle the caller set on the options object
-/// itself; without the field there is nothing to read. `cfg`-gated fields are excluded for the
-/// same reason the binding omits them. ~keep
+/// itself. PyO3 retains these fields even when the core field is feature-gated. ~keep
 fn bridge_field_reaches_binding(api: &ApiSurface, bridge_cfg: &TraitBridgeConfig, field_name: &str) -> bool {
     let Some(options_type) = bridge_cfg.options_type.as_deref() else {
         return false;
@@ -14,7 +13,7 @@ fn bridge_field_reaches_binding(api: &ApiSurface, bridge_cfg: &TraitBridgeConfig
         .iter()
         .filter(|t| t.name == options_type)
         .flat_map(|t| t.fields.iter())
-        .any(|f| f.cfg.is_none() && f.name == field_name)
+        .any(|f| !f.binding_excluded && f.name == field_name)
 }
 
 /// The expression that reads an already-set bridge handle off the options argument.

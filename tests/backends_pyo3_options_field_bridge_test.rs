@@ -343,3 +343,33 @@ fn exclude_functions_is_honoured_by_the_pyfunction_the_stub_and_the_facade() {
         );
     }
 }
+
+#[test]
+fn cfg_gated_bridge_fields_supply_the_effective_callback() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut api = extract(dir.path());
+    let options = api.types.iter_mut().find(|typ| typ.name == "RunOptions").unwrap();
+    let field = options
+        .fields
+        .iter_mut()
+        .find(|field| field.name == "on_progress")
+        .unwrap();
+    field.cfg = Some("feature = \"visitor\"".to_owned());
+
+    let config = config_with("");
+    let lib = lib_rs(&api, &config);
+    let body = wrapper_body(&lib, "execute").expect("execute wrapper");
+    assert!(body.contains("on_progress.or_else(||"), "{body}");
+    assert!(body.contains("settings.on_progress.as_ref()"), "{body}");
+    assert!(body.contains("on_progress_object.as_ref()"), "{body}");
+
+    let files = Pyo3Backend
+        .generate_public_api(&api, &config)
+        .expect("generate public API");
+    let options_py = files.iter().find(|file| file.path.ends_with("options.py")).unwrap();
+    assert!(
+        options_py.content.contains("on_progress: object | None = None"),
+        "{}",
+        options_py.content
+    );
+}

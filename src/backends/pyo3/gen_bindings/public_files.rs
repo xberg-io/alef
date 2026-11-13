@@ -74,7 +74,14 @@ pub(super) fn generate_public_api(
     let active_trait_bridges: Vec<_> = config.trait_bridges_for(Language::Python).cloned().collect();
 
     let has_serde = types::crate_has_serde(config);
-    let options_content = types::gen_options_py(api, &module_name, &config.dto, &reexported_types, has_serde);
+    let options_content = types::gen_options_py(
+        api,
+        &module_name,
+        &config.dto,
+        &reexported_types,
+        has_serde,
+        &active_trait_bridges,
+    );
     files.push(GeneratedFile {
         path: output_base.join("options.py"),
         content: options_content,

@@ -132,7 +132,7 @@ fn options_dataclass_type_names_includes_a_holder_of_an_optional_dataclass_type(
 #[test]
 fn gen_options_py_emits_optional_nested_config_holder_as_a_dataclass() {
     let api = optional_nested_config_api();
-    let options_py = gen_options_py(&api, "_rust", &DtoConfig::default(), &[], false);
+    let options_py = gen_options_py(&api, "_rust", &DtoConfig::default(), &[], false, &[]);
 
     assert!(
         options_py.contains("class OcrPipelineStage:"),
@@ -151,7 +151,7 @@ fn gen_options_py_emits_optional_nested_config_holder_as_a_dataclass() {
 #[test]
 fn gen_options_py_emits_captioning_config_with_a_required_llm_field() {
     let api = captioning_config_api();
-    let options_py = gen_options_py(&api, "_rust", &DtoConfig::default(), &[], false);
+    let options_py = gen_options_py(&api, "_rust", &DtoConfig::default(), &[], false, &[]);
 
     assert!(
         options_py.contains("class CaptioningConfig:"),

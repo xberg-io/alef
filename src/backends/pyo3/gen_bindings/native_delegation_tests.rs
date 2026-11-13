@@ -40,7 +40,7 @@ fn widget_api(type_has_serde: bool) -> ApiSurface {
 #[test]
 fn gen_options_py_emits_from_json_delegating_to_native_class() {
     let api = widget_api(true);
-    let options_py = gen_options_py(&api, MODULE_NAME, &DtoConfig::default(), &[], true);
+    let options_py = gen_options_py(&api, MODULE_NAME, &DtoConfig::default(), &[], true, &[]);
 
     assert!(
         options_py.contains("def from_json(json_str: str) -> Widget:"),
@@ -64,7 +64,7 @@ fn gen_options_py_from_json_docstring_uses_an_before_a_vowel_class_name() {
     let mut api = widget_api(true);
     api.types[0].name = "AccelerationConfig".to_owned();
     api.types[0].rust_path = "sample_core::AccelerationConfig".to_owned();
-    let options_py = gen_options_py(&api, MODULE_NAME, &DtoConfig::default(), &[], true);
+    let options_py = gen_options_py(&api, MODULE_NAME, &DtoConfig::default(), &[], true, &[]);
 
     assert!(
         options_py.contains("Build an AccelerationConfig from a JSON string, via the native binding."),
@@ -74,7 +74,7 @@ fn gen_options_py_from_json_docstring_uses_an_before_a_vowel_class_name() {
         options_py.contains("def from_json(json_str: str) -> AccelerationConfig:"),
         "the generated return annotation must remain unquoted:\n{options_py}"
     );
-    let consonant = gen_options_py(&widget_api(true), MODULE_NAME, &DtoConfig::default(), &[], true);
+    let consonant = gen_options_py(&widget_api(true, &[]), MODULE_NAME, &DtoConfig::default(), &[], true);
     assert!(
         consonant.contains("Build a Widget from a JSON string, via the native binding."),
         "a consonant-starting class name must retain the article a:\n{consonant}"
@@ -88,7 +88,7 @@ fn gen_options_py_from_json_docstring_uses_an_before_a_vowel_class_name() {
 #[test]
 fn gen_options_py_omits_from_json_when_type_has_no_serde() {
     let api = widget_api(false);
-    let options_py = gen_options_py(&api, MODULE_NAME, &DtoConfig::default(), &[], true);
+    let options_py = gen_options_py(&api, MODULE_NAME, &DtoConfig::default(), &[], true, &[]);
 
     assert!(
         !options_py.contains("def from_json("),
@@ -107,7 +107,7 @@ fn gen_options_py_omits_from_json_when_type_has_no_serde() {
 #[test]
 fn gen_options_py_omits_from_json_when_crate_has_no_serde() {
     let api = widget_api(true);
-    let options_py = gen_options_py(&api, MODULE_NAME, &DtoConfig::default(), &[], false);
+    let options_py = gen_options_py(&api, MODULE_NAME, &DtoConfig::default(), &[], false, &[]);
 
     assert!(
         !options_py.contains("def from_json("),

@@ -9,8 +9,11 @@
 {{ signature_prefix }}{{ sig_str }}{{ signature_suffix }}
 {% endif %}
 pub fn {{ func_name }}{{ lifetime }}({{ params_str }}) -> {{ ret }} {
+    let {{ visitor_kwarg }}_object: Option<pyo3::Py<pyo3::PyAny>> = {{ visitor_kwarg }}{% if field_fallback %}.or_else(|| {
+        {{ field_access }}.map(|v| Python::attach(|py| (*v.inner).clone_ref(py)))
+    }){% endif %};
 {% if check_bridge_object %}
-    if let Some(obj) = {{ visitor_kwarg }}.as_ref() {
+    if let Some(obj) = {{ visitor_kwarg }}_object.as_ref() {
         let provides_any = Python::attach(|py| {
             let bound = obj.bind(py);
             [{% for name in bridge_method_names %}"{{ name }}", {% endfor %}]
@@ -24,9 +27,6 @@ pub fn {{ func_name }}{{ lifetime }}({{ params_str }}) -> {{ ret }} {
         }
     }
 {% endif %}
-    let {{ visitor_kwarg }}_object: Option<pyo3::Py<pyo3::PyAny>> = {{ visitor_kwarg }}{% if field_fallback %}.or_else(|| {
-        {{ field_access }}.map(|v| Python::attach(|py| (*v.inner).clone_ref(py)))
-    }){% endif %};
     let {{ visitor_kwarg }}_handle: Option<{{ handle_path }}> = match {{ visitor_kwarg }}_object {
         Some(obj) => {
             let bridge = {{ bridge_struct }}::new(obj){{ ctor_suffix }};

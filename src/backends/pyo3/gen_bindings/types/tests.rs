@@ -337,7 +337,7 @@ fn sensitive_dataclass_fields_are_excluded_from_repr_without_changing_values() {
         ..Default::default()
     };
 
-    let generated = gen_options_py(&api, "_native", &DtoConfig::default(), &[], false);
+    let generated = gen_options_py(&api, "_native", &DtoConfig::default(), &[], false, &[]);
 
     assert!(generated.contains("label: str = \"public\""), "{generated}");
     assert!(
@@ -593,7 +593,7 @@ fn unit_enum_in_options_module_renders_as_str_enum() {
         ..Default::default()
     };
 
-    let generated = gen_options_py(&api, "_native", &DtoConfig::default(), &[], false);
+    let generated = gen_options_py(&api, "_native", &DtoConfig::default(), &[], false, &[]);
 
     assert!(generated.contains("from enum import StrEnum\n"), "{generated}");
     assert!(generated.contains("class ScrollDirection(StrEnum):\n"), "{generated}");
@@ -654,7 +654,7 @@ fn options_module_without_unit_enums_does_not_import_str_enum() {
         ..Default::default()
     };
 
-    let generated = gen_options_py(&api, "_native", &DtoConfig::default(), &[], false);
+    let generated = gen_options_py(&api, "_native", &DtoConfig::default(), &[], false, &[]);
 
     assert!(!generated.contains("from enum import"), "{generated}");
 }

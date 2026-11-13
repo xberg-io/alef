@@ -99,8 +99,14 @@ fn render(api: &ApiSurface, adapter: &AdapterConfig) -> (String, String) {
         &ahash::AHashSet::new(),
         &crate::core::config::ResolvedCrateConfig::default(),
     );
-    let options_py =
-        crate::backends::pyo3::gen_bindings::types::gen_options_py(api, MODULE_NAME, &DtoConfig::default(), &[], false);
+    let options_py = crate::backends::pyo3::gen_bindings::types::gen_options_py(
+        api,
+        MODULE_NAME,
+        &DtoConfig::default(),
+        &[],
+        false,
+        &[],
+    );
     (api_py, options_py)
 }
 
