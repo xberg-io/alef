@@ -2,8 +2,8 @@ use crate::adapters::AdapterBodies;
 use crate::backends::ffi::gen_bindings::functions::{
     gen_cancellable_free_function, gen_cancellable_method_wrapper, gen_free_function, gen_free_function_len_companion,
     gen_free_function_result_presence_wrapper, gen_method_result_presence_wrapper, gen_method_wrapper,
-    gen_streaming_method_wrapper, is_owned_default_constructor, returns_bytes_out_params, returns_c_char,
-    should_skip_method_wrapper,
+    gen_owned_free_function, gen_streaming_method_wrapper, is_owned_default_constructor, returns_bytes_out_params,
+    returns_c_char, should_skip_method_wrapper,
 };
 use crate::backends::ffi::gen_bindings::helpers;
 use crate::backends::ffi::gen_bindings::helpers::{
@@ -645,6 +645,19 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             capsule_cfg,
             returns_owned_borrowed_handle,
         ));
+        if let Some(param) = crate::codegen::shared::split_bytes_owned_param(func, &api.types) {
+            builder.add_item(&gen_owned_free_function(
+                func,
+                prefix,
+                &core_import,
+                path_map,
+                ffi_param_enums,
+                serde_names,
+                capsule_cfg,
+                returns_owned_borrowed_handle,
+                &param.name,
+            ));
+        }
         if let Some(cancellable) = gen_cancellable_free_function(
             func,
             prefix,

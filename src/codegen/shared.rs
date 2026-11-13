@@ -80,6 +80,57 @@ pub fn binding_fields(fields: &[FieldDef]) -> impl Iterator<Item = &FieldDef> {
     fields.iter().filter(|field| !field.binding_excluded)
 }
 
+/// A source type can opt into split transport with a static
+/// `from_json_with_bytes(bytes: Vec<u8>, metadata_json: String) -> Result<Self, E>`.
+/// Its single optional byte field is omitted from the metadata DTO.
+pub(crate) fn split_bytes_field(typ: &TypeDef) -> Option<&crate::core::ir::FieldDef> {
+    if typ.is_opaque || !typ.has_serde || typ.has_lifetime_params {
+        return None;
+    }
+    let mut byte_fields = crate::codegen::shared::binding_fields(&typ.fields)
+        .filter(|field| field.ty == TypeRef::Bytes && !field.serde_skip);
+    let field = byte_fields.next()?;
+    if !field.optional || byte_fields.next().is_some() || field.cfg.is_some() {
+        return None;
+    }
+    typ.methods
+        .iter()
+        .any(|method| {
+            method.name == "from_json_with_bytes"
+                && method.is_static
+                && method.receiver.is_none()
+                && method.cfg.is_none()
+                && !method.sanitized
+                && !method.binding_excluded
+                && method.error_type.is_some()
+                && method.return_type == TypeRef::Named(typ.name.clone())
+                && matches!(method.params.as_slice(), [bytes, metadata]
+                if bytes.ty == TypeRef::Bytes && !bytes.optional
+                    && metadata.ty == TypeRef::String && !metadata.optional)
+        })
+        .then_some(field)
+}
+
+/// Select the disposable first argument of a split-byte async call.
+pub(crate) fn split_bytes_owned_param<'a>(
+    func: &'a crate::core::ir::FunctionDef,
+    types: &[TypeDef],
+) -> Option<&'a ParamDef> {
+    let param = func.params.first()?;
+    if !func.is_async
+        || func.sanitized
+        || !matches!(func.return_type, TypeRef::Named(_))
+        || param.optional
+        || param.is_ref
+        || param.is_mut
+    {
+        return None;
+    }
+    let TypeRef::Named(name) = &param.ty else { return None };
+    split_bytes_field(types.iter().find(|typ| typ.name == *name)?)?;
+    Some(param)
+}
+
 /// Returns true if this parameter is required but must be promoted to optional
 /// because it follows an optional parameter in the list.
 /// PyO3 requires that required params come before all optional params.

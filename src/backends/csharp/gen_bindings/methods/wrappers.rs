@@ -321,7 +321,10 @@ pub(super) fn gen_wrapper_function(
         enum_names,
     );
 
-    let cs_native_name = to_csharp_name(&func.name);
+    let mut cs_native_name = to_csharp_name(&func.name);
+    if crate::codegen::shared::split_bytes_owned_param(func, types).is_some() {
+        cs_native_name.push_str("Owned");
+    }
 
     let needs_outer_try = needs_param_teardown(&visible_params, true_opaque_types, enum_names);
 

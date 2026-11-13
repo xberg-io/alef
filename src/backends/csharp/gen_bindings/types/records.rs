@@ -390,6 +390,29 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
 /// Emit record-level method wrappers for a DTO (non-opaque) type.
 ///
 /// Static factories (no `self` receiver) are emitted as `public static {Class} Method(...)`.
+pub(in crate::backends::csharp::gen_bindings) fn split_bytes_record_factory(
+    typ: &TypeDef,
+    method: &crate::core::ir::MethodDef,
+) -> bool {
+    super::super::marshalling::split_bytes_field(typ).is_some_and(|field| field.name == "bytes")
+        && method.name == "from_bytes"
+        && method.is_static
+        && method.error_type.is_none()
+        && matches!(method.params.as_slice(), [bytes, mime, filename]
+            if bytes.name == "bytes" && bytes.ty == TypeRef::Bytes && !bytes.optional
+                && mime.name == "mime_type" && mime.ty == TypeRef::String && !mime.optional
+                && filename.name == "filename" && filename.ty == TypeRef::String && filename.optional)
+        && ["kind", "mime_type", "filename"].into_iter().all(|name| {
+            binding_fields(&typ.fields).any(|field| {
+                field.name == name
+                    && match name {
+                        "kind" => field.ty == TypeRef::Named(format!("{}Kind", typ.name)),
+                        _ => field.ty == TypeRef::String,
+                    }
+            })
+        })
+}
+
 /// Instance withers (`&self` receiver returning `Self`) are emitted as `public {Class} Method(...)`.
 ///
 /// Both patterns serialise the DTO to JSON, call the FFI shim via `NativeMethods`, then
@@ -470,6 +493,13 @@ pub(super) fn emit_record_methods(
                 params_sig,
             },
         ));
+
+        if split_bytes_record_factory(typ, method) {
+            out.push_str(&format!(
+                "        ArgumentNullException.ThrowIfNull(bytes);\n        ArgumentNullException.ThrowIfNull(mimeType);\n        return new {class_name}\n        {{\n            Kind = {class_name}Kind.Bytes,\n            Bytes = (byte[])bytes.Clone(),\n            MimeType = mimeType,\n            Filename = filename,\n        }};\n    }}\n"
+            ));
+            continue;
+        }
 
         if method.error_type.is_some() {
             if has_receiver {

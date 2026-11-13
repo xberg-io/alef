@@ -1,4 +1,5 @@
 use crate::codegen::naming::csharp_type_name;
+pub(super) use crate::codegen::shared::split_bytes_field;
 use crate::core::config::HostCapsuleTypeConfig;
 use crate::core::ir::{ApiSurface, PrimitiveType, TypeDef, TypeRef};
 use heck::ToLowerCamelCase;
@@ -443,37 +444,6 @@ pub(super) fn needs_param_teardown(
         TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Bytes => true,
         _ => false,
     })
-}
-
-/// A source type can opt into split transport with a static
-/// `from_json_with_bytes(bytes: Vec<u8>, metadata_json: String) -> Result<Self, E>`.
-/// Its single optional byte field is omitted from the metadata DTO.
-pub(super) fn split_bytes_field(typ: &TypeDef) -> Option<&crate::core::ir::FieldDef> {
-    if typ.is_opaque || !typ.has_serde || typ.has_lifetime_params {
-        return None;
-    }
-    let mut byte_fields = crate::codegen::shared::binding_fields(&typ.fields)
-        .filter(|field| field.ty == TypeRef::Bytes && !field.serde_skip);
-    let field = byte_fields.next()?;
-    if !field.optional || byte_fields.next().is_some() || field.cfg.is_some() {
-        return None;
-    }
-    typ.methods
-        .iter()
-        .any(|method| {
-            method.name == "from_json_with_bytes"
-                && method.is_static
-                && method.receiver.is_none()
-                && method.cfg.is_none()
-                && !method.sanitized
-                && !method.binding_excluded
-                && method.error_type.is_some()
-                && method.return_type == TypeRef::Named(typ.name.clone())
-                && matches!(method.params.as_slice(), [bytes, metadata]
-                if bytes.ty == TypeRef::Bytes && !bytes.optional
-                    && metadata.ty == TypeRef::String && !metadata.optional)
-        })
-        .then_some(field)
 }
 
 /// For each `Named` parameter, emit code to serialise it to JSON and obtain a native handle.

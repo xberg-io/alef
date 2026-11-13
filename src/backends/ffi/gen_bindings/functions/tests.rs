@@ -402,3 +402,48 @@ fn scalar_handle_override_controls_parameter_failure_sentinel() {
     assert!(output.contains("return 0;"), "{output}");
     assert!(!output.contains("return std::ptr::null_mut();"), "{output}");
 }
+
+#[test]
+fn consuming_byte_input_companion_moves_only_the_selected_handle() {
+    let function = FunctionDef {
+        name: "extract".into(),
+        rust_path: "sample_crate::extract".into(),
+        is_async: true,
+        params: vec![
+            ParamDef {
+                name: "input".into(),
+                ty: TypeRef::Named("Input".into()),
+                ..Default::default()
+            },
+            ParamDef {
+                name: "config".into(),
+                ty: TypeRef::Named("Config".into()),
+                is_ref: true,
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    let paths = AHashMap::new();
+    let enums = AHashSet::new();
+    let serde = AHashSet::new();
+    let borrowed = gen_free_function(&function, "sample", "sample_crate", &paths, &enums, &serde, None, false);
+    let consumed = super::orchestration::gen_owned_free_function(
+        &function,
+        "sample",
+        "sample_crate",
+        &paths,
+        &enums,
+        &serde,
+        None,
+        false,
+        "input",
+    );
+    assert!(borrowed.contains("fn sample_extract("));
+    assert!(borrowed.contains("locked_handle_ptr::<sample_crate::Input>"));
+    assert!(!borrowed.contains("take_handle"));
+    assert!(consumed.contains("fn sample_extract_owned("));
+    assert!(consumed.contains("take_handle::<sample_crate::Input>(input)"));
+    assert!(!consumed.contains("locked_handle_ptr::<sample_crate::Input>"));
+    assert!(consumed.contains("locked_handle_ptr::<sample_crate::Config>"));
+}

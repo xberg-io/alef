@@ -145,6 +145,13 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
             if method.name == "from_json_with_bytes" && super::super::marshalling::split_bytes_field(typ).is_some() {
                 continue;
             }
+            if super::super::types::split_bytes_record_factory(typ, method) {
+                let class_name = csharp_type_name(&typ.name);
+                out.push_str(&format!(
+                    "    public static {class_name} {class_name}FromBytes(byte[] bytes, string mimeType, string? filename)\n        => {class_name}.FromBytes(bytes, mimeType, filename);\n\n"
+                ));
+                continue;
+            }
             out.push_str(&gen_wrapper_method(
                 method,
                 exception_name,
