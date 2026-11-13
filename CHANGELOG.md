@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.129.2] - 2026-11-13
+
+### Fixed
+
+- Route Python callbacks supplied through an options field to the native visitor bridge.
+
+### Changed
+
+- Generate PHP extensions with ext-php-rs 0.16.4.
+
 ## [0.129.1] - 2026-11-09
 
 ### Fixed

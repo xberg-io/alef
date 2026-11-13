@@ -96,8 +96,8 @@ fn test_scaffold_php_core_dep_is_dual_form() {
         "php core dep must be dual form; content:\n{content}"
     );
     assert!(
-        content.contains("ext-php-rs = \"0.16.3\""),
-        "generated PHP crate must use ext-php-rs 0.16.3; content:\n{content}"
+        content.contains("ext-php-rs = \"0.16.4\""),
+        "generated PHP crate must use ext-php-rs 0.16.4; content:\n{content}"
     );
 }
 

@@ -74,7 +74,7 @@ fn gen_options_py_from_json_docstring_uses_an_before_a_vowel_class_name() {
         options_py.contains("def from_json(json_str: str) -> AccelerationConfig:"),
         "the generated return annotation must remain unquoted:\n{options_py}"
     );
-    let consonant = gen_options_py(&widget_api(true, &[]), MODULE_NAME, &DtoConfig::default(), &[], true);
+    let consonant = gen_options_py(&widget_api(true), MODULE_NAME, &DtoConfig::default(), &[], true, &[]);
     assert!(
         consonant.contains("Build a Widget from a JSON string, via the native binding."),
         "a consonant-starting class name must retain the article a:\n{consonant}"
