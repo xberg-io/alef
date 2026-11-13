@@ -139,7 +139,11 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
         rendered_extra_deps.lines().map(str::to_string).collect()
     };
     let has_trait_bridges = config.trait_bridges_for(Language::Ffi).next().is_some();
-    if has_trait_bridges && !extra_dep_lines.iter().any(|l| l.starts_with("async-trait")) {
+    let has_async_bridges = config
+        .trait_bridges_for(Language::Ffi)
+        .filter_map(|bridge| crate::backends::ffi::trait_bridge::active_bridge_trait(bridge, api))
+        .any(|trait_def| trait_def.methods.iter().any(|method| method.is_async));
+    if has_async_bridges && !extra_dep_lines.iter().any(|l| l.starts_with("async-trait")) {
         extra_dep_lines.push(format!("async-trait = \"{}\"", tv::cargo::ASYNC_TRAIT));
     }
     if has_trait_bridges && !extra_dep_lines.iter().any(|l| l.starts_with("tracing")) {
@@ -314,11 +318,21 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
         format!("ahash = \"{}\"", tv::cargo::AHASH),
         format!("serde = \"{}\"", tv::cargo::SERDE),
         format!("serde_json = \"{}\"", tv::cargo::SERDE_JSON),
-        format!(
+    ];
+    let needs_tokio = has_streaming
+        || has_async_bridges
+        || !api.services.is_empty()
+        || api.functions.iter().any(|function| function.is_async)
+        || api
+            .types
+            .iter()
+            .any(|ty| ty.methods.iter().any(|method| method.is_async));
+    if needs_tokio && !extra_dep_lines.iter().any(|line| line.starts_with("tokio =")) {
+        dep_entries.push(format!(
             "tokio = {{ version = \"{}\", features = [\"full\"] }}",
             tv::cargo::TOKIO
-        ),
-    ];
+        ));
+    }
     if !core_dep_line.is_empty() {
         dep_entries.push(core_dep_line.clone());
     }
@@ -337,7 +351,7 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     let content = format!(
         r#"{pkg_header}{repository_line}
 
-# `serde`, `serde_json`, `ahash`, and `tokio` are emitted unconditionally above so the
+# `serde`, `serde_json`, and `ahash` are emitted unconditionally above so the
 # manifest is stable across regens (and so the C FFI codegen can pull them in
 # when an async / Result-typed function appears in the API surface), but for
 # umbrella crates with no async fns and no JSON-marshalled return types they

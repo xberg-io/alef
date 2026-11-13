@@ -285,11 +285,24 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
             tv::cargo::SERDE
         ),
         format!("serde_json = \"{}\"", tv::cargo::SERDE_JSON),
-        format!(
+    ];
+    let needs_tokio = has_streaming
+        || api
+            .services
+            .iter()
+            .flat_map(|service| &service.entrypoints)
+            .any(|entrypoint| entrypoint.is_async)
+        || api.functions.iter().any(|function| function.is_async)
+        || api
+            .types
+            .iter()
+            .any(|ty| ty.methods.iter().any(|method| method.is_async));
+    if needs_tokio && !all_deps.lines().any(|line| line.starts_with("tokio =")) {
+        dep_entries.push(format!(
             "tokio = {{ version = \"{}\", features = [\"full\"] }}",
             tv::cargo::TOKIO
-        ),
-    ];
+        ));
+    }
     if !core_dep_php.is_empty() {
         dep_entries.push(core_dep_php.clone());
     }
@@ -687,6 +700,7 @@ excluded_default_features = ["heic"]
             .find(|f| f.path.to_string_lossy().ends_with("Cargo.toml"))
             .expect("Cargo.toml emitted")
             .content;
+        assert!(!cargo_toml.lines().any(|line| line.starts_with("tokio =")));
 
         assert!(
             cargo_toml.contains(r#"heic = ["sample-lib/heic"]"#),
