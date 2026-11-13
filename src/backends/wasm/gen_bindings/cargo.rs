@@ -182,7 +182,11 @@ pub(super) fn gen_cargo_toml(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
         ("serde_json".to_string(), r#""1""#.to_string()),
         ("wasm-bindgen".to_string(), format!(r#""{}""#, tv::cargo::WASM_BINDGEN)),
     ];
-    if has_trait_bridges
+    let has_async_trait_bridges = config
+        .trait_bridges_for(Language::Wasm)
+        .filter_map(|bridge| super::trait_bridge_docs::active_bridge_trait(bridge, api))
+        .any(|trait_def| trait_def.methods.iter().any(|method| method.is_async));
+    if has_async_trait_bridges
         || api.functions.iter().any(|function| function.is_async)
         || api
             .types
