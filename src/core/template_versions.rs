@@ -658,7 +658,7 @@ pub mod toolchain {
     pub const RUST_MIN_VERSION: &str = "1.99";
 
     // renovate: datasource=gradle-version depName=gradle
-    pub const GRADLE_VERSION: &str = "9.9.0";
+    pub const GRADLE_VERSION: &str = "9.9.1";
 
     pub const ANDROID_COMPILE_SDK: &str = "36";
     pub const ANDROID_MIN_SDK: &str = "24";
