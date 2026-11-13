@@ -52,25 +52,25 @@ url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/carg
 url_api = "https://api.github.com/repos/EmbarkStudios/cargo-deny/releases/assets/471599057"
 
 [[tools.dart]]
-version = "3.13.7"
+version = "3.14.0"
 backend = "http:dart"
-specifiers = ["3.13.7"]
+specifiers = ["3.14.0"]
 
 [tools.dart."platforms.linux-arm64"]
-checksum = "sha256:887cbb763bc4a1d6f3d7c34a6ea08f0f05211807abf98c06d6e4263907ccac1a"
-url = "https://storage.googleapis.com/dart-archive/channels/stable/release/3.13.7/sdk/dartsdk-linux-arm64-release.zip"
+checksum = "sha256:2bb9a19418ced8d9f5cc9e7faa2dcbbc7dc93882b287b8cd8db859efa191c888"
+url = "https://storage.googleapis.com/dart-archive/channels/stable/release/3.14.0/sdk/dartsdk-linux-arm64-release.zip"
 
 [tools.dart."platforms.linux-x64"]
-checksum = "sha256:eb99aed266efbcb615c6ae21c12f52cfe935b9f208bccc5fea7f64c21e867229"
-url = "https://storage.googleapis.com/dart-archive/channels/stable/release/3.13.7/sdk/dartsdk-linux-x64-release.zip"
+checksum = "sha256:90f7fd75fe21e16437778df882f280910d9bbd4809c90024f21de82435dded1d"
+url = "https://storage.googleapis.com/dart-archive/channels/stable/release/3.14.0/sdk/dartsdk-linux-x64-release.zip"
 
 [tools.dart."platforms.macos-arm64"]
-checksum = "sha256:9f972ee1e1139cb4f845f35c7c77bef269dd2ec727b239fb17a2ebcb66d0fb2f"
-url = "https://storage.googleapis.com/dart-archive/channels/stable/release/3.13.7/sdk/dartsdk-macos-arm64-release.zip"
+checksum = "sha256:84ce7e50f18a724d6a29b33af5c4a16b160e9fb64622e12d575b3c9e3420509b"
+url = "https://storage.googleapis.com/dart-archive/channels/stable/release/3.14.0/sdk/dartsdk-macos-arm64-release.zip"
 
 [tools.dart."platforms.windows-x64"]
-checksum = "sha256:3b31d9f90b27861f29842d378f39f98ce9e60910042334f950ef5702f174fb81"
-url = "https://storage.googleapis.com/dart-archive/channels/stable/release/3.13.7/sdk/dartsdk-windows-x64-release.zip"
+checksum = "sha256:9364024364325137b0db4cbfd36b178dd76ade7ec2f496846fc1e7e5bea6a681"
+url = "https://storage.googleapis.com/dart-archive/channels/stable/release/3.14.0/sdk/dartsdk-windows-x64-release.zip"
 
 [[tools."github:DevinR528/cargo-sort"]]
 version = "2.1.4"
