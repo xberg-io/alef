@@ -114,7 +114,6 @@ pub(crate) fn scaffold_jni(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
 
     let mut dep_lines: Vec<String> = vec![
         crate::scaffold::render_workspace_dep_or(config, "async-trait", &format!("\"{}\"", tv::cargo::ASYNC_TRAIT)),
-        crate::scaffold::render_workspace_dep_or(config, "base64", &format!("\"{}\"", tv::cargo::BASE64)),
         crate::scaffold::render_workspace_dep_or(config, "futures-util", &format!("\"{}\"", tv::cargo::FUTURES_UTIL)),
         crate::scaffold::render_workspace_dep_or(config, "jni", &format!("\"{}\"", tv::cargo::JNI)),
         crate::scaffold::render_workspace_dep_or(config, "serde_json", &format!("\"{}\"", tv::cargo::SERDE_JSON)),
@@ -123,8 +122,34 @@ pub(crate) fn scaffold_jni(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
             "tokio",
             "{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"sync\"] }",
         ),
-        crate::scaffold::render_workspace_dep_or(config, "tracing", &format!("\"{}\"", tv::cargo::TRACING)),
     ];
+    let has_trait_bridges = config.trait_bridges_for(Language::Jni).next().is_some();
+    let has_bytes = api
+        .functions
+        .iter()
+        .filter(|function| !function.binding_excluded)
+        .any(|function| {
+            function.params.iter().any(|param| match &param.ty {
+                crate::core::ir::TypeRef::Bytes => true,
+                crate::core::ir::TypeRef::Vec(inner) => matches!(
+                    inner.as_ref(),
+                    crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::U8)
+                ),
+                _ => false,
+            })
+        });
+    for (needed, name, version) in [
+        (has_bytes || has_trait_bridges, "base64", tv::cargo::BASE64),
+        (has_trait_bridges, "tracing", tv::cargo::TRACING),
+    ] {
+        if needed {
+            dep_lines.push(crate::scaffold::render_workspace_dep_or(
+                config,
+                name,
+                &format!("\"{version}\""),
+            ));
+        }
+    }
     // The shims name each core error type by its source-crate path, so an error defined outside
     // the umbrella crate needs that crate as a direct dependency. Only the referenced extra
     // dependencies are declared: the rest would be unused here. ~keep

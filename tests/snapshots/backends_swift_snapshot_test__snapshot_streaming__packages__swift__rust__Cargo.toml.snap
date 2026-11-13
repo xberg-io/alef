@@ -33,7 +33,6 @@ doctest = false
 bench = false
 
 [dependencies]
-ahash = "0.8"
 async-trait = "0.1"
 demo = { version = "0.1.0", path = "../../.." }
 demo-ffi = { version = "0.1.0", path = "../../../crates/demo-ffi" }

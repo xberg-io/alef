@@ -27,7 +27,7 @@ use crate::core::ir::{ApiSurface, TypeRef};
 use ahash::AHashSet;
 use std::path::PathBuf;
 
-use cargo::gen_cargo_toml;
+use cargo::gen_cargo_toml_for_source;
 use trait_bridge_docs::forward_trait_bridge_builder_fields;
 
 #[cfg(test)]
@@ -862,6 +862,8 @@ impl Backend for WasmBackend {
         let layout = wasm_output_layout(config);
         let cargo_toml_path = layout.root.join("Cargo.toml");
 
+        let cargo_manifest = gen_cargo_toml_for_source(api, config, &content);
+
         Ok(vec![
             GeneratedFile {
                 path: layout.src.join("lib.rs"),
@@ -873,11 +875,7 @@ impl Backend for WasmBackend {
                 // `scaffold::scaffold`, so it needs the version floor applied here or it
                 // stays the one regenerated binding manifest that can still downgrade a
                 // dependency the consumer has already moved forward. ~keep
-                content: crate::scaffold::version_floor::floor_manifest(
-                    &gen_cargo_toml(api, config),
-                    config,
-                    &cargo_toml_path,
-                ),
+                content: crate::scaffold::version_floor::floor_manifest(&cargo_manifest, config, &cargo_toml_path),
                 path: cargo_toml_path,
                 generated_header: true,
             },

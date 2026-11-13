@@ -13,7 +13,12 @@ use ahash::AHashSet;
 /// `js-sys` dependency required by trait-bridge and visitor-bridge generated
 /// code is always present, even in projects whose `Cargo.toml` was created
 /// before `js-sys` was added to the scaffold template.
+#[cfg(test)]
 pub(super) fn gen_cargo_toml(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
+    gen_cargo_toml_for_source(api, config, "")
+}
+
+pub(super) fn gen_cargo_toml_for_source(api: &ApiSurface, config: &ResolvedCrateConfig, source: &str) -> String {
     let core_crate_dir = config.core_crate_for_language(Language::Wasm);
     let crate_name = &config.name;
     let pkg_prefix: String = if config
@@ -168,7 +173,6 @@ pub(super) fn gen_cargo_toml(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
             core_dep_key.clone(),
             format!(r#"{{ path = "{core_dep_path}"{features_clause} }}"#),
         ),
-        ("futures".to_string(), format!(r#""{}""#, tv::cargo::FUTURES)),
         ("futures-util".to_string(), format!(r#""{}""#, tv::cargo::FUTURES_UTIL)),
         ("js-sys".to_string(), format!(r#""{}""#, tv::cargo::JS_SYS)),
         (
@@ -179,9 +183,13 @@ pub(super) fn gen_cargo_toml(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
             "serde-wasm-bindgen".to_string(),
             format!(r#""{}""#, tv::cargo::SERDE_WASM_BINDGEN),
         ),
-        ("serde_json".to_string(), r#""1""#.to_string()),
         ("wasm-bindgen".to_string(), format!(r#""{}""#, tv::cargo::WASM_BINDGEN)),
     ];
+    deps.extend(
+        source
+            .contains("serde_json::")
+            .then(|| ("serde_json".to_string(), r#""1""#.to_string())),
+    );
     let has_async_trait_bridges = config
         .trait_bridges_for(Language::Wasm)
         .filter_map(|bridge| super::trait_bridge_docs::active_bridge_trait(bridge, api))

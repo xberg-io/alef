@@ -157,7 +157,6 @@ pub(crate) fn emit_cargo_toml(
         }
     }
     let mut dep_entries: Vec<String> = vec![
-        format!("ahash = \"{}\"", tv::cargo::AHASH),
         format!("async-trait = \"{}\"", tv::cargo::ASYNC_TRAIT),
         format!("libc = \"{}\"", tv::cargo::LIBC),
         format!(
@@ -171,6 +170,16 @@ pub(crate) fn emit_cargo_toml(
             tv::cargo::TOKIO
         ),
     ];
+    if api.functions.iter().any(|function| {
+        !function.binding_excluded
+            && function
+                .params
+                .iter()
+                .any(|param| param.map_is_ahash && param.map_key_is_cow)
+    }) && !extra_deps.lines().any(|line| line.trim_start().starts_with("ahash ="))
+    {
+        dep_entries.push(format!("ahash = \"{}\"", tv::cargo::AHASH));
+    }
     if !core_dep_for_block.is_empty() && target_overrides.is_empty() {
         dep_entries.push(core_dep_for_block.clone());
     }
