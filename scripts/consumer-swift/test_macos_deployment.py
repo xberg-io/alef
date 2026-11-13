@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 import bootstrap
+import rust_symbols
 from assertions import raises
 from test_formatter_bootstrap import FormatterGate
 
@@ -42,7 +43,13 @@ class MacosDeployment(unittest.TestCase):
             assert config.read_bytes() == original
             query = [row for row in gate.calls if row["name"] == "qualified-macos-deployment-target"]
             assert len(query) == 1
-            assert query[0]["argv"] == ["rustup", "run", "1.99.1", "rustc", "--print=deployment-target"]
+            assert query[0]["argv"] == [
+                "rustup",
+                "run",
+                rust_symbols.toolchain_channel(),
+                "rustc",
+                "--print=deployment-target",
+            ]
             assert (query[0]["cwd"], query[0]["budget"], query[0]["timeout"]) == (gate.alef, 0, 15)
             names = [row["name"] for row in gate.calls]
             assert names.index("qualified-macos-deployment-target") < names.index("install-cargo-sort")

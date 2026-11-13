@@ -19,9 +19,11 @@ class SymbolGate:
         self.alef.mkdir()
         (self.alef / "rust-toolchain.toml").write_text('[toolchain]\nchannel="1.99.1"\ncomponents=[]\n')
         self.evidence.mkdir()
-        self.env = {"RUSTUP_TOOLCHAIN": "1.99.1"}
-        self.identity = "release: 1.99.1\nhost: aarch64-apple-darwin\nLLVM version: 23.1.1\n"
-        self.reader_version = "llvm-nm\nLLVM version 23.1.1-rust-1.99.1-stable\n"
+        self.env = {"RUSTUP_TOOLCHAIN": rust_symbols.toolchain_channel()}
+        self.identity = (
+            f"release: {rust_symbols.toolchain_channel()}\nhost: aarch64-apple-darwin\nLLVM version: 23.1.1\n"
+        )
+        self.reader_version = f"llvm-nm\nLLVM version 23.1.1-rust-{rust_symbols.toolchain_channel()}-stable\n"
         self.fail_version = False
         self.calls = []
 
@@ -43,7 +45,7 @@ class SymbolGate:
 class RustSymbolReader(unittest.TestCase):
     def test_controller_declaration_provisions_llvm_even_for_an_older_candidate(self):
         argv = rust_symbols.install_arguments()
-        assert argv[:4] == ["rustup", "toolchain", "install", "1.99.1"]
+        assert argv[:4] == ["rustup", "toolchain", "install", rust_symbols.toolchain_channel()]
         assert "llvm-tools" in [argv[i + 1] for i, value in enumerate(argv) if value == "--component"]
         source = (Path(rust_symbols.__file__).with_name("driver.py")).read_text()
         assert source.index("rust_symbols.select(gate)") < source.index("cli = gate.build_cli()")
@@ -61,7 +63,7 @@ class RustSymbolReader(unittest.TestCase):
             assert gate.calls[-1][1] == [gate.binary.resolve(), "--version"]
             report = json.loads((gate.evidence / "rust-symbol-tool.json").read_text())
             assert report["llvm_version"] == "23.1.1"
-            assert report["rust_release"] == "1.99.1"
+            assert report["rust_release"] == rust_symbols.toolchain_channel()
             assert report["host"] == "aarch64-apple-darwin"
             assert report["selected"] == gate.real_nm
             assert len(report["executable_sha256"]) == len(report["declaration_sha256"]) == 64
@@ -90,8 +92,8 @@ class RustSymbolReader(unittest.TestCase):
     def test_wrong_or_incomplete_compiler_identity_is_rejected_before_reader_selection(self):
         for identity in [
             "release: 1.98.0\nhost: aarch64-apple-darwin\nLLVM version: 23.1.1\n",
-            "release: 1.99.1\nhost: aarch64-apple-darwin\n",
-            "release: 1.99.1\nhost: aarch64-apple-darwin\nhost: x86_64-apple-darwin\nLLVM version: 23.1.1\n",
+            f"release: {rust_symbols.toolchain_channel()}\nhost: aarch64-apple-darwin\n",
+            f"release: {rust_symbols.toolchain_channel()}\nhost: aarch64-apple-darwin\nhost: x86_64-apple-darwin\nLLVM version: 23.1.1\n",
         ]:
             with self.subTest(identity=identity), tempfile.TemporaryDirectory() as directory:
                 gate = SymbolGate(Path(directory))

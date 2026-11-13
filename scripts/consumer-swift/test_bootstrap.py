@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 import bootstrap
+import rust_symbols
 
 
 class IdentityReachedError(RuntimeError):
@@ -18,7 +19,7 @@ class InstallFailureError(RuntimeError):
 class RecordingGate:
     def __init__(self, fail_install=False):
         self.alef = Path("/owned/alef")
-        self.env = {"RUSTUP_TOOLCHAIN": "1.99.1", "RUSTUP_AUTO_INSTALL": "1"}
+        self.env = {"RUSTUP_TOOLCHAIN": rust_symbols.toolchain_channel(), "RUSTUP_AUTO_INSTALL": "1"}
         self.calls = []
         self.fail_install = fail_install
 
@@ -71,7 +72,7 @@ class BootstrapPolicy(unittest.TestCase):
         through_identity(gate)
         assert gate.calls
         assert all(row["env"]["RUSTUP_AUTO_INSTALL"] == "0" for row in gate.calls)
-        assert all(row["env"]["RUSTUP_TOOLCHAIN"] == "1.99.1" for row in gate.calls)
+        assert all(row["env"]["RUSTUP_TOOLCHAIN"] == rust_symbols.toolchain_channel() for row in gate.calls)
         assert gate.env["RUSTUP_AUTO_INSTALL"] == "0"
 
     def test_explicit_install_failure_stops_before_manager_identity(self):

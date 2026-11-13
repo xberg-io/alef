@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 import bootstrap
+import rust_symbols
 
 DECLARED = {"github:Goldziher/poly": "0.31.2", "github:DevinR528/cargo-sort": "2.1.4"}
 
@@ -88,8 +89,8 @@ class FormatterGate:
             output = {
                 "poly": "poly 0.31.2 (release build v0.31.2, release)",
                 "cargo-sort": "cargo-sort 2.1.4",
-                "rustc": "rustc 1.99.1",
-                "cargo": "cargo 1.99.1",
+                "rustc": f"rustc {rust_symbols.toolchain_channel()}",
+                "cargo": f"cargo {rust_symbols.toolchain_channel()}",
                 "clang-format": "clang-format version " + ("18.1.8" if self.wrong_version else "22.1.8"),
             }[name.removeprefix("version-")]
         elif name == "install-clang-format":

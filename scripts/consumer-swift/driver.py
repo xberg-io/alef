@@ -36,7 +36,7 @@ def stage_env(base, tool_bin, xberg):
     env = dict(base)
     env.update(
         {
-            "RUSTUP_TOOLCHAIN": "1.99.1",
+            "RUSTUP_TOOLCHAIN": rust_symbols.toolchain_channel(),
             "CARGO_BUILD_JOBS": "1",
             "CARGO_INCREMENTAL": "0",
             "ALEF_RUN_COMMAND_TIMEOUT_SECS": str(POST_BUILD_TIMEOUT),
@@ -119,7 +119,11 @@ class Gate:
 
     def install_adapters(self):
         selected = self.command(
-            "actual-cargo-selection", ["rustup", "which", "--toolchain", "1.99.1", "cargo"], self.alef, 0, 10
+            "actual-cargo-selection",
+            ["rustup", "which", "--toolchain", rust_symbols.toolchain_channel(), "cargo"],
+            self.alef,
+            0,
+            10,
         )
         self.real_cargo = (selected / "stdout.log").read_text().strip()
         if not Path(self.real_cargo).is_file():

@@ -13,6 +13,10 @@ def declaration_path():
     return Path(__file__).resolve().parents[2] / "rust-toolchain.toml"
 
 
+def toolchain_channel():
+    return tomllib.loads(declaration_path().read_text())["toolchain"]["channel"]
+
+
 def install_arguments():
     declared = tomllib.loads(declaration_path().read_text())["toolchain"]
     if "llvm-tools" not in declared["components"]:

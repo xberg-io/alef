@@ -29,7 +29,7 @@ def bootstrap(gate):
     gate.command("rustup-identity", ["rustup", "--version"], gate.alef, 0, 10)
     configure_rust_native_environment(gate)
     install_mise_tools(gate)
-    for program, version in [("rustc", "1.99.1"), ("cargo", "1.99.1")]:
+    for program, version in [("rustc", rust_symbols.toolchain_channel()), ("cargo", rust_symbols.toolchain_channel())]:
         output = gate.command("version-" + program, [program, "--version"], gate.alef, 0, 15)
         if not reports_version((output / "stdout.log").read_text(), version):
             raise RuntimeError("installed tool version differs: " + program)
@@ -59,7 +59,11 @@ def reports_version(text, version):
 
 def configure_rust_native_environment(gate):
     sysroot = gate.command(
-        "qualified-rust-sysroot", ["rustup", "run", "1.99.1", "rustc", "--print", "sysroot"], gate.alef, 0, 15
+        "qualified-rust-sysroot",
+        ["rustup", "run", rust_symbols.toolchain_channel(), "rustc", "--print", "sysroot"],
+        gate.alef,
+        0,
+        15,
     )
     library = Path((sysroot / "stdout.log").read_text().strip()) / "lib"
     if not library.is_dir() or gate.env.get("DYLD_LIBRARY_PATH"):
@@ -237,7 +241,7 @@ def configure_macos_deployment(gate):
         gate.env["MACOSX_DEPLOYMENT_TARGET"] = floor
     stage = gate.command(
         "qualified-macos-deployment-target",
-        ["rustup", "run", "1.99.1", "rustc", "--print=deployment-target"],
+        ["rustup", "run", rust_symbols.toolchain_channel(), "rustc", "--print=deployment-target"],
         gate.alef,
         0,
         15,
