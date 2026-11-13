@@ -181,11 +181,23 @@ pub(super) fn gen_cargo_toml(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
         ),
         ("serde_json".to_string(), r#""1""#.to_string()),
         ("wasm-bindgen".to_string(), format!(r#""{}""#, tv::cargo::WASM_BINDGEN)),
-        (
+    ];
+    if has_trait_bridges
+        || api.functions.iter().any(|function| function.is_async)
+        || api
+            .types
+            .iter()
+            .any(|ty| ty.methods.iter().any(|method| method.is_async))
+        || api
+            .services
+            .iter()
+            .any(|service| service.entrypoints.iter().any(|entrypoint| entrypoint.is_async))
+    {
+        deps.push((
             "wasm-bindgen-futures".to_string(),
             format!(r#""{}""#, tv::cargo::WASM_BINDGEN_FUTURES),
-        ),
-    ];
+        ));
+    }
     if has_trait_bridges {
         deps.push(("tracing".to_string(), format!(r#""{}""#, tv::cargo::TRACING)));
     }

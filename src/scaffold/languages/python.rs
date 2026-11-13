@@ -235,15 +235,19 @@ pub(crate) fn scaffold_python_cargo(
     let mut dep_entries: Vec<String> = vec![
         format!("pyo3 = {{ version = \"{}\" }}", versions.get("cargo:pyo3")),
         format!(
-            "pyo3-async-runtimes = {{ version = \"{}\", features = [\"tokio-runtime\"] }}",
-            versions.get("cargo:pyo3-async-runtimes")
-        ),
-        format!(
             "serde = {{ version = \"{}\", features = [\"derive\"] }}",
             versions.get("cargo:serde")
         ),
         format!("serde_json = \"{}\"", versions.get("cargo:serde_json")),
     ];
+    if crate::backends::pyo3::gen_bindings::managed_runtime::has_async(api)
+        && !all_deps.lines().any(|line| line.starts_with("pyo3-async-runtimes ="))
+    {
+        dep_entries.push(format!(
+            "pyo3-async-runtimes = {{ version = \"{}\", features = [\"tokio-runtime\"] }}",
+            versions.get("cargo:pyo3-async-runtimes")
+        ));
+    }
     if !core_dep_py.is_empty() {
         dep_entries.push(core_dep_py.clone());
     }

@@ -20,7 +20,7 @@ mod dataclass_closure_tests;
 pub mod enums;
 pub mod errors;
 pub mod functions;
-mod managed_runtime;
+pub(crate) mod managed_runtime;
 pub mod methods;
 mod mutex;
 #[cfg(test)]

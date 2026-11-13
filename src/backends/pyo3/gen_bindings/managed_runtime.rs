@@ -9,7 +9,7 @@ pub(super) fn enabled(config: &ResolvedCrateConfig) -> bool {
         == Some("managed")
 }
 
-pub(super) fn has_async(api: &ApiSurface) -> bool {
+pub(crate) fn has_async(api: &ApiSurface) -> bool {
     api.functions
         .iter()
         .any(|function| function.is_async && !function.sanitized && !function.binding_excluded)
