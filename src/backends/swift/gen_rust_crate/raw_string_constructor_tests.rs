@@ -1,5 +1,6 @@
 use crate::codegen::generators::type_paths::build_type_path_lookup;
 use crate::core::ir::{ApiSurface, TypeRef};
+use crate::test_support::cargo_artifacts::{add_dependency_search_paths, dependency_rlibs};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -93,18 +94,10 @@ fn direct_field_initializers(api: &ApiSurface) -> String {
 }
 
 fn dependency_library(name: &str) -> PathBuf {
-    let executable = std::env::current_exe().unwrap();
-    std::fs::read_dir(executable.parent().unwrap())
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| {
-            path.file_name()
-                .unwrap()
-                .to_str()
-                .is_some_and(|file| file.starts_with(&format!("lib{name}-")) && file.ends_with(".rlib"))
-        })
-        .max_by_key(|path| path.metadata().unwrap().modified().unwrap())
-        .unwrap_or_else(|| panic!("the running test must have a compiled {name} dependency"))
+    dependency_rlibs(name)
+        .into_iter()
+        .next()
+        .expect("compiled Rust dependency")
 }
 
 fn runtime_rows(kind: &str) -> Vec<serde_json::Value> {
@@ -119,15 +112,13 @@ fn runtime_rows(kind: &str) -> Vec<serde_json::Value> {
     std::fs::write(&source_path, source).unwrap();
     let serde = dependency_library("serde");
     let serde_json = dependency_library("serde_json");
-    let compiled = Command::new("rustc")
+    let compiled = add_dependency_search_paths(&mut Command::new("rustc"))
         .current_dir(directory.path())
         .arg("--edition=2024")
         .arg("--extern")
         .arg(format!("serde={}", serde.display()))
         .arg("--extern")
         .arg(format!("serde_json={}", serde_json.display()))
-        .arg("-L")
-        .arg(format!("dependency={}", serde_json.parent().unwrap().display()))
         .arg(&source_path)
         .arg("-o")
         .arg(&binary)

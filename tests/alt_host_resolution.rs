@@ -32,14 +32,7 @@
 //! failure, for a CI leg a maintainer knows must support the mapping -- unset by default, exactly
 //! like the three `ALEF_REQUIRE_*` variables it mirrors.
 //!
-//! `src/test_support/toolchain.rs`'s own census writer is `pub(crate)` and unreachable from this
-//! integration-test crate, so [`record_census`] below duplicates its file layout and path
-//! derivation rather than importing it. `scripts/toolchain-census.sh` sums every `*.tsv` file it
-//! finds regardless of which binary wrote it, so duplicating the layout is sufficient to be
-//! counted -- no script or workflow change is needed for this file to participate.
-
 use std::net::{IpAddr, ToSocketAddrs};
-use std::path::PathBuf;
 
 /// The subdomain the Tier-2 `{{mock_sub_origin}}` fixture token depends on resolving to loopback.
 /// Kept as one constant so the probe and the failure/skip message can never end up naming a
@@ -78,16 +71,10 @@ fn is_loopback_resolvable(host: &str) -> bool {
     }
 }
 
-/// `<target-dir>/toolchain-census/<this-test-binary>.tsv`, matching
-/// `src/test_support/toolchain.rs::census_file`'s derivation exactly (test executables live at
-/// `<target-dir>/<profile>/deps/<name>-<hash>`, so the target directory is three levels up) so
-/// this file's row lands where `scripts/toolchain-census.sh` already looks.
-fn census_file() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let name = exe.file_stem()?.to_str()?.to_owned();
-    let target_dir = exe.parent()?.parent()?.parent()?;
-    Some(target_dir.join("toolchain-census").join(format!("{name}.tsv")))
-}
+#[path = "../src/test_support/census_path.rs"]
+mod census_path;
+
+use census_path::census_file;
 
 /// Records one attempt of the `wildcard-localhost` check. Best-effort, like its
 /// `src/test_support/toolchain.rs` counterpart: a portability probe must not fail the run because

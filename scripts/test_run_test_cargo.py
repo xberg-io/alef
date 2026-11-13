@@ -225,7 +225,11 @@ class CargoTestRunner(unittest.TestCase):
         assert arguments == ["cargo", "test", "--workspace", "--", "--exact"]
         assert environment == {"CARGO_TARGET_DIR": "outer target", "MISE_LOCKED": "1", "OTHER": "unchanged"}
         assert command == ["cargo", "test", "--workspace", "--target-dir", "outer target", "--", "--exact"]
-        assert child == {"MISE_LOCKED": "1", "OTHER": "unchanged"}
+        assert child == {
+            "MISE_LOCKED": "1",
+            "OTHER": "unchanged",
+            "ALEF_TEST_TARGET_DIR": str(Path("outer target").resolve()),
+        }
 
     def test_recording_boundary_detects_a_hidden_workspace_narrowing_mutant(self):
         source = (REPO / "scripts/run_test_cargo.py").read_text()

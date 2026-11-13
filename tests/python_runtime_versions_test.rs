@@ -1,5 +1,5 @@
 use alef::core::config::{Language, ResolvedCrateConfig};
-use alef::core::ir::ApiSurface;
+use alef::core::ir::{ApiSurface, FunctionDef};
 use alef::scaffold::scaffold;
 use semver::VersionReq;
 
@@ -25,6 +25,12 @@ fn should_generate_matching_pyo3_and_async_runtime_minor_versions() {
     let api = ApiSurface {
         crate_name: "sample-lib".into(),
         version: "0.1.0".into(),
+        functions: vec![FunctionDef {
+            name: "fetch".into(),
+            rust_path: "sample_lib::fetch".into(),
+            is_async: true,
+            ..FunctionDef::default()
+        }],
         ..ApiSurface::default()
     };
     let config = ResolvedCrateConfig {
@@ -42,4 +48,16 @@ fn should_generate_matching_pyo3_and_async_runtime_minor_versions() {
         "PyO3 and its async runtime must share a minor version to avoid conflicting native links\n{}",
         manifests[0].content,
     );
+
+    let sync_api = ApiSurface {
+        functions: vec![],
+        ..api
+    };
+    let files = scaffold(&sync_api, &config, &[Language::Python]).expect("Python scaffold succeeds");
+    let manifest = files
+        .iter()
+        .find(|file| file.path.ends_with("Cargo.toml"))
+        .expect("Python binding Cargo manifest");
+    let manifest: toml::Value = toml::from_str(&manifest.content).expect("generated Cargo manifest parses");
+    assert!(manifest["dependencies"].get("pyo3-async-runtimes").is_none());
 }

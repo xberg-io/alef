@@ -32,6 +32,7 @@ use super::{PATH_LOCK, spawn_from_stable_dir};
 
 /// Directory, relative to the cargo target directory, holding one tally file per test binary.
 /// `scripts/toolchain-census.sh` reads this same name -- change both together. ~keep
+#[cfg(test)]
 const CENSUS_DIR_NAME: &str = "toolchain-census";
 
 /// One external language toolchain a fixture cannot run without.
@@ -373,18 +374,10 @@ fn flush(tallies: &BTreeMap<&'static str, Tally>) {
     let _ = std::fs::write(&path, rendered);
 }
 
-/// `<target-dir>/toolchain-census/<test-binary>.tsv`.
-///
-/// Derived from the running test binary rather than `CARGO_MANIFEST_DIR/target`, so a custom
-/// `CARGO_TARGET_DIR` or a `--release` run lands beside the binaries that produced it. Test
-/// executables live at `<target-dir>/<profile>/deps/<name>-<hash>`, so the target directory is
-/// three levels up.
-fn census_file() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let name = exe.file_stem()?.to_str()?.to_owned();
-    let target_dir = exe.parent()?.parent()?.parent()?;
-    Some(target_dir.join(CENSUS_DIR_NAME).join(format!("{name}.tsv")))
-}
+#[path = "census_path.rs"]
+mod census_path;
+
+use census_path::census_file;
 
 #[cfg(test)]
 mod tests {
@@ -412,6 +405,21 @@ mod tests {
             Some(CENSUS_DIR_NAME),
             "census file must sit in the {CENSUS_DIR_NAME} directory, got {path:?}"
         );
+        let expected_target = std::env::var_os("ALEF_TEST_TARGET_DIR").map_or_else(
+            || {
+                let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+                let output = std::process::Command::new(cargo)
+                    .current_dir(env!("CARGO_MANIFEST_DIR"))
+                    .args(["metadata", "--format-version", "1", "--no-deps"])
+                    .output()
+                    .expect("run Cargo metadata");
+                assert!(output.status.success());
+                let metadata: serde_json::Value = serde_json::from_slice(&output.stdout).expect("Cargo metadata JSON");
+                PathBuf::from(metadata["target_directory"].as_str().expect("Cargo target directory"))
+            },
+            PathBuf::from,
+        );
+        assert_eq!(parent.parent(), Some(expected_target.as_path()));
         assert_eq!(
             path.extension().and_then(|extension| extension.to_str()),
             Some("tsv"),

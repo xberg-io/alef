@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 
 def isolated_command(arguments, environment):
@@ -14,6 +15,14 @@ def isolated_command(arguments, environment):
     )
     if target is not None and not explicit_target:
         arguments = [*arguments[:separator], "--target-dir", target, *arguments[separator:]]
+        separator += 2
+    for index, argument in enumerate(arguments[:separator]):
+        if argument == "--target-dir" and index + 1 < len(arguments):
+            child_environment["ALEF_TEST_TARGET_DIR"] = str(Path(arguments[index + 1]).resolve())
+            break
+        if argument.startswith("--target-dir="):
+            child_environment["ALEF_TEST_TARGET_DIR"] = str(Path(argument.partition("=")[2]).resolve())
+            break
     return arguments, child_environment
 
 

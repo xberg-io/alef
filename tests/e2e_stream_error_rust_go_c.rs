@@ -128,7 +128,7 @@ fn run_task(directory: &std::path::Path, command: &str) {
     run_task_with_tools(directory, command, &[]);
 }
 
-fn run_task_with_tools(directory: &std::path::Path, command: &str, tools: &[&str]) {
+fn run_task_with_tools(directory: &std::path::Path, command: &str, tools: &[&str]) -> Vec<u8> {
     let config = format!("[tasks.probe]\nrun = {}\n", toml::Value::String(command.into()));
     let config = if tools.is_empty() {
         config
@@ -145,6 +145,7 @@ fn run_task_with_tools(directory: &std::path::Path, command: &str, tools: &[&str
         .output()
         .unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    output.stdout
 }
 
 fn assert_controls(mut command: impl FnMut() -> std::process::Command) {
@@ -308,23 +309,22 @@ fn assert_standalone_rust_runtime(returns_result: bool, async_call: bool) {
     .unwrap();
     let feature = if returns_result { "" } else { "default=['infallible']\n" };
     std::fs::write(directory.path().join("Cargo.toml"), format!("[package]\nname='sample'\nversion='0.1.0'\nedition='2024'\n[dependencies]\ntokio-stream='0.1'\ntokio={{version='1',features=['rt-multi-thread','time','net']}}\n[features]\n{feature}infallible=[]\n[workspace]\n")).unwrap();
-    run_task(directory.path(), "cargo test --quiet --test streaming_test --no-run");
+    let artifacts = run_task_with_tools(
+        directory.path(),
+        "cargo test --quiet --test streaming_test --no-run --message-format=json",
+        &[],
+    );
     assert!(source.contains("common::runtime().block_on(async"), "{source}");
     assert_eq!(source.contains("chat_stream().await"), async_call, "{source}");
     assert!(emitted("tests/common.rs").is_some(), "runtime module must be generated");
     let manifest: toml::Value = toml::from_str(&emitted("rust/Cargo.toml").expect("generated manifest")).unwrap();
     assert!(manifest["dependencies"].get("tokio").is_some());
-    let executables: Vec<_> = std::fs::read_dir(directory.path().join("target/debug/deps"))
-        .unwrap()
-        .map(Result::unwrap)
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.file_name()
-                .unwrap()
-                .to_string_lossy()
-                .starts_with("streaming_test-")
-                && path.extension().is_none_or(|ext| ext == "exe")
-        })
+    let messages = String::from_utf8(artifacts).expect("Cargo output is UTF-8");
+    let executables: Vec<_> = messages
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|message| message["reason"] == "compiler-artifact" && message["target"]["name"] == "streaming_test")
+        .filter_map(|message| message["executable"].as_str().map(std::path::PathBuf::from))
         .collect();
     assert_eq!(executables.len(), 1);
     assert_controls(|| std::process::Command::new(&executables[0]));

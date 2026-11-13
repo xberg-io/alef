@@ -49,5 +49,4 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
-walkdir = "2"
 "#;

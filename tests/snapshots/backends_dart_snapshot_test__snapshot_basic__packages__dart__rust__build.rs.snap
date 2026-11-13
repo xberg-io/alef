@@ -28,9 +28,6 @@ fn main() {
     println!("cargo:rerun-if-env-changed={ALEF_FRB_REGENERATE_ON_BUILD}");
 
     if !frb_regeneration_opted_in() {
-        println!(
-            "cargo:warning=flutter_rust_bridge_codegen regeneration skipped by default -- using the committed generated bridge. Run `alef generate` to regenerate it (with alef's full post-processing). Set {ALEF_FRB_REGENERATE_ON_BUILD}=1 to regenerate here instead for local-only iteration; the result bypasses alef's post-processing and must not be committed."
-        );
         return;
     }
 

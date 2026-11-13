@@ -2,6 +2,7 @@ use super::{base_cfg, plain_field, type_with_fields};
 use crate::codegen::generators::{gen_struct, gen_struct_with_per_field_attrs, gen_struct_with_rename};
 use crate::codegen::type_mapper::IdentityMapper;
 use crate::core::ir::TypeRef;
+use crate::test_support::cargo_artifacts::{add_dependency_search_paths, dependency_rlibs};
 use quote::ToTokens;
 
 #[test]
@@ -120,13 +121,13 @@ fn run_roundtrip(declaration: &str, expected_success: bool) {
         .arg(&binary)
         .current_dir(root.path());
     for name in ["serde", "serde_json"] {
-        let library = library(name);
+        let library = dependency_rlibs(name)
+            .into_iter()
+            .next()
+            .expect("compiled Rust dependency");
         command.arg("--extern").arg(format!("{name}={}", library.display()));
-        command
-            .arg("-L")
-            .arg(format!("dependency={}", library.parent().unwrap().display()));
     }
-    let result = command.output().unwrap();
+    let result = add_dependency_search_paths(&mut command).output().unwrap();
     assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
     let executed = std::process::Command::new(binary)
         .current_dir(root.path())
@@ -141,19 +142,4 @@ fn run_roundtrip(declaration: &str, expected_success: bool) {
     if !expected_success {
         assert!(String::from_utf8_lossy(&executed.stderr).contains("wire key type must populate call_type"));
     }
-}
-
-fn library(name: &str) -> std::path::PathBuf {
-    let executable = std::env::current_exe().unwrap();
-    std::fs::read_dir(executable.parent().unwrap())
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| {
-            path.file_name()
-                .unwrap()
-                .to_str()
-                .is_some_and(|file| file.starts_with(&format!("lib{name}-")) && file.ends_with(".rlib"))
-        })
-        .max_by_key(|path| path.metadata().unwrap().modified().unwrap())
-        .expect("serde libraries are linked by the test binary")
 }

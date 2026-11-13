@@ -58,7 +58,13 @@ pub fn run() {
 fn verify_mode(directory: &std::path::Path, mode: &str) {
     let binding = directory.join(mode);
     std::fs::create_dir_all(binding.join("src")).unwrap();
-    std::fs::write(binding.join("Cargo.toml"), "[package]\nname='sample-py'\nversion='0.1.0'\nedition='2024'\n[dependencies]\nsample-core={path='../sample-core'}\nasync-trait='0.1'\nserde={version='1',features=['derive']}\nserde_json='1'\npyo3={version='0.29',features=['auto-initialize']}\npyo3-async-runtimes={version='0.29',features=['tokio-runtime']}\ntokio={version='1',features=['full']}\n").unwrap();
+    let manifest = "[package]\nname='sample-py'\nversion='0.1.0'\nedition='2024'\n[dependencies]\nsample-core={path='../sample-core'}\nasync-trait='0.1'\nserde={version='1',features=['derive']}\nserde_json='1'\npyo3={version='0.29',features=['auto-initialize']}\ntokio={version='1',features=['full']}\n";
+    let manifest = if mode == "managed" {
+        format!("{manifest}pyo3-async-runtimes={{version='0.29',features=['tokio-runtime']}}\n")
+    } else {
+        format!("{manifest}[dev-dependencies]\npyo3-async-runtimes={{version='0.29',features=['tokio-runtime']}}\n")
+    };
+    std::fs::write(binding.join("Cargo.toml"), manifest).unwrap();
     let option = if mode == "managed" {
         "async_runtime='managed'\n"
     } else {

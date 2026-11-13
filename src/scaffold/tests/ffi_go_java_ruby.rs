@@ -56,7 +56,7 @@ fn test_scaffold_ffi_deps_are_pinned() {
     assert!(cargo_toml.contains("serde = \"1\""));
     assert!(cargo_toml.contains("ignored = [\"serde\", \"serde_json\", \"tokio\"]"));
     assert!(cargo_toml.contains("serde_json = \"1\""));
-    assert!(cargo_toml.contains("tokio = "));
+    assert!(!cargo_toml.contains("tokio = "));
     assert!(cargo_toml.contains("[dev-dependencies]"));
     assert!(cargo_toml.contains("tempfile = \"3\""));
 }

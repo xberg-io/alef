@@ -54,9 +54,7 @@ namespace = "dev.sample_crate.demo"
 }
 
 /// The JNI trait-bridge glue (`trait_bridge_method_body.rs.jinja`) logs swallowed
-/// host-callback failures via `tracing::warn!`. Since this Cargo.toml is scaffolded
-/// once (`generated_header: false`) and not regenerated once trait bridges are
-/// configured later, `tracing` must be declared unconditionally up front.
+/// host-callback failures via `tracing::warn!`.
 #[test]
 fn scaffold_jni_cargo_toml_declares_tracing_dependency() {
     let config = resolved_one(
@@ -71,6 +69,10 @@ sources = ["src/lib.rs"]
 [crates.kotlin_android]
 package = "dev.sample_crate.demo"
 namespace = "dev.sample_crate.demo"
+
+[[crates.trait_bridges]]
+trait_name = "Renderer"
+register_fn = "register_renderer"
 "#,
     );
 
@@ -198,6 +200,10 @@ sources = ["src/lib.rs"]
 [crates.kotlin_android]
 package = "dev.sample_crate.demo"
 namespace = "dev.sample_crate.demo"
+
+[[crates.trait_bridges]]
+trait_name = "Renderer"
+register_fn = "register_renderer"
 "#,
     );
     config.workspace_root = Some(workspace.path().to_path_buf());

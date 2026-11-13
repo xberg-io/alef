@@ -507,7 +507,7 @@ pub fn fail_schema() -> Result<(), SchemaError> { Err(SchemaError::ComplexityLim
     )
     .unwrap();
     std::fs::create_dir_all(binding.join("src")).unwrap();
-    std::fs::write(binding.join("Cargo.toml"), "[package]\nname='demo-py'\nversion='0.1.0'\nedition='2024'\n[lib]\nname='_demo'\ncrate-type=['cdylib']\n[dependencies]\ndemo={path='../demo'}\nserde={version='1',features=['derive']}\nserde_json='1'\npyo3={version='0.29',features=['extension-module','abi3-py310']}\npyo3-async-runtimes={version='0.29',features=['tokio-runtime']}\ntokio={version='1',features=['full']}\nfutures='0.3'\n[build-dependencies]\npyo3-build-config='0.29'\n").unwrap();
+    std::fs::write(binding.join("Cargo.toml"), "[package]\nname='demo-py'\nversion='0.1.0'\nedition='2024'\n[lib]\nname='_demo'\ncrate-type=['cdylib']\n[dependencies]\ndemo={path='../demo'}\nserde={version='1',features=['derive']}\nserde_json='1'\npyo3={version='0.29',features=['extension-module','abi3-py310']}\n[build-dependencies]\npyo3-build-config='0.29'\n").unwrap();
     std::fs::write(
         binding.join("build.rs"),
         "fn main() { pyo3_build_config::add_extension_module_link_args(); }\n",

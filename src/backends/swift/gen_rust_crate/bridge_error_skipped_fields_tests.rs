@@ -1,5 +1,6 @@
 use super::bridge_error::definition;
 use crate::core::ir::{ApiSurface, TypeRef};
+use crate::test_support::cargo_artifacts::{add_dependency_search_paths, dependency_rlibs};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -28,18 +29,10 @@ fn extracted_api(directory: &Path) -> ApiSurface {
 }
 
 fn serde_json_library() -> PathBuf {
-    let executable = std::env::current_exe().unwrap();
-    std::fs::read_dir(executable.parent().unwrap())
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| {
-            path.file_name()
-                .unwrap()
-                .to_str()
-                .is_some_and(|name| name.starts_with("libserde_json-") && name.ends_with(".rlib"))
-        })
-        .max_by_key(|path| path.metadata().unwrap().modified().unwrap())
-        .expect("this test links serde_json, so its compiled library must exist beside the test executable")
+    dependency_rlibs("serde_json")
+        .into_iter()
+        .next()
+        .expect("compiled serde_json dependency")
 }
 
 fn compile(directory: &Path, bridge: &str) -> (Output, PathBuf) {
@@ -48,13 +41,11 @@ fn compile(directory: &Path, bridge: &str) -> (Output, PathBuf) {
     let binary = directory.join(if cfg!(windows) { "probe.exe" } else { "probe" });
     std::fs::write(&source_path, source).unwrap();
     let library = serde_json_library();
-    let output = Command::new("rustc")
+    let output = add_dependency_search_paths(&mut Command::new("rustc"))
         .current_dir(directory)
         .arg("--edition=2024")
         .arg("--extern")
         .arg(format!("serde_json={}", library.display()))
-        .arg("-L")
-        .arg(format!("dependency={}", library.parent().unwrap().display()))
         .arg(&source_path)
         .arg("-o")
         .arg(&binary)

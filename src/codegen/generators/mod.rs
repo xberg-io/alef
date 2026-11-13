@@ -69,8 +69,8 @@ pub fn gen_redacted_enum_debug_impl(enum_def: &crate::core::ir::EnumDef) -> Stri
 
 #[cfg(test)]
 pub(crate) mod sensitive_runtime_test_support {
+    use crate::test_support::cargo_artifacts::{add_dependency_search_paths, dependency_rlibs};
     use quote::quote;
-    use std::path::{Path, PathBuf};
 
     pub fn assert_struct_debug_and_serde_round_trip(generated: &str, type_name: &str) {
         let source = runtime_probe_source(generated, type_name);
@@ -233,25 +233,17 @@ fn main() {{
         let source_path = directory.path().join("probe.rs");
         let executable = directory.path().join(format!("probe{}", std::env::consts::EXE_SUFFIX));
         std::fs::write(&source_path, source).expect("representation probe source must be written");
-        let dependencies = std::env::current_exe()
-            .expect("test executable path")
-            .parent()
-            .expect("test dependency directory")
-            .to_path_buf();
-        // ~keep: target/deps accumulates one rlib per feature set and per past toolchain, so no single
-        // candidate is guaranteed loadable; try pairs, newest first, until rustc accepts one.
-        let serde_candidates = dependency_rlibs(&dependencies, "serde");
-        let serde_json_candidates = dependency_rlibs(&dependencies, "serde_json");
+        let serde_candidates = dependency_rlibs("serde");
+        let serde_json_candidates = dependency_rlibs("serde_json");
         let mut last_error = String::new();
         let mut compiled = false;
         'search: for serde in &serde_candidates {
             for serde_json in &serde_json_candidates {
                 // ~keep Pin the cwd: a concurrent test's CwdGuard can leave the process cwd at a
                 // deleted tempdir, and rustc aborts with "Could not locate working directory".
-                let compile = std::process::Command::new("rustc")
+                let compile = add_dependency_search_paths(&mut std::process::Command::new("rustc"))
                     .current_dir(directory.path())
-                    .args(["--edition=2024", "-L"])
-                    .arg(format!("dependency={}", dependencies.display()))
+                    .arg("--edition=2024")
                     .arg("--extern")
                     .arg(format!("serde={}", serde.display()))
                     .arg("--extern")
@@ -283,28 +275,6 @@ fn main() {{
             "representation probe failed:\n{}",
             String::from_utf8_lossy(&output.stderr)
         );
-    }
-
-    fn dependency_rlibs(directory: &Path, crate_name: &str) -> Vec<PathBuf> {
-        let prefix = format!("lib{crate_name}-");
-        let mut matches: Vec<(std::time::SystemTime, PathBuf)> = std::fs::read_dir(directory)
-            .expect("test dependency directory must be readable")
-            .filter_map(Result::ok)
-            .filter(|entry| {
-                entry
-                    .file_name()
-                    .to_str()
-                    .is_some_and(|name| name.starts_with(&prefix) && name.ends_with(".rlib"))
-            })
-            .filter_map(|entry| Some((entry.metadata().ok()?.modified().ok()?, entry.path())))
-            .collect();
-        assert!(
-            !matches.is_empty(),
-            "{crate_name} rlib must exist in {}",
-            directory.display()
-        );
-        matches.sort_by(|left, right| right.cmp(left));
-        matches.into_iter().map(|(_, path)| path).collect()
     }
 }
 

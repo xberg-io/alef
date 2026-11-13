@@ -26,6 +26,10 @@ sources = ["src/lib.rs"]
 [crates.kotlin_android]
 package = "dev.sample_crate.demo"
 namespace = "dev.sample_crate.demo"
+
+[[crates.trait_bridges]]
+trait_name = "Renderer"
+register_fn = "register_renderer"
 "#;
 
 const SCAFFOLDED_LANGUAGES: [Language; 1] = [Language::Jni];

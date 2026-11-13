@@ -57,19 +57,19 @@ fn dependency_requirement(manifest: &str) -> String {
 fn new_php_manifest_requires_ext_php_rs_with_the_fixed_zip_dependency() {
     let manifest = scaffold_php_manifest(None);
     let requirement = dependency_requirement(&manifest);
-    assert_eq!(requirement, "0.16.3", "generated PHP manifest:\n{manifest}");
+    assert_eq!(requirement, "0.16.4", "generated PHP manifest:\n{manifest}");
     let requirement = VersionReq::parse(&requirement).expect("valid Cargo requirement");
-    for patch in [1, 2] {
+    for patch in [1, 2, 3] {
         assert!(!requirement.matches(&Version::new(0, 16, patch)));
     }
-    assert!(requirement.matches(&Version::new(0, 16, 3)));
     assert!(requirement.matches(&Version::new(0, 16, 4)));
+    assert!(requirement.matches(&Version::new(0, 16, 5)));
 }
 
 #[test]
 fn regenerated_php_manifest_raises_an_older_ext_php_rs_requirement() {
-    let manifest = scaffold_php_manifest(Some("0.16.2"));
-    assert_eq!(dependency_requirement(&manifest), "0.16.3", "{manifest}");
+    let manifest = scaffold_php_manifest(Some("0.16.3"));
+    assert_eq!(dependency_requirement(&manifest), "0.16.4", "{manifest}");
 }
 
 #[test]

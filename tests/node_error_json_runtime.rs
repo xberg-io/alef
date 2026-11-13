@@ -1,5 +1,9 @@
 use alef::codegen::error_gen::{NAPI_ERROR_INFO_MARKER, gen_napi_error_converter};
 use alef::core::ir::{ErrorDef, ErrorVariant, FieldDef, MethodDef, PrimitiveType, TypeRef};
+#[path = "../src/test_support/cargo_artifacts.rs"]
+mod cargo_artifacts;
+
+use cargo_artifacts::{add_dependency_search_paths, dependency_rlibs};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -41,18 +45,10 @@ fn error_definition() -> ErrorDef {
 }
 
 fn serde_json_library() -> PathBuf {
-    let executable = std::env::current_exe().unwrap();
-    std::fs::read_dir(executable.parent().unwrap())
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| {
-            path.file_name()
-                .unwrap()
-                .to_str()
-                .is_some_and(|name| name.starts_with("libserde_json-") && name.ends_with(".rlib"))
-        })
-        .max_by_key(|path| path.metadata().unwrap().modified().unwrap())
-        .expect("this integration test links serde_json and its rlib exists beside the executable")
+    dependency_rlibs("serde_json")
+        .into_iter()
+        .next()
+        .expect("compiled serde_json dependency")
 }
 
 fn run_converter(converter: &str) -> Vec<String> {
@@ -62,13 +58,11 @@ fn run_converter(converter: &str) -> Vec<String> {
     let binary = root.path().join(if cfg!(windows) { "probe.exe" } else { "probe" });
     std::fs::write(&source_path, source).unwrap();
     let library = serde_json_library();
-    let compiled = Command::new("rustc")
+    let compiled = add_dependency_search_paths(&mut Command::new("rustc"))
         .current_dir(root.path())
         .arg("--edition=2024")
         .arg("--extern")
         .arg(format!("serde_json={}", library.display()))
-        .arg("-L")
-        .arg(format!("dependency={}", library.parent().unwrap().display()))
         .arg(&source_path)
         .arg("-o")
         .arg(&binary)
@@ -150,12 +144,10 @@ fn lint_converter(converter: &str) -> std::process::Output {
     let source_path = root.path().join("probe.rs");
     std::fs::write(&source_path, source).unwrap();
     let library = serde_json_library();
-    Command::new("clippy-driver")
+    add_dependency_search_paths(&mut Command::new("clippy-driver"))
         .arg("--edition=2024")
         .arg("--extern")
         .arg(format!("serde_json={}", library.display()))
-        .arg("-L")
-        .arg(format!("dependency={}", library.parent().unwrap().display()))
         .args(["--emit=metadata", "--error-format=json", "-D", "warnings"])
         .arg("--out-dir")
         .arg(root.path())

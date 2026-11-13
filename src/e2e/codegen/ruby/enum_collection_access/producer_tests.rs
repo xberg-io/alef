@@ -1,3 +1,4 @@
+use crate::test_support::cargo_artifacts::{add_dependency_search_paths, dependency_rlibs};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -167,11 +168,8 @@ fn run_producer(declaration: &syn::ItemEnum, wire_key: &str, success: bool) -> O
     for name in ["serde", "serde_json"] {
         let library = library(name, &compiler, directory.path());
         command.arg("--extern").arg(format!("{name}={}", library.display()));
-        command
-            .arg("-L")
-            .arg(format!("dependency={}", library.parent().unwrap().display()));
     }
-    let compiled = command.output().unwrap();
+    let compiled = add_dependency_search_paths(&mut command).output().unwrap();
     assert!(
         compiled.status.success(),
         "{}",
@@ -195,14 +193,7 @@ fn run_producer(declaration: &syn::ItemEnum, wire_key: &str, success: bool) -> O
 }
 
 fn library(name: &str, compiler: &Path, directory: &Path) -> PathBuf {
-    let executable = std::env::current_exe().unwrap();
-    let mut candidates = std::fs::read_dir(executable.parent().unwrap())
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| is_library(path, name))
-        .collect::<Vec<_>>();
-    candidates.sort_by_key(|path| std::cmp::Reverse(path.metadata().unwrap().modified().unwrap()));
-    select_library(&candidates, compiler, directory)
+    select_library(&dependency_rlibs(name), compiler, directory)
 }
 
 fn select_library(candidates: &[PathBuf], compiler: &Path, directory: &Path) -> PathBuf {
@@ -225,7 +216,7 @@ fn select_library(candidates: &[PathBuf], compiler: &Path, directory: &Path) -> 
 fn dependency_probe(library: &Path, compiler: &Path, directory: &Path) -> std::process::Output {
     let source = directory.join("dependency_probe.rs");
     std::fs::write(&source, "extern crate probe_dependency;\n").unwrap();
-    std::process::Command::new(compiler)
+    add_dependency_search_paths(&mut std::process::Command::new(compiler))
         .args([
             "--edition=2024",
             "--crate-type=lib",
@@ -235,8 +226,6 @@ fn dependency_probe(library: &Path, compiler: &Path, directory: &Path) -> std::p
         .arg(source)
         .arg("--extern")
         .arg(format!("probe_dependency={}", library.display()))
-        .arg("-L")
-        .arg(format!("dependency={}", library.parent().unwrap().display()))
         .arg("-o")
         .arg(directory.join("dependency_probe.rmeta"))
         .current_dir(directory)
@@ -260,11 +249,4 @@ fn dependency_probe_rejects_invalid_candidates_before_selecting_a_library() {
     let candidates = [invalid, valid.clone()];
     assert_eq!(candidates.len(), 2);
     assert_eq!(select_library(&candidates, &compiler, directory.path()), valid);
-}
-
-fn is_library(path: &Path, name: &str) -> bool {
-    path.file_name()
-        .unwrap()
-        .to_str()
-        .is_some_and(|file| file.starts_with(&format!("lib{name}-")) && file.ends_with(".rlib"))
 }

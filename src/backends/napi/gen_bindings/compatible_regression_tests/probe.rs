@@ -1,6 +1,7 @@
 //! Native Rust probes of real emitted conversion items; no Node ABI qualification.
 
 use crate::core::ir::ApiSurface;
+use crate::test_support::cargo_artifacts::{add_dependency_search_paths, dependency_rlibs};
 use quote::ToTokens;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -63,30 +64,10 @@ pub(super) fn conversion_source(generated: &str, core_source: &str, driver: &str
     format!("use std::collections::HashMap;\nmod test_lib {{\n{core_source}\n}}\n{declarations}\n{driver}\n")
 }
 
-fn libraries(directory: &Path, name: &str) -> Vec<PathBuf> {
-    let prefix = format!("lib{name}-");
-    let mut paths: Vec<_> = std::fs::read_dir(directory)
-        .expect("dependency directory")
-        .map(|entry| entry.expect("dependency entry").path())
-        .filter(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with(&prefix) && name.ends_with(".rlib"))
-        })
-        .collect();
-    paths.sort_by_key(|path| std::cmp::Reverse(path.metadata().expect("rlib metadata").modified().expect("rlib time")));
-    assert!(
-        !paths.is_empty(),
-        "{name} must already be linked into the outer test executable"
-    );
-    paths
-}
-
-fn compile(directory: &Path, source: &Path, binary: &Path, dependencies: &Path, serde: &Path, json: &Path) -> Output {
-    Command::new("rustc")
+fn compile(directory: &Path, source: &Path, binary: &Path, serde: &Path, json: &Path) -> Output {
+    add_dependency_search_paths(&mut Command::new("rustc"))
         .current_dir(directory)
-        .args(["--edition=2024", "-L"])
-        .arg(format!("dependency={}", dependencies.display()))
+        .arg("--edition=2024")
         .arg("--extern")
         .arg(format!("serde={}", serde.display()))
         .arg("--extern")
@@ -98,14 +79,14 @@ fn compile(directory: &Path, source: &Path, binary: &Path, dependencies: &Path, 
         .expect("execute committed rustc")
 }
 
-fn compatible_dependencies(directory: &Path, dependencies: &Path) -> (PathBuf, PathBuf) {
+fn compatible_dependencies(directory: &Path) -> (PathBuf, PathBuf) {
     let source = directory.join("dependency_control.rs");
     let binary = directory.join(format!("dependency_control{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(&source, r#"#[derive(serde::Serialize, serde::Deserialize)] struct Control { value: serde_json::Value } fn main() { let value = Control { value: serde_json::json!({"ok": true}) }; assert_eq!(serde_json::to_value(value).unwrap()["value"]["ok"], true); }"#).expect("write positive dependency control");
     let mut last_error = String::new();
-    for serde in libraries(dependencies, "serde") {
-        for json in libraries(dependencies, "serde_json") {
-            let compiled = compile(directory, &source, &binary, dependencies, &serde, &json);
+    for serde in dependency_rlibs("serde") {
+        for json in dependency_rlibs("serde_json") {
+            let compiled = compile(directory, &source, &binary, &serde, &json);
             if compiled.status.success() {
                 let control = Command::new(&binary)
                     .current_dir(directory)
@@ -122,15 +103,13 @@ fn compatible_dependencies(directory: &Path, dependencies: &Path) -> (PathBuf, P
 
 pub(super) fn run(source: &str) -> String {
     let directory = tempfile::tempdir().expect("native generated conversion probe");
-    let current = std::env::current_exe().expect("outer test executable");
-    let dependencies = current.parent().expect("outer deps directory");
-    let (serde, json) = compatible_dependencies(directory.path(), dependencies);
+    let (serde, json) = compatible_dependencies(directory.path());
     let path = directory.path().join("generated.rs");
     let binary = directory
         .path()
         .join(format!("generated{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(&path, source).expect("write actual generated conversion source");
-    let result = compile(directory.path(), &path, &binary, dependencies, &serde, &json);
+    let result = compile(directory.path(), &path, &binary, &serde, &json);
     assert!(
         result.status.success(),
         "actual emitted conversions failed to compile:\n{}\nSOURCE:\n{source}",

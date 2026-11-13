@@ -2,9 +2,8 @@
 #
 # Print the effective toolchain-census directory: `<cargo target_directory>/toolchain-census`.
 #
-# `src/test_support/toolchain.rs` writes its per-binary tallies beside the test binaries that
-# produced them, which already follows `CARGO_TARGET_DIR` and any `.cargo/config.toml`
-# `build.target-dir` (see `census_file()` there). Everything that resets or reads that directory
+# The Rust census writers resolve the target directory through Cargo metadata.
+# Everything that resets or reads that directory
 # has to resolve the same path or it silently examines an empty one: `scripts/toolchain-census.sh`
 # (its `--dir` default), the mise `test` task's pre-run reset, and
 # `.github/workflows/ci.yml`'s "Clear the toolchain fixture census" step all shell out to this

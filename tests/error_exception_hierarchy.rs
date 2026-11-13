@@ -281,7 +281,7 @@ pub fn throw_legacy() -> Result<(), PolicyError> { Err(PolicyError::TooManyRedir
 #[cfg(unix)]
 fn write_python_binding(binding: &std::path::Path) {
     std::fs::create_dir_all(binding.join("src")).unwrap();
-    std::fs::write(binding.join("Cargo.toml"), "[package]\nname='fixture-py'\nversion='0.1.0'\nedition='2024'\n[lib]\nname='_fixture'\ncrate-type=['cdylib']\n[dependencies]\nfixture={path='../fixture'}\nserde={version='1',features=['derive']}\nserde_json='1'\npyo3={version='0.29',features=['extension-module','abi3-py310']}\npyo3-async-runtimes={version='0.29',features=['tokio-runtime']}\ntokio={version='1',features=['full']}\nfutures='0.3'\n[build-dependencies]\npyo3-build-config='0.29'\n").unwrap();
+    std::fs::write(binding.join("Cargo.toml"), "[package]\nname='fixture-py'\nversion='0.1.0'\nedition='2024'\n[lib]\nname='_fixture'\ncrate-type=['cdylib']\n[dependencies]\nfixture={path='../fixture'}\nserde={version='1',features=['derive']}\nserde_json='1'\npyo3={version='0.29',features=['extension-module','abi3-py310']}\n[build-dependencies]\npyo3-build-config='0.29'\n").unwrap();
     std::fs::write(
         binding.join("build.rs"),
         "fn main() { pyo3_build_config::add_extension_module_link_args(); }\n",
