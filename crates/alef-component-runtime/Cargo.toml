@@ -6,7 +6,6 @@ edition = "2024"
 rust-version = "1.99"
 license = "MIT"
 description = "Verified downloader and dynamic loader for Alef native components"
-homepage = "https://github.com/xberg-io/alef"
 repository = "https://github.com/xberg-io/alef"
 
 [features]

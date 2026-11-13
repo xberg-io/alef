@@ -7,7 +7,6 @@ edition = "2024"
 rust-version = "1.99"
 license = "MIT"
 repository = "https://github.com/xberg-io/alef"
-homepage = "https://github.com/xberg-io/alef"
 description = "Opinionated polyglot binding generator for Rust libraries"
 keywords = ["codegen", "bindings", "ffi", "polyglot", "pyo3"]
 categories = ["development-tools::ffi", "development-tools::build-utils"]
