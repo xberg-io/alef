@@ -117,8 +117,12 @@ pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -
 
     let has_async = api.functions.iter().any(|f| !f.binding_excluded && f.is_async)
         || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
-    // `#[async_trait::async_trait]` on their methods — declare the crate here so
     let has_trait_bridges = config.trait_bridges_for(Language::R).next().is_some();
+    let has_async_trait_bridges = config.trait_bridges_for(Language::R).any(|bridge| {
+        api.types
+            .iter()
+            .any(|ty| ty.is_trait && ty.name == bridge.trait_name && ty.methods.iter().any(|method| method.is_async))
+    });
 
     let configured_features = config.features_for_language(Language::R);
     let core_default_features = config.r.as_ref().and_then(|r| r.default_features).unwrap_or(true);
@@ -151,8 +155,10 @@ pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -
             versions.get("cargo:tokio")
         ));
     }
-    if has_trait_bridges {
+    if has_async_trait_bridges {
         dep_lines.push(format!("async-trait = \"{}\"", versions.get("cargo:async-trait")));
+    }
+    if has_trait_bridges {
         dep_lines.push(format!("tracing = \"{}\"", versions.get("cargo:tracing")));
     }
     let extra_deps = render_extra_deps(config, Language::R);
@@ -201,8 +207,10 @@ pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -
         format!("\n[features]\n{}\n", lines.join("\n"))
     };
 
-    let machete_block = if has_trait_bridges {
+    let machete_block = if has_async_trait_bridges {
         "[package.metadata.cargo-machete]\nignored = [\"async-trait\", \"tracing\"]\n\n".to_string()
+    } else if has_trait_bridges {
+        "[package.metadata.cargo-machete]\nignored = [\"tracing\"]\n\n".to_string()
     } else {
         String::new()
     };

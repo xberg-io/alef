@@ -364,6 +364,7 @@ fn test_scaffold_ruby_cargo_deps_are_alphabetically_sorted() {
 #[test]
 fn test_scaffold_r_cargo_deps_are_alphabetically_sorted() {
     use crate::core::config::TraitBridgeConfig;
+    use crate::core::ir::{MethodDef, TypeDef, TypeRef};
 
     let mut config = test_config();
     config.languages = vec![Language::R];
@@ -386,15 +387,25 @@ fn test_scaffold_r_cargo_deps_are_alphabetically_sorted() {
         context_type: None,
         result_type: None,
     }];
-    let api = test_api();
+    let mut api = test_api();
+    api.types.push(TypeDef {
+        name: "HtmlVisitor".into(),
+        is_trait: true,
+        methods: vec![MethodDef {
+            name: "visit".into(),
+            return_type: TypeRef::Unit,
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
     let all_files = scaffold(&api, &config, &[Language::R]).unwrap();
     let files = language_files(&all_files);
     let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
 
     let keys = dep_keys_in_order(&cargo_toml.content);
     assert!(
-        keys.contains(&"async-trait"),
-        "async-trait must appear when trait bridges are configured; keys: {keys:?}"
+        !keys.contains(&"async-trait"),
+        "async-trait requires a bridged async method; keys: {keys:?}"
     );
     let ignored_line = cargo_toml
         .content
@@ -402,8 +413,8 @@ fn test_scaffold_r_cargo_deps_are_alphabetically_sorted() {
         .find(|l| l.trim_start().starts_with("ignored ="))
         .expect("R Cargo.toml must have a cargo-machete ignored line when trait bridges are configured");
     assert!(
-        ignored_line.contains("async-trait"),
-        "R cargo-machete ignored list must contain async-trait; got: {ignored_line}"
+        !ignored_line.contains("async-trait"),
+        "R cargo-machete ignored list must omit undeclared async-trait; got: {ignored_line}"
     );
     let mut sorted = keys.clone();
     sorted.sort();
@@ -411,6 +422,12 @@ fn test_scaffold_r_cargo_deps_are_alphabetically_sorted() {
         keys, sorted,
         "r Cargo.toml [dependencies] must be alphabetically sorted; got: {keys:?}"
     );
+
+    api.types[0].methods[0].is_async = true;
+    let files = scaffold(&api, &config, &[Language::R]).unwrap();
+    let files = language_files(&files);
+    let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+    assert!(dep_keys_in_order(&cargo_toml.content).contains(&"async-trait"));
 }
 
 #[test]

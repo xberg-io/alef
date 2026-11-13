@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.129.3] - 2026-11-13
+
+### Fixed
+
+- Generate the R binding's async-trait dependency only for bridges with async methods.
+
 ## [0.129.2] - 2026-11-13
 
 ### Fixed
