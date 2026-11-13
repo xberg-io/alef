@@ -311,19 +311,21 @@ pub(super) fn gen_wrapper_function(
         return out;
     }
 
-    emit_named_param_setup(
-        &mut out,
-        &visible_params,
-        "        ",
-        true_opaque_types,
-        exception_name,
-        types,
-        enum_names,
-    );
-
+    let owned = crate::codegen::shared::split_bytes_owned_param(func, types);
     let mut cs_native_name = to_csharp_name(&func.name);
-    if crate::codegen::shared::split_bytes_owned_param(func, types).is_some() {
+    if owned.is_some() {
         cs_native_name.push_str("Owned");
+        super::super::marshalling::emit_param_handle_locals(&mut out, &visible_params, true_opaque_types, enum_names);
+    } else {
+        emit_named_param_setup(
+            &mut out,
+            &visible_params,
+            "        ",
+            true_opaque_types,
+            exception_name,
+            types,
+            enum_names,
+        );
     }
 
     let needs_outer_try = needs_param_teardown(&visible_params, true_opaque_types, enum_names);
@@ -331,6 +333,17 @@ pub(super) fn gen_wrapper_function(
     if func.is_async {
         if needs_outer_try {
             out.push_str("        try\n        {\n");
+        }
+
+        if owned.is_some() {
+            super::super::marshalling::emit_scoped_param_setup(
+                &mut out,
+                &visible_params,
+                true_opaque_types,
+                exception_name,
+                types,
+                enum_names,
+            );
         }
 
         let lambda_indent = if needs_outer_try { "            " } else { "        " };
@@ -354,15 +367,18 @@ pub(super) fn gen_wrapper_function(
         out.push_str(lambda_indent);
         out.push_str("{\n");
 
-        function_native_call(
+        let mut native_call = function_native_call(
             func,
             &cs_native_name,
             &visible_params,
             true_opaque_types,
             body_indent,
             argument_indent,
-        )
-        .emit(&mut out);
+        );
+        if owned.is_some() {
+            native_call.args[0].insert_str(0, "ref ");
+        }
+        native_call.emit(&mut out);
 
         emit_return_marshalling_indented(
             &mut out,

@@ -443,7 +443,9 @@ fn consuming_byte_input_companion_moves_only_the_selected_handle() {
     assert!(borrowed.contains("locked_handle_ptr::<sample_crate::Input>"));
     assert!(!borrowed.contains("take_handle"));
     assert!(consumed.contains("fn sample_extract_owned("));
-    assert!(consumed.contains("take_handle::<sample_crate::Input>(input)"));
+    assert!(consumed.contains("input: *mut AlefHandle"));
+    assert!(consumed.contains("unsafe { *input = 0 }"));
+    assert!(consumed.contains("take_handle::<sample_crate::Input>(unsafe { *input })"));
     assert!(!consumed.contains("locked_handle_ptr::<sample_crate::Input>"));
     assert!(consumed.contains("locked_handle_ptr::<sample_crate::Config>"));
 }

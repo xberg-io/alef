@@ -900,7 +900,7 @@ fn gen_free_function_impl(
     } else {
         if let Some(param) = owned_param {
             format!(
-                "{}\n\nConsumes the {param} handle on successful ownership transfer.",
+                "{}\n\nThe {param} pointer must address a writable handle. The slot is cleared when ownership transfers, even if extraction fails. A nonzero handle remains caller-owned.",
                 func.doc
             )
         } else {
@@ -960,6 +960,10 @@ fn gen_free_function_impl(
         } else {
             p.name.clone()
         };
+        if owned_param == Some(p.name.as_str()) {
+            params.push(format!("    {param_name}: *mut AlefHandle"));
+            continue;
+        }
         params.push(format!(
             "    {}: {}",
             param_name,
@@ -1094,7 +1098,12 @@ fn gen_free_function_impl(
         ));
     }
 
-    for p in &func.params {
+    for p in func
+        .params
+        .iter()
+        .filter(|p| owned_param != Some(p.name.as_str()))
+        .chain(func.params.iter().filter(|p| owned_param == Some(p.name.as_str())))
+    {
         if owned_param == Some(p.name.as_str()) {
             let name = &p.name;
             let TypeRef::Named(typ) = &p.ty else {
@@ -1102,7 +1111,7 @@ fn gen_free_function_impl(
             };
             let typ = named_type_path(typ, core_import, path_map);
             out.push_str(&format!(
-                "        let {name}_rs = match take_handle::<{typ}>({name}) {{\n            Ok(value) => value,\n            Err(error) => {{ set_handle_error(&error); {fail_ret} }}\n        }};\n"
+                "        if {name}.is_null() {{\n            set_last_error(ALEF_INVALID_HANDLE_ERROR, \"Null ownership slot for '{name}'\");\n            {fail_ret}\n        }}\n        // SAFETY: the caller supplies a writable, exclusively borrowed handle slot.\n        let {name}_rs = match take_handle::<{typ}>(unsafe {{ *{name} }}) {{\n            Ok(value) => {{\n                unsafe {{ *{name} = 0 }};\n                value\n            }}\n            Err(error) => {{ set_handle_error(&error); {fail_ret} }}\n        }};\n"
             ));
             continue;
         }

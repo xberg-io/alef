@@ -390,16 +390,17 @@ pub(super) fn gen_native_methods(
                 capsule_types,
                 &scalar_named_types,
             ));
-            if crate::codegen::shared::split_bytes_owned_param(func, &api.types).is_some() {
+            if let Some(param) = crate::codegen::shared::split_bytes_owned_param(func, &api.types) {
                 let mut owned = func.clone();
                 owned.name.push_str("_owned");
-                out.push_str(&gen_pinvoke_for_func(
+                out.push_str(&super::pinvoke::gen_pinvoke_for_free_function(
                     &format!("{c_func_name}_owned"),
                     &owned,
                     bridge_param_names,
                     bridge_type_aliases,
                     capsule_types,
                     &scalar_named_types,
+                    Some(&param.name),
                 ));
             }
         }

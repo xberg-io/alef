@@ -459,11 +459,64 @@ pub(super) fn emit_named_param_setup(
     types: &[TypeDef],
     enum_names: &HashSet<String>,
 ) {
+    emit_param_setup(
+        out,
+        params,
+        indent,
+        true_opaque_types,
+        exception_name,
+        types,
+        enum_names,
+        false,
+    );
+}
+
+pub(super) fn emit_param_handle_locals(
+    out: &mut String,
+    params: &[crate::core::ir::ParamDef],
+    opaque: &HashSet<String>,
+    enums: &HashSet<String>,
+) {
+    for param in params {
+        let ty = match &param.ty {
+            TypeRef::Named(name) if !opaque.contains(name) && !enums.contains(name) => "ulong",
+            TypeRef::Vec(_) | TypeRef::Map(_, _) => "IntPtr",
+            TypeRef::Bytes => "GCHandle",
+            _ => continue,
+        };
+        let name = param.name.to_lower_camel_case();
+        out.push_str(&format!("        {ty} {name}Handle = default;\n"));
+    }
+}
+
+pub(super) fn emit_scoped_param_setup(
+    out: &mut String,
+    params: &[crate::core::ir::ParamDef],
+    opaque: &HashSet<String>,
+    exception_name: &str,
+    types: &[TypeDef],
+    enums: &HashSet<String>,
+) {
+    emit_param_setup(out, params, "            ", opaque, exception_name, types, enums, true);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_param_setup(
+    out: &mut String,
+    params: &[crate::core::ir::ParamDef],
+    indent: &str,
+    true_opaque_types: &HashSet<String>,
+    exception_name: &str,
+    types: &[TypeDef],
+    enum_names: &HashSet<String>,
+    predeclared: bool,
+) {
     use crate::backends::csharp::template_env::render;
 
     for param in params {
         let param_name = param.name.to_lower_camel_case();
         let json_var = format!("{param_name}Json");
+        let declaration = if predeclared { "" } else { "var " };
         let handle_var = format!("{param_name}Handle");
 
         match &param.ty {
@@ -491,7 +544,7 @@ pub(super) fn emit_named_param_setup(
                     let optional = if param.optional { "?" } else { "" };
                     let fallback = if param.optional { " ?? 0" } else { "" };
                     out.push_str(&format!(
-                        "{indent}var {handle_var} = {param_name}{optional}.CreateNativeHandle(){fallback};\n"
+                        "{indent}{declaration}{handle_var} = {param_name}{optional}.CreateNativeHandle(){fallback};\n"
                     ));
                     continue;
                 }
@@ -500,7 +553,7 @@ pub(super) fn emit_named_param_setup(
                 if param.optional {
                     out.push_str(&crate::backends::csharp::template_env::render(
                         "named_param_handle_from_json_optional.jinja",
-                        crate::alef_context! {
+                        crate::alef_context! { predeclared,
                             indent,
                             handle_var => &handle_var,
                             from_json_method => &from_json_method,
@@ -516,7 +569,7 @@ pub(super) fn emit_named_param_setup(
                     ));
                     out.push_str(&crate::backends::csharp::template_env::render(
                         "named_param_handle_from_json.jinja",
-                        crate::alef_context! {
+                        crate::alef_context! { predeclared,
                             indent,
                             handle_var => &handle_var,
                             from_json_method => &from_json_method,
@@ -533,13 +586,13 @@ pub(super) fn emit_named_param_setup(
                 ));
                 out.push_str(&crate::backends::csharp::template_env::render(
                     "named_param_handle_string.jinja",
-                    crate::alef_context! { indent, handle_var => &handle_var, json_var => &json_var },
+                    crate::alef_context! { predeclared, indent, handle_var => &handle_var, json_var => &json_var },
                 ));
             }
             TypeRef::Bytes => {
                 out.push_str(&crate::backends::csharp::template_env::render(
                     "named_param_handle_pin.jinja",
-                    crate::alef_context! { indent, handle_var => &handle_var, param_name => &param_name },
+                    crate::alef_context! { predeclared, indent, handle_var => &handle_var, param_name => &param_name },
                 ));
             }
             _ => {}
