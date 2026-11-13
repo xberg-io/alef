@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::OnceLock;
@@ -48,8 +49,13 @@ pub(crate) fn dependency_rlibs(name: &str) -> Vec<PathBuf> {
 }
 
 pub(crate) fn add_dependency_search_paths(command: &mut Command) -> &mut Command {
-    for directory in dependency_dirs() {
-        command.arg("-L").arg(format!("dependency={}", directory.display()));
-    }
-    command
+    static SEARCH_PATHS: OnceLock<tempfile::NamedTempFile> = OnceLock::new();
+    let arguments = SEARCH_PATHS.get_or_init(|| {
+        let mut file = tempfile::NamedTempFile::new().expect("compiler argument file");
+        for directory in dependency_dirs() {
+            writeln!(file, "-Ldependency={}", directory.display()).expect("write dependency search path");
+        }
+        file
+    });
+    command.arg(format!("@{}", arguments.path().display()))
 }
