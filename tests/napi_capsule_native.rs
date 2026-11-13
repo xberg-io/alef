@@ -56,7 +56,13 @@ fn write(root: &Path, relative: &Path, content: &str) {
 }
 
 fn prepare(root: &Path) {
-    let (api, config) = fixture();
+    let (api, mut config) = fixture();
+    config.workspace_root = Some(root.to_path_buf());
+    write(
+        root,
+        Path::new("crates/sample-core-node/build.rs"),
+        "fn main() { napi_build::setup(); }\n",
+    );
     for file in scaffold(&api, &config, &[Language::Node]).expect("Node scaffold") {
         if file.path.starts_with("crates/sample-core-node") {
             write(root, &file.path, &file.content);
@@ -75,11 +81,6 @@ fn prepare(root: &Path) {
         root,
         Path::new("crates/sample-core/Cargo.toml"),
         "[package]\nname='sample-core'\nversion='0.1.0'\nedition='2024'\n",
-    );
-    write(
-        root,
-        Path::new("crates/sample-core-node/build.rs"),
-        "fn main() { napi_build::setup(); }\n",
     );
     write(
         root,
