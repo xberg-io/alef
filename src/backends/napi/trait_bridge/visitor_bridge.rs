@@ -58,12 +58,16 @@ pub(super) fn gen_visitor_bridge(params: VisitorBridgeParams<'_>) -> anyhow::Res
     let mut method_impls = String::with_capacity(4096);
     let unsupported: RefCell<Vec<UnsupportedArg>> = RefCell::new(Vec::new());
     let json_safe = json_safe_named_types(api);
+    let tagged_result = bridge_cfg
+        .result_type
+        .as_deref()
+        .and_then(|name| api.enums.iter().find(|item| item.name == name))
+        .and_then(|item| item.serde_tag.as_deref().zip(item.serde_content.as_deref()));
     for method in crate::codegen::generators::trait_bridge::visitor_callback_methods(trait_type, bridge_cfg) {
         gen_visitor_method_napi(
             &mut method_impls,
             method,
-            trait_path,
-            core_crate,
+            tagged_result,
             bridge_cfg,
             type_paths,
             &result_metadata,
@@ -179,8 +183,7 @@ pub(super) fn unknown_tuple_type(count: usize) -> String {
 fn gen_visitor_method_napi(
     out: &mut String,
     method: &MethodDef,
-    _trait_path: &str,
-    _core_crate: &str,
+    tagged_result: Option<(&str, &str)>,
     bridge_cfg: &TraitBridgeConfig,
     type_paths: &HashMap<String, String>,
     result_metadata: &crate::codegen::visitor_result::VisitorResultMetadata,
@@ -278,6 +281,8 @@ fn gen_visitor_method_napi(
             payload_result_variants => crate::codegen::visitor_result::variant_contexts(
                 &result_metadata.string_payload_variants,
             ),
+            result_tag => tagged_result.map(|(tag, _)| format!("{tag:?}")),
+            result_content => tagged_result.map(|(_, content)| format!("{content:?}")),
             empty_args => empty_args,
             arg_exprs => arg_exprs,
             tuple_args => tuple_args,

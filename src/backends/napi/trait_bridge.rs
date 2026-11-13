@@ -128,6 +128,42 @@ mod tests {
         assert!(output.code.contains("displayName"));
     }
 
+    #[test]
+    fn visitor_bridge_decodes_tagged_units_and_payloads_alongside_legacy_objects() {
+        use crate::core::ir::{EnumVariant, FieldDef, TypeRef};
+
+        let (mut api, trait_type, bridge) = crate::codegen::visitor_context::test_support::neutral_visitor_fixture();
+        let result = api.enums.iter_mut().find(|item| item.name == "WalkOutcome").unwrap();
+        result.serde_tag = Some("action".into());
+        result.serde_content = Some("replacement".into());
+        result.serde_rename_all = Some("snake_case".into());
+        result.variants.push(EnumVariant {
+            name: "Replace".into(),
+            is_tuple: true,
+            fields: vec![FieldDef {
+                ty: TypeRef::String,
+                ..FieldDef::default()
+            }],
+            ..EnumVariant::default()
+        });
+
+        let code = super::gen_trait_bridge(
+            &trait_type,
+            &bridge,
+            "sample_core",
+            "SampleError",
+            "SampleError::Message { message: {msg} }",
+            &api,
+        )
+        .unwrap()
+        .code;
+        assert!(code.contains("get_named_property::<String>(\"action\")"));
+        assert!(code.contains("get_named_property::<String>(\"replacement\")"));
+        assert!(code.contains("=> sample_core::walk::WalkOutcome::StopHere"));
+        assert!(code.contains(".map(sample_core::walk::WalkOutcome::Replace)"));
+        assert!(code.contains("let prop_name = \"replace\""));
+    }
+
     /// The object branch of a visitor result guarded `coerce_to_object` inside a second `if`
     /// whose outer block held nothing else — `clippy::collapsible_if` in edition 2024, which the
     /// generated napi crate is built with under `-D warnings`. It must be one let-chain. ~keep

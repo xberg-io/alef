@@ -33,6 +33,28 @@
                 if val.get_type().ok() == Some(napi::bindgen_prelude::ValueType::Object)
                     && let Ok(obj) = val.coerce_to_object()
                 {
+{% if result_tag %}
+                    if let Ok(kind) = obj.get_named_property::<String>({{ result_tag }}) {
+                        return match kind.as_str() {
+{% for variant in unit_result_variants %}
+{% if variant.cfg %}
+                            #[cfg({{ variant.cfg }})]
+{% endif %}
+                            "{{ variant.wire_name }}" => {{ return_type }}::{{ variant.name }},
+{% endfor %}
+{% for variant in payload_result_variants %}
+{% if variant.cfg %}
+                            #[cfg({{ variant.cfg }})]
+{% endif %}
+                            "{{ variant.wire_name }}" => obj
+                                .get_named_property::<String>({{ result_content }})
+                                .map({{ return_type }}::{{ variant.name }})
+                                .unwrap_or({{ default_result_expr }}),
+{% endfor %}
+                            _ => {{ default_result_expr }},
+                        };
+                    }
+{% endif %}
 {%- for variant in payload_result_variants %}
     {%- if variant.cfg %}
                     #[cfg({{ variant.cfg }})]
@@ -47,6 +69,7 @@
                     }
                     }
 {%- endfor %}
+                    return {{ default_result_expr }};
                 }
                 if let Ok(s) = val.coerce_to_string().and_then(|s| s.into_utf8()).and_then(|s| s.into_owned()) {
                     match s.as_str() {
