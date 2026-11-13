@@ -175,19 +175,13 @@ pub(crate) fn scaffold_node_cargo(
     let extra_deps = render_extra_deps(config, Language::Node);
 
     let has_trait_bridges = config.trait_bridges_for(Language::Node).next().is_some();
-    // Narrower than `has_trait_bridges`: a crate whose only bridge is visitor-flavored (e.g. an
-    // HTML-node-visitor-style callback) never emits `AlefJsReply`/JSON-encoded callback
-    // arguments, so it doesn't need the napi `serde-json` feature those require -- unlike
-    // `async-trait`/`tracing` below, which the visitor flavor's generated code doesn't
-    // reference either but which predate this change and are deliberately left on the coarser
-    // `has_trait_bridges` check to avoid touching bytes this fix has no reason to touch.
     let has_non_visitor_trait_bridges = crate::backends::napi::trait_bridge::has_non_visitor_trait_bridges(config, api);
     let has_streaming = config
         .adapters
         .iter()
         .any(|a| matches!(a.pattern, AdapterPattern::Streaming));
     let mut all_deps = extra_deps;
-    if has_trait_bridges && !all_deps.contains("async-trait") {
+    if has_non_visitor_trait_bridges && !all_deps.contains("async-trait") {
         if !all_deps.is_empty() {
             all_deps.push('\n');
         }
