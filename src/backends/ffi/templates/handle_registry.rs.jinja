@@ -113,9 +113,21 @@ impl HandleRegistry {
             slot.value = Some(value);
             HandleError::HandleBusy
         })?;
-        slot.generation = next_generation(slot.generation);
-        let boxed = mutex.into_inner().map_err(|_| HandleError::RegistryPoisoned)?;
-        boxed.downcast::<T>().map(|value| *value).map_err(|_| HandleError::WrongType)
+        if mutex.is_poisoned() {
+            slot.value = Some(std::sync::Arc::new(mutex));
+            return Err(HandleError::RegistryPoisoned);
+        }
+        let boxed = mutex.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match boxed.downcast::<T>() {
+            Ok(value) => {
+                slot.generation = next_generation(slot.generation);
+                Ok(*value)
+            }
+            Err(boxed) => {
+                slot.value = Some(std::sync::Arc::new(std::sync::Mutex::new(boxed)));
+                Err(HandleError::WrongType)
+            }
+        }
     }
 }
 
