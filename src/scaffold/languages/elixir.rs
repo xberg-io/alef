@@ -157,7 +157,7 @@ pub(crate) fn scaffold_elixir_cargo(
     // version-only `[patch.crates-io]` entry. Explicit Cargo requirement overrides opt out
     // of that exact constraint; bare full versions retain the existing pin semantics.
     let resolution_pins = format!(
-        "[target.'cfg(false)'.dependencies]\nalloc-no-stdlib = \"{}\"\nalloc-stdlib = \"{}\"\nbrotli-decompressor = \"{}\"",
+        "[target.'cfg(false)'.dependencies]\nalloc-no-stdlib = \"{}\"\nalloc-stdlib = \"{}\"\nbrotli-decompressor = \"{}\"\n",
         exact_cargo_version_or_requirement(versions.get("cargo:alloc-no-stdlib")),
         exact_cargo_version_or_requirement(versions.get("cargo:alloc-stdlib")),
         exact_cargo_version_or_requirement(versions.get("cargo:brotli-decompressor")),
@@ -263,9 +263,9 @@ name = "{nif_name}"
 crate-type = ["cdylib"]
 
 {features_table}[dependencies]
-{deps_section}{core_target_blocks_section}{check_cfg_block}
+{deps_section}{core_target_blocks_section}
 
-{resolution_pins}
+{resolution_pins}{check_cfg_block}
 "#,
         pkg_header = pkg_header,
         machete_section = machete_section,
