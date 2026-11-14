@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.129.6] - 2026-11-14
+
+### Fixed
+
+- Keep Elixir NIF Brotli compatibility pins in dependency resolution without triggering Cargo unused-dependency warnings.
+
 ## [0.129.5] - 2026-11-14
 
 ### Fixed

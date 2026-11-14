@@ -156,18 +156,12 @@ pub(crate) fn scaffold_elixir_cargo(
     // ~keep Exact defaults constrain Brotli's allocator dependencies without an invalid
     // version-only `[patch.crates-io]` entry. Explicit Cargo requirement overrides opt out
     // of that exact constraint; bare full versions retain the existing pin semantics.
-    dep_lines.push(format!(
-        "alloc-no-stdlib = \"{}\"",
-        exact_cargo_version_or_requirement(versions.get("cargo:alloc-no-stdlib"))
-    ));
-    dep_lines.push(format!(
-        "alloc-stdlib = \"{}\"",
-        exact_cargo_version_or_requirement(versions.get("cargo:alloc-stdlib"))
-    ));
-    dep_lines.push(format!(
-        "brotli-decompressor = \"{}\"",
-        exact_cargo_version_or_requirement(versions.get("cargo:brotli-decompressor"))
-    ));
+    let resolution_pins = format!(
+        "[target.'cfg(false)'.dependencies]\nalloc-no-stdlib = \"{}\"\nalloc-stdlib = \"{}\"\nbrotli-decompressor = \"{}\"",
+        exact_cargo_version_or_requirement(versions.get("cargo:alloc-no-stdlib")),
+        exact_cargo_version_or_requirement(versions.get("cargo:alloc-stdlib")),
+        exact_cargo_version_or_requirement(versions.get("cargo:brotli-decompressor")),
+    );
     if !core_dep_line.is_empty() {
         dep_lines.push(core_dep_line);
     }
@@ -269,7 +263,10 @@ name = "{nif_name}"
 crate-type = ["cdylib"]
 
 {features_table}[dependencies]
-{deps_section}{core_target_blocks_section}{check_cfg_block}"#,
+{deps_section}{core_target_blocks_section}{check_cfg_block}
+
+{resolution_pins}
+"#,
         pkg_header = pkg_header,
         machete_section = machete_section,
         nif_name = nif_name,

@@ -42,37 +42,40 @@ fn scaffold_elixir_nif_cargo_pins_brotli_allocator_crates_as_direct_deps() {
 
     assert!(
         content.contains("alloc-no-stdlib = \"=3.0.0\""),
-        "NIF Cargo.toml must pin alloc-no-stdlib = 3.0.0 as a direct dep, got:\n{content}"
+        "NIF Cargo.toml must pin alloc-no-stdlib = 3.0.0 for resolution, got:\n{content}"
     );
     assert!(
         content.contains("alloc-stdlib = \"=0.3.0\""),
-        "NIF Cargo.toml must pin alloc-stdlib = 0.3.0 as a direct dep, got:\n{content}"
+        "NIF Cargo.toml must pin alloc-stdlib = 0.3.0 for resolution, got:\n{content}"
     );
     assert!(
         content.contains("brotli-decompressor = \"=6.2.0\""),
-        "NIF Cargo.toml must pin brotli-decompressor = 6.2.0 as a direct dep, got:\n{content}"
+        "NIF Cargo.toml must pin brotli-decompressor = 6.2.0 for resolution, got:\n{content}"
     );
 
     assert!(
         !content.contains("[patch.crates-io]"),
         "NIF Cargo.toml MUST NOT emit a [patch.crates-io] block. \
          A patch entry with only `version` (no path/git/url) is a no-op and \
-         cargo rejects it with `patch points to the same source`. Use direct \
-         deps in [dependencies] instead. Got:\n{content}"
+         cargo rejects it with `patch points to the same source`. Use resolution-only dependencies instead. Got:\n{content}"
     );
 
     let deps_pos = content
         .find("[dependencies]")
         .expect("[dependencies] section must exist");
-    let deps_section = &content[deps_pos..];
+    let pins_pos = content
+        .find("[target.'cfg(false)'.dependencies]")
+        .expect("resolution-only dependency table must exist");
+    let deps_section = &content[deps_pos..pins_pos];
+    let pins_section = &content[pins_pos..];
     for pin in [
         "alloc-no-stdlib = \"=3.0.0\"",
         "alloc-stdlib = \"=0.3.0\"",
         "brotli-decompressor = \"=6.2.0\"",
     ] {
         assert!(
-            deps_section.contains(pin),
-            "{pin} must appear inside [dependencies], got:\n{content}"
+            pins_section.contains(pin) && !deps_section.contains(pin),
+            "{pin} must only appear in the resolution-only dependency table, got:\n{content}"
         );
     }
 

@@ -39,7 +39,7 @@ sources = ["src/lib.rs"]
         .collect();
     assert_eq!(manifests.len(), 1, "one native manifest must be generated");
     let manifest: toml::Value = toml::from_str(&manifests[0].content).expect("manifest parses");
-    manifest.get("dependencies").expect("dependencies exist").clone()
+    manifest["target"]["cfg(false)"]["dependencies"].clone()
 }
 
 fn assert_requirement(dependencies: &toml::Value, dependency: &str, expected: &str) {
