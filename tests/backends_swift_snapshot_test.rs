@@ -20,6 +20,22 @@ fn snapshot_path_suffix(path: &std::path::Path) -> String {
 }
 
 fn assert_swift_snapshots(prefix: &str, files: &[GeneratedFile]) {
+    let manifest = files
+        .iter()
+        .find(|file| file.path.ends_with("rust/Cargo.toml"))
+        .unwrap();
+    let rust_bridge = files
+        .iter()
+        .find(|file| file.path.ends_with("rust/src/lib.rs"))
+        .unwrap();
+    assert_eq!(
+        manifest.content.lines().any(|line| line.starts_with("async-trait =")),
+        rust_bridge
+            .content
+            .lines()
+            .any(|line| line == "#[async_trait::async_trait]"),
+        "{prefix}: the manifest must match its generated bridge"
+    );
     let rust_bridge_c_header = rust_bridge_c_header_path();
     for file in files {
         if file.path.ends_with(&rust_bridge_c_header) {

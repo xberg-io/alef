@@ -717,6 +717,7 @@ fn swift_bridge_async_feature_follows_the_async_surface() {
     use crate::core::ir::{FunctionDef, MethodDef, TypeDef};
 
     let sync_only = manifest_for(&ApiSurface::default());
+    assert!(!sync_only.lines().any(|line| line.starts_with("async-trait =")));
     assert!(
         sync_only.contains("swift-bridge = \"0.1.59\"\n"),
         "a sync-only API must keep the plain swift-bridge dependency, got:\n{sync_only}"

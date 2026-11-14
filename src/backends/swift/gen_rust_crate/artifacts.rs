@@ -13,7 +13,6 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
     for typ in api.types.iter().filter(|typ| !excluded.types.contains(&typ.name)) {
         extern_block::validate_legacy_constructor_fields(typ, &excluded.fields, &configured_features)?;
     }
-    let manifest = cargo_manifest(api, config, &features);
     let effective_features = feature_gate::effective_swift_codegen_features(api, config, &core_crate_dir);
     let configured_features: HashSet<&str> = effective_features.iter().map(String::as_str).collect();
     // Derive features before filtering methods, matching the Swift facade. ~keep
@@ -27,6 +26,8 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         &excluded.fields,
         &configured_features,
     )?;
+    let uses_async_trait = lib_rs.lines().any(|line| line == "#[async_trait::async_trait]");
+    let manifest = cargo_manifest(api, config, &features, uses_async_trait);
     let mut files = base_files(&base, manifest, lib_rs);
     if let Some(callback_file) = callback_files::emit_callback_registration_file(&filtered_api, &base) {
         files.push(callback_file);
@@ -111,7 +112,12 @@ fn core_dependency(api: &ApiSurface, config: &ResolvedCrateConfig) -> CoreDepend
     CoreDependency { directory, key, path }
 }
 
-fn cargo_manifest(api: &ApiSurface, config: &ResolvedCrateConfig, features: &[String]) -> String {
+fn cargo_manifest(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    features: &[String],
+    uses_async_trait: bool,
+) -> String {
     let core = core_dependency(api, config);
     let swift = config.swift.clone().unwrap_or_default();
     let license = config
@@ -124,6 +130,18 @@ fn cargo_manifest(api: &ApiSurface, config: &ResolvedCrateConfig, features: &[St
         .iter()
         .any(|a| matches!(a.pattern, crate::core::config::AdapterPattern::Streaming));
     let mut dependencies = crate::scaffold::render_extra_deps(config, Language::Swift);
+    if uses_async_trait
+        && !dependencies
+            .lines()
+            .any(|line| line.trim_start().starts_with("async-trait ="))
+    {
+        use std::fmt::Write as _;
+        let _ = writeln!(
+            dependencies,
+            "\nasync-trait = \"{}\"",
+            template_versions::cargo::ASYNC_TRAIT
+        );
+    }
     if !config.components.is_empty() {
         append_component_dependencies(&mut dependencies);
     }

@@ -9,16 +9,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 
-# `ahash`, `async-trait`, `libc`, `serde`, `serde_json`, and `tokio` are all
-# conditionally referenced by alef-emitted code: `ahash` only when the
-# umbrella crate exposes `AHashMap<Cow<str>, _>` parameters (the conditional
-# `__*_ahash` shim rebuilds), `async-trait` and `tokio` only when the API
-# surface includes async streaming adapters and runtime spawn, `libc` only
-# when service API C callback functions are emitted, `serde` and
-# `serde_json` only when JSON DTO conversions are emitted. They are listed
-# unconditionally in `[dependencies]` so the manifest is stable across
-# regens, and ignored here so cargo-machete does not flag downstream crates
-# whose API surface does not trigger those paths as unused.
+# Cargo-machete cannot always see dependencies used by generated bridge code.
 [package.metadata.cargo-machete]
 ignored = ["ahash", "async-trait", "libc", "serde", "serde_json", "tokio"]
 
@@ -33,7 +24,6 @@ doctest = false
 bench = false
 
 [dependencies]
-async-trait = "0.1"
 demo = { version = "0.1.0", path = "../../.." }
 demo-ffi = { version = "0.1.0", path = "../../../crates/demo-ffi" }
 futures-util = "0.3"
