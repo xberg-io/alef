@@ -401,6 +401,10 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                         parts.push(format!("Buffer.from({})", json_to_js(v)));
                     }
                 } else if arg.arg_type == "json_object" {
+                    let wasm_class = (lang == "wasm")
+                        .then(|| target.declared_type_name(&arg.name, idx))
+                        .flatten()
+                        .filter(|name| type_defs.iter().any(|definition| definition.name == *name));
                     if v.is_array() {
                         // A raw `json_to_js_camel` dump only camelCases keys — it does not know
                         // that a node/napi element type can be a tagged-data enum whose payload
@@ -431,9 +435,8 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                         // once already dropped a tagged-data enum's `type` discriminator
                         // entirely, because plain `json_to_js_camel` does not know that the
                         // binding's `#[napi(object)]` type expects one. ~keep
-                        let element_type = arg
-                            .element_type
-                            .as_deref()
+                        let element_type = wasm_class
+                            .or(arg.element_type.as_deref())
                             .map(|raw| canonical_ts_type_name(lang, raw, config));
                         let is_known_element_type = element_type.as_deref().is_some_and(|name| {
                             type_defs.iter().any(|t| t.name == name) || enums.iter().any(|e| e.name == name)
@@ -501,8 +504,8 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                         } else {
                             parts.push(array_literal);
                         }
-                    } else if let Some(raw_type) =
-                        crate::e2e::codegen::recipe::json_object_constructor_type(arg, options_type, v)
+                    } else if let Some(raw_type) = wasm_class
+                        .or_else(|| crate::e2e::codegen::recipe::json_object_constructor_type(arg, options_type, v))
                     {
                         // The wasm binding exposes every wrapped struct/enum under the
                         // `wasm_type_prefix` (e.g. `ExtractInput` -> `WasmExtractInput`).
@@ -520,7 +523,11 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                             wasm_type_prefix,
                         );
                         // Object value with known options type — construct properly for wasm-bindgen.
-                        if v.is_object() && v.as_object().is_some_and(|o| o.is_empty()) {
+                        if v.as_object().is_some_and(|object| object.is_empty())
+                            && (lang != "wasm"
+                                || (arg.optional
+                                    && target.declares_param_optional(lang, &arg.name, idx, type_defs) != Some(false)))
+                        {
                             // Empty options: pass undefined so wasm-bindgen's instanceof
                             // guard accepts the call (a `{}` cast produces a plain literal
                             // that fails the runtime class check) -- but only when a later

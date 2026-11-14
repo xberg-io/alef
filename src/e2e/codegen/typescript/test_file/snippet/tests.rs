@@ -567,3 +567,122 @@ fn client_factory_snippet_never_points_the_reader_at_the_mock_server() {
         "the call must go through the constructed client:\n{body}"
     );
 }
+
+#[test]
+fn file_backed_bytes_make_the_wrapper_async_for_a_sync_call() {
+    for lang in ["node", "wasm"] {
+        let mut fixture = fixture();
+        fixture.input = serde_json::json!({"pdf_bytes": "pdf/sample.pdf"});
+        let e2e = E2eConfig {
+            call: CallConfig {
+                function: "pdf_page_count".into(),
+                args: vec![crate::e2e::config::ArgMapping {
+                    name: "pdf_bytes".into(),
+                    field: "input.pdf_bytes".into(),
+                    arg_type: "bytes".into(),
+                    optional: false,
+                    owned: false,
+                    element_type: None,
+                    go_type: None,
+                    vec_inner_is_ref: false,
+                    trait_name: None,
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let body = render_snippet_body(SnippetContext {
+            lang,
+            fixture: &fixture,
+            module: "@example/library",
+            client_factory: None,
+            e2e_config: &e2e,
+            type_defs: &[],
+            enums: &[],
+            functions: &[],
+            wasm_type_prefix: "Wasm",
+            config: &Default::default(),
+        });
+        assert!(body.contains("async function main()"), "{lang}: {body}");
+        assert!(body.contains("= pdfPageCount(_pdf_bytes_content)"), "{lang}: {body}");
+    }
+}
+
+#[test]
+fn wasm_snippet_uses_signature_to_build_class_arguments() {
+    use crate::core::ir::{FieldDef, FunctionDef, ParamDef, TypeRef};
+
+    let mut fixture = fixture();
+    fixture.input = serde_json::json!({"config": {"nested": {"label": "example"}}});
+    let e2e = E2eConfig {
+        call: CallConfig {
+            function: "extract".into(),
+            args: vec![crate::e2e::config::ArgMapping {
+                name: "config".into(),
+                field: "config".into(),
+                arg_type: "json_object".into(),
+                optional: true,
+                owned: false,
+                element_type: None,
+                go_type: None,
+                vec_inner_is_ref: false,
+                trait_name: None,
+            }],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let types = [
+        TypeDef {
+            name: "ExtractionConfig".into(),
+            has_default: true,
+            fields: vec![FieldDef {
+                name: "nested".into(),
+                ty: TypeRef::Named("NestedConfig".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+        TypeDef {
+            name: "NestedConfig".into(),
+            has_default: true,
+            fields: vec![FieldDef {
+                name: "label".into(),
+                ty: TypeRef::String,
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+    ];
+    let functions = [FunctionDef {
+        name: "extract".into(),
+        params: vec![ParamDef {
+            name: "config".into(),
+            ty: TypeRef::Optional(Box::new(TypeRef::Named("ExtractionConfig".into()))),
+            optional: true,
+            ..Default::default()
+        }],
+        ..Default::default()
+    }];
+    let render = |fixture: &Fixture| {
+        render_snippet_body(SnippetContext {
+            lang: "wasm",
+            fixture,
+            module: "@example/library",
+            client_factory: None,
+            e2e_config: &e2e,
+            type_defs: &types,
+            enums: &[],
+            functions: &functions,
+            wasm_type_prefix: "Wasm",
+            config: &Default::default(),
+        })
+    };
+    let body = render(&fixture);
+    assert!(body.contains("WasmExtractionConfig.default()"), "{body}");
+    assert!(body.contains("WasmNestedConfig.default()"), "{body}");
+    assert!(body.contains("extract(config)"), "{body}");
+    fixture.input = serde_json::json!({"config": {}});
+    let body = render(&fixture);
+    assert!(body.contains("extract()"), "{body}");
+}

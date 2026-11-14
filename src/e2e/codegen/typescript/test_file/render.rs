@@ -666,6 +666,12 @@ pub fn render_test_file(
         }
 
         if lang == "wasm" {
+            for definition in type_defs {
+                let name = wasm_class_name(&definition.name, wasm_type_prefix);
+                if !imports.contains(&name) && super::snippet::references_identifier(&fixtures_body, &name) {
+                    imports.push(name);
+                }
+            }
             imports.retain(|name| wasm_import_is_exported(name, &wasm_excluded_classes));
         }
         let imports_str = imports.join(", ");

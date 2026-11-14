@@ -9,7 +9,7 @@ async function main() {
   {{ client_setup }}
 {% endif %}
 {% if expects_error %}  try {
-{% if stream_item_binding %}    const {{ result_var }} = await {{ call_expr }};
+{% if stream_item_binding %}    const {{ result_var }} = {% if await_call %}await {% endif %}{{ call_expr }};
 {% if wasm_stream %}    try {
       while (true) {
         const {{ stream_item_binding }}{% if wasm_stream_item_type %}: {{ wasm_stream_item_type }} | null{% endif %} = await {{ result_var }}.next();
@@ -23,7 +23,7 @@ async function main() {
       void {{ stream_item_binding }};
     }
 {% endif %}
-{% else %}    await {{ call_expr }};
+{% else %}    {% if await_call %}await {% endif %}{{ call_expr }};
 {% endif %}  } catch (error) {
 {% if thrown_value_is_opaque %}    console.error(String(error));
 {% else %}    if (error instanceof {{ error_type }}) {
@@ -36,7 +36,7 @@ async function main() {
 {% else %}
 {% if client_release %}  try {
 {% endif %}
-{{ body_indent }}const {{ result_var }} = await {{ call_expr }};
+{{ body_indent }}const {{ result_var }} = {% if await_call %}await {% endif %}{{ call_expr }};
 {% set stream_indent = body_indent %}
 {% if stream_item_binding %}
 {% if wasm_stream %}{{ stream_indent }}try {

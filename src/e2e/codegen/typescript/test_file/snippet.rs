@@ -362,13 +362,18 @@ pub(crate) fn render_in_session(
     if lang == "wasm" {
         imports.retain(|name| wasm_import_is_exported(name, &wasm_excluded_classes));
     }
+    let await_call =
+        stream_item_binding.is_some() || override_config.and_then(|value| value.r#async).unwrap_or(call.r#async);
+    let needs_async_setup =
+        setup_lines.iter().any(|line| line.contains(" = await (")) || args.contains("await (async () =>");
     crate::e2e::template_env::render(
         "typescript/snippet_body.jinja",
         crate::alef_context! {
             imports => imports.into_iter().collect::<Vec<_>>(), module => module,
             setup_lines => setup_lines, client_setup => client_setup, call_expr => call_expr,
             result_var => call.effective_result_var(),
-            is_async => stream_item_binding.is_some() || override_config.and_then(|value| value.r#async).unwrap_or(call.r#async),
+            is_async => await_call || needs_async_setup,
+            await_call => await_call,
             stream_item_binding => stream_item_binding,
             wasm_stream => lang == "wasm",
             wasm_stream_item_type => wasm_stream_item_type,
