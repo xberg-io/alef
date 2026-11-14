@@ -604,6 +604,9 @@ pub(super) fn render_typed_default_argument(
                 return None;
             }
             match &param.ty {
+                ty @ crate::core::ir::TypeRef::Primitive(_) => {
+                    Some(crate::backends::go::type_map::go_type(ty).into_owned())
+                }
                 crate::core::ir::TypeRef::Optional(inner)
                     if matches!(inner.as_ref(), crate::core::ir::TypeRef::Primitive(_)) =>
                 {
@@ -671,22 +674,67 @@ impl UppercaseFirst for str {
 #[cfg(test)]
 mod optional_primitive_tests {
     use super::super::{GoArgsContext, build_args_and_setup};
+    use crate::core::ir::{ParamDef, PrimitiveType, TypeRef};
     use crate::e2e::codegen::call_ir::TargetParams;
     use crate::e2e::config::ArgMapping;
     use crate::e2e::fixture::Fixture;
 
     #[test]
     fn optional_u32_fixture_value_uses_pointer_to_uint32() {
+        let (declarations, args) =
+            render_u32_argument(serde_json::json!({"max_findings": 8}), true, TargetParams::IrAbsent);
+        assert_eq!(args, "ptr(uint32(8))");
+        assert_eq!(declarations.len(), 1);
+        assert!(declarations[0].contains("func ptr[T any]"));
+    }
+
+    #[test]
+    fn known_optional_u32_uses_pointer_to_uint32() {
+        let (declarations, args) = render_known_u32_argument(serde_json::json!({"max_findings": 8}), true);
+        assert_eq!(args, "ptr(uint32(8))");
+        assert_eq!(declarations.len(), 1);
+        assert!(declarations[0].contains("func ptr[T any]"));
+    }
+
+    #[test]
+    fn known_required_u32_uses_value() {
+        let (declarations, args) = render_known_u32_argument(serde_json::json!({"max_findings": 8}), false);
+        assert_eq!(args, "8");
+        assert!(declarations.is_empty());
+    }
+
+    #[test]
+    fn omitted_known_optional_u32_uses_nil() {
+        let (declarations, args) = render_known_u32_argument(serde_json::json!({}), true);
+        assert_eq!(args, "nil");
+        assert!(declarations.is_empty());
+    }
+
+    fn render_known_u32_argument(input: serde_json::Value, optional: bool) -> (Vec<String>, String) {
+        let param = ParamDef {
+            name: "max_findings".into(),
+            ty: TypeRef::Primitive(PrimitiveType::U32),
+            optional,
+            ..ParamDef::default()
+        };
+        render_u32_argument(input, optional, TargetParams::Known(&[param]))
+    }
+
+    fn render_u32_argument(
+        input: serde_json::Value,
+        optional: bool,
+        target: TargetParams<'_>,
+    ) -> (Vec<String>, String) {
         let fixture = Fixture {
             id: "external_redaction".into(),
-            input: serde_json::json!({"max_findings": 8}),
+            input,
             ..Fixture::default()
         };
         let arg = ArgMapping {
             name: "max_findings".into(),
             field: "input.max_findings".into(),
             arg_type: "u32".into(),
-            optional: true,
+            optional,
             owned: false,
             element_type: None,
             go_type: None,
@@ -707,11 +755,10 @@ mod optional_primitive_tests {
                 type_defs: &[],
                 enums: &[],
                 native_dtos: false,
-                target: TargetParams::IrAbsent,
+                target,
             },
         )
         .expect("render optional primitive");
-        assert_eq!(args, "ptr(uint32(8))");
-        assert!(declarations.iter().any(|line| line.contains("func ptr[T any]")));
+        (declarations, args)
     }
 }
