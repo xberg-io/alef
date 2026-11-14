@@ -110,6 +110,7 @@ fn external_string_union_default_constructs_the_nested_unit_record() {
         &HashSet::new(),
         &tagged_union_enums,
         &HashSet::new(),
+        false,
     );
 
     assert!(emitted.contains("= new OutputFormat.Plain();"), "got:\n{emitted}");
@@ -150,6 +151,7 @@ fn record_type_maps_configured_bridge_alias_to_trait_interface() {
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
+        false,
     );
 
     assert!(code.contains("public IXmlWalker? Walker { get; init; } = null;"));
@@ -189,6 +191,7 @@ fn record_type_skips_method_whose_name_collides_with_a_property() {
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
+        false,
     );
 
     assert!(
@@ -226,6 +229,7 @@ fn record_type_required_duration_field_is_required_ulong() {
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
+        false,
     );
 
     assert!(
@@ -266,6 +270,7 @@ fn record_type_duration_field_with_real_default_is_nullable() {
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
+        false,
     );
 
     assert!(
@@ -301,6 +306,7 @@ fn record_type_optional_duration_field_is_nullable() {
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
+        false,
     );
 
     assert!(
@@ -343,6 +349,7 @@ fn record_type_required_enum_field_in_default_struct_stays_required() {
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
+        false,
     );
 
     assert!(
@@ -356,6 +363,10 @@ fn record_type_required_enum_field_in_default_struct_stays_required() {
 }
 
 pub(super) fn render_plain_record(typ: &TypeDef) -> String {
+    render_record_with_native_constructor(typ, false)
+}
+
+fn render_record_with_native_constructor(typ: &TypeDef, has_native_from_json: bool) -> String {
     gen_record_type(
         typ,
         &[],
@@ -371,6 +382,7 @@ pub(super) fn render_plain_record(typ: &TypeDef) -> String {
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
+        has_native_from_json,
     )
 }
 
@@ -452,27 +464,80 @@ fn record_type_scalar_defaults_agree_with_the_swift_renderer() {
     }
 }
 
-#[test]
-fn split_byte_transport_preserves_public_json_and_marshals_metadata_without_payload() {
-    use crate::core::ir::{MethodDef, ParamDef};
+fn split_byte_param(name: &str, ty: TypeRef) -> crate::core::ir::ParamDef {
+    crate::core::ir::ParamDef {
+        name: name.into(),
+        ty,
+        ..Default::default()
+    }
+}
+
+fn split_byte_input() -> TypeDef {
+    use crate::core::ir::MethodDef;
 
     let mut bytes = field("payload", TypeRef::Bytes);
     bytes.optional = true;
     let mut typ = named_record_type("Input", vec![bytes, field("filename", TypeRef::String)]);
-    let param = |name: &str, ty| ParamDef {
-        name: name.into(),
-        ty,
-        ..Default::default()
-    };
     typ.methods.push(MethodDef {
         name: "from_json_with_bytes".into(),
         is_static: true,
         return_type: TypeRef::Named(typ.name.clone()),
         error_type: Some("Error".into()),
-        params: vec![param("bytes", TypeRef::Bytes), param("metadata_json", TypeRef::String)],
+        params: vec![
+            split_byte_param("bytes", TypeRef::Bytes),
+            split_byte_param("metadata_json", TypeRef::String),
+        ],
         ..Default::default()
     });
-    let record = render_plain_record(&typ);
+    typ
+}
+
+fn render_split_byte_native(api: &crate::core::ir::ApiSurface) -> (String, HashSet<String>) {
+    use std::collections::HashMap;
+    super::super::functions::gen_native_methods_with_dto_constructors(
+        api,
+        "Demo",
+        "demo",
+        "demo",
+        &HashSet::new(),
+        &HashSet::new(),
+        false,
+        &[],
+        &HashSet::new(),
+        &HashMap::new(),
+        &HashSet::new(),
+        &HashMap::new(),
+        &[],
+        &HashMap::new(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn split_byte_transport_preserves_public_json_and_marshals_metadata_without_payload() {
+    let mut typ = split_byte_input();
+    use crate::core::ir::{ApiSurface, FunctionDef};
+
+    let mut api = ApiSurface {
+        types: vec![typ.clone()],
+        functions: vec![FunctionDef {
+            name: "read_input".into(),
+            return_type: TypeRef::Named("Input".into()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let (native, constructors) = render_split_byte_native(&api);
+    assert!(!native.contains(" InputFromJson("));
+    let return_only = render_record_with_native_constructor(&typ, constructors.contains("Input"));
+    assert!(!return_only.contains("CreateNativeHandle"));
+    api.functions[0]
+        .params
+        .push(split_byte_param("input", TypeRef::Named("Input".into())));
+    let (native, constructors) = render_split_byte_native(&api);
+    assert!(native.contains(" InputFromJson("), "{native}");
+    assert!(native.contains(" InputFromJsonWithBytes("), "{native}");
+    let record = render_record_with_native_constructor(&typ, constructors.contains("Input"));
     assert!(
         record.contains("[JsonConverter(typeof(ByteArrayJsonConverter))]"),
         "{record}"
@@ -486,7 +551,7 @@ fn split_byte_transport_preserves_public_json_and_marshals_metadata_without_payl
         let mut setup = String::new();
         super::super::emit_named_param_setup(
             &mut setup,
-            &[param("input", TypeRef::Named(typ.name.clone()))],
+            &[split_byte_param("input", TypeRef::Named(typ.name.clone()))],
             "        ",
             &HashSet::new(),
             "DemoException",
@@ -501,4 +566,71 @@ fn split_byte_transport_preserves_public_json_and_marshals_metadata_without_payl
     );
     typ.methods.clear();
     assert!(render_setup(&typ).contains("JsonSerializer.Serialize(input, JsonSerializationOptions)"));
+}
+
+#[test]
+fn split_byte_factory_preserves_native_construction() {
+    use crate::core::ir::MethodDef;
+
+    let mut typ = split_byte_input();
+    let mut filename = split_byte_param("filename", TypeRef::String);
+    filename.optional = true;
+    typ.fields.extend([
+        field("kind", TypeRef::Named("InputKind".into())),
+        field("mime_type", TypeRef::String),
+    ]);
+    typ.fields[0].name = "bytes".into();
+    typ.methods.push(MethodDef {
+        name: "from_bytes".into(),
+        is_static: true,
+        return_type: TypeRef::Named(typ.name.clone()),
+        params: vec![
+            split_byte_param("bytes", TypeRef::Bytes),
+            split_byte_param("mime_type", TypeRef::String),
+            filename,
+        ],
+        ..Default::default()
+    });
+    assert!(crate::codegen::shared::split_bytes_field(&typ).is_some());
+    let factory = render_plain_record(&typ);
+    assert!(factory.contains("NativeMethods.InputFromBytes("), "{factory}");
+    assert!(!factory.contains("InputKind.Bytes"), "{factory}");
+}
+
+#[test]
+fn split_byte_owned_export_respects_symbol_collisions() {
+    use crate::core::ir::{ApiSurface, FunctionDef, MethodDef};
+
+    let typ = split_byte_input();
+    let extract = FunctionDef {
+        name: "extract".into(),
+        is_async: true,
+        params: vec![split_byte_param("input", TypeRef::Named("Input".into()))],
+        return_type: TypeRef::Named("Input".into()),
+        ..Default::default()
+    };
+    let mut api = ApiSurface {
+        types: vec![typ.clone()],
+        functions: vec![extract.clone()],
+        ..Default::default()
+    };
+    let selected = |api: &ApiSurface| crate::codegen::shared::split_bytes_owned_param(&extract, api, "demo").is_some();
+    assert!(selected(&api));
+    assert!(render_split_byte_native(&api).0.contains("demo_extract_owned"));
+    api.functions.push(FunctionDef {
+        name: "extract_owned".into(),
+        ..Default::default()
+    });
+    assert!(!selected(&api));
+    assert_eq!(
+        render_split_byte_native(&api).0.matches("demo_extract_owned").count(),
+        1
+    );
+    api.functions.pop();
+    api.types.push(named_record_type("Extract", vec![]));
+    api.types.last_mut().unwrap().methods.push(MethodDef {
+        name: "owned".into(),
+        ..Default::default()
+    });
+    assert!(!selected(&api));
 }

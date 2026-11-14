@@ -34,6 +34,7 @@ fn render(typ: &TypeDef) -> String {
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
+        false,
     )
 }
 

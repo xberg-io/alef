@@ -127,7 +127,7 @@ fn emit_streaming_pinvoke(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn gen_native_methods(
+pub(super) fn gen_native_methods_with_dto_constructors(
     api: &ApiSurface,
     namespace: &str,
     lib_name: &str,
@@ -142,7 +142,7 @@ pub(super) fn gen_native_methods(
     client_constructors: &HashMap<String, ClientConstructorConfig>,
     adapters: &[crate::core::config::AdapterConfig],
     capsule_types: &HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<(String, HashSet<String>)> {
     use crate::backends::csharp::template_env::render;
 
     // Parameter widths come from the FFI's own parameter-position rule, not from the `Copy`
@@ -299,6 +299,7 @@ pub(super) fn gen_native_methods(
         }
     }
 
+    let mut native_from_json_types = HashSet::new();
     let mut sorted_param_types: Vec<&String> = opaque_param_types.iter().collect();
     sorted_param_types.sort();
     for type_name in sorted_param_types {
@@ -316,6 +317,7 @@ pub(super) fn gen_native_methods(
             let from_json_entry = format!("{prefix}_{snake}_from_json");
             let from_json_cs = format!("{}FromJson", csharp_type_name(type_name));
             if emitted.insert(from_json_entry.clone()) {
+                native_from_json_types.insert(type_name.clone());
                 out.push_str(&render(
                     "dll_import_attr.jinja",
                     crate::alef_context! { entry_point => &from_json_entry },
@@ -390,7 +392,7 @@ pub(super) fn gen_native_methods(
                 capsule_types,
                 &scalar_named_types,
             ));
-            if let Some(param) = crate::codegen::shared::split_bytes_owned_param(func, &api.types) {
+            if let Some(param) = crate::codegen::shared::split_bytes_owned_param(func, api, prefix) {
                 let mut owned = func.clone();
                 owned.name.push_str("_owned");
                 out.push_str(&super::pinvoke::gen_pinvoke_for_free_function(
@@ -691,10 +693,13 @@ pub(super) fn gen_native_methods(
     // shape of the emitted text. Stamped inside the backend body so the marker is part of the
     // content `finalize_hashes` hashes; stamping after `inject_hash_line` would leave every
     // generated C# file permanently stale. ~keep
-    Ok(crate::core::hash::inject_stamp_line(
-        &out,
-        crate::core::hash::HANDLE_ABI_STAMP_KEY,
-        crate::core::template_versions::abi::HANDLE_ABI_VERSION,
+    Ok((
+        crate::core::hash::inject_stamp_line(
+            &out,
+            crate::core::hash::HANDLE_ABI_STAMP_KEY,
+            crate::core::template_versions::abi::HANDLE_ABI_VERSION,
+        ),
+        native_from_json_types,
     ))
 }
 
@@ -868,7 +873,7 @@ mod tests {
             ..ApiSurface::default()
         };
 
-        let native_methods = super::gen_native_methods(
+        let (native_methods, _) = super::gen_native_methods_with_dto_constructors(
             &api,
             "Sample",
             "sample",
@@ -948,7 +953,7 @@ mod tests {
             ..ApiSurface::default()
         };
 
-        let native_methods = super::gen_native_methods(
+        let (native_methods, _) = super::gen_native_methods_with_dto_constructors(
             &api,
             "Sample",
             "sample",
@@ -1037,7 +1042,7 @@ registry_getter = "markup_visitor_registry"
             ..ApiSurface::default()
         };
 
-        let native_methods = super::gen_native_methods(
+        let (native_methods, _) = super::gen_native_methods_with_dto_constructors(
             &api,
             "Sample",
             "sample",
@@ -1099,7 +1104,7 @@ registry_getter = "markup_visitor_registry"
             ..ApiSurface::default()
         };
 
-        let native_methods = super::gen_native_methods(
+        let (native_methods, _) = super::gen_native_methods_with_dto_constructors(
             &api,
             "Sample",
             "sample",
@@ -1170,7 +1175,7 @@ registry_getter = "markup_visitor_registry"
         use std::collections::{HashMap, HashSet};
 
         let api = visitor_api();
-        super::gen_native_methods(
+        super::gen_native_methods_with_dto_constructors(
             &api,
             "Htm",
             "htm_ffi",
@@ -1186,6 +1191,7 @@ registry_getter = "markup_visitor_registry"
             &[],
             &HashMap::new(),
         )
+        .map(|(code, _)| code)
     }
 
     fn options_field_bridge() -> crate::core::config::TraitBridgeConfig {

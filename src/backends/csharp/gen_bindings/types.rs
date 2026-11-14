@@ -19,4 +19,4 @@ pub(crate) use converters::{
     gen_byte_array_to_int_array_converter, gen_duration_millis_converter, gen_ffi_json_extensions, gen_json_leniency,
 };
 pub(super) use opaque::gen_opaque_handle;
-pub(super) use records::{gen_record_type, split_bytes_record_factory};
+pub(super) use records::gen_record_type;

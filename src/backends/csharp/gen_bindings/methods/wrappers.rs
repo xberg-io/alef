@@ -178,6 +178,7 @@ pub(super) fn gen_wrapper_function(
     bridge_type_aliases: &HashSet<String>,
     _has_visitor_callbacks: bool,
     types: &[crate::core::ir::TypeDef],
+    owned: Option<&crate::core::ir::ParamDef>,
 ) -> String {
     use crate::backends::csharp::template_env::render;
 
@@ -311,7 +312,6 @@ pub(super) fn gen_wrapper_function(
         return out;
     }
 
-    let owned = crate::codegen::shared::split_bytes_owned_param(func, types);
     let mut cs_native_name = to_csharp_name(&func.name);
     if owned.is_some() {
         cs_native_name.push_str("Owned");
@@ -808,6 +808,7 @@ mod tests {
             &HashSet::new(),
             false,
             &[],
+            None,
         );
 
         let finally_pos = code
@@ -857,6 +858,7 @@ mod tests {
             &HashSet::new(),
             false,
             &[],
+            None,
         )
     }
 
@@ -1073,6 +1075,7 @@ mod tests {
             &HashSet::new(),
             false,
             &[],
+            None,
         )
     }
 

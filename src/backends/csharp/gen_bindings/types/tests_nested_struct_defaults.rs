@@ -33,6 +33,7 @@ fn render_with_types(typ: &crate::core::ir::TypeDef, types: &[crate::core::ir::T
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
+        false,
     )
 }
 

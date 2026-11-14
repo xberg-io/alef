@@ -645,7 +645,7 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             capsule_cfg,
             returns_owned_borrowed_handle,
         ));
-        if let Some(param) = crate::codegen::shared::split_bytes_owned_param(func, &api.types) {
+        if let Some(param) = crate::codegen::shared::split_bytes_owned_param(func, api, prefix) {
             builder.add_item(&gen_owned_free_function(
                 func,
                 prefix,

@@ -114,7 +114,8 @@ pub(crate) fn split_bytes_field(typ: &TypeDef) -> Option<&crate::core::ir::Field
 /// Select the disposable first argument of a split-byte async call.
 pub(crate) fn split_bytes_owned_param<'a>(
     func: &'a crate::core::ir::FunctionDef,
-    types: &[TypeDef],
+    api: &crate::core::ir::ApiSurface,
+    prefix: &str,
 ) -> Option<&'a ParamDef> {
     let param = func.params.first()?;
     if !func.is_async
@@ -127,8 +128,19 @@ pub(crate) fn split_bytes_owned_param<'a>(
         return None;
     }
     let TypeRef::Named(name) = &param.ty else { return None };
-    split_bytes_field(types.iter().find(|typ| typ.name == *name)?)?;
-    Some(param)
+    split_bytes_field(api.types.iter().find(|typ| typ.name == *name)?)?;
+    use crate::codegen::c_consumer::{free_function_symbol, method_symbol};
+    let companion = format!("{}_owned", free_function_symbol(prefix, &func.name));
+    let occupied = api
+        .functions
+        .iter()
+        .any(|other| free_function_symbol(prefix, &other.name) == companion)
+        || api.types.iter().any(|typ| {
+            typ.methods
+                .iter()
+                .any(|method| method_symbol(prefix, &typ.name, &method.name) == companion)
+        });
+    (!occupied).then_some(param)
 }
 
 /// Returns true if this parameter is required but must be promoted to optional
