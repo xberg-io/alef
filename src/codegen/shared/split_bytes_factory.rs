@@ -29,7 +29,9 @@ pub(crate) fn split_bytes_factory_field<'a>(
         return None;
     }
     let symbol = crate::codegen::c_consumer::method_symbol(prefix, &typ.name, "alef_take_factory_bytes");
-    (!has_public_callable_symbol(api, prefix, &symbol)).then_some(field)
+    let free_bytes = crate::codegen::c_consumer::free_function_symbol(prefix, "free_bytes");
+    (!has_public_callable_symbol(api, prefix, &symbol) && !has_public_callable_symbol(api, prefix, &free_bytes))
+        .then_some(field)
 }
 
 pub(crate) fn is_split_bytes_factory(typ: &TypeDef, method: &crate::core::ir::MethodDef) -> bool {

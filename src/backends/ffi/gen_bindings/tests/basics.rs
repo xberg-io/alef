@@ -483,4 +483,9 @@ fn split_byte_factory_transfers_native_payload_before_serializing_metadata() {
     let source = generate(&api);
     assert_eq!(source.matches("fn my_lib_config_alef_take_factory_bytes(").count(), 1);
     assert!(!source.contains("value.payload.take()"));
+
+    api.functions.last_mut().unwrap().name = "free_bytes".into();
+    let source = generate(&api);
+    assert_eq!(source.matches("fn my_lib_free_bytes(").count(), 1);
+    assert!(!source.contains("fn my_lib_config_alef_take_factory_bytes("));
 }
