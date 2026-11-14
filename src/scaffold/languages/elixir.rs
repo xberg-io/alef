@@ -134,6 +134,8 @@ pub(crate) fn scaffold_elixir_cargo(
     }
     if uses_async_trait {
         dep_lines.push(format!("async-trait = \"{}\"", versions.get("cargo:async-trait")));
+    }
+    if has_trait_bridges {
         dep_lines.push(format!("tracing = \"{}\"", versions.get("cargo:tracing")));
     }
     if has_async || has_trait_bridges || has_streaming {
@@ -192,6 +194,8 @@ pub(crate) fn scaffold_elixir_cargo(
     }
     if uses_async_trait {
         machete_ignored.push("async-trait");
+    }
+    if has_trait_bridges {
         machete_ignored.push("tracing");
     }
     if has_streaming {
