@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.129.7] - 2026-11-14
+
+### Fixed
+
+- Route C# split-byte factory facades through the record factory to avoid payload JSON serialization and release pins on failure. (#3152)
+
 ## [0.129.6] - 2026-11-14
 
 ### Fixed
