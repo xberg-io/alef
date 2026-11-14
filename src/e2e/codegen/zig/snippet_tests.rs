@@ -297,6 +297,66 @@ fn json_struct_result_keeps_the_payload_print_instead_of_field_accessors() {
 }
 
 #[test]
+fn named_call_with_serde_return_prints_and_frees_json_from_ir() {
+    use crate::core::ir::{FunctionDef, TypeDef, TypeRef};
+
+    let fixture: Fixture = serde_json::from_value(serde_json::json!({
+        "id": "redaction", "description": "Show extraction content", "input": null,
+        "call": "redact",
+        "docs": {"topic": "guides", "presentation": {"operations": [
+            {"op": "show", "path": "results[0].content", "display": true}
+        ]}}
+    }))
+    .expect("fixture");
+    let mut e2e = E2eConfig::default();
+    e2e.calls.insert(
+        "redact".into(),
+        crate::e2e::config::CallConfig {
+            function: "redact".into(),
+            returns_result: true,
+            ..Default::default()
+        },
+    );
+    e2e.result_fields.insert("results[0].content".into());
+    let type_defs = [TypeDef {
+        name: "ExtractionResult".into(),
+        has_serde: true,
+        ..Default::default()
+    }];
+    let functions = [FunctionDef {
+        name: "redact".into(),
+        return_type: TypeRef::Named("ExtractionResult".into()),
+        ..Default::default()
+    }];
+
+    let rendered = render_snippet_body(
+        &fixture,
+        &e2e,
+        "sample",
+        "sample",
+        &ResolvedCrateConfig::default(),
+        &type_defs,
+        &[],
+        &functions,
+    )
+    .expect("snippet renders");
+
+    assert!(
+        rendered.contains("const _result_json = try sample.redact()"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("defer std.heap.c_allocator.free(_result_json);"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains(r#"std.debug.print("{s}\n", .{_result_json})"#),
+        "{rendered}"
+    );
+    assert!(!rendered.contains("result.results"), "{rendered}");
+}
+
+#[test]
 fn json_result_snippet_consumes_and_frees_the_result() {
     let fixture = Fixture {
         id: "process".into(),

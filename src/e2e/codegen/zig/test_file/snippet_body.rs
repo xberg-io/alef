@@ -63,11 +63,8 @@ pub(in crate::e2e::codegen::zig) fn render_in_session(
             &[],
             false,
             true,
-            // Snippet rendering has no free-function IR to consult — only `type_defs`. This still
-            // lets `ir_says_json_struct` resolve through a method on an IR type (client_factory
-            // calls), the same degraded-but-not-absent state `CallIr::is_absent` already models.
             crate::e2e::codegen::call_ir::CallIr {
-                functions: &[],
+                functions: session.functions(),
                 type_defs,
             },
             &[],
