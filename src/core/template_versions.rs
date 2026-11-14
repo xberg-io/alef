@@ -416,7 +416,7 @@ pub mod maven {
     pub const CENTRAL_PUBLISHING_PLUGIN: &str = "0.12.0";
 
     // renovate: datasource=maven depName=org.codehaus.mojo:versions-maven-plugin
-    pub const VERSIONS_MAVEN_PLUGIN: &str = "2.25.1";
+    pub const VERSIONS_MAVEN_PLUGIN: &str = "2.25.2";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-enforcer-plugin
     pub const MAVEN_ENFORCER_PLUGIN: &str = "3.7.0";
