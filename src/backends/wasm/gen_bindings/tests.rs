@@ -335,21 +335,21 @@ features = ["wasm-target"]
 }
 
 #[test]
+fn cargo_toml_can_omit_the_legacy_getrandom_shim() {
+    let mut config = make_config();
+    config.wasm.as_mut().unwrap().omit_getrandom_02 = true;
+    let manifest = gen_cargo_toml(&empty_api(), &config);
+    let manifest: toml::Value = toml::from_str(&manifest).unwrap();
+    let deps = manifest["target"]["cfg(target_arch = \"wasm32\")"]["dependencies"]
+        .as_table()
+        .unwrap();
+    assert!(!deps.contains_key("getrandom_02"));
+    assert!(deps.contains_key("getrandom_03"));
+}
+
+#[test]
 fn cargo_toml_has_no_issues_docs_line_and_getrandom_deps_are_alphabetical() {
-    let api = ApiSurface {
-        unresolved_modules: Vec::new(),
-        crate_name: "test-lib".to_string(),
-        version: "0.1.0".to_string(),
-        types: vec![],
-        functions: vec![],
-        enums: vec![],
-        errors: vec![],
-        excluded_type_paths: ::std::collections::BTreeMap::new(),
-        excluded_trait_names: ::std::collections::HashSet::new(),
-        services: vec![],
-        handler_contracts: vec![],
-        unsupported_public_items: Vec::new(),
-    };
+    let api = empty_api();
     let config = make_config();
     let cargo_toml = gen_cargo_toml(&api, &config);
 

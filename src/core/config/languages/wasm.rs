@@ -73,6 +73,9 @@ pub struct WasmConfig {
     /// crates that the WASM target cannot link.
     #[serde(default)]
     pub exclude_extra_dependencies: Vec<String>,
+    /// Omit the legacy getrandom 0.2 JS feature shim when the WASM graph no longer uses it.
+    #[serde(default)]
+    pub omit_getrandom_02: bool,
     /// Hand-written Rust modules to declare in the generated lib.rs with `pub mod <name>;`
     /// and re-export with `pub use <name>::*;`. This is the knob for Rust-side dispatch/glue
     /// modules under wasm. Note that `[custom_modules].wasm` is NOT consumed by the wasm

@@ -259,6 +259,7 @@ pub(super) fn gen_cargo_toml_for_source(api: &ApiSurface, config: &ResolvedCrate
     // table absent from its `DEF_TABLE_ORDER` — `lints` among them — after the listed ones.
     // The preceding template text always ends with a newline, so "\n" + block + "\n" yields
     // one blank separator line and the file's trailing newline. ~keep
+    let getrandom_02 = legacy_getrandom_dependency(config);
     let lints_block = config.cargo_lints.render();
     let lints_section = if lints_block.is_empty() {
         String::new()
@@ -299,8 +300,7 @@ crate-type = ["cdylib"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = {{ version = "0.4", features = ["wasm_js"] }}
-getrandom_02 = {{ package = "getrandom", version = "0.2", features = ["js"] }}
-getrandom_03 = {{ package = "getrandom", version = "0.3", features = ["wasm_js"] }}
+{getrandom_02}getrandom_03 = {{ package = "getrandom", version = "0.3", features = ["wasm_js"] }}
 {dev_deps_section}{lints_section}"#,
         header = header,
         pkg_prefix = pkg_prefix,
@@ -318,4 +318,12 @@ getrandom_03 = {{ package = "getrandom", version = "0.3", features = ["wasm_js"]
         features_table = features_table,
         tracing_ignored_line = tracing_ignored_line,
     )
+}
+
+fn legacy_getrandom_dependency(config: &ResolvedCrateConfig) -> &'static str {
+    if config.wasm.as_ref().is_some_and(|wasm| wasm.omit_getrandom_02) {
+        ""
+    } else {
+        "getrandom_02 = { package = \"getrandom\", version = \"0.2\", features = [\"js\"] }\n"
+    }
 }
