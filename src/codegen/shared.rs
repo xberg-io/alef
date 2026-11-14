@@ -5,7 +5,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 mod constructor_string_default;
+mod split_bytes_factory;
 pub(crate) use constructor_string_default::render as render_constructor_string_default;
+pub(crate) use split_bytes_factory::{is_split_bytes_factory, split_bytes_factory_field};
 
 pub use super::crate_attributes::{format_crate_attributes, format_extra_clippy_allows};
 
@@ -78,6 +80,62 @@ pub fn substitute_trait_interfaces(ty: &TypeRef, trait_interfaces: &HashSet<&str
 /// language DTOs must not expose it.
 pub fn binding_fields(fields: &[FieldDef]) -> impl Iterator<Item = &FieldDef> {
     fields.iter().filter(|field| !field.binding_excluded)
+}
+
+/// A source type can opt into split transport with a static
+/// `from_json_with_bytes(bytes: Vec<u8>, metadata_json: String) -> Result<Self, E>`.
+/// Its single optional byte field is omitted from the metadata DTO.
+pub(crate) fn split_bytes_field(typ: &TypeDef) -> Option<&crate::core::ir::FieldDef> {
+    if typ.is_opaque || !typ.has_serde || typ.has_lifetime_params {
+        return None;
+    }
+    let mut byte_fields = crate::codegen::shared::binding_fields(&typ.fields)
+        .filter(|field| field.ty == TypeRef::Bytes && !field.serde_skip);
+    let field = byte_fields.next()?;
+    if !field.optional || byte_fields.next().is_some() || field.cfg.is_some() {
+        return None;
+    }
+    typ.methods
+        .iter()
+        .any(|method| {
+            method.name == "from_json_with_bytes"
+                && method.is_static
+                && method.receiver.is_none()
+                && method.cfg.is_none()
+                && !method.sanitized
+                && !method.binding_excluded
+                && method.error_type.is_some()
+                && method.return_type == TypeRef::Named(typ.name.clone())
+                && matches!(method.params.as_slice(), [bytes, metadata]
+                if bytes.ty == TypeRef::Bytes && !bytes.optional
+                    && metadata.ty == TypeRef::String && !metadata.optional)
+        })
+        .then_some(field)
+}
+
+/// Select the disposable first argument of a split-byte async call.
+pub(crate) fn split_bytes_owned_param<'a>(
+    func: &'a crate::core::ir::FunctionDef,
+    api: &crate::core::ir::ApiSurface,
+    prefix: &str,
+) -> Option<&'a ParamDef> {
+    let param = func.params.first()?;
+    if !func.is_async
+        || func.sanitized
+        || !matches!(func.return_type, TypeRef::Named(_))
+        || param.optional
+        || param.is_ref
+        || param.is_mut
+    {
+        return None;
+    }
+    let TypeRef::Named(name) = &param.ty else { return None };
+    split_bytes_field(api.types.iter().find(|typ| typ.name == *name)?)?;
+    let companion = format!(
+        "{}_owned",
+        crate::codegen::c_consumer::free_function_symbol(prefix, &func.name)
+    );
+    (!split_bytes_factory::has_public_callable_symbol(api, prefix, &companion)).then_some(param)
 }
 
 /// Returns true if this parameter is required but must be promoted to optional

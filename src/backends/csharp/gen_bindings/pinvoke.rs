@@ -105,6 +105,27 @@ pub(super) fn gen_pinvoke_for_func(
     capsule_types: &HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
     scalar_named_types: &ahash::AHashSet<String>,
 ) -> String {
+    gen_pinvoke_for_free_function(
+        c_name,
+        func,
+        bridge_param_names,
+        bridge_type_aliases,
+        capsule_types,
+        scalar_named_types,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn gen_pinvoke_for_free_function(
+    c_name: &str,
+    func: &FunctionDef,
+    bridge_param_names: &HashSet<String>,
+    bridge_type_aliases: &HashSet<String>,
+    capsule_types: &HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
+    scalar_named_types: &ahash::AHashSet<String>,
+    owned_param: Option<&str>,
+) -> String {
     let cs_name = to_csharp_name(&func.name);
     let is_bytes_result = is_bytes_result_func(func);
     let return_type = if is_bytes_result || (func.return_type == TypeRef::Unit && func.error_type.is_some()) {
@@ -118,7 +139,12 @@ pub(super) fn gen_pinvoke_for_func(
         .iter()
         .filter(|p| !is_bridge_param(p, bridge_param_names, bridge_type_aliases))
         .collect();
-    let params = param_declarations(&visible_params, None, is_bytes_result, scalar_named_types);
+    let mut params = param_declarations(&visible_params, None, is_bytes_result, scalar_named_types);
+    if let Some(name) = owned_param {
+        let declaration = format!("ulong {}", heck::ToLowerCamelCase::to_lower_camel_case(name));
+        assert!(params.trim_start().starts_with(&declaration));
+        params = params.replacen(&declaration, &format!("ref {declaration}"), 1);
+    }
 
     let mut out = declaration(c_name, &cs_name, return_type, &params);
     if let Some(companion) = presence_declaration(&func.return_type, None, c_name, &cs_name, &params) {

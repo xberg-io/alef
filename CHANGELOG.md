@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.129.4] - 2026-11-13
+
+### Added
+
+- Generate a C# raw-byte transport for opted-in input records. Single-input calls transfer their temporary native handle without cloning the payload, while metadata and public JSON retain their existing formats. (#3152)
+
+### Fixed
+
+- Clean up C# input handles when setup fails and preserve caller ownership when a native transfer is rejected, including for poisoned handles. (#3152)
+
 ## [0.129.3] - 2026-11-13
 
 ### Fixed

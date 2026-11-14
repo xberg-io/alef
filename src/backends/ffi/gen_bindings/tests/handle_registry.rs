@@ -51,6 +51,14 @@ fn main() {
     let second = insert_handle(String::from("next")).expect("reuse");
     assert_ne!(first, second);
     let third = insert_handle(7_u64).expect("second type");
+    let poisoned = insert_handle(String::from("poisoned")).expect("insert");
+    assert!(std::panic::catch_unwind(|| {
+        with_handle_mut::<String, _>(poisoned, |_| panic!("poison the value mutex")).unwrap();
+    }).is_err());
+    assert!(matches!(take_handle::<String>(poisoned), Err(HandleError::RegistryPoisoned)));
+    assert!(matches!(take_handle::<String>(poisoned), Err(HandleError::RegistryPoisoned)));
+    remove_handle::<String>(poisoned).expect("caller still owns the poisoned handle");
+
     let aliased = [
         HandleRequest { handle: second, expected_type: std::any::TypeId::of::<String>() },
         HandleRequest { handle: second, expected_type: std::any::TypeId::of::<String>() },

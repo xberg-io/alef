@@ -79,6 +79,7 @@ fn wrap_function(fallible: bool, asynchronous: bool) -> String {
         &empty,
         false,
         &[],
+        None,
     )
 }
 

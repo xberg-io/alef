@@ -24,6 +24,8 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
     excluded_types: &HashSet<String>,
     tagged_union_enums: &HashSet<String>,
     true_opaque_types: &HashSet<String>,
+    has_native_from_json: bool,
+    split_factory_field: Option<&crate::core::ir::FieldDef>,
 ) -> String {
     use crate::backends::csharp::template_env::render;
 
@@ -355,6 +357,14 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
     ));
     out.push_str(&render("record_json_options.jinja", crate::alef_context! {}));
 
+    if has_native_from_json && let Some(field) = super::super::marshalling::split_bytes_field(typ) {
+        let property = to_csharp_name(&field.name);
+        out.push_str(&render(
+            "record_split_bytes_handle.jinja",
+            crate::alef_context! { class_name, exception_class, property },
+        ));
+    }
+
     emit_record_methods(
         &mut out,
         typ,
@@ -364,6 +374,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
         exception_class,
         true_opaque_types,
         enum_names,
+        split_factory_field,
     );
 
     out.push_str("}\n");
@@ -379,9 +390,6 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
     out
 }
 
-/// Emit record-level method wrappers for a DTO (non-opaque) type.
-///
-/// Static factories (no `self` receiver) are emitted as `public static {Class} Method(...)`.
 /// Instance withers (`&self` receiver returning `Self`) are emitted as `public {Class} Method(...)`.
 ///
 /// Both patterns serialise the DTO to JSON, call the FFI shim via `NativeMethods`, then
@@ -397,6 +405,7 @@ pub(super) fn emit_record_methods(
     exception_class: &str,
     true_opaque_types: &HashSet<String>,
     enum_names: &HashSet<String>,
+    split_factory_field: Option<&crate::core::ir::FieldDef>,
 ) {
     use crate::backends::csharp::template_env::render;
 
@@ -411,6 +420,9 @@ pub(super) fn emit_record_methods(
         .collect();
 
     for method in &typ.methods {
+        if method.name == "from_json_with_bytes" && super::super::marshalling::split_bytes_field(typ).is_some() {
+            continue;
+        }
         if !matches!(&method.return_type, TypeRef::Named(name) if name == &typ.name) {
             continue;
         }
@@ -420,6 +432,11 @@ pub(super) fn emit_record_methods(
             continue;
         }
         let native_method_name = format!("{native_type_prefix}{method_cs_name}");
+        let split_field = split_factory_field.filter(|_| crate::codegen::shared::is_split_bytes_factory(typ, method));
+        let (return_template, property) = match split_field {
+            Some(field) => ("record_split_bytes_return.jinja", to_csharp_name(&field.name)),
+            None => ("record_json_return.jinja", String::new()),
+        };
         let has_receiver = method.receiver.is_some();
 
         let params_sig: Vec<String> = method
@@ -567,8 +584,8 @@ pub(super) fn emit_record_methods(
                     },
                 ));
                 out.push_str(&render(
-                    "record_json_return.jinja",
-                    crate::alef_context! { indent, native_type_prefix, class_name },
+                    return_template,
+                    crate::alef_context! { indent, native_type_prefix, class_name, exception_class, method_cs_name, property },
                 ));
 
                 if needs_handle_params {
@@ -678,8 +695,8 @@ pub(super) fn emit_record_methods(
                     crate::alef_context! { indent, native_method_name, args_str },
                 ));
                 out.push_str(&render(
-                    "record_json_return.jinja",
-                    crate::alef_context! { indent, native_type_prefix, class_name },
+                    return_template,
+                    crate::alef_context! { indent, native_type_prefix, class_name, exception_class, method_cs_name, property },
                 ));
 
                 if needs_handle_params {

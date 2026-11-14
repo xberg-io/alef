@@ -806,6 +806,33 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
         capsule_cfg,
         returns_serialized_handle,
         false,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(in crate::backends::ffi::gen_bindings) fn gen_owned_free_function(
+    func: &FunctionDef,
+    prefix: &str,
+    core_import: &str,
+    path_map: &AHashMap<String, String>,
+    enum_names: &AHashSet<String>,
+    serde_names: &AHashSet<String>,
+    capsule_cfg: Option<&crate::core::config::FfiCapsuleTypeConfig>,
+    returns_serialized_handle: bool,
+    owned_param: &str,
+) -> String {
+    gen_free_function_impl(
+        func,
+        prefix,
+        core_import,
+        path_map,
+        enum_names,
+        serde_names,
+        capsule_cfg,
+        returns_serialized_handle,
+        false,
+        Some(owned_param),
     )
 }
 
@@ -833,6 +860,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_cancellable_free_function(
             capsule_cfg,
             returns_serialized_handle,
             true,
+            None,
         )
     })
 }
@@ -848,10 +876,13 @@ fn gen_free_function_impl(
     capsule_cfg: Option<&crate::core::config::FfiCapsuleTypeConfig>,
     returns_serialized_handle: bool,
     cancellable: bool,
+    owned_param: Option<&str>,
 ) -> String {
     let base_ffi_name = c_consumer::free_function_symbol(prefix, &func.name);
     let ffi_name = if cancellable {
         c_consumer::cancellable_symbol(&base_ffi_name)
+    } else if owned_param.is_some() {
+        format!("{base_ffi_name}_owned")
     } else {
         base_ffi_name.clone()
     };
@@ -868,7 +899,14 @@ fn gen_free_function_impl(
     let doc_comment = ffi_doxygen_block(&if cancellable {
         cancellable_doc(&func.doc, &base_ffi_name, prefix)
     } else {
-        func.doc.clone()
+        if let Some(param) = owned_param {
+            format!(
+                "{}\n\nThe {param} pointer must address a writable handle. The slot is cleared when ownership transfers, even if extraction fails. A nonzero handle remains caller-owned.",
+                func.doc
+            )
+        } else {
+            func.doc.clone()
+        }
     });
 
     let has_error = func.error_type.is_some();
@@ -923,6 +961,10 @@ fn gen_free_function_impl(
         } else {
             p.name.clone()
         };
+        if owned_param == Some(p.name.as_str()) {
+            params.push(format!("    {param_name}: *mut AlefHandle"));
+            continue;
+        }
         params.push(format!(
             "    {}: {}",
             param_name,
@@ -1021,6 +1063,9 @@ fn gen_free_function_impl(
     // this never trips `clippy::vec_init_then_push`. ~keep
     let mut handle_requests = Vec::new();
     for parameter in &func.params {
+        if owned_param == Some(parameter.name.as_str()) {
+            continue;
+        }
         let Some(type_name) = named_handle_type(&parameter.ty) else {
             continue;
         };
@@ -1054,7 +1099,23 @@ fn gen_free_function_impl(
         ));
     }
 
-    for p in &func.params {
+    for p in func
+        .params
+        .iter()
+        .filter(|p| owned_param != Some(p.name.as_str()))
+        .chain(func.params.iter().filter(|p| owned_param == Some(p.name.as_str())))
+    {
+        if owned_param == Some(p.name.as_str()) {
+            let name = &p.name;
+            let TypeRef::Named(typ) = &p.ty else {
+                unreachable!("owned parameter is named")
+            };
+            let typ = named_type_path(typ, core_import, path_map);
+            out.push_str(&format!(
+                "        if {name}.is_null() {{\n            set_last_error(ALEF_INVALID_HANDLE_ERROR, \"Null ownership slot for '{name}'\");\n            {fail_ret}\n        }}\n        // SAFETY: the caller supplies a writable, exclusively borrowed handle slot.\n        let {name}_rs = match take_handle::<{typ}>(unsafe {{ *{name} }}) {{\n            Ok(value) => {{\n                unsafe {{ *{name} = 0 }};\n                value\n            }}\n            Err(error) => {{ set_handle_error(&error); {fail_ret} }}\n        }};\n"
+            ));
+            continue;
+        }
         out.push_str(&crate::backends::ffi::template_env::render(
             "emitted_code_block.jinja",
             crate::alef_context! {

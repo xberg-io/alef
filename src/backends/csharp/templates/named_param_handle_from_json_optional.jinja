@@ -1,5 +1,5 @@
-{{ indent }}ulong {{ handle_var }};
-{{ indent }}if ({{ param_name }} == null)
+{% if not predeclared %}{{ indent }}ulong {{ handle_var }};
+{% endif %}{{ indent }}if ({{ param_name }} == null)
 {{ indent }}{
 {{ indent }}    {{ handle_var }} = 0;
 {{ indent }}}

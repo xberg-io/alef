@@ -307,24 +307,26 @@ impl Backend for CsharpBackend {
             .map(|c| c.capsule_types.clone())
             .unwrap_or_default();
 
+        let (native_methods, native_from_json_types) = functions::gen_native_methods_with_dto_constructors(
+            api,
+            &namespace,
+            &lib_name,
+            &prefix,
+            &bridge_param_names,
+            &bridge_type_aliases,
+            has_visitor_callbacks,
+            &csharp_trait_bridges,
+            &streaming_methods,
+            &streaming_methods_meta,
+            &exclude_functions,
+            source_api,
+            &config.client_constructors,
+            &config.adapters,
+            &capsule_types,
+        )?;
         files.push(GeneratedFile {
             path: base_path.join("NativeMethods.cs"),
-            content: strip_trailing_whitespace(&functions::gen_native_methods(
-                api,
-                &namespace,
-                &lib_name,
-                &prefix,
-                &bridge_param_names,
-                &bridge_type_aliases,
-                has_visitor_callbacks,
-                &csharp_trait_bridges,
-                &streaming_methods,
-                &streaming_methods_meta,
-                &exclude_functions,
-                &config.client_constructors,
-                &config.adapters,
-                &capsule_types,
-            )?),
+            content: strip_trailing_whitespace(&native_methods),
             generated_header: true,
         });
 
@@ -638,6 +640,8 @@ impl Backend for CsharpBackend {
                         &excluded_types,
                         &tagged_union_enums,
                         &all_opaque_type_names,
+                        native_from_json_types.contains(&typ.name),
+                        crate::codegen::shared::split_bytes_factory_field(typ, source_api, &prefix),
                     )),
                     generated_header: true,
                 });

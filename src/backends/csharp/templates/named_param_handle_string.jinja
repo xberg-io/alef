@@ -1,1 +1,1 @@
-{{ indent }}var {{ handle_var }} = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8({{ json_var }});
+{{ indent }}{% if not predeclared %}var {% endif %}{{ handle_var }} = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8({{ json_var }});

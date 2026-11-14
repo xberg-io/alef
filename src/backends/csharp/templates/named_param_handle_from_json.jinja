@@ -1,4 +1,4 @@
-{{ indent }}var {{ handle_var }} = NativeMethods.{{ from_json_method }}({{ json_var }});
+{{ indent }}{% if not predeclared %}var {% endif %}{{ handle_var }} = NativeMethods.{{ from_json_method }}({{ json_var }});
 {{ indent }}if ({{ handle_var }} == 0)
 {{ indent }}{
 {{ indent }}    throw {{ exception_name }}.FromLastError("{{ from_json_method }} failed");

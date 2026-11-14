@@ -127,6 +127,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
                 bridge_type_aliases,
                 has_visitor_callbacks,
                 &api.types,
+                crate::codegen::shared::split_bytes_owned_param(func, api, prefix),
             ));
         }
     }
@@ -140,6 +141,9 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
                 continue;
             }
             if method.name == "is_valid" || method.name == "default" {
+                continue;
+            }
+            if method.name == "from_json_with_bytes" && super::super::marshalling::split_bytes_field(typ).is_some() {
                 continue;
             }
             out.push_str(&gen_wrapper_method(

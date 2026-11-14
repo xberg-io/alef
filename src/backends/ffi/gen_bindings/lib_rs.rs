@@ -2,8 +2,8 @@ use crate::adapters::AdapterBodies;
 use crate::backends::ffi::gen_bindings::functions::{
     gen_cancellable_free_function, gen_cancellable_method_wrapper, gen_free_function, gen_free_function_len_companion,
     gen_free_function_result_presence_wrapper, gen_method_result_presence_wrapper, gen_method_wrapper,
-    gen_streaming_method_wrapper, is_owned_default_constructor, returns_bytes_out_params, returns_c_char,
-    should_skip_method_wrapper,
+    gen_owned_free_function, gen_streaming_method_wrapper, is_owned_default_constructor, returns_bytes_out_params,
+    returns_c_char, should_skip_method_wrapper,
 };
 use crate::backends::ffi::gen_bindings::helpers;
 use crate::backends::ffi::gen_bindings::helpers::{
@@ -26,6 +26,23 @@ use crate::codegen::generators;
 use crate::core::config::{AdapterPattern, Language, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, TypeRef};
 use heck::ToPascalCase;
+
+fn gen_type_take_factory_bytes(
+    typ: &crate::core::ir::TypeDef,
+    field: &crate::core::ir::FieldDef,
+    prefix: &str,
+    core_import: &str,
+) -> String {
+    crate::backends::ffi::template_env::render(
+        "type_take_factory_bytes.jinja",
+        crate::alef_context! {
+            symbol => crate::codegen::c_consumer::method_symbol(prefix, &typ.name, "alef_take_factory_bytes"),
+            qualified => crate::codegen::conversions::core_type_path(typ, core_import),
+            field => &field.name,
+            source_cfg => typ.cfg.as_deref().unwrap_or(""),
+        },
+    )
+}
 
 /// Extracts the `Named` (or `Optional<Named>`) type name a return/param/field position holds,
 /// if any. Shared by the enum-pointer-return and enum-pointer-param scans below. ~keep
@@ -185,7 +202,12 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
                 .iter()
                 .any(|method| returns_bytes_out_params(&method.return_type))
         });
-    if has_bytes_results {
+    if has_bytes_results
+        || api
+            .types
+            .iter()
+            .any(|typ| crate::codegen::shared::split_bytes_factory_field(typ, api, prefix).is_some())
+    {
         builder.add_item(&gen_free_bytes(prefix));
     }
 
@@ -294,6 +316,9 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             if !typ.name.ends_with("Update") && !has_to_json_method {
                 builder.add_item(&gen_type_to_json(typ, prefix, &core_import));
             }
+        }
+        if let Some(field) = crate::codegen::shared::split_bytes_factory_field(typ, api, prefix) {
+            builder.add_item(&gen_type_take_factory_bytes(typ, field, prefix, &core_import));
         }
         builder.add_item(&gen_type_free(typ, prefix, &core_import));
 
@@ -645,6 +670,19 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             capsule_cfg,
             returns_owned_borrowed_handle,
         ));
+        if let Some(param) = crate::codegen::shared::split_bytes_owned_param(func, api, prefix) {
+            builder.add_item(&gen_owned_free_function(
+                func,
+                prefix,
+                &core_import,
+                path_map,
+                ffi_param_enums,
+                serde_names,
+                capsule_cfg,
+                returns_owned_borrowed_handle,
+                &param.name,
+            ));
+        }
         if let Some(cancellable) = gen_cancellable_free_function(
             func,
             prefix,
