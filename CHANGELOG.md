@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Allow WASM consumers to omit the legacy getrandom 0.2 shim when their dependency graph no longer needs it.
 - Preserve function metadata when preparing Zig snippets.
 - Lower known optional Go primitives as pointers in generated E2E tests.
+- Generate typed WASM argument constructors and preserve synchronous calls when snippet setup loads files asynchronously.
+- Narrow flattened Node format metadata variants correctly in generated examples.
 
 ## [0.129.4] - 2026-11-13
 
