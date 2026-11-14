@@ -482,6 +482,7 @@ pub(super) fn gen_wrapper_method(
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
     types: &[crate::core::ir::TypeDef],
+    use_record_factory: bool,
 ) -> String {
     use crate::backends::csharp::template_env::render;
 
@@ -577,6 +578,19 @@ pub(super) fn gen_wrapper_method(
             let param_name = param.name.to_lower_camel_case();
             out.push_str(&render("null_check.jinja", crate::alef_context! { param_name }));
         }
+    }
+
+    if use_record_factory && visible_params.len() == method.params.len() {
+        let record_name = csharp_type_name(type_name);
+        let args = visible_params
+            .iter()
+            .map(|param| param.name.to_lower_camel_case())
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!(
+            "        return {record_name}.{method_name}({args});\n    }}\n\n"
+        ));
+        return out;
     }
 
     let cs_native_name = format!("{}{}", csharp_type_name(type_name), to_csharp_name(&method.name));

@@ -4,6 +4,7 @@ use super::bridge_fields::gen_bridge_field_wrapper_function;
 use super::wrappers::{gen_wrapper_function, gen_wrapper_method};
 use crate::codegen::generators::trait_bridge::find_bridge_field;
 use crate::codegen::naming::{csharp_type_name, to_csharp_name};
+use crate::codegen::shared::{binding_fields, is_split_bytes_factory, split_bytes_factory_field};
 use crate::core::config::{AdapterConfig, HostCapsuleTypeConfig};
 use crate::core::ir::{ApiSurface, FunctionDef, TypeRef};
 use std::collections::{HashMap, HashSet};
@@ -48,6 +49,7 @@ fn should_skip_ffi_method(func: &FunctionDef) -> bool {
 #[allow(clippy::too_many_arguments)]
 pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
     api: &ApiSurface,
+    source_api: &ApiSurface,
     namespace: &str,
     class_name: &str,
     exception_name: &str,
@@ -55,6 +57,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
     has_visitor_callbacks: bool,
+    bridge_associated_types: &HashSet<String>,
     streaming_methods: &HashSet<String>,
     _streaming_methods_meta: &HashMap<String, StreamingMethodMeta>,
     exclude_functions: &HashSet<String>,
@@ -136,6 +139,9 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
         if typ.is_opaque {
             continue;
         }
+        let has_record_factory = !(has_visitor_callbacks && bridge_associated_types.contains(&typ.name))
+            && split_bytes_factory_field(typ, source_api, prefix).is_some()
+            && !binding_fields(&typ.fields).any(|field| to_csharp_name(&field.name) == "FromBytes");
         for method in &typ.methods {
             if streaming_methods.contains(&method.name) {
                 continue;
@@ -158,6 +164,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
                 bridge_param_names,
                 bridge_type_aliases,
                 &api.types,
+                has_record_factory && is_split_bytes_factory(typ, method),
             ));
         }
     }

@@ -621,22 +621,49 @@ fn split_byte_factory_preserves_native_construction() {
     assert!(body.contains("if (nativeResult != 0) NativeMethods.InputFree(nativeResult)"));
     assert!(!body.contains("InputToJson("));
 
-    let mut api = crate::core::ir::ApiSurface {
+    let api = crate::core::ir::ApiSurface {
         types: vec![typ.clone()],
         ..Default::default()
     };
+    let render_facade = |source_api: &crate::core::ir::ApiSurface| {
+        super::super::methods::gen_wrapper_class(
+            &api,
+            source_api,
+            "Demo",
+            "DemoConverter",
+            "DemoException",
+            "demo",
+            &HashSet::new(),
+            &HashSet::new(),
+            false,
+            &HashSet::new(),
+            &HashSet::new(),
+            &Default::default(),
+            &HashSet::new(),
+            &[],
+            &HashSet::new(),
+            &[],
+            &Default::default(),
+        )
+    };
+    let facade = render_facade(&api);
+    assert!(facade.contains("public static Input InputFromBytes(byte[] bytes, string mimeType, string? filename)"));
+    assert!(facade.contains("return Input.FromBytes(bytes, mimeType, filename);"));
+
     let (native, _) = render_split_byte_native(&api);
     assert!(native.contains("demo_input_alef_take_factory_bytes"));
     assert!(native.contains("AlefTakeFactoryBytes(ref ulong handle, out IntPtr bytes, out UIntPtr len)"));
     assert!(native.contains("extern void FreeBytes("));
 
-    api.functions.push(crate::core::ir::FunctionDef {
+    let mut collision_api = api.clone();
+    collision_api.functions.push(crate::core::ir::FunctionDef {
         name: "input_alef_take_factory_bytes".into(),
         ..Default::default()
     });
-    let (native, _) = render_split_byte_native(&api);
+    let (native, _) = render_split_byte_native(&collision_api);
     assert!(!native.contains("AlefTakeFactoryBytes(ref ulong"));
-    let fallback = render_record_with_api(&typ, false, &api);
+    assert!(!render_facade(&collision_api).contains("return Input.FromBytes("));
+    let fallback = render_record_with_api(&typ, false, &collision_api);
     assert!(fallback.contains("NativeMethods.InputToJson(nativeResult)"));
 }
 

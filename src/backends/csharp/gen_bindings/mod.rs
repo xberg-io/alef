@@ -428,6 +428,7 @@ impl Backend for CsharpBackend {
             path: base_path.join(format!("{}.cs", wrapper_class_name)),
             content: strip_trailing_whitespace(&methods::gen_wrapper_class(
                 api,
+                source_api,
                 &namespace,
                 &wrapper_class_name,
                 &exception_class_name,
@@ -435,6 +436,7 @@ impl Backend for CsharpBackend {
                 &bridge_param_names,
                 &bridge_type_aliases,
                 has_visitor_callbacks,
+                &bridge_associated_types,
                 &streaming_methods,
                 &streaming_methods_meta,
                 &exclude_functions,

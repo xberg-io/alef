@@ -97,6 +97,7 @@ fn wrap_method(fallible: bool, asynchronous: bool, instance: bool) -> String {
         &empty,
         &empty,
         &[],
+        false,
     )
 }
 
