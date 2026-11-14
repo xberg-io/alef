@@ -216,6 +216,11 @@ impl<'a> ResolverFactory<'a> {
         let result = results
             .entry(OptionalityRule::for_language(language))
             .or_insert_with(|| Arc::new(FieldResolver::ir_result_field_facts(self.types, language)));
+        let resolver = if matches!(language, "node" | "typescript") {
+            resolver.with_napi_flattened_newtype_variants(self.enums, self.types)
+        } else {
+            resolver
+        };
         resolver.with_shared_ir_maps(
             Arc::clone(&facts.enums),
             Arc::clone(&facts.collections),
