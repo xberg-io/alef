@@ -1,0 +1,40 @@
+{% if source_cfg -%}
+#[cfg({{ source_cfg }})]
+{% endif -%}
+/// Consume a factory result and return its metadata JSON and optional raw byte buffer.
+/// # Safety
+/// All output slots must be writable and disjoint. The caller owns the handle slot and
+/// must free a returned string and byte buffer with the corresponding library functions.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {{ symbol }}(
+    handle: *mut AlefHandle, out_bytes: *mut *mut u8, out_len: *mut usize,
+) -> *mut c_char {
+    catch_ffi_panic(std::ptr::null_mut(), || {
+        clear_last_error();
+        if handle.is_null() || out_bytes.is_null() || out_len.is_null() {
+            set_last_error(ALEF_INVALID_HANDLE_ERROR, "null factory output slot");
+            return std::ptr::null_mut();
+        }
+        unsafe { *out_bytes = std::ptr::null_mut(); *out_len = 0; }
+        let mut value = match take_handle::<{{ qualified }}>(unsafe { *handle }) {
+            Ok(value) => {
+                unsafe { *handle = 0; }
+                value
+            }
+            Err(error) => { set_handle_error(&error); return std::ptr::null_mut(); }
+        };
+        let bytes = value.{{ field }}.take();
+        let metadata = match serde_json::to_vec(&value) {
+            Ok(json) => match CString::new(json) {
+                Ok(json) => json,
+                Err(error) => { set_last_error(2, &error.to_string()); return std::ptr::null_mut(); }
+            },
+            Err(error) => { set_last_error(2, &error.to_string()); return std::ptr::null_mut(); }
+        };
+        if let Some(bytes) = bytes {
+            let bytes = bytes.into_boxed_slice();
+            unsafe { *out_len = bytes.len(); *out_bytes = Box::into_raw(bytes).cast::<u8>(); }
+        }
+        metadata.into_raw()
+    })
+}

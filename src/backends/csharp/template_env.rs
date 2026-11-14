@@ -461,6 +461,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/record_native_result.jinja"),
     ),
     (
+        "record_split_bytes_return.jinja",
+        include_str!("templates/record_split_bytes_return.jinja"),
+    ),
+    (
         "record_json_return.jinja",
         include_str!("templates/record_json_return.jinja"),
     ),

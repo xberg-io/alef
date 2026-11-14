@@ -411,3 +411,76 @@ exclude_types = ["HiddenOptions", "my_lib::internal::HiddenStatus"]
         cbindgen.content
     );
 }
+
+#[test]
+fn split_byte_factory_transfers_native_payload_before_serializing_metadata() {
+    let mut api = sample_api();
+    let typ = &mut api.types[0];
+    typ.has_serde = true;
+    typ.fields.push(FieldDef {
+        name: "payload".into(),
+        ty: TypeRef::Bytes,
+        optional: true,
+        ..Default::default()
+    });
+    let bytes = ParamDef {
+        name: "bytes".into(),
+        ty: TypeRef::Bytes,
+        ..Default::default()
+    };
+    typ.methods.extend([
+        MethodDef {
+            name: "from_bytes".into(),
+            is_static: true,
+            params: vec![bytes.clone()],
+            return_type: TypeRef::Named(typ.name.clone()),
+            ..Default::default()
+        },
+        MethodDef {
+            name: "from_json_with_bytes".into(),
+            is_static: true,
+            params: vec![
+                bytes,
+                ParamDef {
+                    name: "metadata_json".into(),
+                    ty: TypeRef::String,
+                    ..Default::default()
+                },
+            ],
+            return_type: TypeRef::Named(typ.name.clone()),
+            error_type: Some("Error".into()),
+            ..Default::default()
+        },
+    ]);
+
+    let config = sample_config();
+    let generate = |api: &ApiSurface| {
+        FfiBackend
+            .generate_bindings(api, &config)
+            .unwrap()
+            .into_iter()
+            .find(|file| file.path.ends_with("lib.rs"))
+            .unwrap()
+            .content
+    };
+    let source = generate(&api);
+    let split = source
+        .split("fn my_lib_config_alef_take_factory_bytes(")
+        .nth(1)
+        .unwrap();
+    let split = split.split("#[unsafe(no_mangle)]").next().unwrap();
+    assert!(split.find("*handle = 0").unwrap() < split.find("value.payload.take()").unwrap());
+    assert!(split.find("value.payload.take()").unwrap() < split.find("serde_json::to_vec(&value)").unwrap());
+    assert!(split.contains("Box::into_raw(bytes)"));
+    assert!(source.contains("fn my_lib_config_from_bytes("));
+    assert!(source.contains("fn my_lib_config_to_json("));
+    assert!(source.contains("fn my_lib_free_bytes("));
+
+    api.functions.push(FunctionDef {
+        name: "config_alef_take_factory_bytes".into(),
+        ..Default::default()
+    });
+    let source = generate(&api);
+    assert_eq!(source.matches("fn my_lib_config_alef_take_factory_bytes(").count(), 1);
+    assert!(!source.contains("value.payload.take()"));
+}

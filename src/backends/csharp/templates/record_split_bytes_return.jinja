@@ -1,0 +1,25 @@
+{{ indent }}if (nativeResult == 0) throw {{ exception_class }}.FromLastError("{{ method_cs_name }} failed");
+{{ indent }}var metadataPtr = IntPtr.Zero;
+{{ indent }}var bytesPtr = IntPtr.Zero;
+{{ indent }}UIntPtr bytesLen = UIntPtr.Zero;
+{{ indent }}try
+{{ indent }}{
+{{ indent }}    metadataPtr = NativeMethods.{{ native_type_prefix }}AlefTakeFactoryBytes(
+{{ indent }}        ref nativeResult, out bytesPtr, out bytesLen);
+{{ indent }}    if (metadataPtr == IntPtr.Zero)
+{{ indent }}        throw {{ exception_class }}.FromLastError("{{ method_cs_name }} result conversion failed");
+{{ indent }}    var metadata = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(metadataPtr)!;
+{{ indent }}    var result = JsonSerializer.Deserialize<{{ class_name }}>(metadata, JsonOptions)!;
+{{ indent }}    if (bytesPtr == IntPtr.Zero) return result with { {{ property }} = null };
+{{ indent }}    int length = checked((int)bytesLen.ToUInt64());
+{{ indent }}    var factoryBytes = new byte[length];
+{{ indent }}    if (length != 0)
+{{ indent }}        global::System.Runtime.InteropServices.Marshal.Copy(bytesPtr, factoryBytes, 0, length);
+{{ indent }}    return result with { {{ property }} = factoryBytes };
+{{ indent }}}
+{{ indent }}finally
+{{ indent }}{
+{{ indent }}    if (metadataPtr != IntPtr.Zero) NativeMethods.FreeString(metadataPtr);
+{{ indent }}    if (bytesPtr != IntPtr.Zero) NativeMethods.FreeBytes(bytesPtr, bytesLen, bytesLen);
+{{ indent }}    if (nativeResult != 0) NativeMethods.{{ native_type_prefix }}Free(nativeResult);
+{{ indent }}}

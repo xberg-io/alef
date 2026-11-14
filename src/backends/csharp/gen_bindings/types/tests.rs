@@ -111,6 +111,7 @@ fn external_string_union_default_constructs_the_nested_unit_record() {
         &tagged_union_enums,
         &HashSet::new(),
         false,
+        None,
     );
 
     assert!(emitted.contains("= new OutputFormat.Plain();"), "got:\n{emitted}");
@@ -152,6 +153,7 @@ fn record_type_maps_configured_bridge_alias_to_trait_interface() {
         &HashSet::new(),
         &HashSet::new(),
         false,
+        None,
     );
 
     assert!(code.contains("public IXmlWalker? Walker { get; init; } = null;"));
@@ -192,6 +194,7 @@ fn record_type_skips_method_whose_name_collides_with_a_property() {
         &HashSet::new(),
         &HashSet::new(),
         false,
+        None,
     );
 
     assert!(
@@ -230,6 +233,7 @@ fn record_type_required_duration_field_is_required_ulong() {
         &HashSet::new(),
         &HashSet::new(),
         false,
+        None,
     );
 
     assert!(
@@ -271,6 +275,7 @@ fn record_type_duration_field_with_real_default_is_nullable() {
         &HashSet::new(),
         &HashSet::new(),
         false,
+        None,
     );
 
     assert!(
@@ -307,6 +312,7 @@ fn record_type_optional_duration_field_is_nullable() {
         &HashSet::new(),
         &HashSet::new(),
         false,
+        None,
     );
 
     assert!(
@@ -350,6 +356,7 @@ fn record_type_required_enum_field_in_default_struct_stays_required() {
         &HashSet::new(),
         &HashSet::new(),
         false,
+        None,
     );
 
     assert!(
@@ -367,6 +374,14 @@ pub(super) fn render_plain_record(typ: &TypeDef) -> String {
 }
 
 fn render_record_with_native_constructor(typ: &TypeDef, has_native_from_json: bool) -> String {
+    let api = crate::core::ir::ApiSurface {
+        types: vec![typ.clone()],
+        ..Default::default()
+    };
+    render_record_with_api(typ, has_native_from_json, &api)
+}
+
+fn render_record_with_api(typ: &TypeDef, has_native_from_json: bool, api: &crate::core::ir::ApiSurface) -> String {
     gen_record_type(
         typ,
         &[],
@@ -383,6 +398,7 @@ fn render_record_with_native_constructor(typ: &TypeDef, has_native_from_json: bo
         &HashSet::new(),
         &HashSet::new(),
         has_native_from_json,
+        crate::codegen::shared::split_bytes_factory_field(typ, api, "demo"),
     )
 }
 
@@ -506,6 +522,7 @@ fn render_split_byte_native(api: &crate::core::ir::ApiSurface) -> (String, HashS
         &HashSet::new(),
         &HashMap::new(),
         &HashSet::new(),
+        api,
         &HashMap::new(),
         &[],
         &HashMap::new(),
@@ -595,6 +612,32 @@ fn split_byte_factory_preserves_native_construction() {
     let factory = render_plain_record(&typ);
     assert!(factory.contains("NativeMethods.InputFromBytes("), "{factory}");
     assert!(!factory.contains("InputKind.Bytes"), "{factory}");
+    let body = factory.split("public static Input FromBytes(").nth(1).unwrap();
+    assert!(body.contains("AlefTakeFactoryBytes("));
+    assert!(body.contains("Marshal.Copy(bytesPtr, factoryBytes, 0, length)"));
+    assert!(body.contains("return result with { Bytes = null }"));
+    assert!(body.contains("return result with { Bytes = factoryBytes }"));
+    assert!(body.contains("NativeMethods.FreeBytes(bytesPtr, bytesLen, bytesLen)"));
+    assert!(body.contains("if (nativeResult != 0) NativeMethods.InputFree(nativeResult)"));
+    assert!(!body.contains("InputToJson("));
+
+    let mut api = crate::core::ir::ApiSurface {
+        types: vec![typ.clone()],
+        ..Default::default()
+    };
+    let (native, _) = render_split_byte_native(&api);
+    assert!(native.contains("demo_input_alef_take_factory_bytes"));
+    assert!(native.contains("AlefTakeFactoryBytes(ref ulong handle, out IntPtr bytes, out UIntPtr len)"));
+    assert!(native.contains("extern void FreeBytes("));
+
+    api.functions.push(crate::core::ir::FunctionDef {
+        name: "input_alef_take_factory_bytes".into(),
+        ..Default::default()
+    });
+    let (native, _) = render_split_byte_native(&api);
+    assert!(!native.contains("AlefTakeFactoryBytes(ref ulong"));
+    let fallback = render_record_with_api(&typ, false, &api);
+    assert!(fallback.contains("NativeMethods.InputToJson(nativeResult)"));
 }
 
 #[test]

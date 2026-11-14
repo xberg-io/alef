@@ -139,6 +139,7 @@ pub(super) fn gen_native_methods_with_dto_constructors(
     streaming_methods: &HashSet<String>,
     streaming_methods_meta: &HashMap<String, StreamingMethodMeta>,
     exclude_functions: &HashSet<String>,
+    source_api: &ApiSurface,
     client_constructors: &HashMap<String, ClientConstructorConfig>,
     adapters: &[crate::core::config::AdapterConfig],
     capsule_types: &HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
@@ -575,7 +576,20 @@ pub(super) fn gen_native_methods_with_dto_constructors(
             .types
             .iter()
             .any(|typ| typ.methods.iter().any(is_bytes_result_method));
-    if has_bytes_results {
+    let mut has_split_factory = false;
+    for typ in &api.types {
+        if crate::codegen::shared::split_bytes_factory_field(typ, source_api, prefix).is_none() {
+            continue;
+        }
+        has_split_factory = true;
+        let entry_point = crate::codegen::c_consumer::method_symbol(prefix, &typ.name, "alef_take_factory_bytes");
+        out.push_str(&render("dll_import_attr.jinja", crate::alef_context! { entry_point }));
+        let class = csharp_type_name(&typ.name);
+        out.push_str(&format!(
+            "    internal static extern IntPtr {class}AlefTakeFactoryBytes(ref ulong handle, out IntPtr bytes, out UIntPtr len);\n"
+        ));
+    }
+    if has_bytes_results || has_split_factory {
         let free_bytes_entry = format!("{prefix}_free_bytes");
         out.push_str(&render(
             "dll_import_attr.jinja",
@@ -885,6 +899,7 @@ mod tests {
             &HashSet::new(),
             &HashMap::new(),
             &HashSet::new(),
+            &api,
             &HashMap::new(),
             &[],
             &HashMap::new(),
@@ -965,6 +980,7 @@ mod tests {
             &HashSet::new(),
             &HashMap::new(),
             &HashSet::new(),
+            &api,
             &HashMap::new(),
             &[],
             &HashMap::new(),
@@ -1054,6 +1070,7 @@ registry_getter = "markup_visitor_registry"
             &HashSet::new(),
             &HashMap::new(),
             &HashSet::new(),
+            &api,
             &HashMap::new(),
             &[],
             &HashMap::new(),
@@ -1116,6 +1133,7 @@ registry_getter = "markup_visitor_registry"
             &HashSet::new(),
             &HashMap::new(),
             &HashSet::new(),
+            &api,
             &HashMap::new(),
             &[],
             &HashMap::new(),
@@ -1187,6 +1205,7 @@ registry_getter = "markup_visitor_registry"
             &HashSet::new(),
             &HashMap::new(),
             &HashSet::new(),
+            &api,
             &HashMap::new(),
             &[],
             &HashMap::new(),

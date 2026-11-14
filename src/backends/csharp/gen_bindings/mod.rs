@@ -319,6 +319,7 @@ impl Backend for CsharpBackend {
             &streaming_methods,
             &streaming_methods_meta,
             &exclude_functions,
+            source_api,
             &config.client_constructors,
             &config.adapters,
             &capsule_types,
@@ -640,6 +641,7 @@ impl Backend for CsharpBackend {
                         &tagged_union_enums,
                         &all_opaque_type_names,
                         native_from_json_types.contains(&typ.name),
+                        crate::codegen::shared::split_bytes_factory_field(typ, source_api, &prefix),
                     )),
                     generated_header: true,
                 });

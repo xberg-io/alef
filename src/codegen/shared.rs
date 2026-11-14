@@ -5,7 +5,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 mod constructor_string_default;
+mod split_bytes_factory;
 pub(crate) use constructor_string_default::render as render_constructor_string_default;
+pub(crate) use split_bytes_factory::{is_split_bytes_factory, split_bytes_factory_field};
 
 pub use super::crate_attributes::{format_crate_attributes, format_extra_clippy_allows};
 
@@ -129,18 +131,11 @@ pub(crate) fn split_bytes_owned_param<'a>(
     }
     let TypeRef::Named(name) = &param.ty else { return None };
     split_bytes_field(api.types.iter().find(|typ| typ.name == *name)?)?;
-    use crate::codegen::c_consumer::{free_function_symbol, method_symbol};
-    let companion = format!("{}_owned", free_function_symbol(prefix, &func.name));
-    let occupied = api
-        .functions
-        .iter()
-        .any(|other| free_function_symbol(prefix, &other.name) == companion)
-        || api.types.iter().any(|typ| {
-            typ.methods
-                .iter()
-                .any(|method| method_symbol(prefix, &typ.name, &method.name) == companion)
-        });
-    (!occupied).then_some(param)
+    let companion = format!(
+        "{}_owned",
+        crate::codegen::c_consumer::free_function_symbol(prefix, &func.name)
+    );
+    (!split_bytes_factory::has_public_callable_symbol(api, prefix, &companion)).then_some(param)
 }
 
 /// Returns true if this parameter is required but must be promoted to optional

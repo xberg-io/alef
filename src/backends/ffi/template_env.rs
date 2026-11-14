@@ -44,6 +44,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/cancel_state_resolve.jinja"),
     ),
     ("type_from_json.jinja", include_str!("templates/type_from_json.jinja")),
+    (
+        "type_take_factory_bytes.jinja",
+        include_str!("templates/type_take_factory_bytes.jinja"),
+    ),
     ("type_to_json.jinja", include_str!("templates/type_to_json.jinja")),
     ("type_free.jinja", include_str!("templates/type_free.jinja")),
     ("type_new.jinja", include_str!("templates/type_new.jinja")),
