@@ -810,6 +810,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(in crate::backends::ffi::gen_bindings) fn gen_owned_free_function(
     func: &FunctionDef,
     prefix: &str,
