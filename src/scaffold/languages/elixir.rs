@@ -52,6 +52,24 @@ pub(crate) fn scaffold_elixir_cargo(
     let has_async = api.functions.iter().any(|f| !f.binding_excluded && f.is_async)
         || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
     let has_trait_bridges = config.trait_bridges_for(Language::Elixir).next().is_some();
+    let mut uses_async_trait = false;
+    for bridge in config.trait_bridges_for(Language::Elixir) {
+        use crate::backends::rustler::trait_bridge::{active_bridge_trait, gen_trait_bridge};
+        if let Some(trait_type) = active_bridge_trait(bridge, api) {
+            let output = gen_trait_bridge(
+                trait_type,
+                bridge,
+                &config.core_import_name(),
+                &config.error_type_name(),
+                &config.error_constructor_expr(),
+                api,
+            )?;
+            if output.code.contains("#[async_trait::async_trait") {
+                uses_async_trait = true;
+                break;
+            }
+        }
+    }
     let has_streaming = config
         .adapters
         .iter()
@@ -114,7 +132,7 @@ pub(crate) fn scaffold_elixir_cargo(
     if needs_ahash {
         dep_lines.push(format!("ahash = \"{}\"", versions.get("cargo:ahash")));
     }
-    if has_trait_bridges {
+    if uses_async_trait {
         dep_lines.push(format!("async-trait = \"{}\"", versions.get("cargo:async-trait")));
         dep_lines.push(format!("tracing = \"{}\"", versions.get("cargo:tracing")));
     }
@@ -172,7 +190,7 @@ pub(crate) fn scaffold_elixir_cargo(
     if has_async || has_trait_bridges || has_streaming {
         machete_ignored.push("tokio");
     }
-    if has_trait_bridges {
+    if uses_async_trait {
         machete_ignored.push("async-trait");
         machete_ignored.push("tracing");
     }

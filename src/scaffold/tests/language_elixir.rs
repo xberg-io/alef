@@ -291,6 +291,11 @@ fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_hyphenated_c
 
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
+    let manifest = all_files
+        .iter()
+        .find(|file| file.path.ends_with("Cargo.toml"))
+        .expect("Elixir scaffold must produce a Cargo manifest");
+    assert!(!manifest.content.contains("async-trait"));
     let bridge_file = all_files
         .iter()
         .find(|f| f.path.to_string_lossy().ends_with("html_visitor_bridge.ex"))
