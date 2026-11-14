@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Keep Elixir NIF Brotli compatibility pins in dependency resolution without triggering Cargo unused-dependency warnings.
+- Generate the Swift binding's async-trait dependency only when an async trait bridge uses it.
 
 ## [0.129.5] - 2026-11-14
 
