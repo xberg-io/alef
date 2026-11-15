@@ -2,9 +2,8 @@
 //! `service_notify`): a [`HostServices`] trait hosts implement, and the `extern "C"`
 //! trampolines that route a component's calls to it.
 
-use alef_component_abi::{AlefHostApiV1, AlefOwnedBuffer, AlefSlice, AlefStatus, AlefStr};
+use alef_component_abi::{AlefHostApiV1, AlefOwnedBuffer, AlefSlice, AlefStatus, AlefStr, owned_buffer};
 use std::ffi::c_void;
-use std::mem::ManuallyDrop;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
@@ -41,28 +40,6 @@ impl ServicesHandle {
         host.services_context = core::ptr::from_ref(&*self.services).cast_mut().cast();
         host.service_call = Some(service_call);
         host.service_notify = Some(service_notify);
-    }
-}
-
-/// The `free` callback of every buffer [`owned_buffer`] hands to a component.
-///
-/// # Safety
-///
-/// `ptr`, `len` and `capacity` must be the parts of a buffer [`owned_buffer`] produced, released
-/// exactly once.
-unsafe extern "C" fn free_vec(_context: *mut c_void, ptr: *mut u8, len: usize, capacity: usize) {
-    // SAFETY: only `owned_buffer` hands out buffers with this `free`, built from `Vec<u8>` parts.
-    drop(unsafe { Vec::from_raw_parts(ptr, len, capacity) });
-}
-
-fn owned_buffer(bytes: Vec<u8>) -> AlefOwnedBuffer {
-    let mut bytes = ManuallyDrop::new(bytes);
-    AlefOwnedBuffer {
-        ptr: bytes.as_mut_ptr(),
-        len: bytes.len(),
-        capacity: bytes.capacity(),
-        context: core::ptr::null_mut(),
-        free: Some(free_vec),
     }
 }
 

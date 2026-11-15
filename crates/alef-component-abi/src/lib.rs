@@ -196,8 +196,12 @@ pub unsafe trait AlefContract {
 }
 
 mod host;
+mod producer;
 mod registry;
 pub use host::{Construct, ConstructDefault, ConstructFromHost, FromHost, HostApi, HostServiceError, LogLevel};
+pub use producer::{
+    SyncStatic, cancel_flag_task, error_buffer, free_owned_buffer, owned_buffer, panic_message, take_owned_bytes,
+};
 pub use registry::{
     AmbiguousProvider, ContractRegistry, provider, provider_of, providers, register_provider, try_provider,
 };

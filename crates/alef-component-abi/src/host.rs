@@ -1,6 +1,6 @@
 //! Safe producer-side view of the host API handed to a component's `create` function.
 
-use crate::{AlefHostApiV1, AlefOwnedBuffer, AlefSlice, AlefStatus, AlefStr};
+use crate::{AlefHostApiV1, AlefOwnedBuffer, AlefSlice, AlefStatus, AlefStr, take_owned_bytes};
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -43,26 +43,6 @@ impl fmt::Display for HostServiceError {
 }
 
 impl core::error::Error for HostServiceError {}
-
-/// Copy a host-allocated buffer into a `Vec` and release it through its own `free` callback.
-///
-/// # Safety
-///
-/// `buffer` must be a valid `AlefOwnedBuffer`: `ptr` readable for `len` bytes when `len > 0`
-/// and `free` (if any) callable with the buffer's own fields.
-unsafe fn take_buffer(buffer: AlefOwnedBuffer) -> Vec<u8> {
-    let bytes = if buffer.ptr.is_null() || buffer.len == 0 {
-        Vec::new()
-    } else {
-        // SAFETY: upheld by the caller contract.
-        unsafe { core::slice::from_raw_parts(buffer.ptr, buffer.len) }.to_vec()
-    };
-    if let Some(free) = buffer.free {
-        // SAFETY: upheld by the caller contract.
-        unsafe { free(buffer.context, buffer.ptr, buffer.len, buffer.capacity) };
-    }
-    bytes
-}
 
 /// A copy of the host API a component was created with.
 ///
@@ -148,7 +128,7 @@ impl HostApi {
         let status = unsafe { call(raw.services_context, alef_str(service), alef_slice(request), &mut out) };
         // SAFETY: on every status the host either left `out` empty or filled it with a buffer
         // that follows the `AlefOwnedBuffer` ownership rules. ~keep
-        let bytes = unsafe { take_buffer(out) };
+        let bytes = unsafe { take_owned_bytes(out) };
         if status.is_ok() {
             Ok(bytes)
         } else {
