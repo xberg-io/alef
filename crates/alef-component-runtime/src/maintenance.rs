@@ -1,11 +1,15 @@
 //! Cache inspection and cleanup: listing, removal and pruning of installed objects, plus
-//! removal of crash leftovers (`.install-*` staging dirs, orphaned temp files, stale
-//! `.lock`, `.used` and `.verified` files).
+//! removal of crash leftovers (`.install-*` staging dirs, orphaned temp files, stale `.used` and
+//! `.verified` files).
+//!
+//! Removal holds the object's `<digest>.lock`, the same lock an install holds, so an object is
+//! never deleted while another thread or process is installing it. Lock files themselves are
+//! never deleted (see [`ArtifactCache::digest_lock_file`]); they are empty, one per digest.
 
 use crate::ArtifactCache;
 use crate::ComponentError;
 use std::collections::HashSet;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -151,9 +155,37 @@ impl ArtifactCache {
         Ok(listed)
     }
 
-    /// Remove one object and its sidecar files. `Ok` with an empty report when absent.
+    /// Remove one object and its sidecar files. `Ok` with an empty report when absent. Waits for
+    /// an install of the same object in another thread or process to finish first.
     pub fn remove_object(&self, sha256: &str) -> Result<RemovalReport, ComponentError> {
         crate::cache::decode_digest(sha256)?;
+        if !self.objects_dir().is_dir() {
+            return Ok(RemovalReport::default());
+        }
+        let lock = self.digest_lock_file(sha256)?;
+        lock.lock()?;
+        self.remove_object_locked(sha256, &lock)
+    }
+
+    /// Like [`Self::remove_object`], but skips (and reports) an object whose install is in
+    /// progress instead of waiting for it.
+    fn try_remove_object(&self, sha256: &str, path: PathBuf) -> Result<RemovalReport, ComponentError> {
+        let lock = self.digest_lock_file(sha256)?;
+        match lock.try_lock() {
+            Ok(()) => self.remove_object_locked(sha256, &lock),
+            Err(TryLockError::WouldBlock) => Ok(RemovalReport {
+                skipped: vec![SkippedRemoval {
+                    path,
+                    reason: "being installed by another thread or process".to_owned(),
+                }],
+                ..RemovalReport::default()
+            }),
+            Err(TryLockError::Error(error)) => Err(error.into()),
+        }
+    }
+
+    /// The removal itself; `_lock` is this object's digest lock, held by the caller.
+    fn remove_object_locked(&self, sha256: &str, _lock: &File) -> Result<RemovalReport, ComponentError> {
         let mut report = RemovalReport::default();
         let path = self.objects_dir().join(sha256);
         if path.exists() {
@@ -176,7 +208,6 @@ impl ArtifactCache {
         for suffix in ["used", "verified"] {
             let _ = fs::remove_file(self.objects_dir().join(format!("{sha256}.{suffix}")));
         }
-        self.remove_lock_if_idle(sha256);
         Ok(report)
     }
 
@@ -201,7 +232,7 @@ impl ArtifactCache {
                 });
                 continue;
             }
-            let removed = self.remove_object(&object.sha256)?;
+            let removed = self.try_remove_object(&object.sha256, object.path)?;
             report.removed.extend(removed.removed);
             report.skipped.extend(removed.skipped);
             report.freed_bytes += removed.freed_bytes;
@@ -212,9 +243,9 @@ impl ArtifactCache {
         Ok(report)
     }
 
-    /// Delete `.install-*` staging dirs and `.tmp*` files older than `min_age`, and
-    /// `.lock` / `.used` / `.verified` sidecars whose object is gone (a `.lock` only when no
-    /// process holds it).
+    /// Delete `.install-*` staging dirs and `.tmp*` files older than `min_age`, and `.used` /
+    /// `.verified` sidecars whose object is gone and whose digest is not being installed.
+    /// `.lock` files are kept (see [`ArtifactCache::digest_lock_file`]).
     pub(crate) fn clean_leftovers(&self, min_age: Duration, now: SystemTime) -> Result<RemovalReport, ComponentError> {
         let mut report = RemovalReport::default();
         let objects = self.objects_dir();
@@ -241,7 +272,7 @@ impl ArtifactCache {
             let stale = if staging {
                 old_enough()
             } else if let Some(digest) = sidecar_digest(&name) {
-                !is_dir && !objects.join(digest).is_dir() && self.sidecar_is_unclaimed(&path, &name)
+                !is_dir && !objects.join(digest).is_dir() && self.digest_is_idle(digest)
             } else {
                 false
             };
@@ -273,22 +304,16 @@ impl ArtifactCache {
         Ok(report)
     }
 
-    /// A `.lock` file is only stale when no process holds it; other sidecars always are.
-    fn sidecar_is_unclaimed(&self, path: &Path, name: &str) -> bool {
-        if !name.ends_with(".lock") {
-            return true;
-        }
-        OpenOptions::new()
+    /// Whether no install of `digest` is in progress. A digest without a lock file has never been
+    /// installed by a runtime that takes one, so nothing can hold it.
+    fn digest_is_idle(&self, digest: &str) -> bool {
+        match OpenOptions::new()
             .read(true)
             .write(true)
-            .open(path)
-            .is_ok_and(|file| file.try_lock().is_ok())
-    }
-
-    fn remove_lock_if_idle(&self, sha256: &str) {
-        let path = self.objects_dir().join(format!("{sha256}.lock"));
-        if self.sidecar_is_unclaimed(&path, &format!("{sha256}.lock")) {
-            let _ = fs::remove_file(path);
+            .open(self.objects_dir().join(format!("{digest}.lock")))
+        {
+            Ok(file) => file.try_lock().is_ok(),
+            Err(error) => error.kind() == std::io::ErrorKind::NotFound,
         }
     }
 }
@@ -297,10 +322,10 @@ fn is_digest_name(name: &str) -> bool {
     name.len() == 64 && name.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-/// The digest a `<digest>.lock|used|verified` sidecar name refers to.
+/// The digest a removable `<digest>.used|verified` sidecar name refers to.
 fn sidecar_digest(name: &str) -> Option<&str> {
     let (digest, suffix) = name.split_once('.')?;
-    (is_digest_name(digest) && matches!(suffix, "lock" | "used" | "verified")).then_some(digest)
+    (is_digest_name(digest) && matches!(suffix, "used" | "verified")).then_some(digest)
 }
 
 fn dir_size(path: &Path) -> u64 {
@@ -396,8 +421,72 @@ mod tests {
         assert_eq!(report.freed_bytes, 5);
         assert!(!path.exists());
         assert!(!cache.used_path(&digest(1)).exists());
-        assert!(!cache.objects_dir().join(format!("{}.lock", digest(1))).exists());
+        assert!(
+            cache.objects_dir().join(format!("{}.lock", digest(1))).exists(),
+            "lock files are never unlinked"
+        );
         assert!(cache.remove_object(&digest(1)).unwrap().removed.is_empty());
+    }
+
+    fn hold_lock(cache: &ArtifactCache, byte: u8) -> File {
+        let lock = cache.digest_lock_file(&digest(byte)).unwrap();
+        lock.lock().unwrap();
+        lock
+    }
+
+    /// Regression: prune deleted an object while another process was installing it.
+    #[test]
+    fn prune_skips_an_object_whose_install_holds_the_digest_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = cache(dir.path());
+        let installing = make_object(&cache, 1);
+        let held = hold_lock(&cache, 1);
+
+        let report = cache
+            .prune_objects(&Retain::new(), &HashSet::new(), &HashSet::new(), SystemTime::now())
+            .unwrap();
+        assert!(installing.exists());
+        assert_eq!(report.skipped.len(), 1, "{report:?}");
+        assert_eq!(report.skipped[0].path, installing);
+
+        drop(held);
+        let report = cache
+            .prune_objects(&Retain::new(), &HashSet::new(), &HashSet::new(), SystemTime::now())
+            .unwrap();
+        assert_eq!(report.removed, vec![installing.clone()]);
+        assert!(!installing.exists());
+    }
+
+    /// Regression: removal did not take the digest lock, so it could delete an object an install
+    /// on another thread was still writing.
+    #[test]
+    fn remove_object_waits_for_the_install_holding_the_digest_lock() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let dir = tempfile::tempdir().unwrap();
+        let cache = cache(dir.path());
+        let object = make_object(&cache, 1);
+        let held = hold_lock(&cache, 1);
+        let released = Arc::new(AtomicBool::new(false));
+
+        let remover = {
+            let cache = cache.clone();
+            let released = Arc::clone(&released);
+            std::thread::spawn(move || {
+                let report = cache.remove_object(&digest(1)).unwrap();
+                (released.load(Ordering::SeqCst), report)
+            })
+        };
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(object.exists(), "removal must wait for the install's lock");
+        released.store(true, Ordering::SeqCst);
+        drop(held);
+
+        let (after_release, report) = remover.join().unwrap();
+        assert!(after_release, "the object was removed before the lock was released");
+        assert_eq!(report.removed, vec![object.clone()]);
+        assert!(!object.exists());
     }
 
     #[test]
@@ -465,8 +554,9 @@ mod tests {
             .clean_leftovers(Duration::from_secs(3600), SystemTime::now())
             .unwrap();
         assert!(staging.exists(), "a young staging dir may belong to a live install");
-        assert!(!orphan_lock.exists() && !orphan_stamp.exists());
-        assert_eq!(fresh.removed.len(), 2);
+        assert!(!orphan_stamp.exists());
+        assert!(orphan_lock.exists(), "lock files are never unlinked");
+        assert_eq!(fresh.removed, vec![orphan_stamp.clone()]);
 
         let later = cache.clean_leftovers(Duration::ZERO, SystemTime::now()).unwrap();
         assert!(!staging.exists());
@@ -477,22 +567,23 @@ mod tests {
     }
 
     #[test]
-    fn held_lock_file_is_not_treated_as_stale() {
+    fn sidecars_of_a_digest_being_installed_are_kept() {
         let dir = tempfile::tempdir().unwrap();
         let cache = cache(dir.path());
         fs::create_dir_all(cache.objects_dir()).unwrap();
-        let lock_path = cache.objects_dir().join(format!("{}.lock", digest(9)));
-        let held = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&lock_path)
-            .unwrap();
-        held.lock().unwrap();
+        let held = hold_lock(&cache, 9);
+        let stamp = cache.objects_dir().join(format!("{}.verified", digest(9)));
+        fs::write(&stamp, b"{}").unwrap();
 
         cache.clean_leftovers(Duration::ZERO, SystemTime::now()).unwrap();
+        assert!(
+            stamp.exists(),
+            "the install holding the lock may be about to rename its object in"
+        );
 
-        assert!(lock_path.exists());
+        drop(held);
+        cache.clean_leftovers(Duration::ZERO, SystemTime::now()).unwrap();
+        assert!(!stamp.exists());
+        assert!(cache.objects_dir().join(format!("{}.lock", digest(9))).exists());
     }
 }

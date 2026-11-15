@@ -308,8 +308,9 @@ impl ComponentManager {
     }
 
     /// Remove cached objects `retain` does not keep, plus orphaned `.install-*` staging
-    /// directories and stale `.lock` files. Objects loaded in this process are skipped, as are
-    /// files Windows refuses to delete; both are listed in the report.
+    /// directories and stamps. Objects loaded in this process or being installed by another
+    /// thread or process are skipped, as are files Windows refuses to delete; all are listed in
+    /// the report.
     pub fn prune(&self, retain: &Retain) -> Result<RemovalReport, ComponentError> {
         let loaded = self.loaded.lock().unwrap_or_else(PoisonError::into_inner);
         let protected: HashSet<String> = self

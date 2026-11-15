@@ -29,8 +29,10 @@
 //! [`ComponentManager::prune`] (with [`Retain`]) manage the shared on-disk cache. Loading an
 //! object touches a last-used stamp so several host versions can share one cache and prune by
 //! recency. Prune also sweeps crash leftovers (`.install-*` staging dirs, orphaned temp files and
-//! stale `.lock` files). Files Windows refuses to delete because a library is loaded are listed
-//! under [`RemovalReport::skipped`].
+//! stamps). Removal holds the object's install lock, so an object another thread or process is
+//! installing is skipped by prune and waited for by remove; the empty per-digest `.lock` files are
+//! never deleted. Files Windows refuses to delete because a library is loaded are listed under
+//! [`RemovalReport::skipped`].
 //!
 //! # Verified stamp
 //!

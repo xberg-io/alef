@@ -279,13 +279,7 @@ impl ArtifactCache {
         let expected = decode_digest(&entry.sha256)?;
         let objects = self.root.join("sha256");
         create_private_dir_all(&objects)?;
-        let lock_path = objects.join(format!("{}.lock", entry.sha256));
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(lock_path)?;
+        let lock = self.digest_lock_file(&entry.sha256)?;
         lock.lock()?;
 
         let destination = self.object_path(entry)?;
@@ -366,6 +360,19 @@ impl ArtifactCache {
             },
             verified,
         ))
+    }
+
+    /// Open (creating it if needed) the per-digest lock file every install and removal of that
+    /// object holds. Lock files are never deleted: unlinking one while another process waits on
+    /// it would let a third process lock a fresh file at the same path, and two writers would
+    /// then each believe they hold the object exclusively.
+    pub(crate) fn digest_lock_file(&self, sha256: &str) -> std::io::Result<File> {
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(self.objects_dir().join(format!("{sha256}.lock")))
     }
 
     pub(crate) fn stamp_path(&self, sha256: &str) -> PathBuf {
