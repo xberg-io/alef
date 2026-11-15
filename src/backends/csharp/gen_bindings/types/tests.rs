@@ -112,7 +112,7 @@ fn external_string_union_default_constructs_the_nested_unit_record() {
         &HashSet::new(),
         false,
         None,
-        &[],
+        None,
     );
 
     assert!(emitted.contains("= new OutputFormat.Plain();"), "got:\n{emitted}");
@@ -155,7 +155,7 @@ fn record_type_maps_configured_bridge_alias_to_trait_interface() {
         &HashSet::new(),
         false,
         None,
-        &[],
+        None,
     );
 
     assert!(code.contains("public IXmlWalker? Walker { get; init; } = null;"));
@@ -197,7 +197,7 @@ fn record_type_skips_method_whose_name_collides_with_a_property() {
         &HashSet::new(),
         false,
         None,
-        &[],
+        None,
     );
 
     assert!(
@@ -237,7 +237,7 @@ fn record_type_required_duration_field_is_required_ulong() {
         &HashSet::new(),
         false,
         None,
-        &[],
+        None,
     );
 
     assert!(
@@ -280,7 +280,7 @@ fn record_type_duration_field_with_real_default_is_nullable() {
         &HashSet::new(),
         false,
         None,
-        &[],
+        None,
     );
 
     assert!(
@@ -318,7 +318,7 @@ fn record_type_optional_duration_field_is_nullable() {
         &HashSet::new(),
         false,
         None,
-        &[],
+        None,
     );
 
     assert!(
@@ -363,7 +363,7 @@ fn record_type_required_enum_field_in_default_struct_stays_required() {
         &HashSet::new(),
         false,
         None,
-        &[],
+        None,
     );
 
     assert!(
@@ -389,6 +389,15 @@ fn render_record_with_native_constructor(typ: &TypeDef, has_native_from_json: bo
 }
 
 fn render_record_with_api(typ: &TypeDef, has_native_from_json: bool, api: &crate::core::ir::ApiSurface) -> String {
+    render_record_with_disjoint_sources(typ, has_native_from_json, api, false)
+}
+
+fn render_record_with_disjoint_sources(
+    typ: &TypeDef,
+    has_native_from_json: bool,
+    api: &crate::core::ir::ApiSurface,
+    disjoint_sources: bool,
+) -> String {
     gen_record_type(
         typ,
         &[],
@@ -406,7 +415,7 @@ fn render_record_with_api(typ: &TypeDef, has_native_from_json: bool, api: &crate
         &HashSet::new(),
         has_native_from_json,
         crate::codegen::shared::split_bytes_factory_field(typ, api, "demo"),
-        &api.enums,
+        super::super::split_bytes_uri_kind(typ, &api.enums, disjoint_sources),
     )
 }
 
@@ -613,17 +622,21 @@ fn split_byte_transport_keeps_uri_inputs_on_the_json_path() {
         }],
         ..Default::default()
     };
-    let render = |api: &ApiSurface| render_record_with_api(&typ, true, api);
+    let render = |api: &ApiSurface| render_record_with_disjoint_sources(&typ, true, api, true);
     assert!(render(&api).contains("if (bytes is null || Kind == InputKind.Uri)"));
     assert!(!render(&api).contains("Uri = Kind"));
     let mut uri = field("uri", TypeRef::String);
     uri.optional = true;
     let mut with_uri = typ.clone();
     with_uri.fields.push(uri);
-    let record = render_record_with_api(&with_uri, true, &api);
+    let generic = render_record_with_api(&with_uri, true, &api);
+    assert!(generic.contains("[JsonPropertyName(\"uri\")]"));
+    assert!(generic.contains("Serialize(this with { Payload = null }, JsonSerializationOptions)"));
+    assert!(!generic.contains("Kind =="));
+    let record = render_record_with_disjoint_sources(&with_uri, true, &api, true);
     assert!(record.contains("Payload = null, Uri = Kind == InputKind.Bytes ? null : Uri"));
     with_uri.fields.last_mut().unwrap().serde_rename = Some("source_url".into());
-    let renamed = render_record_with_api(&with_uri, true, &api);
+    let renamed = render_record_with_disjoint_sources(&with_uri, true, &api, true);
     assert!(renamed.contains("[JsonPropertyName(\"source_url\")]"));
     assert!(renamed.contains("Serialize(this with { Payload = null }, JsonSerializationOptions)"));
     assert!(!renamed.contains("Uri = Kind"));

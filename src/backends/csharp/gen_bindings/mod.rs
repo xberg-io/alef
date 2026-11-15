@@ -644,7 +644,14 @@ impl Backend for CsharpBackend {
                         &all_opaque_type_names,
                         native_from_json_types.contains(&typ.name),
                         crate::codegen::shared::split_bytes_factory_field(typ, source_api, &prefix),
-                        &api.enums,
+                        split_bytes_uri_kind(
+                            typ,
+                            &api.enums,
+                            config
+                                .csharp
+                                .as_ref()
+                                .is_some_and(|config| config.split_bytes_disjoint_sources.contains(&typ.name)),
+                        ),
                     )),
                     generated_header: true,
                 });
@@ -766,7 +773,14 @@ pub(super) fn is_tuple_field(field: &FieldDef) -> bool {
 #[cfg(test)]
 mod tests;
 
-fn split_bytes_uri_kind<'a>(typ: &crate::core::ir::TypeDef, enums: &'a [crate::core::ir::EnumDef]) -> Option<&'a str> {
+fn split_bytes_uri_kind<'a>(
+    typ: &crate::core::ir::TypeDef,
+    enums: &'a [crate::core::ir::EnumDef],
+    disjoint_sources: bool,
+) -> Option<&'a str> {
+    if !disjoint_sources {
+        return None;
+    }
     let field = binding_fields(&typ.fields).find(|field| {
         field.name == "kind"
             && field.serde_rename.as_deref().unwrap_or(&field.name) == "kind"
@@ -786,4 +800,15 @@ fn split_bytes_uri_kind<'a>(typ: &crate::core::ir::TypeDef, enums: &'a [crate::c
                 .any(|variant| variant.name == *name && !variant.binding_excluded && variant.cfg.is_none())
         })
         .then_some(kind.name.as_str())
+}
+
+fn split_bytes_has_uri_field(typ: &crate::core::ir::TypeDef) -> bool {
+    binding_fields(&typ.fields).any(|field| {
+        field.name == "uri"
+            && field.serde_rename.as_deref().unwrap_or(&field.name) == "uri"
+            && field.ty == TypeRef::String
+            && field.optional
+            && !field.serde_skip
+            && !field.serde_flatten
+    })
 }

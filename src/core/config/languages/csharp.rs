@@ -45,6 +45,10 @@ pub struct CSharpConfig {
     /// lint/build/test commands target this file instead of the output directory.
     #[serde(default)]
     pub project_file: Option<String>,
+    /// Split-byte DTOs whose Bytes and Uri variants describe mutually exclusive sources.
+    /// Managed extraction honors the source discriminator when both payload fields are populated.
+    #[serde(default)]
+    pub split_bytes_disjoint_sources: Vec<String>,
     /// Types to exclude from C# binding generation.
     ///
     /// C# bindings call the generated C FFI through P/Invoke, so types excluded from
