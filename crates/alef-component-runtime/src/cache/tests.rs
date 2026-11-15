@@ -224,6 +224,40 @@ fn rejects_unsigned_archive_when_lock_names_a_key() {
     ));
 }
 
+/// Regression: a lock with no keys and an entry with no `key_id` was always accepted by digest
+/// alone. Under `SignaturePolicy::Require` the cache refuses it.
+#[test]
+fn required_signatures_refuse_a_digest_only_artifact() {
+    let (bytes, entry) = package(None);
+    let dir = tempfile::tempdir().unwrap();
+    let cache = ArtifactCache::new(dir.path(), TrustPolicy::EmbeddedKeys(BTreeMap::new()))
+        .with_signature_policy(SignaturePolicy::Require);
+    assert!(matches!(
+        cache.install_from_reader(&entry, Cursor::new(bytes.clone())),
+        Err(ComponentError::SignatureRequired)
+    ));
+    let digest_only =
+        ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly).with_signature_policy(SignaturePolicy::Require);
+    assert!(matches!(
+        digest_only.install_from_reader(&entry, Cursor::new(bytes)),
+        Err(ComponentError::SignatureRequired)
+    ));
+}
+
+#[test]
+fn required_signatures_accept_a_signed_artifact() {
+    let signing = SigningKey::from_bytes(&[7; 32]);
+    let (bytes, entry) = package(Some((&signing, "release")));
+    let keys = BTreeMap::from([(
+        "release".into(),
+        base64::engine::general_purpose::STANDARD.encode(signing.verifying_key().to_bytes()),
+    )]);
+    let dir = tempfile::tempdir().unwrap();
+    let cache =
+        ArtifactCache::new(dir.path(), TrustPolicy::EmbeddedKeys(keys)).with_signature_policy(SignaturePolicy::Require);
+    cache.install_from_reader(&entry, Cursor::new(bytes)).unwrap();
+}
+
 #[test]
 fn rejects_archive_digest_mismatch() {
     let (bytes, mut entry) = package(None);

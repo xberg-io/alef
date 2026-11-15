@@ -90,6 +90,8 @@ pub enum ComponentError {
     DuplicateLockEntry { component_id: String, target: String },
     #[error("component lock schema version {0} is not supported")]
     UnsupportedLockSchema(u32),
+    #[error("component lock is not signed: {0}")]
+    UnsignedLock(String),
     #[error("component lock public key is not a valid Ed25519 public key")]
     InvalidPublicKey,
     #[error("component contract table is too small or incorrectly aligned")]
@@ -169,6 +171,7 @@ impl ComponentError {
             Self::FeatureSetHashMismatch => "feature_set_hash_mismatch",
             Self::DuplicateLockEntry { .. } => "duplicate_lock_entry",
             Self::UnsupportedLockSchema(_) => "unsupported_lock_schema",
+            Self::UnsignedLock(_) => "unsigned_lock",
             Self::InvalidPublicKey => "invalid_public_key",
             Self::InvalidContractTable => "invalid_contract_table",
             Self::MissingInstanceFactory => "missing_instance_factory",

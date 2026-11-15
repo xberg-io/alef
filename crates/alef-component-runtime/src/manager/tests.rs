@@ -330,3 +330,67 @@ fn concurrent_calls_for_the_same_key_serialize_on_the_coalescing_lock() {
     waiter.join().unwrap();
     assert_eq!(*order.lock().unwrap(), vec!["holder", "waiter"]);
 }
+
+fn signed(mut lock: ComponentLock) -> ComponentLock {
+    lock.public_keys
+        .insert("release".into(), "unused-in-these-tests".into());
+    for artifact in &mut lock.artifacts {
+        artifact.key_id = "release".into();
+    }
+    lock
+}
+
+fn strict(lock: ComponentLock) -> Result<ComponentManager, ComponentError> {
+    let dir = tempfile::tempdir().unwrap();
+    ComponentManager::from_lock_with_signature_policy(lock, dir.path(), "target-a", host(), SignaturePolicy::Require)
+}
+
+#[test]
+fn the_default_policy_still_accepts_an_unsigned_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    ComponentManager::from_lock(lock("target-a"), dir.path(), "target-a", host()).unwrap();
+}
+
+#[test]
+fn requiring_signatures_rejects_a_lock_without_public_keys() {
+    let error = strict(lock("target-a")).err().unwrap();
+    assert!(
+        matches!(error, ComponentError::UnsignedLock(ref reason) if reason.contains("no public keys")),
+        "{error}"
+    );
+    assert_eq!(error.code(), "unsigned_lock");
+}
+
+#[test]
+fn requiring_signatures_rejects_an_artifact_without_a_key_id_on_any_target() {
+    let mut lock = signed(lock("target-a"));
+    let mut other = lock.artifacts[0].clone();
+    other.identity.target = "target-b".into();
+    other.key_id = String::new();
+    lock.artifacts.push(other);
+    assert!(matches!(
+        strict(lock),
+        Err(ComponentError::UnsignedLock(reason)) if reason.contains("target-b") && reason.contains("no key_id")
+    ));
+}
+
+#[test]
+fn requiring_signatures_rejects_a_key_id_the_lock_does_not_embed() {
+    let mut lock = signed(lock("target-a"));
+    lock.artifacts[0].key_id = "rotated".into();
+    assert!(matches!(
+        strict(lock),
+        Err(ComponentError::UnsignedLock(reason)) if reason.contains("rotated")
+    ));
+}
+
+#[test]
+fn requiring_signatures_accepts_a_signed_lock_and_ignores_bundled_entries() {
+    let mut lock = signed(lock("target-a"));
+    let mut bundled = lock.artifacts[0].clone();
+    bundled.identity.target = "target-b".into();
+    bundled.mode = ComponentDeliveryMode::Bundled;
+    bundled.key_id = String::new();
+    lock.artifacts.push(bundled);
+    strict(lock).unwrap();
+}

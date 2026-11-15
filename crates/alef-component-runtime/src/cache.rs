@@ -23,6 +23,20 @@ pub enum TrustPolicy {
     EmbeddedKeys(BTreeMap<String, String>),
 }
 
+/// Whether a component lock must carry signatures.
+///
+/// [`SignaturePolicy::AllowUnsigned`] (the default) keeps the historical behaviour: a lock with no
+/// public keys and entries with no `key_id` is verified by digest alone, which only proves the
+/// bytes match a lock that could itself have been edited. [`SignaturePolicy::Require`] makes
+/// [`crate::ComponentManager::from_lock_with_signature_policy`] reject such a lock and the cache
+/// refuse any artifact whose manifest signature it did not verify.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SignaturePolicy {
+    #[default]
+    AllowUnsigned,
+    Require,
+}
+
 #[derive(Clone)]
 pub struct ArtifactCache {
     pub(crate) root: PathBuf,
@@ -31,6 +45,7 @@ pub struct ArtifactCache {
     pub(crate) download: DownloadOptions,
     url_override: Option<UrlOverride>,
     verified_stamp: bool,
+    signatures: SignaturePolicy,
 }
 
 impl std::fmt::Debug for ArtifactCache {
@@ -42,6 +57,7 @@ impl std::fmt::Debug for ArtifactCache {
             .field("download", &self.download)
             .field("url_override", &self.url_override.as_ref().map(|_| "<fn>"))
             .field("verified_stamp", &self.verified_stamp)
+            .field("signatures", &self.signatures)
             .finish()
     }
 }
@@ -62,7 +78,17 @@ impl ArtifactCache {
             download: DownloadOptions::default(),
             url_override: None,
             verified_stamp: false,
+            signatures: SignaturePolicy::AllowUnsigned,
         }
+    }
+
+    /// With [`SignaturePolicy::Require`], refuse every artifact whose manifest signature was not
+    /// verified against a key in this cache's [`TrustPolicy::EmbeddedKeys`], instead of accepting
+    /// a digest-only lock entry.
+    #[must_use]
+    pub fn with_signature_policy(mut self, policy: SignaturePolicy) -> Self {
+        self.signatures = policy;
+        self
     }
 
     /// Replace the download tuning (timeouts, retries, progress, cancellation).
@@ -483,11 +509,20 @@ impl ArtifactCache {
         root: &Path,
         manifest_bytes: &[u8],
     ) -> Result<(), ComponentError> {
+        let required = self.signatures == SignaturePolicy::Require;
         let TrustPolicy::EmbeddedKeys(keys) = &self.trust else {
-            return Ok(());
+            return if required {
+                Err(ComponentError::SignatureRequired)
+            } else {
+                Ok(())
+            };
         };
         if entry.key_id.is_empty() && keys.is_empty() {
-            return Ok(());
+            return if required {
+                Err(ComponentError::SignatureRequired)
+            } else {
+                Ok(())
+            };
         }
         let signature_bytes = fs::read(root.join("component.sig")).map_err(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {

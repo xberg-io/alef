@@ -5,7 +5,7 @@ use crate::stdio::{SidecarPolicy, SidecarProcess, SidecarRestartEvent, SidecarSe
 use crate::{
     ArtifactCache, CachedArtifact, CachedObject, ComponentDeliveryMode, ComponentError, ComponentLock,
     ComponentLockEntry, ComponentRequirements, DownloadOptions, HostServices, LoadedComponent, RemovalReport, Retain,
-    TrustPolicy,
+    SignaturePolicy, TrustPolicy,
 };
 use alef_component_abi::AlefHostApiV1;
 use std::collections::{HashMap, HashSet};
@@ -79,14 +79,34 @@ unsafe impl Send for ComponentManager {}
 unsafe impl Sync for ComponentManager {}
 
 impl ComponentManager {
+    /// A manager for `lock` that accepts unsigned locks ([`SignaturePolicy::AllowUnsigned`]);
+    /// see [`Self::from_lock_with_signature_policy`] to require signatures.
     pub fn from_lock(
         lock: ComponentLock,
         cache_root: impl Into<PathBuf>,
         target: impl Into<String>,
         host: AlefHostApiV1,
     ) -> Result<Self, ComponentError> {
+        Self::from_lock_with_signature_policy(lock, cache_root, target, host, SignaturePolicy::AllowUnsigned)
+    }
+
+    /// Like [`Self::from_lock`]. With [`SignaturePolicy::Require`] the lock must embed at least
+    /// one public key and every artifact (for every target) must name one of them in `key_id`,
+    /// or this fails with [`ComponentError::UnsignedLock`]; every install then verifies the
+    /// manifest signature. Without it, a lock with no keys is checked by digest alone, so anyone
+    /// able to edit the lock can substitute an artifact.
+    pub fn from_lock_with_signature_policy(
+        lock: ComponentLock,
+        cache_root: impl Into<PathBuf>,
+        target: impl Into<String>,
+        host: AlefHostApiV1,
+        signatures: SignaturePolicy,
+    ) -> Result<Self, ComponentError> {
         if lock.schema_version != COMPONENT_MANIFEST_SCHEMA {
             return Err(ComponentError::UnsupportedLockSchema(lock.schema_version));
+        }
+        if signatures == SignaturePolicy::Require {
+            require_signed_lock(&lock)?;
         }
         let lock_is_empty = lock.artifacts.is_empty();
         let locked_digests = lock.artifacts.iter().map(|artifact| artifact.sha256.clone()).collect();
@@ -106,7 +126,8 @@ impl ComponentManager {
             }
         }
         Ok(Self {
-            cache: ArtifactCache::new(cache_root, TrustPolicy::EmbeddedKeys(lock.public_keys)),
+            cache: ArtifactCache::new(cache_root, TrustPolicy::EmbeddedKeys(lock.public_keys))
+                .with_signature_policy(signatures),
             target,
             entries,
             loaded: Mutex::new(HashMap::new()),
@@ -559,6 +580,37 @@ impl ComponentManager {
         }
         Ok(entry)
     }
+}
+
+/// Reject a lock that cannot be verified by signature: no embedded keys, or an artifact that
+/// names no key or a key the lock does not embed.
+fn require_signed_lock(lock: &ComponentLock) -> Result<(), ComponentError> {
+    if lock.public_keys.is_empty() {
+        return Err(ComponentError::UnsignedLock(
+            "the lock embeds no public keys".to_owned(),
+        ));
+    }
+    for artifact in &lock.artifacts {
+        if artifact.mode == ComponentDeliveryMode::Bundled {
+            // Linked into the binding ahead of time; never downloaded, so never verified here.
+            continue;
+        }
+        let name = || format!("`{}` for `{}`", artifact.identity.component, artifact.identity.target);
+        if artifact.key_id.is_empty() {
+            return Err(ComponentError::UnsignedLock(format!(
+                "artifact {} has no key_id",
+                name()
+            )));
+        }
+        if !lock.public_keys.contains_key(&artifact.key_id) {
+            return Err(ComponentError::UnsignedLock(format!(
+                "artifact {} names key `{}`, which the lock does not embed",
+                name(),
+                artifact.key_id
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn loaded_cache_key(component_id: &str, contract_name: &str) -> String {

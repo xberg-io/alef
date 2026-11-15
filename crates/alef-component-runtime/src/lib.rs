@@ -55,7 +55,7 @@ mod stamp;
 pub mod stdio;
 pub mod target;
 
-pub use cache::{ArtifactCache, CachedArtifact, TrustPolicy};
+pub use cache::{ArtifactCache, CachedArtifact, SignaturePolicy, TrustPolicy};
 pub use download::{DownloadOptions, ProgressCallback, RootCerts};
 pub use error::ComponentError;
 pub use host_services::HostServices;
