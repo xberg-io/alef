@@ -147,8 +147,10 @@ impl SidecarProcess {
         let path = executable.path();
         make_executable(path)?;
         let environment = sidecar_environment(std::env::vars_os(), &policy.env_passthrough);
-        // The component's own cache directory: never the host's working tree.
-        let working_dir = path.parent().unwrap_or(path);
+        // The component's own cache directory, never the host's working tree. Absolute, because a
+        // relative program path would otherwise resolve against it after the chdir.
+        let absolute = std::path::absolute(path)?;
+        let working_dir = absolute.parent().unwrap_or(&absolute);
         let mut refused = None;
         let started = retry_executable_busy(SPAWN_BUSY_RETRIES, SPAWN_BUSY_BACKOFF, || {
             // Resolved per attempt, immediately before the spawn: the verified descriptor's path on
@@ -157,7 +159,7 @@ impl SidecarProcess {
                 refused = Some(error);
                 std::io::Error::other("verified sidecar executable changed")
             })?;
-            let mut command = Command::new(program);
+            let mut command = Command::new(std::path::absolute(program)?);
             #[cfg(unix)]
             std::os::unix::process::CommandExt::arg0(&mut command, path);
             command
