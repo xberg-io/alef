@@ -1,24 +1,38 @@
 //! Framed stdio transport for bytes-only named component contracts.
 //!
-//! An executable stays alive for its component's lifetime. Stdin and stdout carry only frames:
-//! a four-byte little-endian unsigned JSON byte length, followed by that JSON. Stderr is
-//! inherited for diagnostics. Frames are bounded by [`MAX_FRAME_SIZE`]. Calls are serialized
-//! across all contracts sharing the executable. A timeout or protocol failure terminates and
-//! reaps the child; the connection is then respawned from the verified executable on a later
-//! call, up to the manager's restart budget, re-running the describe validation and the host's
-//! session setup ([`SidecarSessionSetup`]) each time. Producer status failures leave the
-//! connection usable.
+//! An executable stays alive for its component's lifetime. Stdin and stdout carry only frames;
+//! stderr is inherited for diagnostics. A timeout or protocol failure that leaves the connection
+//! unusable terminates and reaps the child; the connection is then respawned from the verified
+//! executable on a later call, up to the manager's restart budget, re-running the describe
+//! validation and the host's session setup ([`SidecarSessionSetup`]) each time. Producer status
+//! failures leave the connection usable.
 //!
-//! The first request is `{"op":"describe"}`. Its successful response payload contains JSON
-//! matching [`StdioDescriptor`], checked against the verified artifact's manifest. Subsequent
-//! requests use `{"op":"call","contract":"name","method":"name","payload":[0,255]}`.
-//! Every response is `{"status":0,"payload":[0,255]}`. Status codes use `AlefStatus` semantics;
-//! a nonzero status carries error message bytes. Payloads are JSON byte arrays, not base64.
+//! The host starts the child with [`STDIO_PROTOCOLS_ENV`] listing the protocol versions it speaks
+//! (`1,2`). The first request is always a protocol-1 JSON frame: a four-byte little-endian
+//! unsigned JSON byte length, followed by `{"op":"describe"}`. Its successful response payload
+//! contains JSON matching [`StdioDescriptor`], checked against the verified artifact's manifest.
+//! The descriptor's `protocol_version` selects the framing of every later frame:
+//!
+//! * Protocol 1 ([`STDIO_PROTOCOL_VERSION`]): JSON envelopes,
+//!   `{"op":"call","contract":"name","method":"name","payload":[0,255]}` answered by
+//!   `{"status":0,"payload":[0,255]}`, with payloads as JSON byte arrays. Calls are serialized
+//!   across all contracts sharing the executable, and a timeout is fatal.
+//! * Protocol 2 ([`STDIO_BINARY_PROTOCOL_VERSION`]): binary frames ([`frame`]) carrying raw payload
+//!   bytes and a request id. A protocol-2 descriptor may add `max_in_flight` (default 1): the host
+//!   pipelines up to that many unanswered requests and the sidecar may answer them in any order.
+//!   A timeout abandons only its own request (a late response is dropped) unless the sidecar
+//!   answered nothing during the whole deadline, which is fatal.
+//!
+//! Status codes use `AlefStatus` semantics; a nonzero status carries error message bytes. The wire
+//! format is specified in `docs/design/component-stdio-binary-protocol.md`.
 //!
 //! This transport supports [`crate::LoadedComponent::invoke_bytes`]. Arbitrary generated C
 //! function tables cannot be represented across a process boundary: typed table access and
 //! typed instance creation return an explicit unsupported-transport error.
 
+mod binary;
+pub mod frame;
+mod handshake;
 mod process;
 
 pub(crate) use process::{SidecarPolicy, SidecarProcess};
@@ -28,10 +42,26 @@ use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::sync::Arc;
 
+pub use frame::{
+    BINARY_FRAME_MAGIC, BINARY_FRAME_PREFIX_LEN, BinaryFrame, BinaryFrameKind, MAX_BINARY_HEADER_SIZE,
+    RESPONSE_HEADER_LEN, decode_call_header, decode_response_header, encode_binary_frame, encode_call_header,
+    encode_response_header, read_binary_frame, write_binary_frame,
+};
+
+/// The JSON-envelope protocol every sidecar speaks for `describe`, and for every later frame when
+/// its descriptor declares this version.
 pub const STDIO_PROTOCOL_VERSION: u32 = 1;
+/// The binary-frame protocol: raw payload bytes, request ids, optional pipelining.
+pub const STDIO_BINARY_PROTOCOL_VERSION: u32 = 2;
+/// Environment variable the host sets on the child: the comma-separated protocol versions it
+/// speaks. A sidecar declares protocol 2 only when this lists `2`, so it still serves older hosts.
+pub const STDIO_PROTOCOLS_ENV: &str = "ALEF_STDIO_PROTOCOLS";
+/// Largest JSON body of a protocol-1 frame, and largest payload of a protocol-2 frame.
 pub const MAX_FRAME_SIZE: usize = 16 * 1024 * 1024;
 
-/// Metadata returned as JSON inside the successful `describe` response payload.
+/// Metadata returned as JSON inside the successful `describe` response payload. A protocol-2
+/// descriptor may also carry `max_in_flight`, which the runtime reads separately so this type stays
+/// exactly the protocol-1 shape.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StdioDescriptor {

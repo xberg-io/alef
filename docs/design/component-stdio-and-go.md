@@ -7,7 +7,7 @@ The [component distribution reference](components.md) covers signing, locks and 
 | Producer | Host invocation | Constraints |
 | --- | --- | --- |
 | Native Rust or Go shared library | Existing typed C ABI and native binding hosts | Go c-shared supports one Go runtime per process |
-| Executable sidecar | `LoadedComponent::invoke_bytes` | Serialized bytes-only calls; no typed C tables or host callbacks |
+| Executable sidecar | `LoadedComponent::invoke_bytes` | Bytes-only calls, serialized under protocol 1 and pipelined under protocol 2; no typed C tables or host callbacks |
 
 To use several Go producers in one application, isolate them in executable/stdio processes. The Go c-shared generator does not generate those executables.
 
@@ -47,7 +47,7 @@ let codec = manager.ensure_contract("codec", "codec", b"alef_component_entry_v1_
 let output = codec.invoke_bytes("transform", b"hello")?;
 ```
 
-The entry-symbol argument is retained for the common native/stdio API; stdio dispatch uses the contract name. The default deadline is 30 seconds. One long-lived connection serves every contract of the component, with calls serialized across them; after a fatal error it is respawned within the restart budget (default 1).
+The entry-symbol argument is retained for the common native/stdio API; stdio dispatch uses the contract name. The default deadline is 30 seconds. One long-lived connection serves every contract of the component. A protocol-1 sidecar serves one call at a time across them; a protocol-2 sidecar serves up to the `max_in_flight` it declares, concurrently. After a fatal error the connection is respawned within the restart budget (default 1).
 
 ## Build an executable producer with alef
 
@@ -92,6 +92,8 @@ The build host needs a POSIX `sh` on `PATH`, Windows included (Git for Windows o
 and `package` stop with a clear error when it is missing.
 
 ## Implement the stdio protocol
+
+This section describes protocol 1, which every host speaks. New sidecars should also implement [protocol 2](component-stdio-binary-protocol.md): it carries payloads as raw bytes, so the full 16 MiB limit is available to content, and lets the host send concurrent calls. A sidecar selects it in the describe response when the host advertises it, and keeps serving older hosts with protocol 1.
 
 Stdin and stdout carry frames only; write diagnostics to stderr. Each frame is a four-byte little-endian unsigned body length followed by that many JSON bytes. Valid lengths are 1 through 16,777,216 bytes. Flush each response. Payloads are JSON arrays of byte values, including descriptor JSON encoded as bytes.
 
@@ -138,7 +140,7 @@ Answer exactly once per request. A nonzero ABI status carries error-message byte
 
 A host that builds a session on the connection (an `Init` call, one registration per engine config) passes it to `ComponentManager::with_sidecar_session`; the setup runs after the first spawn and after every respawn, and must send its calls through the `SidecarSession` it is given. `with_sidecar_restart_budget` sets the respawn budget, `with_sidecar_restart_event` logs rebuilds as they happen and `sidecar_restart_count` reports the count. A status query observes without respawning.
 
-Rust producers can use the runtime's public `stdio::{StdioDescriptor, StdioRequest, StdioResponse, read_frame, write_frame}` helpers. The helpers frame JSON bytes; producers still serialize envelopes and implement dispatch. Typed instance creation, typed contract-table access and host callback services are unsupported over this transport.
+Rust producers can use the runtime's public `stdio::{StdioDescriptor, StdioRequest, StdioResponse, read_frame, write_frame}` helpers, and `stdio::{read_binary_frame, write_binary_frame, decode_call_header, encode_response_header}` for protocol 2. The helpers frame JSON bytes; producers still serialize envelopes and implement dispatch. Typed instance creation, typed contract-table access and host callback services are unsupported over this transport.
 
 ## Generate a Go c-shared producer
 

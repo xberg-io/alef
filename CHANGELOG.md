@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Stdio protocol 2 for executable component sidecars: binary frames carry payloads as raw bytes, so the full 16 MiB frame limit is available to content, and request ids let one sidecar serve concurrent calls up to the `max_in_flight` it declares. The host advertises it through `ALEF_STDIO_PROTOCOLS` and uses it only with sidecars whose describe response selects it; protocol-1 sidecars keep their JSON framing. A protocol-2 timeout abandons only its own request unless the sidecar answered nothing for the whole deadline, and a dead or misbehaving sidecar fails every in-flight call at once. New public `stdio` items: `STDIO_BINARY_PROTOCOL_VERSION`, `STDIO_PROTOCOLS_ENV` and the `frame` module (`read_binary_frame`, `write_binary_frame`, `encode_binary_frame`, call and response header helpers). Wire format: `docs/design/component-stdio-binary-protocol.md`; ADR-0025. (Goldziher/polylint#189)
+
+### Fixed
+
+- Reject a protocol-1 stdio request whose JSON encoding exceeds the frame limit without stopping the sidecar.
+
 ## [0.129.9] - 2026-11-15
 
 ### Fixed

@@ -33,3 +33,4 @@ log; add a row in the same change as a new record.
 | [0022](../adrs/0022-preserve-swift-opaque-vector-input-ownership.md) | Preserve Swift opaque vector input ownership | accepted | 2026-11-05 |
 | [0023](../adrs/0023-executable-component-producers.md) | Executable component producers | proposed | 2026-11-06 |
 | [0024](../adrs/0024-respawn-stdio-sidecars-after-a-fatal-connection-failure.md) | Respawn stdio sidecars after a fatal connection failure | accepted | 2026-11-08 |
+| [0025](../adrs/0025-pipeline-binary-frames-over-stdio-sidecar-connections.md) | Pipeline binary frames over stdio sidecar connections | proposed | 2026-11-15 |

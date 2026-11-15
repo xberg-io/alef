@@ -1,14 +1,15 @@
+use super::binary::{BinaryConnection, CallError};
+use super::handshake::{self, Handshake, Negotiated};
 use super::{
-    STDIO_PROTOCOL_VERSION, SidecarRestartEvent, SidecarSession, SidecarSessionSetup, StdioDescriptor, StdioRequest,
+    MAX_FRAME_SIZE, STDIO_PROTOCOLS_ENV, SidecarRestartEvent, SidecarSession, SidecarSessionSetup, StdioRequest,
     StdioResponse, read_frame, write_frame,
 };
-use crate::loader::decode_hash;
 use crate::{ComponentError, ComponentManifest};
-use alef_component_abi::{ABI_MAJOR_V1, ABI_MINOR_V1};
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Mutex, PoisonError, mpsc};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, TryLockError, mpsc};
 use std::time::Duration;
 
 // On a multi-threaded host, another thread can fork while the just-installed sidecar executable's write
@@ -18,9 +19,21 @@ use std::time::Duration;
 const SPAWN_BUSY_RETRIES: u32 = 200;
 const SPAWN_BUSY_BACKOFF: Duration = Duration::from_millis(10);
 
+/// The protocol versions this host speaks, as advertised to the child in [`STDIO_PROTOCOLS_ENV`].
+const ADVERTISED_PROTOCOLS: &str = "1,2";
+
 struct Exchange {
     request: Vec<u8>,
     response: mpsc::Sender<Result<Vec<u8>, ComponentError>>,
+}
+
+/// The protocol-specific half of a running connection, chosen by the describe handshake.
+enum Connection {
+    /// Protocol 1: one exchange at a time through the stdio thread. A caller holds the
+    /// `connection` guard for its whole exchange, which is what serializes calls.
+    Json(mpsc::Sender<Exchange>),
+    /// Protocol 2: pipelined. A caller clones the handle and releases the guard before it waits.
+    Binary(Arc<BinaryConnection>),
 }
 
 /// Optional respawn knobs for a stdio connection, shared by every [`SidecarProcess`] a
@@ -46,15 +59,17 @@ pub(crate) struct SidecarProcess {
     executable: PathBuf,
     manifest: ComponentManifest,
     child: Mutex<Child>,
-    sender: Mutex<Option<mpsc::Sender<Exchange>>>,
+    connection: Mutex<Option<Connection>>,
     timeout: Duration,
     stopped: AtomicBool,
     policy: SidecarPolicy,
     restarts: AtomicU32,
     respawn_attempts: AtomicU32,
     // Respawn serialization. Taken with no other lock held; inside it, `child` (in `stop`) and
-    // `sender` (to swap) are each taken briefly. `exchange` holds `sender` across a whole call,
-    // which is what keeps a respawn waiting behind an in-flight call.
+    // `connection` (to swap) are taken briefly, `connection` before `child` whenever both are held.
+    // A protocol-1 exchange holds `connection` across a whole call, which keeps a respawn waiting
+    // behind it; a protocol-2 call holds its own handle to the connection instead, so a respawn
+    // replaces the connection under it and the call fails with the old child.
     respawn: Mutex<()>,
 }
 
@@ -65,12 +80,12 @@ impl SidecarProcess {
         timeout: Duration,
         policy: SidecarPolicy,
     ) -> Result<Self, ComponentError> {
-        let (child, channel) = Self::start_child(executable)?;
+        let (child, connection) = Self::start_child(executable, manifest, timeout)?;
         let process = Self {
             executable: executable.to_owned(),
             manifest: manifest.clone(),
             child: Mutex::new(child),
-            sender: Mutex::new(None),
+            connection: Mutex::new(Some(connection)),
             timeout,
             stopped: AtomicBool::new(false),
             policy,
@@ -78,8 +93,6 @@ impl SidecarProcess {
             respawn_attempts: AtomicU32::new(0),
             respawn: Mutex::new(()),
         };
-        process.describe(&channel)?;
-        *process.sender.lock().unwrap_or_else(PoisonError::into_inner) = Some(channel);
         if let Err(error) = process.run_session() {
             process.stop();
             return Err(error);
@@ -87,12 +100,18 @@ impl SidecarProcess {
         Ok(process)
     }
 
-    /// Start one child for `executable` plus its framed-exchange reader thread. Shared by `spawn`
-    /// and by every respawn; the caller installs the returned pair on `self` (or cleans it up).
-    fn start_child(executable: &Path) -> Result<(Child, mpsc::Sender<Exchange>), ComponentError> {
+    /// Start one child for `executable`, run the describe handshake against `manifest` and connect
+    /// with the protocol it negotiated. Shared by `spawn` and by every respawn; the caller installs
+    /// the returned pair on `self`. A child that fails here is killed and reaped.
+    fn start_child(
+        executable: &Path,
+        manifest: &ComponentManifest,
+        timeout: Duration,
+    ) -> Result<(Child, Connection), ComponentError> {
         make_executable(executable)?;
         let mut child = retry_executable_busy(SPAWN_BUSY_RETRIES, SPAWN_BUSY_BACKOFF, || {
             Command::new(executable)
+                .env(STDIO_PROTOCOLS_ENV, ADVERTISED_PROTOCOLS)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::inherit())
@@ -101,10 +120,32 @@ impl SidecarProcess {
         .map_err(|error| {
             ComponentError::SidecarProtocol(format!("failed to start {}: {error}", executable.display()))
         })?;
-        let mut stdin = child.stdin.take().expect("piped child stdin missing");
-        let mut stdout = child.stdout.take().expect("piped child stdout missing");
+        let stdin = child.stdin.take().expect("piped child stdin missing");
+        let stdout = child.stdout.take().expect("piped child stdout missing");
+        match handshake::describe(stdin, stdout, manifest, timeout).and_then(Self::connect) {
+            Ok(connection) => Ok((child, connection)),
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                Err(error)
+            }
+        }
+    }
+
+    fn connect(handshake: Handshake) -> Result<Connection, ComponentError> {
+        match handshake.negotiated {
+            Negotiated::Json => Self::json_channel(handshake.stdin, handshake.stdout).map(Connection::Json),
+            Negotiated::Binary { max_in_flight } => {
+                BinaryConnection::start(handshake.stdin, BufReader::new(handshake.stdout), max_in_flight)
+                    .map(|binary| Connection::Binary(Arc::new(binary)))
+            }
+        }
+    }
+
+    /// The protocol-1 exchange thread: writes one request frame, reads its response, repeats.
+    fn json_channel(mut stdin: ChildStdin, mut stdout: ChildStdout) -> Result<mpsc::Sender<Exchange>, ComponentError> {
         let (sender, receiver) = mpsc::channel::<Exchange>();
-        let reader = std::thread::Builder::new()
+        std::thread::Builder::new()
             .name("alef-sidecar-stdio".into())
             .spawn(move || {
                 while let Ok(exchange) = receiver.recv() {
@@ -114,32 +155,8 @@ impl SidecarProcess {
                         break;
                     }
                 }
-            });
-        match reader {
-            Ok(_reader) => Ok((child, sender)),
-            Err(error) => {
-                // Without the reader thread nothing drains the child, and the streams moved into
-                // the closure die with it: do not leave the child running.
-                let _ = child.kill();
-                let _ = child.wait();
-                Err(error.into())
-            }
-        }
-    }
-
-    /// Describe a freshly started child over its not-yet-installed channel and check the descriptor
-    /// against the manifest this process was spawned from.
-    fn describe(&self, channel: &mpsc::Sender<Exchange>) -> Result<(), ComponentError> {
-        let response = Self::request(channel, self.timeout, &StdioRequest::Describe)?;
-        if response.status != 0 {
-            return Err(ComponentError::SidecarCall {
-                status: response.status,
-                message: String::from_utf8_lossy(&response.payload).into_owned(),
-            });
-        }
-        let descriptor: StdioDescriptor = serde_json::from_slice(&response.payload)
-            .map_err(|error| ComponentError::SidecarProtocol(format!("invalid describe payload: {error}")))?;
-        validate_descriptor(&descriptor, &self.manifest)
+            })?;
+        Ok(sender)
     }
 
     /// Replay the host's session setup on this connection. Its calls bypass the liveness gate: the
@@ -153,8 +170,9 @@ impl SidecarProcess {
     }
 
     pub(crate) fn invoke(&self, contract: &str, method: &str, payload: &[u8]) -> Result<Vec<u8>, ComponentError> {
-        let request = Self::call_request(contract, method, payload)?;
-        self.exchange(&request)
+        check_payload(payload)?;
+        self.ensure_running()?;
+        self.exchange(contract, method, payload, true)
     }
 
     /// Like [`Self::invoke`], for a [`SidecarSession`]: the caller has just established that the
@@ -165,29 +183,16 @@ impl SidecarProcess {
         method: &str,
         payload: &[u8],
     ) -> Result<Vec<u8>, ComponentError> {
-        let request = Self::call_request(contract, method, payload)?;
-        self.exchange_running(&request)
-    }
-
-    fn call_request(contract: &str, method: &str, payload: &[u8]) -> Result<StdioRequest, ComponentError> {
-        if payload.len() > super::MAX_FRAME_SIZE {
-            return Err(ComponentError::SidecarProtocol(
-                "request payload exceeds frame limit".into(),
-            ));
-        }
-        Ok(StdioRequest::Call {
-            contract: contract.to_owned(),
-            method: method.to_owned(),
-            payload: payload.to_owned(),
-        })
+        check_payload(payload)?;
+        self.exchange(contract, method, payload, false)
     }
 
     pub(crate) fn restart_count(&self) -> u32 {
         self.restarts.load(Ordering::Acquire)
     }
 
-    /// Passive liveness probe: the connection is not stopped and the child has not exited. Never
-    /// respawns, never spends the restart budget.
+    /// Passive liveness probe: the connection is not stopped, its transport has not failed and the
+    /// child has not exited. Never respawns, never spends the restart budget.
     pub(crate) fn is_running(&self) -> bool {
         if self.stopped.load(Ordering::Acquire) {
             return false;
@@ -196,7 +201,7 @@ impl SidecarProcess {
             let mut child = self.child.lock().unwrap_or_else(PoisonError::into_inner);
             child.try_wait().is_ok_and(|status| status.is_some())
         };
-        !exited
+        !exited && !self.transport_failed()
     }
 
     pub(crate) fn ensure_running(&self) -> Result<(), ComponentError> {
@@ -207,13 +212,26 @@ impl SidecarProcess {
             let mut child = self.child.lock().unwrap_or_else(PoisonError::into_inner);
             child.try_wait()?.is_some()
         };
-        if !exited {
+        if !exited && !self.transport_failed() {
             return Ok(());
         }
         self.stopped.store(true, Ordering::Release);
         // The child lock is dropped before respawning: `try_respawn` re-takes it in `stop`, and the
-        // respawn mutex must never be waited for while holding `child` or `sender`.
+        // respawn mutex must never be waited for while holding `child` or `connection`.
         self.try_respawn()
+    }
+
+    /// Whether a protocol-2 connection's reader or writer has already failed (a broken frame, an
+    /// unknown response id, a failed write) while the child may still be running. Never waits for
+    /// the connection guard: a protocol-1 exchange holds it for a whole call, and a protocol-1
+    /// connection never fails this way. A protocol-2 failure missed here is caught by the next call.
+    fn transport_failed(&self) -> bool {
+        let connection = match self.connection.try_lock() {
+            Ok(guard) => guard,
+            Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(TryLockError::WouldBlock) => return false,
+        };
+        matches!(connection.as_ref(), Some(Connection::Binary(binary)) if binary.is_dead())
     }
 
     /// Replace a dead connection with a fresh child, within [`SidecarPolicy::restart_budget`]. The
@@ -235,22 +253,21 @@ impl SidecarProcess {
             self.respawn_attempts.fetch_add(1, Ordering::AcqRel);
             // Reaps the old child, whether it was killed earlier or exited on its own.
             self.stop();
-            let (mut child, channel) = Self::start_child(&self.executable)?;
-            if let Err(error) = self.describe(&channel) {
-                // This child is not adopted; do not leave it lingering past the failed respawn.
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(error);
+            let (child, connection) = Self::start_child(&self.executable, &self.manifest, self.timeout)?;
+            {
+                // Swapped together under the connection guard, so a failing protocol-2 call that
+                // checks its handle against the current connection never stops the new child.
+                let mut current = self.lock_connection();
+                *self.child.lock().unwrap_or_else(PoisonError::into_inner) = child;
+                *current = Some(connection);
             }
-            *self.child.lock().unwrap_or_else(PoisonError::into_inner) = child;
-            *self.sender.lock().unwrap_or_else(PoisonError::into_inner) = Some(channel);
             if let Err(error) = self.run_session() {
                 self.stop();
                 return Err(error);
             }
             // Published only once the session setup has succeeded, so nothing is dispatched to the
             // new child before it is ready to serve the host's calls (the gated call path re-checks
-            // `stopped` under the sender guard).
+            // `stopped` under the connection guard).
             self.stopped.store(false, Ordering::Release);
             // The count is committed while the guard is still held, so no later respawn can record
             // itself before this one; the handler runs after the guard is released, because it may
@@ -263,64 +280,85 @@ impl SidecarProcess {
         Ok(())
     }
 
-    fn exchange(&self, request: &StdioRequest) -> Result<Vec<u8>, ComponentError> {
-        self.ensure_running()?;
-        self.exchange_gated(request)
-    }
-
-    /// The call itself, over the channel installed on `self` (the caller has ensured the process is
-    /// running). A transport failure kills the connection; the next call respawns it.
-    fn exchange_running(&self, request: &StdioRequest) -> Result<Vec<u8>, ComponentError> {
-        let mut sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
-        self.dispatch(&mut sender, request)
-    }
-
-    /// The gated call path. After taking the sender guard it re-checks `stopped`: a respawn swaps
-    /// the channel under that guard and publishes `stopped = false` only once its session setup has
-    /// finished, so this re-check is what keeps a call that raced the liveness gate from reaching
-    /// the new child before it is ready to serve host calls.
-    fn exchange_gated(&self, request: &StdioRequest) -> Result<Vec<u8>, ComponentError> {
-        let mut sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
-        if self.stopped.load(Ordering::Acquire) {
+    /// The call itself, over the connection installed on `self`. When `gated`, it re-checks
+    /// `stopped` after taking the connection guard: a respawn swaps the connection under that guard
+    /// and publishes `stopped = false` only once its session setup has finished, so this re-check
+    /// is what keeps a call that raced the liveness gate from reaching the new child before it is
+    /// ready to serve host calls. Session-setup calls are not gated.
+    fn exchange(&self, contract: &str, method: &str, payload: &[u8], gated: bool) -> Result<Vec<u8>, ComponentError> {
+        let mut connection = self.lock_connection();
+        if gated && self.stopped.load(Ordering::Acquire) {
             return Err(ComponentError::SidecarStopped);
         }
-        self.dispatch(&mut sender, request)
-    }
-
-    /// Send one request over the installed channel, the sender guard already held. A transport
-    /// failure kills the connection; the next gated call respawns it.
-    fn dispatch(
-        &self,
-        sender: &mut Option<mpsc::Sender<Exchange>>,
-        request: &StdioRequest,
-    ) -> Result<Vec<u8>, ComponentError> {
-        let channel = sender.as_ref().ok_or(ComponentError::SidecarStopped)?;
-        let response = match Self::request(channel, self.timeout, request) {
-            Ok(response) => response,
-            Err(error) => {
-                *sender = None;
-                self.stop();
-                return Err(error);
-            }
+        let binary = match connection.as_ref() {
+            None => return Err(ComponentError::SidecarStopped),
+            Some(Connection::Json(_)) => return self.call_json(&mut connection, contract, method, payload),
+            Some(Connection::Binary(binary)) => Arc::clone(binary),
         };
-        if response.status != 0 {
-            return Err(ComponentError::SidecarCall {
-                status: response.status,
-                message: String::from_utf8_lossy(&response.payload).into_owned(),
-            });
-        }
-        Ok(response.payload)
+        drop(connection);
+        self.call_binary(&binary, contract, method, payload)
     }
 
-    /// Send one framed request over `channel` and collect its response envelope, with no side
-    /// effects of its own: the caller decides what a transport failure means for the connection.
-    fn request(
+    /// A protocol-2 call. Only a fatal failure stops the connection, and only if it is still the
+    /// one the call was sent on.
+    fn call_binary(
+        &self,
+        binary: &Arc<BinaryConnection>,
+        contract: &str,
+        method: &str,
+        payload: &[u8],
+    ) -> Result<Vec<u8>, ComponentError> {
+        match binary.call(contract, method, payload, self.timeout) {
+            Ok((status, payload)) => status_result(status, payload),
+            Err(CallError::Recoverable(error)) => Err(error),
+            Err(CallError::Fatal(error)) => {
+                let mut current = self.lock_connection();
+                if matches!(current.as_ref(), Some(Connection::Binary(installed)) if Arc::ptr_eq(installed, binary)) {
+                    *current = None;
+                    self.stop();
+                }
+                Err(error)
+            }
+        }
+    }
+
+    /// A protocol-1 exchange, the connection guard held throughout. A transport failure kills the
+    /// connection; the next gated call respawns it.
+    fn call_json(
+        &self,
+        connection: &mut MutexGuard<'_, Option<Connection>>,
+        contract: &str,
+        method: &str,
+        payload: &[u8],
+    ) -> Result<Vec<u8>, ComponentError> {
+        let request = serde_json::to_vec(&StdioRequest::Call {
+            contract: contract.to_owned(),
+            method: method.to_owned(),
+            payload: payload.to_owned(),
+        })?;
+        // Checked before anything is sent: a request whose JSON encoding outgrows the frame limit
+        // is the caller's error and leaves the connection usable.
+        super::validate_length(request.len())?;
+        let Some(Connection::Json(channel)) = connection.as_ref() else {
+            return Err(ComponentError::SidecarStopped);
+        };
+        match Self::json_request(channel, self.timeout, request) {
+            Ok(response) => status_result(response.status, response.payload),
+            Err(error) => {
+                **connection = None;
+                self.stop();
+                Err(error)
+            }
+        }
+    }
+
+    /// Send one protocol-1 request frame over `channel` and collect its response envelope, with no
+    /// side effects of its own: the caller decides what a transport failure means.
+    fn json_request(
         channel: &mpsc::Sender<Exchange>,
         timeout: Duration,
-        request: &StdioRequest,
+        request: Vec<u8>,
     ) -> Result<StdioResponse, ComponentError> {
-        let request = serde_json::to_vec(request)?;
-        super::validate_length(request.len())?;
         let (response_sender, response) = mpsc::channel();
         channel
             .send(Exchange {
@@ -339,6 +377,10 @@ impl SidecarProcess {
             })
     }
 
+    fn lock_connection(&self) -> MutexGuard<'_, Option<Connection>> {
+        self.connection.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     fn stop(&self) {
         self.stopped.store(true, Ordering::Release);
         let mut child = self.child.lock().unwrap_or_else(PoisonError::into_inner);
@@ -354,38 +396,23 @@ impl Drop for SidecarProcess {
     }
 }
 
-fn validate_descriptor(descriptor: &StdioDescriptor, manifest: &ComponentManifest) -> Result<(), ComponentError> {
-    if descriptor.protocol_version != STDIO_PROTOCOL_VERSION {
-        return Err(ComponentError::SidecarProtocol("unsupported protocol version".into()));
-    }
-    if descriptor.abi_major != ABI_MAJOR_V1 || descriptor.abi_minor > ABI_MINOR_V1 {
-        return Err(ComponentError::IncompatibleAbi {
-            expected_major: ABI_MAJOR_V1,
-            expected_minor: ABI_MINOR_V1,
-            actual_major: descriptor.abi_major,
-            actual_minor: descriptor.abi_minor,
-        });
-    }
-    if descriptor.component_id != manifest.identity.component {
-        return Err(ComponentError::IdentityMismatch {
-            expected: manifest.identity.component.clone(),
-            actual: descriptor.component_id.clone(),
-        });
-    }
-    if descriptor.component_version != manifest.identity.version {
+fn check_payload(payload: &[u8]) -> Result<(), ComponentError> {
+    if payload.len() > MAX_FRAME_SIZE {
         return Err(ComponentError::SidecarProtocol(
-            "component version does not match manifest".into(),
-        ));
-    }
-    if decode_hash(&descriptor.feature_set_hash)? != decode_hash(&manifest.identity.feature_hash)? {
-        return Err(ComponentError::FeatureSetHashMismatch);
-    }
-    if descriptor.provides != manifest.provides {
-        return Err(ComponentError::SidecarProtocol(
-            "provided contracts do not match manifest".into(),
+            "request payload exceeds frame limit".into(),
         ));
     }
     Ok(())
+}
+
+fn status_result(status: i32, payload: Vec<u8>) -> Result<Vec<u8>, ComponentError> {
+    if status != 0 {
+        return Err(ComponentError::SidecarCall {
+            status,
+            message: String::from_utf8_lossy(&payload).into_owned(),
+        });
+    }
+    Ok(payload)
 }
 
 /// Calls `try_start`, retrying while the error kind is `ExecutableFileBusy`.

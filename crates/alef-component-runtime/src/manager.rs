@@ -134,7 +134,10 @@ impl ComponentManager {
 
     /// Set the response deadline for stdio handshakes and calls (default: 30 seconds). A timeout
     /// terminates the child; the connection is then respawned from the verified executable on a
-    /// later call, within the restart budget (see [`Self::with_sidecar_restart_budget`]).
+    /// later call, within the restart budget (see [`Self::with_sidecar_restart_budget`]). On a
+    /// protocol-2 connection a call's timeout terminates the child only when the sidecar answered
+    /// nothing during the whole deadline; otherwise only that call fails and its late response is
+    /// dropped.
     #[must_use]
     pub fn with_sidecar_timeout(mut self, timeout: Duration) -> Self {
         self.sidecar_timeout = timeout;

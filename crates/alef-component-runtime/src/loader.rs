@@ -77,7 +77,7 @@ pub struct ComponentInstance<T: AlefContract> {
 }
 
 // SAFETY: native metadata is static and pinned; sidecar metadata is owned and immutable,
-// and its process serializes calls. Host callback context thread-safety is part of the
+// and its process synchronizes concurrent calls internally. Host callback context thread-safety is part of the
 // `AlefHostApiV1` contract supplied by the caller. ~keep
 unsafe impl Send for LoadedComponent {}
 unsafe impl Sync for LoadedComponent {}
