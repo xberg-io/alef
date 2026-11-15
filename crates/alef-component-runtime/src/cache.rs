@@ -6,7 +6,6 @@ use crate::{ComponentError, ComponentLockEntry, ComponentManifest, ComponentSign
 use base64::Engine as _;
 use ed25519_dalek::{Signature, Verifier as _};
 use flate2::read::GzDecoder;
-use fs2::FileExt as _;
 use sha2::{Digest as _, Sha256};
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
@@ -255,7 +254,7 @@ impl ArtifactCache {
             .create(true)
             .truncate(false)
             .open(lock_path)?;
-        lock.lock_exclusive()?;
+        lock.lock()?;
 
         let destination = self.object_path(entry)?;
         if destination.is_dir()

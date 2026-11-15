@@ -17,7 +17,6 @@ alef-component-abi = { path = "../alef-component-abi", version = "0.129.9" }
 base64 = "0.23"
 ed25519-dalek = { version = "3", features = ["pem", "pkcs8"] }
 flate2 = "1"
-fs2 = "0.4"
 hex = "0.4"
 libloading = "0.9"
 serde = { version = "1", features = ["derive"] }

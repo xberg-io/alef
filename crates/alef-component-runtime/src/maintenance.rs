@@ -4,7 +4,6 @@
 
 use crate::ArtifactCache;
 use crate::ComponentError;
-use fs2::FileExt as _;
 use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
@@ -283,7 +282,7 @@ impl ArtifactCache {
             .read(true)
             .write(true)
             .open(path)
-            .is_ok_and(|file| file.try_lock_exclusive().is_ok())
+            .is_ok_and(|file| file.try_lock().is_ok())
     }
 
     fn remove_lock_if_idle(&self, sha256: &str) {
@@ -490,7 +489,7 @@ mod tests {
             .truncate(false)
             .open(&lock_path)
             .unwrap();
-        held.lock_exclusive().unwrap();
+        held.lock().unwrap();
 
         cache.clean_leftovers(Duration::ZERO, SystemTime::now()).unwrap();
 

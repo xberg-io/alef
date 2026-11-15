@@ -147,6 +147,10 @@ impl DownloadOptions {
     }
 
     /// The ureq TLS configuration for these options. `url` only labels the error.
+    #[cfg_attr(
+        feature = "platform-verifier",
+        expect(unused_variables, reason = "only the build without the feature reports the URL")
+    )]
     pub(crate) fn tls_config(&self, url: &str) -> Result<ureq::tls::TlsConfig, ComponentError> {
         let roots = match self.root_certs {
             RootCerts::WebPki => ureq::tls::RootCerts::WebPki,
@@ -162,7 +166,6 @@ impl DownloadOptions {
                 });
             }
         };
-        let _ = url;
         Ok(ureq::tls::TlsConfig::builder().root_certs(roots).build())
     }
 
