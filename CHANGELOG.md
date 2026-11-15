@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Reject a protocol-1 stdio request whose JSON encoding exceeds the frame limit without stopping the sidecar.
+- Hash installed component libraries in 64 KiB chunks instead of reading the whole library into memory on every verification.
 
 ## [0.129.9] - 2026-11-15
 

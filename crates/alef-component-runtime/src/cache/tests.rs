@@ -5,8 +5,14 @@ use std::io::Cursor;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
-fn package(signing: Option<(&SigningKey, &str)>) -> (Vec<u8>, ComponentLockEntry) {
-    let library = b"native";
+pub(super) fn package(signing: Option<(&SigningKey, &str)>) -> (Vec<u8>, ComponentLockEntry) {
+    package_with_library(signing, b"native")
+}
+
+pub(super) fn package_with_library(
+    signing: Option<(&SigningKey, &str)>,
+    library: &[u8],
+) -> (Vec<u8>, ComponentLockEntry) {
     let identity = ComponentIdentity {
         crate_name: "demo-core".into(),
         component: "fast".into(),
@@ -68,7 +74,7 @@ fn package(signing: Option<(&SigningKey, &str)>) -> (Vec<u8>, ComponentLockEntry
     (compressed, entry)
 }
 
-fn append(builder: &mut tar::Builder<flate2::write::GzEncoder<&mut Vec<u8>>>, path: &str, content: &[u8]) {
+pub(super) fn append(builder: &mut tar::Builder<flate2::write::GzEncoder<&mut Vec<u8>>>, path: &str, content: &[u8]) {
     let mut header = tar::Header::new_gnu();
     header.set_size(content.len() as u64);
     header.set_mode(0o644);
@@ -160,6 +166,27 @@ fn verify_cached_reports_a_size_mismatch_for_a_truncated_library() {
     assert!(matches!(
         cache.verify_cached(&entry),
         Err(ComponentError::SizeMismatch { .. })
+    ));
+}
+
+/// A library larger than one hash chunk verifies, and an edit past the first chunk is still
+/// caught: the chunked hash covers the whole file, not just the first read.
+#[test]
+fn verify_cached_hashes_every_chunk_of_a_large_library() {
+    let library: Vec<u8> = (0..3 * HASH_CHUNK + 17).map(|index| (index % 251) as u8).collect();
+    let (bytes, entry) = package_with_library(None, &library);
+    let dir = tempfile::tempdir().unwrap();
+    let cache = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly);
+    let installed = cache.install_from_reader(&entry, Cursor::new(bytes)).unwrap();
+    assert_eq!(cache.verify_cached(&entry).unwrap(), installed);
+
+    let mut edited = library.clone();
+    let last = edited.len() - 1;
+    edited[last] ^= 0xff;
+    fs::write(&installed.library, &edited).unwrap();
+    assert!(matches!(
+        cache.verify_cached(&entry),
+        Err(ComponentError::DigestMismatch { .. })
     ));
 }
 

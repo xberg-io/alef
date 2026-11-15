@@ -381,15 +381,24 @@ impl ArtifactCache {
                 });
             }
         } else {
-            let library_bytes = fs::read(&library).map_err(missing)?;
-            if library_bytes.len() as u64 != manifest.library.size {
+            let file = File::open(&library).map_err(missing)?;
+            let size = file.metadata()?.len();
+            if size != manifest.library.size {
                 return Err(ComponentError::SizeMismatch {
                     expected: manifest.library.size,
-                    actual: library_bytes.len() as u64,
+                    actual: size,
                 });
             }
             let expected_library = decode_digest(&manifest.library.sha256)?;
-            let actual_library = sha256(&library_bytes);
+            // Bounded one byte past the declared size, so a file that grew after the metadata
+            // check is caught as a size mismatch rather than hashed without limit.
+            let (actual_library, hashed) = sha256_reader(file.take(manifest.library.size.saturating_add(1)))?;
+            if hashed != manifest.library.size {
+                return Err(ComponentError::SizeMismatch {
+                    expected: manifest.library.size,
+                    actual: hashed,
+                });
+            }
             if expected_library != actual_library {
                 return Err(ComponentError::DigestMismatch {
                     expected: manifest.library.sha256.clone(),
@@ -459,6 +468,28 @@ pub(crate) fn decode_digest(value: &str) -> Result<[u8; 32], ComponentError> {
 
 fn sha256(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
+}
+
+/// Size of the read buffer used to hash installed libraries.
+const HASH_CHUNK: usize = 64 * 1024;
+
+/// SHA-256 of everything `reader` yields, read in [`HASH_CHUNK`] pieces so a large library is
+/// never held in memory whole. Returns the digest and the number of bytes hashed.
+fn sha256_reader(mut reader: impl Read) -> std::io::Result<([u8; 32], u64)> {
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; HASH_CHUNK];
+    let mut total = 0_u64;
+    loop {
+        let count = match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(count) => count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        };
+        hasher.update(&buffer[..count]);
+        total += count as u64;
+    }
+    Ok((hasher.finalize().into(), total))
 }
 
 fn safe_relative_path(value: &str) -> Result<PathBuf, ComponentError> {
