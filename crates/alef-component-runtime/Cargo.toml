@@ -27,5 +27,8 @@ tempfile = "3"
 thiserror = "2"
 ureq = "3"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [lints.clippy]
 missing_safety_doc = "deny"

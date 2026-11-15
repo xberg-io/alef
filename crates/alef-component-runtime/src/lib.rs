@@ -37,7 +37,7 @@
 //! [`ComponentManager::with_verified_stamp`] (off by default) skips re-hashing an installed
 //! library when a stamp recorded after a full check still matches the file's size, mtime and, on
 //! Unix, device, inode and ctime. See [`ArtifactCache::with_verified_stamp`] for what this does
-//! and does not protect against.
+//! and does not protect against. The stamp is ignored in a cache that other users can write.
 
 mod cache;
 mod download;

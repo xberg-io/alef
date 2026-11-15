@@ -598,6 +598,46 @@ fn verified_stamp_lets_a_matching_library_skip_rehashing() {
     assert_eq!(fs::read(reused.library).unwrap(), b"nativf");
 }
 
+#[cfg(unix)]
+#[test]
+fn a_fresh_cache_creates_its_object_directory_private() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let (bytes, entry) = package(None);
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("nested").join("cache");
+    let cache = ArtifactCache::new(&root, TrustPolicy::DigestOnly);
+    cache.install_from_reader(&entry, Cursor::new(bytes)).unwrap();
+    for path in [root.clone(), cache.objects_dir()] {
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "{}", path.display());
+    }
+    assert!(is_private_dir(&cache.objects_dir()));
+}
+
+/// Regression: the stamp was trusted in a cache any local user could write, where a forged stamp
+/// lets an edited library skip hashing. Such a cache now ignores stamps and hashes every time.
+#[cfg(unix)]
+#[test]
+fn a_group_writable_cache_ignores_the_verified_stamp() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let (bytes, entry) = package(None);
+    let dir = tempfile::tempdir().unwrap();
+    let cache = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly).with_verified_stamp(true);
+    let installed = cache.install_from_reader(&entry, Cursor::new(bytes)).unwrap();
+    assert!(cache.stamp_path(&entry.sha256).is_file(), "a private cache is stamped");
+
+    fs::set_permissions(cache.objects_dir(), fs::Permissions::from_mode(0o770)).unwrap();
+    assert!(!is_private_dir(&cache.objects_dir()));
+    fs::write(&installed.library, b"nativf").unwrap();
+    let forged = stamp::capture(&entry.sha256, &installed.library).unwrap();
+    stamp::write(&cache.stamp_path(&entry.sha256), &forged);
+
+    assert!(matches!(
+        cache.verify_cached(&entry),
+        Err(ComponentError::DigestMismatch { .. })
+    ));
+}
+
 #[test]
 fn verified_stamp_mismatch_forces_full_verification_and_repair() {
     let (bytes, mut entry) = package(None);

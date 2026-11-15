@@ -102,8 +102,10 @@ impl ArtifactCache {
     /// Still caught: replacing the file (new inode), size changes, and edits that change the
     /// mtime or, on Unix, the ctime. Not caught: a same-size in-place edit that restores the
     /// mtime on Windows, or by an attacker who can forge Unix ctime. Anyone able to do that can
-    /// already rewrite the cache (including the stamp), so enable this only for caches that
-    /// only the current user can write.
+    /// already rewrite the cache (including the stamp), so the stamp is honoured only while the
+    /// cache root and its object directory are owned by the current user and not writable by
+    /// group or others (Unix); otherwise every verification hashes the library. The cache creates
+    /// its directories `0700`.
     #[must_use]
     pub fn with_verified_stamp(mut self, enabled: bool) -> Self {
         self.verified_stamp = enabled;
@@ -276,7 +278,7 @@ impl ArtifactCache {
     ) -> Result<(CachedArtifact, VerifiedFile), ComponentError> {
         let expected = decode_digest(&entry.sha256)?;
         let objects = self.root.join("sha256");
-        fs::create_dir_all(&objects)?;
+        create_private_dir_all(&objects)?;
         let lock_path = objects.join(format!("{}.lock", entry.sha256));
         let lock = OpenOptions::new()
             .read(true)
@@ -349,7 +351,7 @@ impl ArtifactCache {
         let verified = verified.relocated(library.clone());
         // Stamped from the verified descriptor, not the path: a file swapped in after the rename
         // must not inherit the stamp.
-        if self.verified_stamp
+        if self.stamp_enabled()
             && let Ok(stamp) = verified
                 .metadata()
                 .and_then(|metadata| stamp::from_metadata(&entry.sha256, &metadata))
@@ -377,7 +379,14 @@ impl ArtifactCache {
         root: &Path,
     ) -> Result<(CachedArtifact, VerifiedFile), ComponentError> {
         let stamp_path = self.stamp_path(&entry.sha256);
-        self.verify_installation(entry, root, self.verified_stamp.then_some(stamp_path.as_path()))
+        self.verify_installation(entry, root, self.stamp_enabled().then_some(stamp_path.as_path()))
+    }
+
+    /// Whether the verified stamp may be read and written: it was requested, and only the
+    /// current user can write the cache. A stamp in a directory others can write vouches for
+    /// nothing, so such a cache is fully re-verified every time instead (ADR-0026).
+    fn stamp_enabled(&self) -> bool {
+        self.verified_stamp && is_private_dir(&self.root) && is_private_dir(&self.objects_dir())
     }
 
     fn verify_installation(
@@ -497,6 +506,38 @@ impl ArtifactCache {
         let signature = Signature::from_slice(&raw_signature).map_err(|_| ComponentError::InvalidSignatureEncoding)?;
         key.verify(manifest_bytes, &signature)
             .map_err(|_| ComponentError::SignatureVerification)
+    }
+}
+
+/// Create `path` and any missing parents readable and writable only by the current user. Existing
+/// directories keep their permissions; [`is_private_dir`] decides what the cache trusts in them.
+fn create_private_dir_all(path: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt as _;
+        fs::DirBuilder::new().recursive(true).mode(0o700).create(path)
+    }
+    #[cfg(not(unix))]
+    {
+        fs::create_dir_all(path)
+    }
+}
+
+/// Whether `path` is a directory owned by the current user that neither its group nor others can
+/// write. On non-Unix platforms permissions are ACLs this does not inspect, so it trusts the
+/// per-user cache location (`%LOCALAPPDATA%`) the host chose.
+pub(crate) fn is_private_dir(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        // SAFETY: `geteuid` takes no arguments, cannot fail and touches no memory.
+        let user = unsafe { libc::geteuid() };
+        fs::metadata(path)
+            .is_ok_and(|metadata| metadata.is_dir() && metadata.uid() == user && metadata.mode() & 0o022 == 0)
+    }
+    #[cfg(not(unix))]
+    {
+        fs::metadata(path).is_ok_and(|metadata| metadata.is_dir())
     }
 }
 
