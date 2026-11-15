@@ -303,7 +303,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_opaque_module_with_
         let mut def_args: Vec<String> = Vec::new();
         if method.receiver.is_some() {
             def_args.push("obj".to_string());
-            call_args.push("obj.ref".to_string());
+            call_args.push("(if is_reference(obj), do: obj, else: obj.ref)".to_string());
         }
         let json_encode_params = crate::backends::rustler::gen_bindings::public_api_args::json_encode_param_indices(
             &method.params,
@@ -314,6 +314,10 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_opaque_module_with_
         for (index, p) in method.params.iter().enumerate() {
             let safe = elixir_safe_param_name(&p.name);
             def_args.push(safe.clone());
+            if matches!(&p.ty, TypeRef::Named(name) if opaque_types.contains(name)) {
+                call_args.push(format!("(if is_struct({safe}), do: {safe}.ref, else: {safe})"));
+                continue;
+            }
             call_args.push(crate::backends::rustler::gen_bindings::public_api_args::nif_arg(
                 index,
                 &safe,

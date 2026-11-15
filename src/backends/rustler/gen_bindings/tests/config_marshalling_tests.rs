@@ -1,7 +1,7 @@
 use super::config_marshalling_fixtures::{config_marshalling_api_surface, json_marshalling_api_surface};
 use super::{RustlerBackend, test_config};
 use crate::core::backend::Backend;
-use crate::core::ir::ApiSurface;
+use crate::core::ir::{ApiSurface, TypeRef};
 
 fn generated_native(api: &ApiSurface) -> String {
     let files = RustlerBackend
@@ -154,10 +154,10 @@ fn free_functions_should_pass_mutable_named_vectors_by_mutable_reference() {
 pub(super) fn assert_opaque_methods_json_encode_named_params() {
     let (_, builder) = generated_public(&config_marshalling_api_surface());
     for expected in [
-        "Native.builder_configure(obj.ref, (cond do is_nil(config) -> nil; is_binary(config) -> config; true -> Jason.encode!(config) end))",
-        "Native.builder_configure_later_async(obj.ref, (cond do is_nil(config) -> nil; is_binary(config) -> config; true -> Jason.encode!(config) end))",
-        "Native.builder_configure_many(obj.ref, (cond do is_nil(configs) -> nil; is_binary(configs) -> configs; true -> Jason.encode!(configs) end))",
-        "Native.builder_configure_many_later_async(obj.ref, (cond do is_nil(configs) -> nil; is_binary(configs) -> configs; true -> Jason.encode!(configs) end))",
+        "Native.builder_configure((if is_reference(obj), do: obj, else: obj.ref), (cond do is_nil(config) -> nil; is_binary(config) -> config; true -> Jason.encode!(config) end))",
+        "Native.builder_configure_later_async((if is_reference(obj), do: obj, else: obj.ref), (cond do is_nil(config) -> nil; is_binary(config) -> config; true -> Jason.encode!(config) end))",
+        "Native.builder_configure_many((if is_reference(obj), do: obj, else: obj.ref), (cond do is_nil(configs) -> nil; is_binary(configs) -> configs; true -> Jason.encode!(configs) end))",
+        "Native.builder_configure_many_later_async((if is_reference(obj), do: obj, else: obj.ref), (cond do is_nil(configs) -> nil; is_binary(configs) -> configs; true -> Jason.encode!(configs) end))",
     ] {
         assert!(builder.contains(expected), "generated Builder wrapper:\n{builder}");
     }
@@ -189,8 +189,8 @@ fn assert_sync_builder_contract(builder: &str) {
         "ref =\n      case Native.builder_with_config(",
         "{:ok, value} -> value",
         "%__MODULE__{ref: ref}",
-        "case Native.builder_configure_many(obj.ref, (cond do is_nil(configs) -> nil; is_binary(configs)",
-        "Native.builder_configure_many_later_async(obj.ref, (cond do is_nil(configs)",
+        "case Native.builder_configure_many((if is_reference(obj), do: obj, else: obj.ref), (cond do is_nil(configs) -> nil; is_binary(configs)",
+        "Native.builder_configure_many_later_async((if is_reference(obj), do: obj, else: obj.ref), (cond do is_nil(configs)",
     ] {
         assert!(
             builder.contains(expected),
@@ -198,7 +198,8 @@ fn assert_sync_builder_contract(builder: &str) {
         );
     }
     assert!(
-        !builder.contains("case Native.builder_configure_many_later_async(obj.ref"),
+        !builder
+            .contains("case Native.builder_configure_many_later_async((if is_reference(obj), do: obj, else: obj.ref)"),
         "async Vec<Config> public result contract must remain unchanged:\n{builder}"
     );
 }
@@ -206,8 +207,8 @@ fn assert_sync_builder_contract(builder: &str) {
 pub(super) fn assert_returns_self_result_shapes() {
     let (root, builder) = generated_public(&config_marshalling_api_surface());
     for call in [
-        "Native.builder_with_config_later_async(obj.ref",
-        "Native.builder_try_with_config(obj.ref",
+        "Native.builder_with_config_later_async((if is_reference(obj), do: obj, else: obj.ref)",
+        "Native.builder_try_with_config((if is_reference(obj), do: obj, else: obj.ref)",
     ] {
         assert_result_wrapper(&builder, call, "%__MODULE__{ref: ref}");
     }
@@ -293,8 +294,8 @@ fn assert_json_public_contract(root: &str, builder: &str) {
     }
     assert!(!root.contains("case MyLib.Native.render_async(metadata)"));
     for expected in [
-        "case Native.builder_set_metadata(obj.ref, metadata) do",
-        "Native.builder_set_metadata_later_async(obj.ref, metadata)",
+        "case Native.builder_set_metadata((if is_reference(obj), do: obj, else: obj.ref), metadata) do",
+        "Native.builder_set_metadata_later_async((if is_reference(obj), do: obj, else: obj.ref), metadata)",
     ] {
         assert!(
             builder.contains(expected),
@@ -317,8 +318,8 @@ fn top_level_methods_should_accept_factory_references_and_exact_wrappers() {
             "missing receiver contract `{expected}`:\n{root}"
         );
     }
-    assert!(!root.contains("MyLib.Native.builder_configure(obj.ref,"));
-    assert!(builder.contains("Native.builder_configure(obj.ref,"));
+    assert!(!root.contains("MyLib.Native.builder_configure((if is_reference(obj), do: obj, else: obj.ref),"));
+    assert!(builder.contains("Native.builder_configure((if is_reference(obj), do: obj, else: obj.ref),"));
 }
 
 #[test]
@@ -332,4 +333,16 @@ fn static_opaque_methods_should_not_normalize_a_nonexistent_receiver() {
     let method = &root[start..];
     assert!(method.contains("MyLib.Native.builder_configure((cond do"));
     assert!(!method.contains("case obj do"));
+}
+
+#[test]
+fn opaque_arguments_accept_wrapped_and_raw_references() {
+    let mut api = config_marshalling_api_surface();
+    let builder = api.types.iter_mut().find(|typ| typ.name == "Builder").unwrap();
+    builder.methods[0].params[0].ty = TypeRef::Named("Builder".into());
+    let (root, builder) = generated_public(&api);
+
+    let argument = "(if is_struct(config), do: config.ref, else: config)";
+    assert!(root.contains(&format!("Native.builder_configure(obj, {argument})")));
+    assert!(builder.contains(&format!("else: obj.ref), {argument})")));
 }

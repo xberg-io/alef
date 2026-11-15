@@ -142,7 +142,13 @@ fn method_arguments(
     for (index, parameter) in method.params.iter().enumerate() {
         let safe_name = elixir_safe_param_name(&parameter.name);
         definitions.push(safe_name.clone());
-        calls.push(nif_arg(index, &safe_name, &json_params, &tagged_params));
+        if matches!(&parameter.ty, TypeRef::Named(name) if opaque_types.contains(name)) {
+            calls.push(format!(
+                "(if is_struct({safe_name}), do: {safe_name}.ref, else: {safe_name})"
+            ));
+        } else {
+            calls.push(nif_arg(index, &safe_name, &json_params, &tagged_params));
+        }
     }
     (definitions, calls)
 }

@@ -827,7 +827,8 @@ fn elixir_opaque_builder_chain_method_rewraps_ref() {
     let output = crate::backends::rustler::gen_bindings::helpers::gen_elixir_opaque_module(route_builder, "", &config);
 
     assert!(
-        output.contains("ref = Native.routebuilder_request_timeout(obj.ref, ms)"),
+        output
+            .contains("ref = Native.routebuilder_request_timeout((if is_reference(obj), do: obj, else: obj.ref), ms)"),
         "expected chainable builder method to call the NIF and capture the returned ref:\n{output}"
     );
     assert!(
@@ -835,7 +836,8 @@ fn elixir_opaque_builder_chain_method_rewraps_ref() {
         "expected chainable builder method to re-wrap the returned ref in the struct:\n{output}"
     );
     assert!(
-        !output.contains("Native.routebuilder_request_timeout(obj.ref, ms)\n  end"),
+        !output
+            .contains("Native.routebuilder_request_timeout((if is_reference(obj), do: obj, else: obj.ref), ms)\n  end"),
         "found bare NIF call as the method body — chainable method must return the wrapped struct:\n{output}"
     );
 }
