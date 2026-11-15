@@ -13,3 +13,4 @@ path = "src/lib.rs"
 
 [lints.clippy]
 missing_safety_doc = "deny"
+undocumented_unsafe_blocks = "deny"

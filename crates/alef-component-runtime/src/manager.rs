@@ -76,6 +76,8 @@ pub struct ComponentManager {
 // context is required by the ABI to remain valid for calls from component
 // threads. Mutation is protected by the manager mutex. ~keep
 unsafe impl Send for ComponentManager {}
+// SAFETY: as for `Send` above: shared state is behind mutexes, and the host table is only
+// copied, never mutated, after construction.
 unsafe impl Sync for ComponentManager {}
 
 impl ComponentManager {

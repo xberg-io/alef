@@ -32,3 +32,4 @@ libc = "0.2"
 
 [lints.clippy]
 missing_safety_doc = "deny"
+undocumented_unsafe_blocks = "deny"

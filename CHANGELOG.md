@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `alef-component-runtime` takes its cache file locks with the standard library instead of the `fs2` crate, which is no longer a dependency. The locks are the same OS locks (`flock`, `LockFileEx`), so hosts on older and newer runtimes sharing one cache still exclude each other.
+- `alef-component-runtime` and `alef-component-abi` deny `clippy::undocumented_unsafe_blocks`: every `unsafe` block and `unsafe impl` states the invariant it relies on, and the crate-private unsafe functions (`take_owned_buffer`, `copy_abi_str`, `validate_descriptor`, the host-service callbacks) document their `# Safety` contracts.
 
 ### Fixed
 

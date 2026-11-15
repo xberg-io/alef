@@ -10,6 +10,7 @@ struct DemoContract {
     answer: u32,
 }
 
+// SAFETY: `DemoContract` is a `repr(C)` table and these tests pair it only with its own hash.
 unsafe impl AlefContract for DemoContract {
     const CONTRACT_HASH: [u8; 32] = [7; 32];
 }
@@ -50,6 +51,7 @@ fn requirements() -> ComponentRequirements {
 #[test]
 fn accepts_matching_descriptor() {
     let descriptor = descriptor([7; 32]);
+    // SAFETY: the descriptor's strings point at the static `ID` and `VERSION`.
     let validated = unsafe { validate_descriptor(&descriptor, &requirements()) }.unwrap();
     assert_eq!(validated, ("demo".into(), "1.2.3".into()));
 }
@@ -57,20 +59,18 @@ fn accepts_matching_descriptor() {
 #[test]
 fn rejects_wrong_contract_hash() {
     let descriptor = descriptor([9; 32]);
-    assert!(matches!(
-        unsafe { validate_descriptor(&descriptor, &requirements()) },
-        Err(ComponentError::ContractHashMismatch)
-    ));
+    // SAFETY: the descriptor's strings point at the static `ID` and `VERSION`.
+    let result = unsafe { validate_descriptor(&descriptor, &requirements()) };
+    assert!(matches!(result, Err(ComponentError::ContractHashMismatch)));
 }
 
 #[test]
 fn rejects_short_descriptor_before_optional_fields_are_read() {
     let mut descriptor = descriptor([7; 32]);
     descriptor.struct_size = 8;
-    assert!(matches!(
-        unsafe { validate_descriptor(&descriptor, &requirements()) },
-        Err(ComponentError::InvalidDescriptor(_))
-    ));
+    // SAFETY: the descriptor's strings point at the static `ID` and `VERSION`.
+    let result = unsafe { validate_descriptor(&descriptor, &requirements()) };
+    assert!(matches!(result, Err(ComponentError::InvalidDescriptor(_))));
 }
 
 /// Regression for forming a `&AlefComponentV1` over memory that only actually holds a
@@ -160,7 +160,8 @@ fn descriptor_strings_up_to_the_limit_are_copied_and_longer_ones_refused() {
         len: at_limit.len(),
     };
     // SAFETY: `value` points at `at_limit`, which is live and `len` bytes long.
-    assert_eq!(unsafe { copy_abi_str(value) }.unwrap().len(), MAX_DESCRIPTOR_STRING);
+    let copied = unsafe { copy_abi_str(value) };
+    assert_eq!(copied.unwrap().len(), MAX_DESCRIPTOR_STRING);
 
     let over = AlefStr {
         ptr: at_limit.as_ptr().cast::<c_char>(),
@@ -168,10 +169,8 @@ fn descriptor_strings_up_to_the_limit_are_copied_and_longer_ones_refused() {
     };
     // SAFETY: the length is rejected before `ptr` is read, so the one byte past `at_limit` is
     // never touched.
-    assert!(matches!(
-        unsafe { copy_abi_str(over) },
-        Err(ComponentError::StringTooLong)
-    ));
+    let result = unsafe { copy_abi_str(over) };
+    assert!(matches!(result, Err(ComponentError::StringTooLong)));
 }
 
 #[test]
@@ -182,19 +181,15 @@ fn descriptor_strings_must_be_utf8_and_non_null_when_non_empty() {
         len: invalid.len(),
     };
     // SAFETY: `value` points at `invalid`, which is live and `len` bytes long.
-    assert!(matches!(
-        unsafe { copy_abi_str(value) },
-        Err(ComponentError::InvalidUtf8)
-    ));
+    let result = unsafe { copy_abi_str(value) };
+    assert!(matches!(result, Err(ComponentError::InvalidUtf8)));
     let null = AlefStr {
         ptr: core::ptr::null(),
         len: 1,
     };
     // SAFETY: a null pointer with a non-zero length is rejected before it is read.
-    assert!(matches!(
-        unsafe { copy_abi_str(null) },
-        Err(ComponentError::InvalidDescriptor(_))
-    ));
+    let result = unsafe { copy_abi_str(null) };
+    assert!(matches!(result, Err(ComponentError::InvalidDescriptor(_))));
 }
 
 /// ADR-0015: within ABI major 1, a host loads components built for its own or an older minor and
@@ -203,14 +198,15 @@ fn descriptor_strings_must_be_utf8_and_non_null_when_non_empty() {
 fn a_newer_abi_minor_or_another_major_is_refused() {
     let mut newer = descriptor([7; 32]);
     newer.abi_minor = ABI_MINOR_V1 + 1;
+    // SAFETY: the descriptor's strings point at the static `ID` and `VERSION`.
+    let result = unsafe { validate_descriptor(&newer, &requirements()) };
     assert!(matches!(
-        unsafe { validate_descriptor(&newer, &requirements()) },
+        result,
         Err(ComponentError::IncompatibleAbi { actual_minor, .. }) if actual_minor == ABI_MINOR_V1 + 1
     ));
     let mut other_major = descriptor([7; 32]);
     other_major.abi_major = ABI_MAJOR_V1 + 1;
-    assert!(matches!(
-        unsafe { validate_descriptor(&other_major, &requirements()) },
-        Err(ComponentError::IncompatibleAbi { .. })
-    ));
+    // SAFETY: the descriptor's strings point at the static `ID` and `VERSION`.
+    let result = unsafe { validate_descriptor(&other_major, &requirements()) };
+    assert!(matches!(result, Err(ComponentError::IncompatibleAbi { .. })));
 }

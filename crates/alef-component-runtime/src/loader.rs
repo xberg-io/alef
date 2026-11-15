@@ -55,6 +55,8 @@ pub struct ComponentInstance<T: AlefContract> {
 // and its process synchronizes concurrent calls internally. Host callback context thread-safety is part of the
 // `AlefHostApiV1` contract supplied by the caller. ~keep
 unsafe impl Send for LoadedComponent {}
+// SAFETY: as for `Send` above; every shared access is a read of immutable metadata or goes
+// through the sidecar process's own synchronization.
 unsafe impl Sync for LoadedComponent {}
 
 // SAFETY: the C ABI requires every contract method to take `&self` (see
@@ -65,6 +67,8 @@ unsafe impl Sync for LoadedComponent {}
 // instance handle itself is owned exclusively by this `ComponentInstance` for its
 // lifetime, with no interior aliasing on the host side. ~keep
 unsafe impl<T: AlefContract> Send for ComponentInstance<T> {}
+// SAFETY: as for `Send` above; `&self` methods only read the handle and the validated table,
+// and concurrent calls through the table are the component's contractual obligation.
 unsafe impl<T: AlefContract> Sync for ComponentInstance<T> {}
 
 impl LoadedComponent {
@@ -103,11 +107,18 @@ impl LoadedComponent {
         // The verified descriptor's path on Linux, else the checked path (see `identity`).
         let load_path = verified.library_load_path()?;
         let library = Arc::new(
+            // SAFETY: loading runs the library's initializers. `load_path` names the file the
+            // cache verified against the signed lock (its descriptor on Linux, a re-checked path
+            // elsewhere), which is the trust decision this crate makes for native code.
             unsafe { Library::new(&load_path) }.map_err(|error| ComponentError::LibraryLoad {
                 path: verified.path().to_owned(),
                 message: error.to_string(),
             })?,
         );
+        // SAFETY: `entry_symbol` names an `alef_component_entry_v1*` export, whose signature the
+        // ABI fixes as `AlefComponentEntryV1`; `library` outlives the symbol, and `host` is a live
+        // `AlefHostApiV1` the call only borrows. The returned pointer is checked for null here and
+        // for size and contents below before any reference is formed over it.
         let descriptor = unsafe {
             let entry: libloading::Symbol<'_, AlefComponentEntryV1> = library
                 .get(entry_symbol)
@@ -124,7 +135,12 @@ impl LoadedComponent {
         // over it: forming that reference asserts the pointee is valid for
         // `size_of::<AlefComponentV1>()` bytes, which is undefined behavior when the
         // component actually returned a shorter, older-ABI struct.
+        // SAFETY: the entry point returned this non-null pointer as its descriptor, which the ABI
+        // requires to start with a readable `struct_size`, and no reference to it exists yet.
         unsafe { reject_undersized_descriptor(descriptor)? };
+        // SAFETY: the descriptor is at least `size_of::<AlefComponentV1>()` bytes (checked above)
+        // and static in the pinned library; its string fields are the component's own static
+        // metadata, as `validate_descriptor` requires.
         let validated = unsafe { validate_descriptor(descriptor.as_ref(), requirements)? };
         pin_for_process(Arc::clone(&library));
         Ok(Self {
@@ -218,6 +234,8 @@ impl LoadedComponent {
 
     #[must_use]
     pub fn descriptor(&self) -> &AlefComponentV1 {
+        // SAFETY: a native descriptor was size-checked at load and lives in a library pinned for
+        // the process; a sidecar descriptor is owned by `self._sidecar_descriptor`.
         unsafe { self.descriptor.as_ref() }
     }
 
@@ -249,10 +267,14 @@ impl LoadedComponent {
             .ok_or(ComponentError::MissingInstanceDestructor)?;
         let mut raw = core::ptr::null_mut();
         let mut error = AlefOwnedBuffer::EMPTY;
+        // SAFETY: `create` comes from the validated descriptor of a pinned library and takes the
+        // host table this component was loaded with plus two valid out-pointers.
         let status = unsafe { create(self.host_api(), &mut raw, &mut error) };
         if !status.is_ok() {
             return Err(ComponentError::InstanceCreation {
                 status: status.0,
+                // SAFETY: the component filled `error` (or left it `EMPTY`) as the ABI's owned
+                // error buffer for this failed call.
                 message: unsafe { take_owned_buffer(error) },
             });
         }
@@ -298,6 +320,8 @@ impl<T: AlefContract> ComponentInstance<T> {
 impl<T: AlefContract> Drop for ComponentInstance<T> {
     fn drop(&mut self) {
         if let Some(destroy) = self.component.descriptor().destroy {
+            // SAFETY: `handle` came from this component's `create` and is destroyed exactly once,
+            // here; the library stays loaded through `self.component`.
             unsafe { destroy(self.handle.as_ptr()) };
         }
     }
@@ -347,6 +371,13 @@ pub unsafe fn take_owned_text(buffer: AlefOwnedBuffer) -> String {
     String::from_utf8_lossy(&unsafe { take_owned_bytes(buffer) }).into_owned()
 }
 
+/// Decode a component's error buffer as text and release it, tolerating a null pointer.
+///
+/// # Safety
+///
+/// When `buffer.ptr` is non-null it must be valid for reads of `buffer.len` bytes, and `free`
+/// (if present) must be safe to call once with this buffer's own `context`, `ptr`, `len` and
+/// `capacity`.
 unsafe fn take_owned_buffer(buffer: AlefOwnedBuffer) -> String {
     let message = if buffer.ptr.is_null() {
         if buffer.len == 0 {
@@ -355,9 +386,11 @@ unsafe fn take_owned_buffer(buffer: AlefOwnedBuffer) -> String {
             "component returned an invalid error buffer".to_string()
         }
     } else {
+        // SAFETY: non-null and valid for `len` bytes per this function's contract.
         String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(buffer.ptr, buffer.len) }).into_owned()
     };
     if let Some(free) = buffer.free {
+        // SAFETY: called once with the buffer's own fields, per this function's contract.
         unsafe { free(buffer.context, buffer.ptr, buffer.len, buffer.capacity) };
     }
     message
@@ -371,6 +404,9 @@ fn contract_table_from_descriptor<T: AlefContract>(descriptor: &AlefComponentV1)
     {
         return Err(ComponentError::InvalidContractTable);
     }
+    // SAFETY: the table is non-null, aligned for `T`, at least `size_of::<T>()` bytes, and carries
+    // `T`'s contract hash, so it is the `repr(C)` table `T` describes; it lives in a pinned
+    // library for as long as `descriptor` is borrowed.
     Ok(unsafe { &*descriptor.contract.cast::<T>() })
 }
 
@@ -444,6 +480,14 @@ unsafe fn reject_undersized_descriptor(descriptor: NonNull<AlefComponentV1>) -> 
     Ok(())
 }
 
+/// Check a loaded descriptor against `requirements` and copy out its id and version.
+///
+/// # Safety
+///
+/// Unsafe despite taking a reference: `component_id` and `component_version` are raw `AlefStr`s,
+/// and each must be valid for reads of its `len` bytes whenever `len` is non-zero and at most
+/// [`MAX_DESCRIPTOR_STRING`]; a reference to the descriptor says nothing about what they point
+/// to. A component's entry point guarantees this for the descriptor it returns.
 unsafe fn validate_descriptor(
     descriptor: &AlefComponentV1,
     requirements: &ComponentRequirements,
@@ -459,7 +503,9 @@ unsafe fn validate_descriptor(
             actual_minor: descriptor.abi_minor,
         });
     }
+    // SAFETY: both strings satisfy `copy_abi_str`'s contract per this function's own.
     let component_id = unsafe { copy_abi_str(descriptor.component_id)? };
+    // SAFETY: as above.
     let component_version = unsafe { copy_abi_str(descriptor.component_version)? };
     if component_id != requirements.component_id {
         return Err(ComponentError::IdentityMismatch {
@@ -484,6 +530,14 @@ unsafe fn validate_descriptor(
     Ok((component_id, component_version))
 }
 
+/// Copy a component-owned string out as a `String`, refusing more than
+/// [`MAX_DESCRIPTOR_STRING`] bytes, a null pointer with a non-zero length, or invalid UTF-8.
+///
+/// # Safety
+///
+/// When `value.len` is non-zero and at most [`MAX_DESCRIPTOR_STRING`] and `value.ptr` is
+/// non-null, `value.ptr` must be valid for reads of `value.len` bytes. Longer or null values are
+/// rejected before the pointer is read.
 unsafe fn copy_abi_str(value: alef_component_abi::AlefStr) -> Result<String, ComponentError> {
     if value.len > MAX_DESCRIPTOR_STRING {
         return Err(ComponentError::StringTooLong);
@@ -494,6 +548,7 @@ unsafe fn copy_abi_str(value: alef_component_abi::AlefStr) -> Result<String, Com
     if value.ptr.is_null() {
         return Err(ComponentError::InvalidDescriptor("non-empty string has a null pointer"));
     }
+    // SAFETY: non-null, bounded and valid for `len` bytes per this function's contract.
     let bytes = unsafe { core::slice::from_raw_parts(value.ptr.cast::<u8>(), value.len) };
     let text = core::str::from_utf8(bytes).map_err(|_| ComponentError::InvalidUtf8)?;
     Ok(text.to_owned())

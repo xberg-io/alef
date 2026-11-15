@@ -275,6 +275,7 @@ mod tests {
     unsafe extern "C" fn record(context: *mut c_void, level: u32, message: AlefStr) {
         // SAFETY: tests pass a `Vec<(u32, String)>` as context and a valid UTF-8 message.
         let sink = unsafe { &mut *context.cast::<Vec<(u32, String)>>() };
+        // SAFETY: `HostApi::log` passes a live message valid for `len` bytes.
         let bytes = unsafe { core::slice::from_raw_parts(message.ptr.cast::<u8>(), message.len) };
         sink.push((level, String::from(core::str::from_utf8(bytes).unwrap())));
     }
@@ -291,6 +292,7 @@ mod tests {
     fn log_forwards_level_and_prefixed_message_to_the_callback() {
         let mut sink = Vec::new();
         let raw = host_with(&mut sink);
+        // SAFETY: `raw` is a host table this test built and keeps alive.
         let host = unsafe { HostApi::from_raw(&raw) };
         assert!(host.has_log());
         host.log(LogLevel::Warn, "engine", "slow");
@@ -300,6 +302,7 @@ mod tests {
 
     #[test]
     fn null_undersized_or_callbackless_hosts_drop_logs() {
+        // SAFETY: `from_raw` documents null as a detached host.
         let detached = unsafe { HostApi::from_raw(core::ptr::null()) };
         assert!(!detached.has_log());
         detached.log(LogLevel::Error, "t", "m");
@@ -307,10 +310,13 @@ mod tests {
         let mut sink = Vec::new();
         let mut raw = host_with(&mut sink);
         raw.struct_size = 0;
-        assert!(!unsafe { HostApi::from_raw(&raw) }.has_log());
+        // SAFETY: `raw` is a host table this test built and keeps alive.
+        let undersized = unsafe { HostApi::from_raw(&raw) };
+        assert!(!undersized.has_log());
 
         raw.struct_size = core::mem::size_of::<AlefHostApiV1>();
         raw.log = None;
+        // SAFETY: `raw` is a host table this test built and keeps alive.
         let host = unsafe { HostApi::from_raw(&raw) };
         host.log(LogLevel::Error, "t", "m");
         assert!(sink.is_empty());
@@ -332,7 +338,11 @@ mod tests {
         }
     }
 
+    /// # Safety
+    ///
+    /// `value` must be valid UTF-8 readable for `len` bytes for the rest of the test.
     unsafe fn text(value: AlefStr) -> &'static str {
+        // SAFETY: per this function's contract.
         core::str::from_utf8(unsafe { core::slice::from_raw_parts(value.ptr.cast::<u8>(), value.len) }).unwrap()
     }
 
@@ -344,15 +354,20 @@ mod tests {
         request: AlefSlice,
         out: *mut AlefOwnedBuffer,
     ) -> AlefStatus {
+        // SAFETY: `HostApi::call_service` passes a request slice valid for `len` bytes.
         let request = unsafe { core::slice::from_raw_parts(request.ptr, request.len) };
-        match unsafe { text(service) } {
+        // SAFETY: the service name is a live UTF-8 `&str` from the caller.
+        let service = unsafe { text(service) };
+        match service {
             "reverse" => {
                 let mut bytes = request.to_vec();
                 bytes.reverse();
+                // SAFETY: `out` is the caller's valid out-pointer.
                 unsafe { *out = buffer_of(&bytes) };
                 AlefStatus::OK
             }
             "boom" => {
+                // SAFETY: `out` is the caller's valid out-pointer.
                 unsafe { *out = buffer_of(b"exploded") };
                 AlefStatus::INTERNAL_ERROR
             }
@@ -361,9 +376,13 @@ mod tests {
     }
 
     unsafe extern "C" fn fake_notify(context: *mut c_void, service: AlefStr, payload: AlefSlice) -> AlefStatus {
+        // SAFETY: `service_host` installs a live `Vec<(String, Vec<u8>)>` as the context.
         let sink = unsafe { &mut *context.cast::<Vec<(String, Vec<u8>)>>() };
+        // SAFETY: `HostApi::notify` passes a payload slice valid for `len` bytes.
         let payload = unsafe { core::slice::from_raw_parts(payload.ptr, payload.len) };
-        sink.push((String::from(unsafe { text(service) }), payload.to_vec()));
+        // SAFETY: the service name is a live UTF-8 `&str` from the caller.
+        let service = unsafe { text(service) };
+        sink.push((String::from(service), payload.to_vec()));
         AlefStatus::OK
     }
 
@@ -380,6 +399,7 @@ mod tests {
     fn call_service_returns_the_host_response_and_frees_the_buffer() {
         let mut notes = Vec::new();
         let raw = service_host(&mut notes);
+        // SAFETY: `raw` is a host table this test built and keeps alive.
         let host = unsafe { HostApi::from_raw(&raw) };
         assert!(host.has_services());
         assert_eq!(host.call_service("reverse", b"abc").unwrap(), b"cba");
@@ -390,6 +410,7 @@ mod tests {
     fn call_service_maps_error_status_and_message() {
         let mut notes = Vec::new();
         let raw = service_host(&mut notes);
+        // SAFETY: `raw` is a host table this test built and keeps alive.
         let host = unsafe { HostApi::from_raw(&raw) };
         assert_eq!(
             host.call_service("boom", b"").unwrap_err(),
@@ -411,6 +432,7 @@ mod tests {
     fn notify_delivers_the_payload_and_reports_nothing_on_success() {
         let mut notes = Vec::new();
         let raw = service_host(&mut notes);
+        // SAFETY: `raw` is a host table this test built and keeps alive.
         let host = unsafe { HostApi::from_raw(&raw) };
         host.notify("progress", b"50%").unwrap();
         assert_eq!(notes, [(String::from("progress"), b"50%".to_vec())]);
@@ -422,11 +444,13 @@ mod tests {
         let mut raw = service_host(&mut notes);
 
         raw.struct_size = AlefHostApiV1::BASE_SIZE;
+        // SAFETY: `raw` is a host table this test built and keeps alive.
         let old = unsafe { HostApi::from_raw(&raw) };
         assert!(!old.has_services());
         assert_eq!(old.call_service("reverse", b"x"), Err(HostServiceError::Unsupported));
         assert_eq!(old.notify("progress", b"x"), Err(HostServiceError::Unsupported));
 
+        // SAFETY: `from_raw` documents null as a detached host.
         let null = unsafe { HostApi::from_raw(core::ptr::null()) };
         assert_eq!(null.call_service("reverse", b"x"), Err(HostServiceError::Unsupported));
         assert_eq!(
@@ -437,6 +461,7 @@ mod tests {
         let mut raw = service_host(&mut notes);
         raw.service_call = None;
         raw.service_notify = None;
+        // SAFETY: `raw` is a host table this test built and keeps alive.
         let none = unsafe { HostApi::from_raw(&raw) };
         assert!(!none.has_services());
         assert_eq!(none.call_service("reverse", b"x"), Err(HostServiceError::Unsupported));
@@ -450,6 +475,7 @@ mod tests {
         // Poison the appended fields: an old host never wrote them, so they must be ignored.
         raw.service_call = Some(fake_call);
         raw.struct_size = AlefHostApiV1::BASE_SIZE;
+        // SAFETY: `raw` is a host table this test built and keeps alive.
         let host = unsafe { HostApi::from_raw(&raw) };
         assert!(host.has_log());
         assert!(!host.has_services());

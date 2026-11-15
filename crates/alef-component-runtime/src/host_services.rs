@@ -44,6 +44,12 @@ impl ServicesHandle {
     }
 }
 
+/// The `free` callback of every buffer [`owned_buffer`] hands to a component.
+///
+/// # Safety
+///
+/// `ptr`, `len` and `capacity` must be the parts of a buffer [`owned_buffer`] produced, released
+/// exactly once.
 unsafe extern "C" fn free_vec(_context: *mut c_void, ptr: *mut u8, len: usize, capacity: usize) {
     // SAFETY: only `owned_buffer` hands out buffers with this `free`, built from `Vec<u8>` parts.
     drop(unsafe { Vec::from_raw_parts(ptr, len, capacity) });
@@ -88,6 +94,13 @@ unsafe fn slice_arg<'a>(value: AlefSlice) -> Option<&'a [u8]> {
     Some(unsafe { core::slice::from_raw_parts(value.ptr, value.len) })
 }
 
+/// The host table's `service_call` callback.
+///
+/// # Safety
+///
+/// `context` must be null or the `services_context` [`ServicesHandle::install`] published and
+/// still alive; `service` and `request` must be null or readable for their lengths, and `out`
+/// null or writable, as the ABI requires of a component calling it.
 unsafe extern "C" fn service_call(
     context: *mut c_void,
     service: AlefStr,
@@ -119,6 +132,11 @@ unsafe extern "C" fn service_call(
     status
 }
 
+/// The host table's `service_notify` callback.
+///
+/// # Safety
+///
+/// As for [`service_call`], without the out-pointer.
 unsafe extern "C" fn service_notify(context: *mut c_void, service: AlefStr, payload: AlefSlice) -> AlefStatus {
     if context.is_null() {
         return AlefStatus::INVALID_ARGUMENT;
