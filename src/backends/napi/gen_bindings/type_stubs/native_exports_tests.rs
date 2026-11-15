@@ -62,6 +62,65 @@ fn type_stub_generation_exports_actual_dto_method_helpers() {
 }
 
 #[test]
+fn split_bytes_metadata_factory_is_declared_as_its_runtime_export() {
+    use crate::backends::napi::gen_bindings::NapiBackend;
+    use crate::core::backend::Backend;
+    use crate::core::config::ResolvedCrateConfig;
+    use crate::core::ir::{ApiSurface, FieldDef, MethodDef, ParamDef, TypeDef, TypeRef};
+
+    let api = ApiSurface {
+        types: vec![TypeDef {
+            name: "Input".into(),
+            rust_path: "sample_core::Input".into(),
+            has_serde: true,
+            fields: vec![FieldDef {
+                name: "bytes".into(),
+                ty: TypeRef::Bytes,
+                optional: true,
+                ..Default::default()
+            }],
+            methods: vec![MethodDef {
+                name: "from_json_with_bytes".into(),
+                is_static: true,
+                return_type: TypeRef::Named("Input".into()),
+                error_type: Some("Error".into()),
+                params: vec![
+                    ParamDef {
+                        name: "bytes".into(),
+                        ty: TypeRef::Bytes,
+                        ..Default::default()
+                    },
+                    ParamDef {
+                        name: "metadata_json".into(),
+                        ty: TypeRef::String,
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let config = ResolvedCrateConfig {
+        name: "sample-core".into(),
+        ..Default::default()
+    };
+    let files = NapiBackend.generate_type_stubs(&api, &config).unwrap();
+    let declarations = files.iter().find(|file| file.path.ends_with("index.d.ts")).unwrap();
+    assert!(
+        declarations.content.contains(
+            "export declare function inputFromJsonWithBytes(bytes: Uint8Array, metadataJson: string): Input;"
+        )
+    );
+    let esm = files.iter().find(|file| file.path.ends_with("index.mjs")).unwrap();
+    assert!(
+        esm.content
+            .contains("export const inputFromJsonWithBytes = binding.inputFromJsonWithBytes;")
+    );
+}
+
+#[test]
 fn node_conditional_import_and_require_preserve_runtime_helpers_and_undefined_aliases() {
     let directory = tempfile::tempdir().unwrap();
     let node = which::which_in("node", std::env::var_os("PATH"), directory.path()).expect("Node must be installed");

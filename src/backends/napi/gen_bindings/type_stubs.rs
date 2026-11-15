@@ -2,6 +2,8 @@ mod esm;
 mod native_exports;
 
 use crate::backends::napi::gen_bindings::errors;
+use crate::codegen::naming::{node_type_name, to_node_name};
+use crate::codegen::shared::split_bytes_field;
 use crate::core::backend::{Backend, GeneratedFile};
 use crate::core::config::{
     AdapterPattern, Language, NodeCapsuleTypeConfig, OutputLayout, ResolvedCrateConfig, resolve_output_dir,
@@ -74,12 +76,7 @@ pub(super) fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow
     } else {
         "./index-wrapper.cjs"
     };
-    let mut names = runtime_export_names(&content);
-    for binding in super::NapiBackend.generate_bindings(api, config)? {
-        names.extend(native_exports::runtime_export_names(&binding.content)?);
-    }
-    names.sort();
-    names.dedup();
+    let names = collect_runtime_exports(api, config, &mut content)?;
     let esm_wrapper = gen_esm_wrapper(&names, entrypoint);
 
     Ok(vec![
@@ -101,6 +98,43 @@ pub(super) fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow
             generated_header: false,
         },
     ])
+}
+
+fn collect_runtime_exports(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    content: &mut String,
+) -> anyhow::Result<Vec<String>> {
+    let declared_names = runtime_export_names(content);
+    let mut names = declared_names.clone();
+    for binding in super::NapiBackend.generate_bindings(api, config)? {
+        names.extend(native_exports::runtime_export_names(&binding.content)?);
+    }
+    names.sort();
+    names.dedup();
+    append_split_bytes_declarations(api, &names, &declared_names, content);
+    Ok(names)
+}
+
+fn append_split_bytes_declarations(
+    api: &ApiSurface,
+    names: &[String],
+    declared_names: &[String],
+    content: &mut String,
+) {
+    for typ in &api.types {
+        if split_bytes_field(typ).is_none() {
+            continue;
+        }
+        let name = format!("{}FromJsonWithBytes", to_node_name(&typ.name));
+        if names.binary_search(&name).is_err() || declared_names.contains(&name) {
+            continue;
+        }
+        let return_type = node_type_name(&typ.name);
+        content.push_str(&format!(
+            "\nexport declare function {name}(bytes: Uint8Array, metadataJson: string): {return_type};\n"
+        ));
+    }
 }
 
 /// The CommonJS shim that moves the error properties from the `cause` payload onto each thrown
