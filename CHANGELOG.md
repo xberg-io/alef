@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reject a component manifest whose library is named `component.json` or `component.sig` (in any letter case) with `UnsafeLibraryPath`; extracting such an archive overwrote the manifest with the library bytes.
 - Treat component archive digests case-insensitively: the cache and the manager key objects, locks and stamps on the lower-case digest, so a lock entry spelled in upper case no longer installs a second copy of an object under a different lock.
 - Parse `file:` component URLs (lock entries and URL overrides) as URLs: percent-escapes are decoded, the scheme is case-insensitive, Windows drive and UNC URLs (`file:///C:/...`, `file://server/share/...`) open the right path, and a Unix URL naming a remote host fails with `Download` instead of being read as a local path. The prefix used to be stripped verbatim.
+- Pin each loaded component library once per verified file instead of pushing another handle onto the process-wide pin list on every load, which grew without bound in hosts that re-ensure contracts.
 
 ### Security
 

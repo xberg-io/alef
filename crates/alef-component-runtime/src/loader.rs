@@ -1,11 +1,12 @@
 use crate::host_services::ServicesHandle;
-use crate::identity::VerifiedFile;
+use crate::identity::{FileIdentity, VerifiedFile};
 use crate::stdio::SidecarProcess;
 use crate::{COMPONENT_ABI_VERSION, COMPONENT_MANIFEST_SCHEMA, ComponentError, ComponentManifest, HostServices};
 use alef_component_abi::{
     ABI_MAJOR_V1, ABI_MINOR_V1, AlefComponentEntryV1, AlefComponentV1, AlefContract, AlefHostApiV1, AlefOwnedBuffer,
 };
 use libloading::Library;
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
@@ -142,7 +143,7 @@ impl LoadedComponent {
         // and static in the pinned library; its string fields are the component's own static
         // metadata, as `validate_descriptor` requires.
         let validated = unsafe { validate_descriptor(descriptor.as_ref(), requirements)? };
-        pin_for_process(Arc::clone(&library));
+        pin_for_process(verified.identity(), Arc::clone(&library));
         Ok(Self {
             library: Some(library),
             sidecar: None,
@@ -410,16 +411,32 @@ fn contract_table_from_descriptor<T: AlefContract>(descriptor: &AlefComponentV1)
     Ok(unsafe { &*descriptor.contract.cast::<T>() })
 }
 
-fn process_pins() -> &'static Mutex<Vec<Arc<Library>>> {
-    static PINS: OnceLock<Mutex<Vec<Arc<Library>>>> = OnceLock::new();
-    PINS.get_or_init(|| Mutex::new(Vec::new()))
+/// Libraries kept loaded for the rest of the process, one per verified file: function pointers
+/// and registered providers may outlive every `LoadedComponent` that handed them out.
+fn process_pins() -> &'static Mutex<HashMap<FileIdentity, Arc<Library>>> {
+    static PINS: OnceLock<Mutex<HashMap<FileIdentity, Arc<Library>>>> = OnceLock::new();
+    PINS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn pin_for_process(library: Arc<Library>) {
-    process_pins()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .push(library);
+fn pin_for_process(identity: FileIdentity, library: Arc<Library>) {
+    pin_into(
+        &mut process_pins().lock().unwrap_or_else(|poisoned| poisoned.into_inner()),
+        identity,
+        library,
+    );
+}
+
+/// Pin `library` unless the same file is already pinned; returns whether it was added. Loading
+/// another contract from an already-loaded library returns the same OS handle, so one pin per file
+/// is enough, and a long-lived host that re-ensures components no longer grows the list per load.
+fn pin_into(pins: &mut HashMap<FileIdentity, Arc<Library>>, identity: FileIdentity, library: Arc<Library>) -> bool {
+    match pins.entry(identity) {
+        std::collections::hash_map::Entry::Occupied(_) => false,
+        std::collections::hash_map::Entry::Vacant(slot) => {
+            slot.insert(library);
+            true
+        }
+    }
 }
 
 pub(crate) fn validate_manifest(

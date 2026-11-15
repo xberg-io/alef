@@ -23,7 +23,7 @@ use std::time::SystemTime;
 
 /// The parts of a file's metadata that change when the file at a path is replaced or rewritten.
 /// The change time is deliberately absent: making a sidecar executable changes it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct FileIdentity {
     dev: u64,
     ino: u64,
@@ -76,6 +76,11 @@ impl VerifiedFile {
 
     pub(crate) fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// The identity the file had when it was verified.
+    pub(crate) fn identity(&self) -> FileIdentity {
+        self.identity.clone()
     }
 
     /// The verified file's current metadata, read from the descriptor rather than the path.

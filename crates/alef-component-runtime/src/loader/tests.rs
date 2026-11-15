@@ -210,3 +210,26 @@ fn a_newer_abi_minor_or_another_major_is_refused() {
     let result = unsafe { validate_descriptor(&other_major, &requirements()) };
     assert!(matches!(result, Err(ComponentError::IncompatibleAbi { .. })));
 }
+
+/// Regression: every load pushed another `Arc<Library>` onto the process pins, so a host that
+/// re-ensured contracts grew the list without bound. One pin per verified file now.
+#[cfg(unix)]
+#[test]
+fn a_library_file_is_pinned_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let identity = |name: &str| {
+        let path = dir.path().join(name);
+        std::fs::write(&path, name).unwrap();
+        let file = std::fs::File::open(&path).unwrap();
+        let metadata = file.metadata().unwrap();
+        VerifiedFile::new(path, file, &metadata).identity()
+    };
+    let this = || Arc::new(Library::from(libloading::os::unix::Library::this()));
+    let (first, second) = (identity("a.so"), identity("b.so"));
+
+    let mut pins = HashMap::new();
+    assert!(pin_into(&mut pins, first.clone(), this()));
+    assert!(!pin_into(&mut pins, first, this()));
+    assert!(pin_into(&mut pins, second, this()));
+    assert_eq!(pins.len(), 2);
+}
