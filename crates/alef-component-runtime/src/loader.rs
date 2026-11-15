@@ -1,9 +1,6 @@
 use crate::host_services::ServicesHandle;
 use crate::stdio::SidecarProcess;
-use crate::{
-    ArtifactCache, COMPONENT_ABI_VERSION, COMPONENT_MANIFEST_SCHEMA, ComponentError, ComponentLockEntry,
-    ComponentManifest, HostServices,
-};
+use crate::{COMPONENT_ABI_VERSION, COMPONENT_MANIFEST_SCHEMA, ComponentError, ComponentManifest, HostServices};
 use alef_component_abi::{
     ABI_MAJOR_V1, ABI_MINOR_V1, AlefComponentEntryV1, AlefComponentV1, AlefContract, AlefHostApiV1, AlefOwnedBuffer,
 };
@@ -29,29 +26,6 @@ pub struct ComponentRequirements {
     pub contract_name: String,
     pub contract_hash: [u8; 32],
     pub feature_set_hash: Option<[u8; 32]>,
-}
-
-#[derive(Clone, Debug)]
-pub struct Runtime {
-    cache: ArtifactCache,
-}
-
-impl Runtime {
-    pub fn new(cache: ArtifactCache) -> Self {
-        Self { cache }
-    }
-
-    pub fn install_and_load(
-        &self,
-        entry: &ComponentLockEntry,
-        entry_symbol: &[u8],
-        requirements: &ComponentRequirements,
-        host: AlefHostApiV1,
-    ) -> Result<LoadedComponent, ComponentError> {
-        let cached = self.cache.install(entry)?;
-        validate_manifest(&cached.manifest, requirements)?;
-        LoadedComponent::load(cached.library, entry_symbol, requirements, host)
-    }
 }
 
 pub struct LoadedComponent {
@@ -101,19 +75,15 @@ impl LoadedComponent {
     /// NUL-terminated symbol name, so this loads exactly one contract's
     /// descriptor per call even when the underlying `.so`/`.dylib`/`.dll` is
     /// shared across several `LoadedComponent`s.
-    pub fn load(
-        path: impl Into<std::path::PathBuf>,
-        entry_symbol: &[u8],
-        requirements: &ComponentRequirements,
-        host: AlefHostApiV1,
-    ) -> Result<Self, ComponentError> {
-        Self::load_with_services(path, entry_symbol, requirements, host, None)
-    }
-
-    /// Like [`Self::load`], additionally publishing `services` through the host table's
-    /// `service_call` / `service_notify` callbacks. With `None` the service fields of `host`
-    /// are passed through unchanged (null by default, so components see no service table).
-    pub fn load_with_services(
+    ///
+    /// `services` is published through the host table's `service_call` / `service_notify`
+    /// callbacks. With `None` the service fields of `host` are passed through unchanged (null by
+    /// default, so components see no service table).
+    ///
+    /// Crate-private: loading runs the library's initializers and entry point, so the only
+    /// caller is [`crate::ComponentManager`], which loads nothing it has not verified against
+    /// the lock first.
+    pub(crate) fn load_with_services(
         path: impl Into<std::path::PathBuf>,
         entry_symbol: &[u8],
         requirements: &ComponentRequirements,

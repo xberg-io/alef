@@ -57,9 +57,7 @@ pub use download::{DownloadOptions, ProgressCallback, RootCerts};
 pub use error::ComponentError;
 pub use host_services::HostServices;
 pub use keys::decode_public_key;
-pub use loader::{
-    ComponentInstance, ComponentRequirements, LoadedComponent, Runtime, take_owned_bytes, take_owned_text,
-};
+pub use loader::{ComponentInstance, ComponentRequirements, LoadedComponent, take_owned_bytes, take_owned_text};
 pub use maintenance::{CachedObject, RemovalReport, Retain, SkippedRemoval};
 pub use manager::{ComponentManager, ComponentStatus};
 pub use manifest::{
