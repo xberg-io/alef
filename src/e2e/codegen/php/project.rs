@@ -737,7 +737,7 @@ putenv('ALEF_PHP_EXTENSION_PATH=' . $extPath);
 // Invoke PHPUnit through the same isolated, verified configuration.
 $phpunitPath = __DIR__ . '/vendor/bin/phpunit';
 if (!file_exists($phpunitPath)) {
-    echo "PHPUnit not found at $phpunitPath. Run 'composer install' first.\n";
+    fwrite(STDERR, "PHPUnit not found at $phpunitPath. Run 'composer install' first.\n");
     exit(1);
 }
 
