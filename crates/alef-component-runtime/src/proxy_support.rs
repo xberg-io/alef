@@ -7,7 +7,7 @@
 //! result type's `Default` value instead (empty string, empty bytes, zero, `false`, `()`).
 //!
 //! Hosts observe or escalate these failures with [`set_infallible_failure_hook`]; without a hook
-//! each one is written to stderr. ADR-0028 records the decision.
+//! each one is written to stderr. ADR-0029 records the decision.
 
 use std::sync::{Arc, PoisonError, RwLock};
 

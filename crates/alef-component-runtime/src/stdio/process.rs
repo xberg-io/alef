@@ -62,7 +62,7 @@ enum Connection {
 }
 
 /// Verifies a sidecar's executable against the lock again and returns it open and verified. Every
-/// respawn calls it, so a respawn never executes a file that was not checked (ADR-0026).
+/// respawn calls it, so a respawn never executes a file that was not checked (ADR-0027).
 pub(crate) type SidecarVerifier = Arc<dyn Fn() -> Result<VerifiedFile, ComponentError> + Send + Sync>;
 
 /// Optional respawn knobs for a stdio connection, shared by every [`SidecarProcess`] a

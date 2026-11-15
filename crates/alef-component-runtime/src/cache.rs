@@ -421,7 +421,7 @@ impl ArtifactCache {
 
     /// Whether the verified stamp may be read and written: it was requested, and only the
     /// current user can write the cache. A stamp in a directory others can write vouches for
-    /// nothing, so such a cache is fully re-verified every time instead (ADR-0026).
+    /// nothing, so such a cache is fully re-verified every time instead (ADR-0027).
     fn stamp_enabled(&self) -> bool {
         self.verified_stamp && is_private_dir(&self.root) && is_private_dir(&self.objects_dir())
     }

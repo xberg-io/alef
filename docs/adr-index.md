@@ -35,3 +35,6 @@ log; add a row in the same change as a new record.
 | [0024](../adrs/0024-respawn-stdio-sidecars-after-a-fatal-connection-failure.md) | Respawn stdio sidecars after a fatal connection failure | accepted | 2026-11-08 |
 | [0025](../adrs/0025-pipeline-binary-frames-over-stdio-sidecar-connections.md) | Pipeline binary frames over stdio sidecar connections | proposed | 2026-11-15 |
 | [0026](../adrs/0026-sign-component-archives-in-a-separate-step-without-a-build.md) | Sign component archives in a separate step without a build | proposed | 2026-11-15 |
+| [0027](../adrs/0027-bind-loaded-component-code-to-the-verified-file.md) | Bind loaded component code to the verified file | proposed | 2026-11-15 |
+| [0028](../adrs/0028-start-stdio-sidecars-with-an-allowlisted-environment.md) | Start stdio sidecars with an allowlisted environment | proposed | 2026-11-15 |
+| [0029](../adrs/0029-report-infallible-component-method-failures-instead-of-panicking.md) | Report infallible component method failures instead of panicking | proposed | 2026-11-15 |

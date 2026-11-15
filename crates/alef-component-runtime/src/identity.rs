@@ -13,7 +13,7 @@
 //!   A replacement between that check and the load is not caught; making it requires write access
 //!   to the cache's object directory, which the cache creates private to the current user.
 //!
-//! ADR-0026 records the decision.
+//! ADR-0027 records the decision.
 
 use crate::ComponentError;
 use std::fs::{File, Metadata};
