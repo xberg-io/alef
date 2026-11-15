@@ -377,6 +377,14 @@
           "description": "Affirms every configured capsule wrapper uses the exact native runtime instance ~keep\nand ownership contract that produced its pointer. ~keep",
           "type": "boolean"
         },
+        "split_bytes_disjoint_sources": {
+          "default": [],
+          "description": "Split-byte DTOs whose Bytes and Uri variants describe mutually exclusive sources.\nManaged extraction honors the source discriminator when both payload fields are populated.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "target_framework": {
           "type": [
             "string",
