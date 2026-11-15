@@ -6,6 +6,7 @@ use super::{
 };
 use crate::identity::VerifiedFile;
 use crate::{ComponentError, ComponentManifest};
+use std::ffi::OsString;
 use std::io::BufReader;
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -22,6 +23,29 @@ const SPAWN_BUSY_BACKOFF: Duration = Duration::from_millis(10);
 
 /// The protocol versions this host speaks, as advertised to the child in [`STDIO_PROTOCOLS_ENV`].
 const ADVERTISED_PROTOCOLS: &str = "1,2";
+
+/// Host environment variables a sidecar inherits; everything else is cleared. A trailing `*`
+/// matches a prefix. Names compare case-insensitively on Windows, where the environment does.
+const DEFAULT_ENV_ALLOWLIST: &[&str] = &[
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "TMPDIR",
+    "TEMP",
+    "TMP",
+    "TZ",
+    "LANG",
+    "LANGUAGE",
+    "LC_*",
+    // Windows processes fail in surprising ways without these.
+    "SYSTEMROOT",
+    "WINDIR",
+    "SYSTEMDRIVE",
+    "USERPROFILE",
+    "PATHEXT",
+    "COMSPEC",
+];
 
 struct Exchange {
     request: Vec<u8>,
@@ -48,6 +72,8 @@ pub(crate) struct SidecarPolicy {
     pub(crate) restart_budget: u32,
     pub(crate) session: Option<SidecarSessionSetup>,
     pub(crate) on_restart: Option<SidecarRestartEvent>,
+    /// Host environment variables passed through on top of [`DEFAULT_ENV_ALLOWLIST`].
+    pub(crate) env_passthrough: Vec<String>,
 }
 
 impl Default for SidecarPolicy {
@@ -56,6 +82,7 @@ impl Default for SidecarPolicy {
             restart_budget: 1,
             session: None,
             on_restart: None,
+            env_passthrough: Vec::new(),
         }
     }
 }
@@ -88,7 +115,7 @@ impl SidecarProcess {
         timeout: Duration,
         policy: SidecarPolicy,
     ) -> Result<Self, ComponentError> {
-        let (child, connection) = Self::start_child(executable, manifest, timeout)?;
+        let (child, connection) = Self::start_child(executable, manifest, timeout, &policy)?;
         let process = Self {
             verify,
             manifest: manifest.clone(),
@@ -115,9 +142,13 @@ impl SidecarProcess {
         executable: &VerifiedFile,
         manifest: &ComponentManifest,
         timeout: Duration,
+        policy: &SidecarPolicy,
     ) -> Result<(Child, Connection), ComponentError> {
         let path = executable.path();
         make_executable(path)?;
+        let environment = sidecar_environment(std::env::vars_os(), &policy.env_passthrough);
+        // The component's own cache directory: never the host's working tree.
+        let working_dir = path.parent().unwrap_or(path);
         let mut refused = None;
         let started = retry_executable_busy(SPAWN_BUSY_RETRIES, SPAWN_BUSY_BACKOFF, || {
             // Resolved per attempt, immediately before the spawn: the verified descriptor's path on
@@ -130,7 +161,10 @@ impl SidecarProcess {
             #[cfg(unix)]
             std::os::unix::process::CommandExt::arg0(&mut command, path);
             command
+                .env_clear()
+                .envs(environment.iter().map(|(name, value)| (name, value)))
                 .env(STDIO_PROTOCOLS_ENV, ADVERTISED_PROTOCOLS)
+                .current_dir(working_dir)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::inherit())
@@ -277,7 +311,7 @@ impl SidecarProcess {
             // The cached file is checked against the lock again before it is executed: the
             // verification behind the first spawn says nothing about the file now.
             let executable = (self.verify)()?;
-            let (child, connection) = Self::start_child(&executable, &self.manifest, self.timeout)?;
+            let (child, connection) = Self::start_child(&executable, &self.manifest, self.timeout, &self.policy)?;
             {
                 // Swapped together under the connection guard, so a failing protocol-2 call that
                 // checks its handle against the current connection never stops the new child.
@@ -420,6 +454,39 @@ impl Drop for SidecarProcess {
     }
 }
 
+/// The subset of `vars` a sidecar inherits: [`DEFAULT_ENV_ALLOWLIST`] plus the host's `extra`
+/// patterns. The protocol variable is never inherited; the host sets it itself.
+fn sidecar_environment(
+    vars: impl Iterator<Item = (OsString, OsString)>,
+    extra: &[String],
+) -> Vec<(OsString, OsString)> {
+    vars.filter(|(name, _)| {
+        name.to_str().is_some_and(|name| {
+            !env_name_matches(STDIO_PROTOCOLS_ENV, name)
+                && DEFAULT_ENV_ALLOWLIST
+                    .iter()
+                    .copied()
+                    .chain(extra.iter().map(String::as_str))
+                    .any(|pattern| env_name_matches(pattern, name))
+        })
+    })
+    .collect()
+}
+
+fn env_name_matches(pattern: &str, name: &str) -> bool {
+    let same = |left: &str, right: &str| {
+        if cfg!(windows) {
+            left.eq_ignore_ascii_case(right)
+        } else {
+            left == right
+        }
+    };
+    match pattern.strip_suffix('*') {
+        Some(prefix) => name.get(..prefix.len()).is_some_and(|head| same(head, prefix)),
+        None => same(pattern, name),
+    }
+}
+
 fn check_payload(payload: &[u8]) -> Result<(), ComponentError> {
     if payload.len() > MAX_FRAME_SIZE {
         return Err(ComponentError::SidecarProtocol(
@@ -524,6 +591,59 @@ mod tests {
         });
         assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::NotFound);
         assert_eq!(calls.load(Ordering::Relaxed), 1);
+    }
+
+    fn vars(names: &[&str]) -> impl Iterator<Item = (OsString, OsString)> {
+        names
+            .iter()
+            .map(|name| (OsString::from(name), OsString::from("value")))
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+
+    fn names(environment: &[(OsString, OsString)]) -> Vec<&str> {
+        environment.iter().map(|(name, _)| name.to_str().unwrap()).collect()
+    }
+
+    #[test]
+    fn the_sidecar_environment_keeps_only_allowlisted_variables() {
+        let host = vars(&[
+            "PATH",
+            "HOME",
+            "LC_ALL",
+            "AWS_SECRET_ACCESS_KEY",
+            "GITHUB_TOKEN",
+            STDIO_PROTOCOLS_ENV,
+        ]);
+        let environment = sidecar_environment(host, &[]);
+        assert_eq!(names(&environment), ["PATH", "HOME", "LC_ALL"]);
+    }
+
+    #[test]
+    fn the_host_extends_the_allowlist_with_names_and_prefixes() {
+        let host = vars(&[
+            "PATH",
+            "POLY_CONFIG",
+            "POLY_CACHE",
+            "RUST_LOG",
+            "SECRET",
+            STDIO_PROTOCOLS_ENV,
+        ]);
+        let extra = [
+            "POLY_*".to_owned(),
+            "RUST_LOG".to_owned(),
+            STDIO_PROTOCOLS_ENV.to_owned(),
+        ];
+        let environment = sidecar_environment(host, &extra);
+        assert_eq!(names(&environment), ["PATH", "POLY_CONFIG", "POLY_CACHE", "RUST_LOG"]);
+    }
+
+    #[test]
+    fn env_patterns_match_whole_names_or_prefixes() {
+        assert!(env_name_matches("LC_*", "LC_CTYPE"));
+        assert!(!env_name_matches("LC_*", "LC"));
+        assert!(!env_name_matches("PATH", "PATHEXT"));
+        assert_eq!(env_name_matches("PATH", "Path"), cfg!(windows));
     }
 
     #[test]

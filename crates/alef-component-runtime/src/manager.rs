@@ -176,6 +176,21 @@ impl ComponentManager {
         self
     }
 
+    /// Pass these host environment variables through to stdio sidecars, on top of the default
+    /// allowlist. A sidecar starts with a cleared environment holding only `PATH`, `HOME`, `USER`,
+    /// `LOGNAME`, `TMPDIR`/`TEMP`/`TMP`, `TZ`, `LANG`, `LANGUAGE` and `LC_*` (plus `SYSTEMROOT`,
+    /// `WINDIR`, `SYSTEMDRIVE`, `USERPROFILE`, `PATHEXT` and `COMSPEC`, which Windows processes
+    /// need) and the protocol variable the runtime sets, and runs in its component's cache
+    /// directory. A name ending in `*` passes every variable with that prefix; names compare
+    /// case-insensitively on Windows.
+    #[must_use]
+    pub fn with_sidecar_env_passthrough(mut self, names: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.sidecar_policy
+            .env_passthrough
+            .extend(names.into_iter().map(Into::into));
+        self
+    }
+
     /// How many times the stdio connection of `component_id` has been respawned, or `None` when it
     /// was never spawned in this manager (or is not a stdio component).
     #[must_use]

@@ -323,6 +323,42 @@ fn should_refuse_to_respawn_an_executable_edited_after_the_first_spawn() {
     assert_eq!(manager.sidecar_restart_count("demo"), Some(0));
 }
 
+/// Regression: sidecars inherited the host's whole environment (tokens, credentials) and working
+/// directory. `CARGO_MANIFEST_DIR` stands in for such a variable: cargo sets it for every test
+/// process, and nothing allowlists it.
+#[test]
+fn should_start_sidecars_with_an_allowlisted_environment_in_the_component_directory() {
+    assert!(
+        std::env::var_os("CARGO_MANIFEST_DIR").is_some(),
+        "cargo sets this for tests"
+    );
+    let (_dir, manager) = manager("valid");
+    let engine = manager.ensure_contract("demo", "engine", b"unused\0").unwrap();
+
+    let names: Vec<String> = serde_json::from_slice(&engine.invoke_bytes("env", b"").unwrap()).unwrap();
+    assert!(names.iter().any(|name| name == "PATH"), "{names:?}");
+    assert!(names.iter().any(|name| name == "ALEF_STDIO_PROTOCOLS"), "{names:?}");
+    assert!(!names.iter().any(|name| name.starts_with("CARGO")), "{names:?}");
+
+    let cwd = String::from_utf8(engine.invoke_bytes("cwd", b"").unwrap()).unwrap();
+    let object = manager.cache_path("demo").unwrap();
+    assert_eq!(
+        std::fs::canonicalize(cwd).unwrap(),
+        std::fs::canonicalize(object).unwrap()
+    );
+}
+
+#[test]
+fn should_pass_host_allowlisted_variables_through_to_the_sidecar() {
+    let (_dir, manager) = manager("valid");
+    let manager = manager.with_sidecar_env_passthrough(["CARGO_MANIFEST_*"]);
+    let engine = manager.ensure_contract("demo", "engine", b"unused\0").unwrap();
+
+    let names: Vec<String> = serde_json::from_slice(&engine.invoke_bytes("env", b"").unwrap()).unwrap();
+    assert!(names.iter().any(|name| name == "CARGO_MANIFEST_DIR"), "{names:?}");
+    assert!(!names.iter().any(|name| name == "CARGO_PKG_NAME"), "{names:?}");
+}
+
 #[test]
 fn should_report_status_without_respawning_a_stopped_connection() {
     let (_dir, manager) = manager("valid");

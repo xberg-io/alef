@@ -61,5 +61,9 @@ while True:
         respond(0, str(CALLS).encode())
     elif method == "pid":
         respond(0, str(os.getpid()).encode())
+    elif method == "env":
+        respond(0, json.dumps(sorted(os.environ)).encode())
+    elif method == "cwd":
+        respond(0, os.getcwd().encode())
     else:
         respond(0, bytes(request["payload"]))
