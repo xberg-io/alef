@@ -112,6 +112,7 @@ fn external_string_union_default_constructs_the_nested_unit_record() {
         &HashSet::new(),
         false,
         None,
+        &[],
     );
 
     assert!(emitted.contains("= new OutputFormat.Plain();"), "got:\n{emitted}");
@@ -154,6 +155,7 @@ fn record_type_maps_configured_bridge_alias_to_trait_interface() {
         &HashSet::new(),
         false,
         None,
+        &[],
     );
 
     assert!(code.contains("public IXmlWalker? Walker { get; init; } = null;"));
@@ -195,6 +197,7 @@ fn record_type_skips_method_whose_name_collides_with_a_property() {
         &HashSet::new(),
         false,
         None,
+        &[],
     );
 
     assert!(
@@ -234,6 +237,7 @@ fn record_type_required_duration_field_is_required_ulong() {
         &HashSet::new(),
         false,
         None,
+        &[],
     );
 
     assert!(
@@ -276,6 +280,7 @@ fn record_type_duration_field_with_real_default_is_nullable() {
         &HashSet::new(),
         false,
         None,
+        &[],
     );
 
     assert!(
@@ -313,6 +318,7 @@ fn record_type_optional_duration_field_is_nullable() {
         &HashSet::new(),
         false,
         None,
+        &[],
     );
 
     assert!(
@@ -357,6 +363,7 @@ fn record_type_required_enum_field_in_default_struct_stays_required() {
         &HashSet::new(),
         false,
         None,
+        &[],
     );
 
     assert!(
@@ -399,6 +406,7 @@ fn render_record_with_api(typ: &TypeDef, has_native_from_json: bool, api: &crate
         &HashSet::new(),
         has_native_from_json,
         crate::codegen::shared::split_bytes_factory_field(typ, api, "demo"),
+        &api.enums,
     )
 }
 
@@ -583,6 +591,32 @@ fn split_byte_transport_preserves_public_json_and_marshals_metadata_without_payl
     );
     typ.methods.clear();
     assert!(render_setup(&typ).contains("JsonSerializer.Serialize(input, JsonSerializationOptions)"));
+}
+
+#[test]
+fn split_byte_transport_keeps_uri_inputs_on_the_json_path() {
+    use crate::core::ir::{ApiSurface, EnumDef, EnumVariant};
+
+    let mut typ = split_byte_input();
+    typ.fields.push(field("kind", TypeRef::Named("InputKind".into())));
+    let mut api = ApiSurface {
+        types: vec![typ.clone()],
+        enums: vec![EnumDef {
+            name: "InputKind".into(),
+            variants: ["Bytes", "Uri"]
+                .map(|name| EnumVariant {
+                    name: name.into(),
+                    ..Default::default()
+                })
+                .into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let render = |api: &ApiSurface| render_record_with_api(&typ, true, api);
+    assert!(render(&api).contains("if (bytes is null || Kind == InputKind.Uri)"));
+    api.enums[0].variants.pop();
+    assert!(render(&api).contains("if (bytes is null)"));
 }
 
 #[test]

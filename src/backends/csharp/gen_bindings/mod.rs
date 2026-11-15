@@ -644,6 +644,7 @@ impl Backend for CsharpBackend {
                         &all_opaque_type_names,
                         native_from_json_types.contains(&typ.name),
                         crate::codegen::shared::split_bytes_factory_field(typ, source_api, &prefix),
+                        &api.enums,
                     )),
                     generated_header: true,
                 });
@@ -764,3 +765,20 @@ pub(super) fn is_tuple_field(field: &FieldDef) -> bool {
 
 #[cfg(test)]
 mod tests;
+
+fn split_bytes_uri_kind<'a>(typ: &crate::core::ir::TypeDef, enums: &'a [crate::core::ir::EnumDef]) -> Option<&'a str> {
+    let field = binding_fields(&typ.fields).find(|field| field.name == "kind" && !field.serde_skip)?;
+    let TypeRef::Named(name) = &field.ty else { return None };
+    let kind = enums.iter().find(|kind| &kind.name == name)?;
+    if kind.variants.iter().any(|variant| !variant.fields.is_empty()) {
+        return None;
+    }
+    ["Bytes", "Uri"]
+        .iter()
+        .all(|name| {
+            kind.variants
+                .iter()
+                .any(|variant| variant.name == *name && !variant.binding_excluded && variant.cfg.is_none())
+        })
+        .then_some(kind.name.as_str())
+}

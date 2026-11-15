@@ -4,7 +4,7 @@ use crate::backends::csharp::type_map::{csharp_type, csharp_type_for_dto_field};
 use crate::codegen::naming::{csharp_type_name, field_uses_duration_map_wire, to_csharp_name};
 use crate::codegen::shared::binding_fields;
 use crate::core::config::TraitBridgeConfig;
-use crate::core::ir::{DefaultValue, PrimitiveType, TypeDef, TypeRef};
+use crate::core::ir::{DefaultValue, EnumDef, PrimitiveType, TypeDef, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::HashSet;
 
@@ -26,6 +26,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
     true_opaque_types: &HashSet<String>,
     has_native_from_json: bool,
     split_factory_field: Option<&crate::core::ir::FieldDef>,
+    enums: &[EnumDef],
 ) -> String {
     use crate::backends::csharp::template_env::render;
 
@@ -359,9 +360,10 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
 
     if has_native_from_json && let Some(field) = super::super::marshalling::split_bytes_field(typ) {
         let property = to_csharp_name(&field.name);
+        let uri_kind = super::super::split_bytes_uri_kind(typ, enums).map(csharp_type_name);
         out.push_str(&render(
             "record_split_bytes_handle.jinja",
-            crate::alef_context! { class_name, exception_class, property },
+            crate::alef_context! { class_name, exception_class, property, uri_kind },
         ));
     }
 

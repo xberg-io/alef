@@ -26,6 +26,7 @@ fn render_record_with_types(typ: &TypeDef, types: &[TypeDef]) -> String {
         &HashSet::new(),
         false,
         None,
+        &[],
     )
 }
 
@@ -273,6 +274,7 @@ fn record_type_still_emits_default_bang_for_the_one_case_where_it_is_a_value() {
         &HashSet::new(),
         false,
         None,
+        &[],
     );
 
     assert!(

@@ -2,7 +2,7 @@
     internal ulong CreateNativeHandle()
     {
         var bytes = {{ property }};
-        if (bytes is null)
+        if (bytes is null{% if uri_kind %} || Kind == {{ uri_kind }}.Uri{% endif %})
         {
             var json = JsonSerializer.Serialize(this, JsonSerializationOptions);
             var handle = NativeMethods.{{ class_name }}FromJson(json);
