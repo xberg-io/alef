@@ -26,6 +26,7 @@ tar = "0.4"
 tempfile = "3"
 thiserror = "2"
 ureq = "3"
+url = "2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

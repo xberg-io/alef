@@ -1,4 +1,4 @@
-use crate::download::{DownloadOptions, TrackedReader, is_transient_request_error};
+use crate::download::{DownloadOptions, TrackedReader, is_transient_request_error, local_file_url};
 use crate::identity::{FileIdentity, VerifiedFile};
 use crate::keys::decode_public_key;
 use crate::manifest::{COMPONENT_ABI_VERSION, COMPONENT_MANIFEST_SCHEMA};
@@ -211,8 +211,8 @@ impl ArtifactCache {
             }
         }
         let url = self.resolve_url(entry);
-        if let Some(path) = url.strip_prefix("file://") {
-            return self.install_reader_verified(entry, File::open(path)?);
+        if let Some(path) = local_file_url(&url) {
+            return self.install_reader_verified(entry, File::open(path?)?);
         }
         if self.offline {
             return match damaged {

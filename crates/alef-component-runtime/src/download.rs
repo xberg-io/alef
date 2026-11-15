@@ -3,6 +3,7 @@
 
 use crate::ComponentError;
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -187,6 +188,28 @@ impl DownloadOptions {
 }
 
 /// Whether an HTTP status is worth retrying.
+/// The local path a `file:` URL names, or `None` for any other scheme.
+///
+/// Parsed as a URL rather than by stripping `file://`: percent-escapes are decoded
+/// (`file:///tmp/a%20b` is `/tmp/a b`), and Windows drive and UNC forms
+/// (`file:///C:/cache/x.tar.gz`, `file://server/share/x.tar.gz`) become real Windows paths. A URL
+/// naming a remote host on Unix is refused rather than read as a local path.
+pub(crate) fn local_file_url(url: &str) -> Option<Result<PathBuf, ComponentError>> {
+    let scheme = url.split_once(':')?.0;
+    if !scheme.eq_ignore_ascii_case("file") {
+        return None;
+    }
+    let invalid = || ComponentError::Download {
+        url: url.to_owned(),
+        message: "not a local file URL".to_owned(),
+    };
+    Some(
+        url::Url::parse(url)
+            .map_err(|_| invalid())
+            .and_then(|parsed| parsed.to_file_path().map_err(|()| invalid())),
+    )
+}
+
 pub(crate) fn is_transient_status(status: u16) -> bool {
     status >= 500 || status == 408 || status == 429
 }
@@ -229,6 +252,44 @@ impl<R: std::io::Read> std::io::Read for TrackedReader<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn non_file_urls_are_not_local() {
+        assert!(local_file_url("https://example.invalid/x.tar.gz").is_none());
+        assert!(local_file_url("no-scheme").is_none());
+    }
+
+    /// Regression: `file://` was stripped as a prefix, so escapes stayed encoded and Windows URLs
+    /// (`file:///C:/...`) became the path `/C:/...`.
+    #[cfg(unix)]
+    #[test]
+    fn unix_file_urls_decode_escapes_and_refuse_remote_hosts() {
+        assert_eq!(
+            local_file_url("file:///tmp/a%20b/x.tar.gz").unwrap().unwrap(),
+            PathBuf::from("/tmp/a b/x.tar.gz")
+        );
+        assert_eq!(
+            local_file_url("FILE:///tmp/x.tar.gz").unwrap().unwrap(),
+            PathBuf::from("/tmp/x.tar.gz")
+        );
+        assert!(matches!(
+            local_file_url("file://mirror.example/share/x.tar.gz"),
+            Some(Err(ComponentError::Download { .. }))
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_file_urls_become_drive_and_unc_paths() {
+        assert_eq!(
+            local_file_url("file:///C:/cache/a%20b/x.tar.gz").unwrap().unwrap(),
+            PathBuf::from(r"C:\cache\a b\x.tar.gz")
+        );
+        assert_eq!(
+            local_file_url("file://server/share/x.tar.gz").unwrap().unwrap(),
+            PathBuf::from(r"\\server\share\x.tar.gz")
+        );
+    }
 
     #[test]
     fn defaults_preserve_historical_timeouts() {
