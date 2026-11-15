@@ -120,7 +120,7 @@ pub fn artifact_name_with(identity: &ComponentIdentity, template: Option<&str>) 
     Ok(name)
 }
 
-fn validate_name(kind: &str, value: &str) -> Result<()> {
+pub(super) fn validate_name(kind: &str, value: &str) -> Result<()> {
     ensure!(!value.is_empty(), "{kind} must not be empty");
     ensure!(
         value
@@ -292,7 +292,7 @@ pub fn write_package_recorded(
 /// written instead of reading the archive back afterward. The gzip header pins `mtime` to 0
 /// (and lets the encoder's already-deterministic default `OS = unknown` stand) so that
 /// packaging the same inputs twice produces byte-identical archives.
-fn write_archive(
+pub(super) fn write_archive(
     archive_path: &Path,
     manifest_bytes: &[u8],
     signature_bytes: Option<&[u8]>,
@@ -524,11 +524,11 @@ pub fn write_lock(path: &Path, lock: &ComponentLock) -> Result<()> {
 
 /// `write_package` always produces at most three archive entries: the manifest, an optional
 /// signature, and the library. Anything else is not an archive this crate wrote.
-const MAX_ARCHIVE_ENTRIES: usize = 3;
+pub(super) const MAX_ARCHIVE_ENTRIES: usize = 3;
 /// Generous ceiling for the manifest/signature entries -- both are small JSON documents,
 /// orders of magnitude smaller than any native component library, so a declared size above
 /// this is already a sign the archive is not what it claims to be.
-const METADATA_ENTRY_SIZE_CEILING: u64 = 64 * 1024;
+pub(super) const METADATA_ENTRY_SIZE_CEILING: u64 = 64 * 1024;
 
 pub fn verify_record(record_path: &Path, public_keys: &BTreeMap<String, String>) -> Result<()> {
     verify_record_with(record_path, Some(public_keys), None)

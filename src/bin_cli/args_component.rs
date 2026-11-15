@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::Subcommand;
+use clap::{Args, Subcommand};
 
 #[derive(Subcommand)]
 pub(crate) enum ComponentAction {
@@ -124,6 +124,12 @@ pub(crate) enum ComponentAction {
         #[arg(long)]
         plan: Option<PathBuf>,
     },
+    /// Sign unsigned archives from `component package --unsigned` without a source tree or toolchain.
+    ///
+    /// Reads each `*.record.json` in `--input` and its archive, checks the archive under the
+    /// runtime's extraction rules and the library against the manifest, and writes the signed
+    /// archive and record to `--output`. Runs no cargo, rustc or go and loads no alef.toml.
+    Sign(SignArgs),
     /// Generate and stage a binding-embeddable components.lock.json from signed artifact records.
     Lock {
         /// Directory containing `*.record.json` files from `component package`.
@@ -169,4 +175,37 @@ pub(crate) enum ComponentAction {
         #[arg(long, short, default_value = "dist/components")]
         input: PathBuf,
     },
+}
+
+/// Arguments of `alef component sign`.
+#[derive(Args)]
+pub(crate) struct SignArgs {
+    /// Directory holding the unsigned archives and their `*.record.json` files.
+    #[arg(long, short)]
+    pub(crate) input: PathBuf,
+    /// Directory for the signed archives and records; must differ from `--input`.
+    #[arg(long, short)]
+    pub(crate) output: PathBuf,
+    /// Ed25519 private key file: PKCS#8 PEM or DER, or a raw 32-byte seed. `-` reads stdin.
+    #[arg(long, required_unless_present = "key_env", conflicts_with = "key_env")]
+    pub(crate) key_file: Option<PathBuf>,
+    /// Name of an environment variable holding the Ed25519 private key as PKCS#8 PEM text, or
+    /// base64 of PKCS#8 DER / a raw 32-byte seed.
+    #[arg(long)]
+    pub(crate) key_env: Option<String>,
+    /// Key ID written into each signature; `component lock` requires it in
+    /// `component_distribution.public_keys`.
+    #[arg(long)]
+    pub(crate) key_id: String,
+    /// Public key configured for `--key-id` (PEM or base64); when given, the private key must
+    /// match it.
+    #[arg(long)]
+    pub(crate) public_key: Option<String>,
+    /// Plan (from `component plan`) whose `build` rows the archives must match: identity,
+    /// release version and `input_hash`.
+    #[arg(long)]
+    pub(crate) plan: Option<PathBuf>,
+    /// Replace the signature of an already-signed archive instead of refusing it.
+    #[arg(long)]
+    pub(crate) resign: bool,
 }

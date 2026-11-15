@@ -92,6 +92,51 @@ by one of them. To rotate:
 
 Binding locks staged by `alef component lock` embed only the keys their artifacts reference.
 
+## Two-stage release: build without the key, sign without a build
+
+`package` signs as it packages, so the key would sit on the runner that executes every dependency's
+build script. To keep it off that runner, package unsigned and sign on a fresh runner that never
+builds:
+
+```console
+# build job: checkout, toolchain, no key
+alef component plan --previous-lock components.lock.json -o plan.json
+alef component build --plan plan.json
+alef component package --plan plan.json --unsigned --output dist/unsigned
+
+# sign job: a fresh runner with only the alef binary, the key, plan.json and dist/unsigned
+alef component sign --input dist/unsigned --output dist/components \
+  --key-env RELEASE_SIGNING_KEY --key-id release-2026 --plan plan.json
+
+# lock job: checkout again
+alef component lock --input dist/components --reuse components.lock.json --plan plan.json
+```
+
+`sign` returns before `alef.toml` is loaded, so the sign job needs no checkout and runs no cargo,
+rustc or go. It reads every `*.record.json` in `--input` and the archive each one names, validates all
+of them before writing anything, and writes the signed archive and record under the same file names in
+`--output`, which must be a different directory. Each archive must:
+
+- match its record: the record file is `<archive>.record.json`, and the manifest hash, archive size and
+  archive SHA-256 agree;
+- pass the runtime's extraction rules: `component.json` first, at most three entries, only regular
+  files with plain file names (no directories, `..`, absolute paths or links), metadata entries at most
+  64 KiB, the library at exactly its declared size;
+- embed exactly the record's manifest, with a library that hashes to the manifest's `sha256`;
+- carry no signature yet, unless `--resign` replaces it (for example to re-sign under a new key);
+- with `--plan`, match a `build` row: crate, component and target, release version and `input_hash`.
+
+The key comes from `--key-file PATH` (`-` reads stdin) or `--key-env NAME`, in the forms listed under
+[Signing keys](#signing-keys); it is read once, never logged, and the parsed key is zeroized on drop.
+The raw file or variable contents are not. `--public-key KEY` (PEM or base64) makes `sign` refuse a
+private key that does not match the public key configured for `--key-id`, catching a wrong key or key
+ID before `lock` does. Output is deterministic and byte-identical to a signed `package` of the same
+library, so `lock`, `verify` and the runtime accept it unchanged.
+
+The signer vouches for the archive the build job produced. It catches an archive altered after
+packaging, not a library a compromised build compiled maliciously, and `input_hash` is not covered by
+the signature.
+
 ## Shared target directory
 
 By default each component builds into `.alef/components/build/<crate>/<component>`, so every

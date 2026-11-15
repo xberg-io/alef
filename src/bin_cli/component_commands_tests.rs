@@ -763,3 +763,53 @@ fn build_row_checks_honour_filters_and_cover_every_row() {
     check(&[&fast_linux, &go], &[], &[linux.to_string()]).unwrap();
     plan::check_build_rows_have_records(&plan, "other-crate", &[], &[], &[]).unwrap();
 }
+
+/// The signing host has no checkout: `component sign` must run without loading `alef.toml`.
+#[test]
+fn component_sign_runs_without_a_configuration_file() {
+    use crate::component::artifact::{PackageInput, ProvidedContractInput, create_manifest, write_package};
+    let temp = tempfile::tempdir().unwrap();
+    let library = temp.path().join("libdemo_core.so");
+    fs::write(&library, b"native").unwrap();
+    let contract_hash = "b".repeat(64);
+    let provides = [ProvidedContractInput {
+        contract: "engine",
+        interface_version: 1,
+        contract_hash: &contract_hash,
+        implementation: "demo::Fast",
+    }];
+    let input = PackageInput {
+        crate_name: "demo-core",
+        component: "fast",
+        version: "1.0.0",
+        target: "x86_64-unknown-linux-gnu",
+        provides: &provides,
+        features: &[],
+        default_features: false,
+        feature_hash: &feature_hash(&[], false),
+    };
+    let unsigned = temp.path().join("unsigned");
+    let record = write_package(&library, &unsigned, create_manifest(&library, input).unwrap(), None).unwrap();
+    let key_file = temp.path().join("release.seed");
+    fs::write(&key_file, [9_u8; 32]).unwrap();
+    let signed = temp.path().join("signed");
+    let command = Commands::Component {
+        action: ComponentAction::Sign(super::super::args::SignArgs {
+            input: unsigned,
+            output: signed.clone(),
+            key_file: Some(key_file),
+            key_env: None,
+            key_id: "release".into(),
+            public_key: None,
+            plan: None,
+            resign: false,
+        }),
+    };
+    let context = DispatchContext {
+        config_path: temp.path().join("missing").join("alef.toml"),
+        crate_filter: Vec::new(),
+    };
+    assert!(handle(command, &context).unwrap().is_none());
+    let signed_record = read_record(&record.record_path(&signed)).unwrap();
+    assert_eq!(signed_record.signature.unwrap().key_id, "release");
+}

@@ -7,7 +7,7 @@ use crate::cli::commands;
 #[path = "args_component.rs"]
 mod component_action;
 
-pub(crate) use component_action::ComponentAction;
+pub(crate) use component_action::{ComponentAction, SignArgs};
 
 #[derive(Parser)]
 // `version` keeps `-V` a single bare `alef <semver>` line; `long_version` gives `--version` the

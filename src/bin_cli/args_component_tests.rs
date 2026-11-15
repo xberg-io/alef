@@ -122,3 +122,34 @@ fn component_build_and_package_fingerprint_flags_require_a_plan() {
     };
     assert_eq!(env, ["SDKROOT"]);
 }
+
+#[test]
+fn component_sign_takes_exactly_one_key_source() {
+    let argv = "sign --input unsigned --output signed --key-env RELEASE_KEY --key-id k1 --plan plan.json";
+    let ComponentAction::Sign(args) = component_action(&argv.split(' ').collect::<Vec<_>>()).unwrap() else {
+        panic!("expected sign");
+    };
+    assert_eq!(args.input, PathBuf::from("unsigned"));
+    assert_eq!(args.output, PathBuf::from("signed"));
+    assert_eq!(args.key_env.as_deref(), Some("RELEASE_KEY"));
+    assert_eq!(args.key_file, None);
+    assert_eq!(args.key_id, "k1");
+    assert_eq!(args.plan, Some(PathBuf::from("plan.json")));
+    assert!(!args.resign);
+
+    let argv = "sign -i u -o s --key-file - --key-id k1 --resign";
+    let ComponentAction::Sign(args) = component_action(&argv.split(' ').collect::<Vec<_>>()).unwrap() else {
+        panic!("expected sign");
+    };
+    assert_eq!(args.key_file, Some(PathBuf::from("-")));
+    assert!(args.resign);
+
+    let base = ["sign", "--input", "u", "--output", "s", "--key-id", "k1"];
+    assert!(component_action(&base).is_err(), "a key source is required");
+    let both = [&base[..], &["--key-file", "k.pem", "--key-env", "RELEASE_KEY"]].concat();
+    assert!(component_action(&both).is_err(), "key sources are exclusive");
+    assert!(
+        component_action(&["sign", "--input", "u", "--output", "s", "--key-env", "K"]).is_err(),
+        "--key-id is required"
+    );
+}

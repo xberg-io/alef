@@ -22,6 +22,8 @@ use super::helpers::load_config;
 mod build;
 #[path = "component_plan.rs"]
 mod plan;
+#[path = "component_sign.rs"]
+mod sign;
 
 use build::{build_component, built_library_path_for};
 use plan::{Fingerprinter, PlanArgs};
@@ -29,6 +31,9 @@ use plan::{Fingerprinter, PlanArgs};
 pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Option<Commands>> {
     let Commands::Component { action } = command else {
         return Ok(Some(command));
+    };
+    let Some(action) = sign::intercept(action)? else {
+        return Ok(None);
     };
     let (_workspace, resolved) = load_config(&context.config_path)?;
     let crates = dispatch::select_crates(&resolved, &context.crate_filter)?;
@@ -438,6 +443,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             }
             Ok(None)
         }
+        ComponentAction::Sign(_) => unreachable!("component sign returns before configuration loads"),
         ComponentAction::ContractHash => {
             for config in &crates {
                 let mut contracts = extract_contracts(config, &context.config_path)?;
