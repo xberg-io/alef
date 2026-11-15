@@ -4,9 +4,10 @@ use super::{
     MAX_FRAME_SIZE, STDIO_PROTOCOLS_ENV, SidecarRestartEvent, SidecarSession, SidecarSessionSetup, StdioRequest,
     StdioResponse, read_frame, write_frame,
 };
+use crate::identity::VerifiedFile;
 use crate::{ComponentError, ComponentManifest};
 use std::io::BufReader;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, TryLockError, mpsc};
@@ -36,6 +37,10 @@ enum Connection {
     Binary(Arc<BinaryConnection>),
 }
 
+/// Verifies a sidecar's executable against the lock again and returns it open and verified. Every
+/// respawn calls it, so a respawn never executes a file that was not checked (ADR-0026).
+pub(crate) type SidecarVerifier = Arc<dyn Fn() -> Result<VerifiedFile, ComponentError> + Send + Sync>;
+
 /// Optional respawn knobs for a stdio connection, shared by every [`SidecarProcess`] a
 /// [`crate::ComponentManager`] spawns (see its `with_sidecar_*` builders).
 #[derive(Clone)]
@@ -56,7 +61,7 @@ impl Default for SidecarPolicy {
 }
 
 pub(crate) struct SidecarProcess {
-    executable: PathBuf,
+    verify: SidecarVerifier,
     manifest: ComponentManifest,
     child: Mutex<Child>,
     connection: Mutex<Option<Connection>>,
@@ -74,15 +79,18 @@ pub(crate) struct SidecarProcess {
 }
 
 impl SidecarProcess {
+    /// Start the first child from `executable`, which the caller has just verified; `verify`
+    /// re-verifies it before every respawn.
     pub(crate) fn spawn(
-        executable: &Path,
+        executable: &VerifiedFile,
+        verify: SidecarVerifier,
         manifest: &ComponentManifest,
         timeout: Duration,
         policy: SidecarPolicy,
     ) -> Result<Self, ComponentError> {
         let (child, connection) = Self::start_child(executable, manifest, timeout)?;
         let process = Self {
-            executable: executable.to_owned(),
+            verify,
             manifest: manifest.clone(),
             child: Mutex::new(child),
             connection: Mutex::new(Some(connection)),
@@ -100,26 +108,39 @@ impl SidecarProcess {
         Ok(process)
     }
 
-    /// Start one child for `executable`, run the describe handshake against `manifest` and connect
-    /// with the protocol it negotiated. Shared by `spawn` and by every respawn; the caller installs
-    /// the returned pair on `self`. A child that fails here is killed and reaped.
+    /// Start one child for the verified `executable`, run the describe handshake against `manifest`
+    /// and connect with the protocol it negotiated. Shared by `spawn` and by every respawn; the
+    /// caller installs the returned pair on `self`. A child that fails here is killed and reaped.
     fn start_child(
-        executable: &Path,
+        executable: &VerifiedFile,
         manifest: &ComponentManifest,
         timeout: Duration,
     ) -> Result<(Child, Connection), ComponentError> {
-        make_executable(executable)?;
-        let mut child = retry_executable_busy(SPAWN_BUSY_RETRIES, SPAWN_BUSY_BACKOFF, || {
-            Command::new(executable)
+        let path = executable.path();
+        make_executable(path)?;
+        let mut refused = None;
+        let started = retry_executable_busy(SPAWN_BUSY_RETRIES, SPAWN_BUSY_BACKOFF, || {
+            // Resolved per attempt, immediately before the spawn: the verified descriptor's path on
+            // Linux, else the path after a last identity check (see `identity`).
+            let program = executable.executable_launch_path().map_err(|error| {
+                refused = Some(error);
+                std::io::Error::other("verified sidecar executable changed")
+            })?;
+            let mut command = Command::new(program);
+            #[cfg(unix)]
+            std::os::unix::process::CommandExt::arg0(&mut command, path);
+            command
                 .env(STDIO_PROTOCOLS_ENV, ADVERTISED_PROTOCOLS)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::inherit())
                 .spawn()
-        })
-        .map_err(|error| {
-            ComponentError::SidecarProtocol(format!("failed to start {}: {error}", executable.display()))
-        })?;
+        });
+        if let Some(error) = refused {
+            return Err(error);
+        }
+        let mut child = started
+            .map_err(|error| ComponentError::SidecarProtocol(format!("failed to start {}: {error}", path.display())))?;
         let stdin = child.stdin.take().expect("piped child stdin missing");
         let stdout = child.stdout.take().expect("piped child stdout missing");
         match handshake::describe(stdin, stdout, manifest, timeout).and_then(Self::connect) {
@@ -253,7 +274,10 @@ impl SidecarProcess {
             self.respawn_attempts.fetch_add(1, Ordering::AcqRel);
             // Reaps the old child, whether it was killed earlier or exited on its own.
             self.stop();
-            let (child, connection) = Self::start_child(&self.executable, &self.manifest, self.timeout)?;
+            // The cached file is checked against the lock again before it is executed: the
+            // verification behind the first spawn says nothing about the file now.
+            let executable = (self.verify)()?;
+            let (child, connection) = Self::start_child(&executable, &self.manifest, self.timeout)?;
             {
                 // Swapped together under the connection guard, so a failing protocol-2 call that
                 // checks its handle against the current connection never stops the new child.

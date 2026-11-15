@@ -1,7 +1,7 @@
 use crate::identity::VerifiedFile;
 use crate::loader::{decode_hash, validate_manifest};
 use crate::manifest::COMPONENT_MANIFEST_SCHEMA;
-use crate::stdio::{SidecarPolicy, SidecarProcess, SidecarRestartEvent, SidecarSessionSetup};
+use crate::stdio::{SidecarPolicy, SidecarProcess, SidecarRestartEvent, SidecarSessionSetup, SidecarVerifier};
 use crate::{
     ArtifactCache, CachedArtifact, CachedObject, ComponentDeliveryMode, ComponentError, ComponentLock,
     ComponentLockEntry, ComponentRequirements, DownloadOptions, HostServices, LoadedComponent, RemovalReport, Retain,
@@ -357,7 +357,7 @@ impl ComponentManager {
         let (cached, verified) = self.cached_artifact(entry)?;
         validate_manifest(&cached.manifest, &requirements)?;
         let component = Arc::new(if self.stdio_components.contains(component_id) {
-            let process = self.sidecar_process(component_id, &cached)?;
+            let process = self.sidecar_process(entry, &cached, &verified)?;
             LoadedComponent::from_sidecar(process, &cached.manifest, &requirements, self.host)?
         } else {
             LoadedComponent::load_with_services(
@@ -374,9 +374,11 @@ impl ComponentManager {
 
     fn sidecar_process(
         &self,
-        component_id: &str,
+        entry: &ComponentLockEntry,
         cached: &CachedArtifact,
+        verified: &VerifiedFile,
     ) -> Result<Arc<SidecarProcess>, ComponentError> {
+        let component_id = entry.identity.component.as_str();
         let process_lock = self.contract_lock(format!("stdio:{component_id}"));
         let _guard = process_lock.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(process) = self
@@ -388,8 +390,14 @@ impl ComponentManager {
             process.ensure_running()?;
             return Ok(Arc::clone(process));
         }
+        let verify: SidecarVerifier = {
+            let cache = self.cache.clone();
+            let entry = entry.clone();
+            Arc::new(move || cache.verify_cached_file(&entry).map(|(_, verified)| verified))
+        };
         let process = Arc::new(SidecarProcess::spawn(
-            &cached.library,
+            verified,
+            verify,
             &cached.manifest,
             self.sidecar_timeout,
             self.sidecar_policy.clone(),

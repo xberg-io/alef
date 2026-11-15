@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - Close the window between verifying a cached component library and loading it. The cache now verifies the library (and checks the verified stamp) through one open descriptor that the manager keeps; on Linux the library is loaded from that descriptor (`/proc/self/fd/N`), and elsewhere the path is re-checked against the descriptor's device, inode, size and mtime immediately before `dlopen` and refused with the new `ComponentError::ArtifactChanged` (code `artifact_changed`) on mismatch. A fresh install's stamp is taken from that descriptor rather than the path. ADR-0026.
+- Re-verify a stdio sidecar's cached executable against the lock before every respawn (cheap with the verified stamp); a respawn used to re-execute the file without checking it, so an executable changed after the first spawn ran unverified. Every spawn also launches the verified file: on Linux an ELF sidecar is executed from its verified descriptor, elsewhere (and for `#!` scripts) the path is re-checked immediately before the spawn. A respawn refused by verification consumes the restart budget like any other failed respawn. ADR-0026.
 
 ## [0.129.9] - 2026-11-15
 

@@ -278,7 +278,11 @@ fn should_consume_the_budget_when_a_respawn_fails_and_fire_no_event() {
     std::fs::write(&library, b"not a python script").unwrap();
 
     let error = engine.invoke_bytes("echo", b"").unwrap_err();
-    assert_eq!(error.code(), "sidecar_protocol", "{error}");
+    assert_eq!(
+        error.code(),
+        "size_mismatch",
+        "the respawn re-verifies the executable before running it: {error}"
+    );
     let error = engine.invoke_bytes("echo", b"").unwrap_err();
     assert_eq!(
         error.code(),
@@ -290,6 +294,33 @@ fn should_consume_the_budget_when_a_respawn_fails_and_fire_no_event() {
         events.lock().unwrap().is_empty(),
         "a failed respawn must not fire the restart event"
     );
+}
+
+/// Regression: a respawn used to re-execute the cached file without verifying it again, so an
+/// executable edited after the first spawn ran unverified. This edit keeps the size and leaves a
+/// working script, so only re-verification can refuse it.
+#[test]
+fn should_refuse_to_respawn_an_executable_edited_after_the_first_spawn() {
+    let (_dir, manager) = manager("valid");
+    let engine = manager.ensure_contract("demo", "engine", b"unused\0").unwrap();
+    assert!(engine.invoke_bytes("exit", b"").is_err());
+
+    let library = manager.cache_path("demo").unwrap().join("sidecar");
+    let original = std::fs::read(&library).unwrap();
+    let edited = String::from_utf8(original.clone())
+        .unwrap()
+        .replacen("Read a request", "Read a REQUEST", 1);
+    assert_ne!(
+        edited.as_bytes(),
+        original,
+        "the fixture text the edit targets is missing"
+    );
+    assert_eq!(edited.len(), original.len());
+    std::fs::write(&library, edited).unwrap();
+
+    let error = engine.invoke_bytes("echo", b"").unwrap_err();
+    assert_eq!(error.code(), "digest_mismatch", "{error}");
+    assert_eq!(manager.sidecar_restart_count("demo"), Some(0));
 }
 
 #[test]

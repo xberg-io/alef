@@ -35,7 +35,7 @@ pub mod frame;
 mod handshake;
 mod process;
 
-pub(crate) use process::{SidecarPolicy, SidecarProcess};
+pub(crate) use process::{SidecarPolicy, SidecarProcess, SidecarVerifier};
 
 use crate::{ComponentError, ComponentProvidedContract};
 use serde::{Deserialize, Serialize};
