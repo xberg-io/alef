@@ -10,7 +10,19 @@ use std::collections::HashSet;
 
 use crate::codegen::naming::to_class_name;
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::{ApiSurface, MethodDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef};
+use crate::core::ir::{ApiSurface, MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef};
+
+/// A shared opaque argument crosses JNI as a native handle.
+pub(crate) fn borrowed_opaque_param<'a>(param: &'a ParamDef, opaque_names: &HashSet<&str>) -> Option<&'a str> {
+    match &param.ty {
+        TypeRef::Named(name)
+            if param.is_ref && !param.is_mut && !param.optional && opaque_names.contains(name.as_str()) =>
+        {
+            Some(name)
+        }
+        _ => None,
+    }
+}
 
 /// Resolve the Kotlin package used for JNI symbols.
 ///

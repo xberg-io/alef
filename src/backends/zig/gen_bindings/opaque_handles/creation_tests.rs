@@ -218,6 +218,7 @@ fn generated_source() -> String {
             struct_names: &HashSet::new(),
             streaming_item_types: &HashMap::new(),
             enum_names: &HashSet::new(),
+            opaque_names: &HashSet::new(),
         },
         &mut out,
     );
@@ -240,6 +241,7 @@ fn generated_source() -> String {
             struct_names: &HashSet::new(),
             streaming_item_types: &HashMap::new(),
             enum_names: &HashSet::new(),
+            opaque_names: &HashSet::new(),
         },
         &mut out,
     );

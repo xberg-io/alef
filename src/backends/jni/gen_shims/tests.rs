@@ -1167,4 +1167,47 @@ register_fn = "register_backend"
             "expected the real bridge to actually call register_fn: {content}"
         );
     }
+
+    #[test]
+    fn jni_shim_borrows_tree_without_deserializing_it() {
+        let method = MethodDef {
+            name: "parse_incremental".into(),
+            params: vec![
+                ParamDef {
+                    name: "source".into(),
+                    ty: TypeRef::String,
+                    is_ref: true,
+                    ..Default::default()
+                },
+                ParamDef {
+                    name: "old_tree".into(),
+                    ty: TypeRef::Named("Tree".into()),
+                    is_ref: true,
+                    ..Default::default()
+                },
+            ],
+            return_type: TypeRef::Optional(Box::new(TypeRef::Named("Tree".into()))),
+            ..Default::default()
+        };
+        let mut out = String::new();
+        emit_method_shim(
+            &mut out,
+            "Java_sample_Bridge_nativeParse",
+            &method,
+            &MethodShimReceiver {
+                type_name: "Parser",
+                receiver_is_mut: true,
+                receiver_owned: false,
+            },
+            &std::collections::HashSet::from(["Tree"]),
+            &Default::default(),
+        );
+        assert!(out.contains("alef_borrowed_handle_1: jlong"), "{out}");
+        assert!(out.contains("if alef_borrowed_handle_1 == 0"), "{out}");
+        assert!(
+            out.contains("client.parse_incremental(&source, alef_borrowed_handle_1)"),
+            "{out}"
+        );
+        assert!(!out.contains("req_map.get(\"old_tree\")"), "{out}");
+    }
 }

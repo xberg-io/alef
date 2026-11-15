@@ -38,6 +38,7 @@ pub(crate) struct OpaqueHandleContext<'a> {
     pub(crate) struct_names: &'a HashSet<String>,
     pub(crate) streaming_item_types: &'a HashMap<String, String>,
     pub(crate) enum_names: &'a HashSet<String>,
+    pub(crate) opaque_names: &'a HashSet<String>,
 }
 
 /// Emit a top-level `pub fn create_<type_snake>(allocator, params...) !TypeName`
@@ -81,17 +82,7 @@ pub(crate) fn emit_opaque_handle(ty: &TypeDef, prefix: &str, context: &OpaqueHan
     out.push('\n');
 
     for method in ty.methods.iter().filter(|m| !m.is_static) {
-        emit_opaque_method(
-            method,
-            ty,
-            prefix,
-            &type_snake,
-            declared_errors,
-            struct_names,
-            streaming_item_types,
-            enum_names,
-            out,
-        );
+        emit_opaque_method(method, ty, prefix, &type_snake, context, out);
         out.push('\n');
     }
 
@@ -156,6 +147,58 @@ mod tests {
     use crate::core::ir::{MethodDef, TypeRef};
 
     #[test]
+    fn instance_method_borrows_an_opaque_handle_argument() {
+        use crate::core::ir::ParamDef;
+
+        let ty = TypeDef {
+            name: "Parser".into(),
+            is_opaque: true,
+            methods: vec![MethodDef {
+                name: "parse_incremental".into(),
+                params: vec![
+                    ParamDef {
+                        name: "source".into(),
+                        ty: TypeRef::String,
+                        ..Default::default()
+                    },
+                    ParamDef {
+                        name: "old_tree".into(),
+                        ty: TypeRef::Named("Tree".into()),
+                        is_ref: true,
+                        ..Default::default()
+                    },
+                ],
+                return_type: TypeRef::Optional(Box::new(TypeRef::Named("Tree".into()))),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut output = String::new();
+        emit_opaque_handle(
+            &ty,
+            "sample",
+            &OpaqueHandleContext {
+                declared_errors: &[],
+                struct_names: &HashSet::new(),
+                streaming_item_types: &HashMap::new(),
+                enum_names: &HashSet::new(),
+                opaque_names: &HashSet::from(["Tree".into()]),
+            },
+            &mut output,
+        );
+
+        assert!(output.contains("old_tree: Tree"), "{output}");
+        assert!(
+            output.contains("if (old_tree_handle == 0) return error.HandleClosed;"),
+            "{output}"
+        );
+        assert!(
+            output.contains("c.sample_parser_parse_incremental(handle, source_z, old_tree_handle)"),
+            "{output}"
+        );
+    }
+
+    #[test]
     fn opaque_handle_rejects_calls_after_idempotent_free() {
         let ty = TypeDef {
             name: "ClientHandle".to_owned(),
@@ -179,6 +222,7 @@ mod tests {
                 struct_names: &HashSet::new(),
                 streaming_item_types: &HashMap::new(),
                 enum_names: &HashSet::new(),
+                opaque_names: &HashSet::new(),
             },
             &mut output,
         );
@@ -215,6 +259,7 @@ mod tests {
                 struct_names: &HashSet::new(),
                 streaming_item_types: &HashMap::new(),
                 enum_names: &HashSet::new(),
+                opaque_names: &HashSet::new(),
             },
             &mut output,
         );
@@ -247,6 +292,7 @@ mod tests {
                 struct_names: &HashSet::new(),
                 streaming_item_types: &HashMap::new(),
                 enum_names: &HashSet::new(),
+                opaque_names: &HashSet::new(),
             },
             &mut output,
         );
@@ -287,6 +333,7 @@ mod tests {
                 struct_names: &HashSet::new(),
                 streaming_item_types: &HashMap::new(),
                 enum_names: &HashSet::new(),
+                opaque_names: &HashSet::new(),
             },
             &mut output,
         );
@@ -337,6 +384,7 @@ mod tests {
                 struct_names: &HashSet::new(),
                 streaming_item_types: &HashMap::new(),
                 enum_names: &HashSet::new(),
+                opaque_names: &HashSet::new(),
             },
             &mut output,
         );

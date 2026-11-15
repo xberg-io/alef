@@ -504,3 +504,38 @@ fn data_carrying_enum_vec_method_param_bridges_each_element_through_json() {
         "no fallible conversion is involved, so the infallible signature must be kept, got:\n{out}"
     );
 }
+
+#[test]
+fn swift_sync_method_borrows_an_opaque_tree_argument() {
+    let method = crate::core::ir::MethodDef {
+        name: "parse_incremental".into(),
+        receiver: Some(ReceiverKind::RefMut),
+        params: vec![crate::core::ir::ParamDef {
+            name: "old_tree".into(),
+            ty: TypeRef::Named("Tree".into()),
+            is_ref: true,
+            ..Default::default()
+        }],
+        return_type: TypeRef::Optional(Box::new(TypeRef::Named("Tree".into()))),
+        ..Default::default()
+    };
+    let owner = opaque_type("Parser", vec![method.clone()]);
+    let handles = HashSet::from(["Tree".into()]);
+    let shims = emit_type_method_shims(
+        &owner,
+        "sample",
+        &HashMap::new(),
+        &handles,
+        &HashSet::new(),
+        &HashSet::new(),
+    );
+    let externs = crate::backends::swift::gen_rust_crate::extern_block::emit_extern_block_for_type_methods(
+        &owner,
+        &handles,
+        &HashSet::new(),
+        &HashSet::new(),
+    )
+    .expect("extern block");
+    assert!(shims.contains("old_tree: &Tree"), "{shims}");
+    assert!(externs.contains("old_tree: &Tree"), "{externs}");
+}

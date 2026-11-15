@@ -151,7 +151,12 @@ pub(in crate::backends::napi::gen_bindings) fn gen_opaque_instance_method(
                 capsule_cfg.type_name
             );
         }
-        mapper.map_type(&super::super::inputs::binding_type(inputs, ty))
+        let binding_type = super::super::inputs::binding_type(inputs, ty);
+        let mapped = mapper.map_type(&binding_type);
+        if matches!(&binding_type, TypeRef::Named(name) if opaque_types.contains(name)) {
+            return format!("&{mapped}");
+        }
+        mapped
     });
     let adapter_key_for_stream = format!("{}.{}", typ.name, method.name);
     let stream_item = streaming_item_types.get(&adapter_key_for_stream);

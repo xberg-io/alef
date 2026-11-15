@@ -203,4 +203,34 @@ mod tests {
         assert!(content.contains("external fun nativeFreeReturnedHandle(handle: Long)"));
         assert!(!content.contains("nativeFreeInternalHandle"));
     }
+
+    #[test]
+    fn jni_wrapper_borrows_a_tree_handle_outside_the_json_request() {
+        let method = crate::core::ir::MethodDef {
+            params: vec![
+                crate::core::ir::ParamDef {
+                    name: "source".into(),
+                    ty: TypeRef::String,
+                    ..Default::default()
+                },
+                crate::core::ir::ParamDef {
+                    name: "old_tree".into(),
+                    ty: TypeRef::Named("Tree".into()),
+                    is_ref: true,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let opaque_names = std::collections::HashSet::from(["Tree"]);
+        assert_eq!(
+            method_jni_params(&method, &opaque_names),
+            "handle: Long, requestJson: String, oldTreeHandle: Long"
+        );
+        let call = build_bridge_call(&method, "Bridge", "nativeParse", &opaque_names);
+        assert_eq!(
+            call,
+            "synchronized(Bridge.borrowedHandleLock) { oldTree.withHandle { `alef$borrowed0` -> withHandle { `alef$receiver` -> Bridge.nativeParse(`alef$receiver`, MAPPER.writeValueAsString(mapOf(\"source\" to source)), `alef$borrowed0`) } } }"
+        );
+    }
 }

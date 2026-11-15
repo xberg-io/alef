@@ -1,3 +1,5 @@
 @Suppress("TooManyFunctions")
 object {{ bridge_name }} {
+    internal val borrowedHandleLock = Any()
+
     init { System.loadLibrary("{{ lib_name }}") }

@@ -218,6 +218,27 @@ pub(crate) fn bridge_type_enum_aware_ref(ty: &TypeRef, enum_names: &HashSet<&str
     }
 }
 
+pub(crate) fn method_bridge_param_type(
+    param: &ParamDef,
+    enum_names: &HashSet<&str>,
+    handle_types: &HashSet<String>,
+    is_async: bool,
+) -> String {
+    let bridge_type = bridge_type_enum_aware_ref(&param.ty, enum_names);
+    if param.optional && !needs_json_bridge(&param.ty) {
+        return format!("Option<{bridge_type}>");
+    }
+    if !is_async
+        && param.is_ref
+        && !param.is_mut
+        && !param.optional
+        && matches!(&param.ty, TypeRef::Named(name) if !enum_names.contains(name.as_str()) && handle_types.contains(name))
+    {
+        return format!("&{bridge_type}");
+    }
+    bridge_type
+}
+
 /// Name of the private Rust helper that reconstructs an enum from the string swift-bridge hands
 /// it (see `enums::emit_enum_wrapper`, which defines the function this name points at).
 ///

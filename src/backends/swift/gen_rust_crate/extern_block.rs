@@ -9,7 +9,7 @@ use crate::backends::swift::gen_rust_crate::owned_vec;
 use crate::backends::swift::gen_rust_crate::type_bridge::{
     bridge_result_ok_type_with_handles, bridge_type_enum_and_serde_struct_aware, bridge_type_enum_aware,
     bridge_type_enum_aware_ref, bridge_type_with_handles, forces_fallible_enum_bridge, is_vec_of_enum,
-    needs_json_bridge,
+    method_bridge_param_type, needs_json_bridge,
 };
 use crate::backends::swift::gen_rust_crate::wrappers::is_unbridgeable_getter;
 use crate::core::config::AdapterConfig;
@@ -194,12 +194,7 @@ pub(crate) fn type_method_bridge_fn(
     };
     let mut params: Vec<(String, String)> = vec![("client".to_string(), client_receiver)];
     for p in &method.params {
-        let bridge_ty = bridge_type_enum_aware_ref(&p.ty, enum_names);
-        let bridge_ty = if p.optional && !needs_json_bridge(&p.ty) {
-            format!("Option<{bridge_ty}>")
-        } else {
-            bridge_ty
-        };
+        let bridge_ty = method_bridge_param_type(p, enum_names, handle_returned_types, method.is_async);
         params.push((swift_ident(&p.name.to_snake_case()), bridge_ty));
     }
 

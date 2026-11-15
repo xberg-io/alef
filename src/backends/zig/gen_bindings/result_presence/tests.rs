@@ -89,6 +89,7 @@ fn render_method(method: &MethodDef) -> String {
             struct_names: &HashSet::new(),
             streaming_item_types: &HashMap::new(),
             enum_names: &HashSet::new(),
+            opaque_names: &HashSet::new(),
         },
         &mut out,
     );

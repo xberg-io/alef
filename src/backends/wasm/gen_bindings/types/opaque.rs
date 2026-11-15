@@ -164,6 +164,16 @@ fn gen_opaque_method(
         .iter()
         .map(|p| {
             let ty = wasm_mapped_param_type(p, mapper);
+            let ty = if !method.is_async
+                && p.is_ref
+                && !p.is_mut
+                && !p.optional
+                && matches!(&p.ty, TypeRef::Named(name) if opaque_types.contains(name))
+            {
+                format!("&{ty}")
+            } else {
+                ty
+            };
             let mapped_ty = if p.optional { format!("Option<{}>", ty) } else { ty };
             format_param_unused(&p.name, &mapped_ty, params_unused)
         })

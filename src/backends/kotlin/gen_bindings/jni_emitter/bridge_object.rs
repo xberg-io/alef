@@ -200,7 +200,7 @@ fn emit_fallback_type_methods(type_def: &crate::core::ir::TypeDef, inputs: &JniB
         push_jni_external_fun(
             body,
             &native_name,
-            &method_jni_params(method),
+            &method_jni_params(method, &inputs.opaque_type_names),
             non_unit_return_type(&method.return_type, return_type),
             Some(&inputs.exception_class),
         );

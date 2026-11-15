@@ -6,7 +6,7 @@ use crate::backends::zig::gen_bindings::helpers::emit_cleaned_zig_doc;
 use crate::codegen::c_consumer;
 use crate::core::ir::{MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
 use heck::AsSnakeCase;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use super::params::{
     emit_method_param_conversion, emit_method_param_free, method_c_arg_names, method_param_needs_alloc,
@@ -14,9 +14,9 @@ use super::params::{
 };
 use crate::backends::zig::gen_bindings::result_presence::{METHOD_INDENT, PresenceTarget, result_presence_gate};
 
-use super::render;
 use super::returns::method_unwrap_return_expr;
 use super::streaming::{StreamingContext, emit_opaque_streaming_method};
+use super::{OpaqueHandleContext, render};
 
 /// Emit a single method on an opaque handle wrapper struct.
 #[allow(clippy::too_many_arguments)]
@@ -25,12 +25,16 @@ pub(super) fn emit_opaque_method(
     ty: &TypeDef,
     prefix: &str,
     type_snake: &str,
-    declared_errors: &[String],
-    struct_names: &HashSet<String>,
-    streaming_item_types: &HashMap<String, String>,
-    enum_names: &HashSet<String>,
+    context: &OpaqueHandleContext<'_>,
     out: &mut String,
 ) {
+    let OpaqueHandleContext {
+        declared_errors,
+        struct_names,
+        streaming_item_types,
+        enum_names,
+        opaque_names,
+    } = *context;
     if let Some(item_type) = streaming_item_types.get(&method.name) {
         emit_opaque_streaming_method(
             method,
@@ -77,7 +81,13 @@ pub(super) fn emit_opaque_method(
         "return error.InvalidJson;".to_string()
     };
     for p in effective_params {
-        emit_method_param_conversion(p, prefix, struct_names, enum_names, &json_error_return, out);
+        if is_required_opaque_param(p, opaque_names) {
+            let name = &p.name;
+            out.push_str(&format!("        const {name}_handle = {name}._handle;\n"));
+            out.push_str(&format!("        if ({name}_handle == 0) return error.HandleClosed;\n"));
+        } else {
+            emit_method_param_conversion(p, prefix, struct_names, enum_names, &json_error_return, out);
+        }
     }
 
     let returns_bytes = return_uses_bytes_out_params(&method.return_type);
@@ -87,12 +97,12 @@ pub(super) fn emit_opaque_method(
 
     let c_call = method_c_call(
         method,
-        ty,
         prefix,
         type_snake,
         effective_params,
         struct_names,
         enum_names,
+        opaque_names,
     );
     emit_method_body(
         method,
@@ -189,19 +199,27 @@ fn method_return_type(
     }
 }
 
+fn is_required_opaque_param(param: &ParamDef, opaque_names: &HashSet<String>) -> bool {
+    !param.optional && matches!(&param.ty, TypeRef::Named(name) if opaque_names.contains(name))
+}
+
 fn method_c_call(
     method: &MethodDef,
-    _ty: &TypeDef,
     prefix: &str,
     type_snake: &str,
     params: &[ParamDef],
     struct_names: &HashSet<String>,
     enum_names: &HashSet<String>,
+    opaque_names: &HashSet<String>,
 ) -> String {
     let method_snake = AsSnakeCase(&method.name).to_string();
     let mut c_args = vec!["handle".to_string()];
     for p in params {
-        c_args.extend(method_c_arg_names(p, struct_names, enum_names));
+        if is_required_opaque_param(p, opaque_names) {
+            c_args.push(format!("{}_handle", p.name));
+        } else {
+            c_args.extend(method_c_arg_names(p, struct_names, enum_names));
+        }
     }
     if return_uses_bytes_out_params(&method.return_type) {
         c_args.push("&_out_ptr".to_string());

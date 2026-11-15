@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserve caller-owned opaque handles passed by shared reference to generated Node.js, Android, Dart, Swift, WASM, and Zig methods.
+- Forward nullable native handles correctly in Go bindings.
+- Discover Swift bridge artifacts in both Cargo build output layouts.
+
 ## [0.129.8] - 2026-11-15
 
 ### Fixed

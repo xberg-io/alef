@@ -9,8 +9,8 @@
 
 use crate::backends::swift::gen_rust_crate::bridge_error::result_type;
 use crate::backends::swift::gen_rust_crate::type_bridge::{
-    bridge_result_ok_type_with_handles, bridge_type_enum_aware_ref, enum_from_string_fn_name,
-    forces_fallible_enum_bridge, needs_json_bridge, needs_json_bridge_with_handles, swift_bridge_rust_type,
+    bridge_result_ok_type_with_handles, enum_from_string_fn_name, forces_fallible_enum_bridge,
+    method_bridge_param_type, needs_json_bridge, needs_json_bridge_with_handles, swift_bridge_rust_type,
 };
 use crate::codegen::conversions::helpers::{apply_param_newtype_to_core, is_explicit_newtype};
 use crate::codegen::generators::binding_helpers::apply_return_newtype_unwrap;
@@ -84,12 +84,7 @@ pub(crate) fn emit_type_method_shims(
         };
         let mut params_vec: Vec<String> = vec![client_receiver];
         for p in &method.params {
-            let bridge_ty = bridge_type_enum_aware_ref(&p.ty, enum_names);
-            let bridge_ty = if p.optional && !needs_json_bridge(&p.ty) {
-                format!("Option<{bridge_ty}>")
-            } else {
-                bridge_ty
-            };
+            let bridge_ty = method_bridge_param_type(p, enum_names, handle_returned_types, method.is_async);
             let name = swift_ident(&p.name.to_snake_case());
             params_vec.push(format!("{name}: {bridge_ty}"));
         }

@@ -41,7 +41,7 @@ fn emit_jni_client_method(
         },
     ));
 
-    let bridge_call = build_bridge_call(m, bridge_name, &native_name);
+    let bridge_call = build_bridge_call(m, bridge_name, &native_name, opaque_type_names);
     emit_jni_client_method_body(m, out, imports, opaque_type_names, &bridge_call, capsule);
     out.push_str("    }\n\n");
 }
@@ -125,7 +125,19 @@ fn jni_capsule_projection(
 /// Build the expression that calls the bridge, including any JSON serialisation.
 ///
 /// Returns a string that produces the bridge's raw return value (String, ByteArray, Unit, etc.).
-fn build_bridge_call(m: &crate::core::ir::MethodDef, bridge_name: &str, native_name: &str) -> String {
+fn build_bridge_call(
+    m: &crate::core::ir::MethodDef,
+    bridge_name: &str,
+    native_name: &str,
+    opaque_type_names: &std::collections::HashSet<&str>,
+) -> String {
+    let (handles, values): (Vec<_>, Vec<_>) = m
+        .params
+        .iter()
+        .partition(|param| borrowed_opaque_param(param, opaque_type_names).is_some());
+    if !handles.is_empty() {
+        return build_borrowed_bridge_call(bridge_name, native_name, &handles, &values);
+    }
     if m.params.is_empty() {
         return format!("withHandle {{ handle -> {bridge_name}.{native_name}(handle) }}");
     }
@@ -159,6 +171,37 @@ fn build_bridge_call(m: &crate::core::ir::MethodDef, bridge_name: &str, native_n
         format!("MAPPER.writeValueAsString(mapOf({}))", map_entries.join(", "))
     };
     format!("withHandle {{ handle -> {bridge_name}.{native_name}(handle, {request_json_expr}) }}")
+}
+
+fn build_borrowed_bridge_call(
+    bridge_name: &str,
+    native_name: &str,
+    handles: &[&crate::core::ir::ParamDef],
+    values: &[&crate::core::ir::ParamDef],
+) -> String {
+    let map_entries: Vec<_> = values
+        .iter()
+        .map(|param| format!("\"{}\" to {}", param.name, to_lower_camel(&param.name)))
+        .collect();
+    let request = if map_entries.is_empty() {
+        "\"{}\"".to_string()
+    } else {
+        format!("MAPPER.writeValueAsString(mapOf({}))", map_entries.join(", "))
+    };
+    let names: Vec<_> = handles.iter().map(|param| to_lower_camel(&param.name)).collect();
+    let arguments = names
+        .iter()
+        .enumerate()
+        .map(|(index, _)| format!("`alef$borrowed{index}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut call = format!(
+        "withHandle {{ `alef$receiver` -> {bridge_name}.{native_name}(`alef$receiver`, {request}, {arguments}) }}"
+    );
+    for (index, name) in names.iter().enumerate().rev() {
+        call = format!("{name}.withHandle {{ `alef$borrowed{index}` -> {call} }}");
+    }
+    format!("synchronized({bridge_name}.borrowedHandleLock) {{ {call} }}")
 }
 
 /// Emit the method body lines (withContext wrapper, return, JSON deserialisation).

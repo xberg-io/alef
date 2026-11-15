@@ -1,3 +1,5 @@
+use crate::core::jni::borrowed_opaque_param;
+
 struct MethodReturnShape<'a> {
     capsule: Option<(&'a crate::core::config::FfiCapsuleTypeConfig, bool)>,
     opaque: bool,
@@ -25,8 +27,30 @@ fn emit_method_shim(
 ) {
     let shape = method_return_shape(&method.return_type, opaque_type_names, capsule_types);
     let return_null = method_return_null_value(&method.return_type, &shape);
-    emit_method_shim_header(out, symbol, method, receiver, &shape, return_null);
-    let call_args = emit_method_call_args(out, &method.params, return_null);
+    let borrowed = method
+        .params
+        .iter()
+        .any(|param| borrowed_opaque_param(param, opaque_type_names).is_some());
+    let request_param = if borrowed {
+        let mut declaration = String::from("    request_json: JString,\n");
+        for (index, param) in method.params.iter().enumerate() {
+            if borrowed_opaque_param(param, opaque_type_names).is_some() {
+                declaration.push_str(&render_param_decl(
+                    &borrowed_handle_name(&method.params, index),
+                    "jlong",
+                ));
+            }
+        }
+        declaration
+    } else {
+        method_request_param(&method.params)
+    };
+    emit_method_shim_header(out, symbol, &request_param, &method.return_type, receiver, &shape);
+    let call_args = if borrowed {
+        emit_borrowed_method_call_args(out, &method.params, opaque_type_names, return_null)
+    } else {
+        emit_method_call_args(out, &method.params, return_null)
+    };
     let rust_method = method.name.replace('-', "_");
     let call_expression = method_call_expression(&rust_method, &call_args);
     emit_method_return(out, method, &shape, &call_expression, return_null);
@@ -61,17 +85,18 @@ fn method_return_shape<'a>(
 fn emit_method_shim_header(
     out: &mut String,
     symbol: &str,
-    method: &MethodDef,
+    request_param: &str,
+    return_type: &TypeRef,
     receiver: &MethodShimReceiver<'_>,
     shape: &MethodReturnShape<'_>,
-    return_null: &str,
 ) {
+    let return_null = method_return_null_value(return_type, shape);
     out.push_str(&template_env::render(
         "method_shim_open.rs.jinja",
         crate::alef_context! {
             symbol => symbol,
-            request_param => method_request_param(&method.params),
-            ret_decl => method_return_declaration(&method.return_type, shape),
+            request_param => request_param,
+            ret_decl => method_return_declaration(return_type, shape),
         },
     ));
     out.push_str(&template_env::render(
@@ -208,6 +233,56 @@ fn method_newtype_call_arg(out: &mut String, param: &ParamDef, rust_name: &str, 
     } else {
         format!("&{binding}")
     }
+}
+
+fn borrowed_handle_name(params: &[ParamDef], index: usize) -> String {
+    let mut name = format!("alef_borrowed_handle_{index}");
+    while params.iter().any(|param| param.name.replace('-', "_") == name) {
+        name.push('_');
+    }
+    name
+}
+
+fn emit_borrowed_method_call_args(
+    out: &mut String,
+    params: &[ParamDef],
+    opaque_type_names: &std::collections::HashSet<&str>,
+    return_null: &str,
+) -> String {
+    out.push_str(&template_env::render(
+        "request_map_unmarshal.rs.jinja",
+        crate::alef_context! { ret_null => return_null },
+    ));
+    for (index, param) in params.iter().enumerate() {
+        if borrowed_opaque_param(param, opaque_type_names).is_none() {
+            continue;
+        }
+        let raw_handle = borrowed_handle_name(params, index);
+        let name = &param.name;
+        out.push_str(&format!(
+            "    if {raw_handle} == 0 {{ throw_jni_error(env, \"missing handle: {name}\"); return {return_null}; }}\n"
+        ));
+        out.push_str(&format!(
+            "    if {raw_handle} == handle {{ throw_jni_error(env, \"argument aliases the receiver: {name}\"); return {return_null}; }}\n"
+        ));
+    }
+    params
+        .iter()
+        .enumerate()
+        .map(|(index, param)| {
+            if let Some(type_name) = borrowed_opaque_param(param, opaque_type_names) {
+                let raw_handle = borrowed_handle_name(params, index);
+                out.push_str(&format!(
+                    "    // SAFETY: The generated wrapper holds its handle lock through the call. ~keep\n    let {raw_handle} = unsafe {{ &*({raw_handle} as *const core_crate::{type_name}) }};\n"
+                ));
+                raw_handle
+            } else {
+                let rust_name = emit_map_method_param_unmarshal(out, param, return_null);
+                method_call_arg(out, param, method_param_base_type(param), &rust_name, false)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn emit_multi_method_call_args(out: &mut String, params: &[ParamDef], return_null: &str) -> String {

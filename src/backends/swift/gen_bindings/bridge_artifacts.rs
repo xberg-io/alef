@@ -44,21 +44,25 @@ fn find_swift_bridge_out_dir_at_target(binding_crate_name: &str, target: &Path) 
             Ok(e) => e,
             Err(_) => continue,
         };
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if !name_str.starts_with(&crate_prefix) {
+        let legacy = entries.flatten().filter_map(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(&crate_prefix)
+                .then(|| entry.path())
+        });
+        let nested = std::fs::read_dir(build_dir.join(binding_crate_name))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path());
+        for path in legacy.chain(nested) {
+            let out = path.join("out");
+            let Ok(marker) = std::fs::metadata(out.join("SwiftBridgeCore.swift")) else {
                 continue;
-            }
-            let out = entry.path().join("out");
-            let marker = out.join("SwiftBridgeCore.swift");
-            if !marker.exists() {
-                continue;
-            }
-            let mtime = std::fs::metadata(&marker)
-                .and_then(|m| m.modified())
-                .unwrap_or(std::time::UNIX_EPOCH);
-            if best.as_ref().map(|(t, _)| mtime > *t).unwrap_or(true) {
+            };
+            let mtime = marker.modified().unwrap_or(std::time::UNIX_EPOCH);
+            if best.as_ref().is_none_or(|(t, _)| mtime > *t) {
                 best = Some((mtime, out));
             }
         }
@@ -870,6 +874,23 @@ pub(crate) fn bridge_error_conformance_file(directory: &Path) -> GeneratedFile {
 #[cfg(test)]
 mod tests {
     use super::emit_swift_bridge_files;
+
+    #[test]
+    fn finds_bridge_output_in_both_cargo_layouts() {
+        let target = tempfile::tempdir().expect("temporary target");
+        for layout in ["sample-lib-hash", "sample-lib/hash"] {
+            let out = target.path().join("debug/build").join(layout).join("out");
+            std::fs::create_dir_all(&out).expect("create build output");
+            std::fs::write(out.join("SwiftBridgeCore.swift"), "").expect("write bridge marker");
+
+            assert_eq!(
+                super::find_swift_bridge_out_dir_at_target("sample-lib", target.path()),
+                Some(out.clone())
+            );
+
+            std::fs::remove_dir_all(out).expect("remove build output");
+        }
+    }
 
     /// The alef #A regression, isolated to this function: `alef generate` must call this
     /// with `consult_build_output: false`, which skips `find_swift_bridge_out_dir` (and

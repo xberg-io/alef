@@ -204,7 +204,12 @@ fn emit_opaque_method(
         .iter()
         .map(|p| {
             let rust_ty = frb_rust_type_mirror(&p.ty, p.optional);
-            format!("{}: {rust_ty}", p.name)
+            let borrow = p.is_ref
+                && !p.is_mut
+                && !p.optional
+                && matches!(&p.ty, TypeRef::Named(name) if opaque_type_names.contains(name));
+            let reference = if borrow { "&" } else { "" };
+            format!("{}: {reference}{rust_ty}", p.name)
         })
         .collect();
 

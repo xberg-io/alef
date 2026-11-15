@@ -248,6 +248,9 @@ fn go_return_expr_inner(
             format!("unmarshalBytes({})", var_name)
         }
         TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if opaque_names.contains(name.as_str()) => {
+                format!("func() *{name} {{ if {var_name} == 0 {{ return nil }}; return &{name}{{ptr: {var_name}}} }}()")
+            }
             TypeRef::Bytes => {
                 format!(
                     "func() *[]byte {{\n\
@@ -315,5 +318,26 @@ fn go_return_expr_inner(
             )
         }
         _ => format!("unmarshal{}({})", type_name(ty), var_name),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn absent_opaque_return_maps_to_nil() {
+        let ty = TypeRef::Optional(Box::new(TypeRef::Named("Tree".into())));
+        let result = go_return_expr(
+            &ty,
+            "ptr",
+            "sample",
+            &std::collections::HashSet::from(["Tree"]),
+            &std::collections::HashSet::new(),
+        );
+        assert_eq!(
+            result,
+            "func() *Tree { if ptr == 0 { return nil }; return &Tree{ptr: ptr} }()"
+        );
     }
 }

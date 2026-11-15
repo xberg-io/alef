@@ -148,7 +148,7 @@ fn emit_type_method_jni_external_funs(
         }
         let native_name = format!("native{owner_pascal}{}", to_pascal_case(&method.name));
         let return_type = jni_return_type_for_method(&method.return_type, opaque_type_names, capsule_types);
-        let params = method_jni_params(method);
+        let params = method_jni_params(method, opaque_type_names);
         push_jni_external_fun(
             out,
             &native_name,
@@ -159,7 +159,19 @@ fn emit_type_method_jni_external_funs(
     }
 }
 
-fn method_jni_params(method: &crate::core::ir::MethodDef) -> String {
+fn method_jni_params(
+    method: &crate::core::ir::MethodDef,
+    opaque_type_names: &std::collections::HashSet<&str>,
+) -> String {
+    let handles: Vec<_> = method
+        .params
+        .iter()
+        .filter(|param| borrowed_opaque_param(param, opaque_type_names).is_some())
+        .map(|param| format!("{}Handle: Long", to_lower_camel(&param.name)))
+        .collect();
+    if !handles.is_empty() {
+        return format!("handle: Long, requestJson: String, {}", handles.join(", "));
+    }
     if method.params.is_empty() {
         "handle: Long".to_string()
     } else if method.params.len() == 1 && is_binary_param_type(&method.params[0].ty) {

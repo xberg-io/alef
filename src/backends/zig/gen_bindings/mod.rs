@@ -363,6 +363,13 @@ impl Backend for ZigBackend {
             .filter_map(|b| b.type_alias.clone())
             .collect();
 
+        let opaque_names = api
+            .types
+            .iter()
+            .filter(|t| !t.is_trait && (t.is_opaque || !t.has_serde))
+            .map(|t| t.name.clone())
+            .collect();
+
         for ty in api
             .types
             .iter()
@@ -378,6 +385,7 @@ impl Backend for ZigBackend {
                     struct_names: &struct_names,
                     streaming_item_types: &streaming_item_types,
                     enum_names: &enum_names,
+                    opaque_names: &opaque_names,
                 },
                 &mut content,
             );

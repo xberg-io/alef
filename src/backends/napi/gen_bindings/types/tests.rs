@@ -730,3 +730,31 @@ fn napi_dto_instance_wither_declares_borrowed_wrapper_local_before_use() {
 mod legacy_constructor_runtime;
 
 mod container_default_tests;
+
+#[test]
+fn napi_instance_method_borrows_an_opaque_class_argument() {
+    let mut method = secret_method("use_tree");
+    method.receiver = Some(ReceiverKind::RefMut);
+    method.params[0].ty = TypeRef::Named("Tree".into());
+    method.params[0].is_ref = true;
+    method.params[0].newtype_wrapper = None;
+    let owner = secret_owner(method.clone(), true);
+    let opaque_types = [owner.name.clone(), "Tree".into()].into_iter().collect();
+
+    let output = gen_opaque_instance_method(
+        &method,
+        &NapiMapper::new("Js".into()),
+        &owner,
+        &napi_binding_config(),
+        &opaque_types,
+        "Js",
+        &Default::default(),
+        &Default::default(),
+        &Default::default(),
+        &Default::default(),
+        None,
+    );
+
+    assert!(output.contains("value: &JsTree"), "{output}");
+    assert!(output.contains("use_tree(value.inner.as_ref())"), "{output}");
+}

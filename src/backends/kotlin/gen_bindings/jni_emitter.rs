@@ -20,7 +20,8 @@ use crate::core::config::workspace::ClientConstructorConfig;
 use crate::core::config::{AdapterPattern, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, TypeRef};
 use crate::core::jni::{
-    bridge_method_name, bridgeable_value_methods, value_bridge_serde_type_names, value_method_return_type,
+    borrowed_opaque_param, bridge_method_name, bridgeable_value_methods, value_bridge_serde_type_names,
+    value_method_return_type,
 };
 
 use super::object_wrapper::{format_param_with_imports, kotlin_type_with_string_imports};
