@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hash installed component libraries in 64 KiB chunks instead of reading the whole library into memory on every verification.
 - Component cache maintenance no longer races installs: `remove` waits for, and `prune` skips (reporting it under `skipped`), an object whose install holds its digest lock, and stamps of a digest being installed are kept. Per-digest `.lock` files are no longer deleted, since unlinking one while another process waited on it let two processes hold "exclusive" locks on different files. Older runtimes sharing the cache still delete them.
 - Reject a component manifest whose library is named `component.json` or `component.sig` (in any letter case) with `UnsafeLibraryPath`; extracting such an archive overwrote the manifest with the library bytes.
+- Treat component archive digests case-insensitively: the cache and the manager key objects, locks and stamps on the lower-case digest, so a lock entry spelled in upper case no longer installs a second copy of an object under a different lock.
 
 ### Security
 

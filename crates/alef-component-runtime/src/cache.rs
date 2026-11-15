@@ -8,6 +8,7 @@ use base64::Engine as _;
 use ed25519_dalek::Signature;
 use flate2::read::GzDecoder;
 use sha2::{Digest as _, Sha256};
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek as _, SeekFrom, Write as _};
@@ -161,8 +162,7 @@ impl ArtifactCache {
     }
 
     pub fn object_path(&self, entry: &ComponentLockEntry) -> Result<PathBuf, ComponentError> {
-        decode_digest(&entry.sha256)?;
-        Ok(self.root.join("sha256").join(&entry.sha256))
+        Ok(self.root.join("sha256").join(canonical_entry(entry)?.sha256.as_str()))
     }
 
     /// Verify an installed object in place: checks it against the lock entry (skipping the
@@ -183,8 +183,9 @@ impl ArtifactCache {
         &self,
         entry: &ComponentLockEntry,
     ) -> Result<(CachedArtifact, VerifiedFile), ComponentError> {
-        let destination = self.object_path(entry)?;
-        self.verify_cached_at(entry, &destination)
+        let entry = canonical_entry(entry)?;
+        let destination = self.object_path(&entry)?;
+        self.verify_cached_at(&entry, &destination)
     }
 
     pub fn install(&self, entry: &ComponentLockEntry) -> Result<CachedArtifact, ComponentError> {
@@ -196,6 +197,8 @@ impl ArtifactCache {
         &self,
         entry: &ComponentLockEntry,
     ) -> Result<(CachedArtifact, VerifiedFile), ComponentError> {
+        let entry = canonical_entry(entry)?;
+        let entry: &ComponentLockEntry = &entry;
         let destination = self.object_path(entry)?;
         let mut damaged = None;
         if destination.is_dir() {
@@ -292,7 +295,8 @@ impl ArtifactCache {
         entry: &ComponentLockEntry,
         reader: impl Read,
     ) -> Result<(CachedArtifact, VerifiedFile), ComponentError> {
-        let verified = self.install_stream(entry, reader)?;
+        let entry = canonical_entry(entry)?;
+        let verified = self.install_stream(&entry, reader)?;
         self.touch_used(&entry.sha256);
         Ok(verified)
     }
@@ -583,6 +587,26 @@ pub(crate) fn is_private_dir(path: &Path) -> bool {
     {
         fs::metadata(path).is_ok_and(|metadata| metadata.is_dir())
     }
+}
+
+/// `entry` with its archive digest in lower case. Hex is case-insensitive, and the digest names the
+/// object's directory, lock and stamp, so one object must have one spelling: an upper-case lock
+/// entry would otherwise install a second copy beside the first, under a different lock.
+pub(crate) fn canonical_entry(entry: &ComponentLockEntry) -> Result<Cow<'_, ComponentLockEntry>, ComponentError> {
+    decode_digest(&entry.sha256)?;
+    if entry.sha256.bytes().any(|byte| byte.is_ascii_uppercase()) {
+        let mut owned = entry.clone();
+        owned.sha256.make_ascii_lowercase();
+        Ok(Cow::Owned(owned))
+    } else {
+        Ok(Cow::Borrowed(entry))
+    }
+}
+
+/// The lower-case spelling of a hex digest, after checking it is one.
+pub(crate) fn canonical_digest(value: &str) -> Result<String, ComponentError> {
+    decode_digest(value)?;
+    Ok(value.to_ascii_lowercase())
 }
 
 pub(crate) fn decode_digest(value: &str) -> Result<[u8; 32], ComponentError> {

@@ -158,13 +158,13 @@ impl ArtifactCache {
     /// Remove one object and its sidecar files. `Ok` with an empty report when absent. Waits for
     /// an install of the same object in another thread or process to finish first.
     pub fn remove_object(&self, sha256: &str) -> Result<RemovalReport, ComponentError> {
-        crate::cache::decode_digest(sha256)?;
+        let sha256 = crate::cache::canonical_digest(sha256)?;
         if !self.objects_dir().is_dir() {
             return Ok(RemovalReport::default());
         }
-        let lock = self.digest_lock_file(sha256)?;
+        let lock = self.digest_lock_file(&sha256)?;
         lock.lock()?;
-        self.remove_object_locked(sha256, &lock)
+        self.remove_object_locked(&sha256, &lock)
     }
 
     /// Like [`Self::remove_object`], but skips (and reports) an object whose install is in

@@ -97,6 +97,21 @@ fn manager_reports_content_address_before_download() {
 }
 
 #[test]
+fn manager_names_objects_by_lower_case_digest() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut upper = lock("target-a");
+    upper.artifacts[0].sha256.make_ascii_uppercase();
+    let manager = ComponentManager::from_lock(upper, dir.path(), "target-a", host()).unwrap();
+    assert!(
+        manager
+            .cache_path("demo")
+            .unwrap()
+            .ends_with(format!("sha256/{}", hex::encode([3; 32])))
+    );
+    assert_eq!(manager.lock_entry("demo").unwrap().sha256, hex::encode([3; 32]));
+}
+
+#[test]
 fn duplicate_target_entry_is_rejected() {
     let dir = tempfile::tempdir().unwrap();
     let mut lock = lock("target-a");

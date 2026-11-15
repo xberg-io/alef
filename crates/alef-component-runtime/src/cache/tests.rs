@@ -139,6 +139,27 @@ fn reuses_verified_cache_when_source_is_unavailable() {
     assert_eq!(reused, installed);
 }
 
+/// Regression: hex digests are case-insensitive, but the cache keyed directories, locks and stamps
+/// on the lock entry's spelling, so an upper-case entry installed a second copy under another lock.
+#[test]
+fn an_upper_case_digest_names_the_same_object_as_lower_case() {
+    let (bytes, entry) = package(None);
+    let mut upper = entry.clone();
+    upper.sha256.make_ascii_uppercase();
+    let dir = tempfile::tempdir().unwrap();
+    let cache = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly);
+    assert_eq!(cache.object_path(&upper).unwrap(), cache.object_path(&entry).unwrap());
+
+    let installed = cache.install_from_reader(&upper, Cursor::new(bytes)).unwrap();
+    assert!(installed.root.ends_with(&entry.sha256), "{}", installed.root.display());
+    assert_eq!(cache.verify_cached(&entry).unwrap(), installed);
+    assert_eq!(cache.list_objects().unwrap().len(), 1);
+    assert_eq!(
+        cache.remove_object(&upper.sha256).unwrap().removed,
+        vec![installed.root]
+    );
+}
+
 #[test]
 fn verify_cached_returns_a_healthy_installed_object() {
     let (bytes, entry) = package(None);

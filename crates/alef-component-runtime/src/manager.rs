@@ -110,6 +110,11 @@ impl ComponentManager {
         if signatures == SignaturePolicy::Require {
             require_signed_lock(&lock)?;
         }
+        let mut lock = lock;
+        for artifact in &mut lock.artifacts {
+            // One spelling per object, matching the cache's directory names (see `canonical_entry`).
+            artifact.sha256.make_ascii_lowercase();
+        }
         let lock_is_empty = lock.artifacts.is_empty();
         let locked_digests = lock.artifacts.iter().map(|artifact| artifact.sha256.clone()).collect();
         let target = target.into();
