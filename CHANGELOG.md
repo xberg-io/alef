@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.129.8] - 2026-11-15
+
+### Fixed
+
+- Preserve the selected source in C# split-byte extraction records that include both a URI and bytes.
+- Include the split-byte metadata factory in the generated Node.js TypeScript declarations.
+
 ## [0.129.7] - 2026-11-14
 
 ### Fixed
