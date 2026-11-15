@@ -13,6 +13,21 @@ pub(super) fn package_with_library(
     signing: Option<(&SigningKey, &str)>,
     library: &[u8],
 ) -> (Vec<u8>, ComponentLockEntry) {
+    package_signed_by(library, |manifest_bytes| {
+        signing.map(|(key, id)| ComponentSignature {
+            algorithm: "ed25519".into(),
+            key_id: id.into(),
+            signature: base64::engine::general_purpose::STANDARD.encode(key.sign(manifest_bytes).to_bytes()),
+        })
+    })
+}
+
+/// Package `library` with whatever `component.sig` `sign` produces for the manifest bytes; the
+/// lock entry's `key_id` is the signature's.
+pub(super) fn package_signed_by(
+    library: &[u8],
+    sign: impl FnOnce(&[u8]) -> Option<ComponentSignature>,
+) -> (Vec<u8>, ComponentLockEntry) {
     let identity = ComponentIdentity {
         crate_name: "demo-core".into(),
         component: "fast".into(),
@@ -40,11 +55,7 @@ pub(super) fn package_with_library(
         },
     };
     let manifest_bytes = manifest.canonical_bytes().unwrap();
-    let signature = signing.map(|(key, id)| ComponentSignature {
-        algorithm: "ed25519".into(),
-        key_id: id.into(),
-        signature: base64::engine::general_purpose::STANDARD.encode(key.sign(&manifest_bytes).to_bytes()),
-    });
+    let signature = sign(&manifest_bytes);
     let mut compressed = Vec::new();
     {
         let encoder = flate2::write::GzEncoder::new(&mut compressed, flate2::Compression::default());
@@ -221,6 +232,34 @@ fn rejects_unsigned_archive_when_lock_names_a_key() {
     assert!(matches!(
         cache.install_from_reader(&entry, Cursor::new(bytes)),
         Err(ComponentError::SignatureRequired)
+    ));
+}
+
+/// Regression: the runtime verified signatures with the lenient `verify`, which accepts a
+/// signature made for a small-order (weak) public key: with the identity point as the key, R the
+/// identity and s zero, it matches every message. The CLI already used `verify_strict`.
+#[test]
+fn rejects_a_signature_that_only_verifies_under_a_weak_public_key() {
+    let mut identity = [0_u8; 32];
+    identity[0] = 1;
+    let (bytes, entry) = package_signed_by(b"native", |_| {
+        Some(ComponentSignature {
+            algorithm: "ed25519".into(),
+            key_id: "weak".into(),
+            signature: base64::engine::general_purpose::STANDARD.encode([identity, [0_u8; 32]].concat()),
+        })
+    });
+    let key = decode_public_key(&base64::engine::general_purpose::STANDARD.encode(identity)).unwrap();
+    assert!(key.is_weak(), "the fixture must be a small-order key");
+    let keys = BTreeMap::from([(
+        "weak".into(),
+        base64::engine::general_purpose::STANDARD.encode(identity),
+    )]);
+    let dir = tempfile::tempdir().unwrap();
+    let cache = ArtifactCache::new(dir.path(), TrustPolicy::EmbeddedKeys(keys));
+    assert!(matches!(
+        cache.install_from_reader(&entry, Cursor::new(bytes)),
+        Err(ComponentError::SignatureVerification)
     ));
 }
 

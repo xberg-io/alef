@@ -5,7 +5,7 @@ use crate::manifest::{COMPONENT_ABI_VERSION, COMPONENT_MANIFEST_SCHEMA};
 use crate::stamp;
 use crate::{ComponentError, ComponentLockEntry, ComponentManifest, ComponentSignature};
 use base64::Engine as _;
-use ed25519_dalek::{Signature, Verifier as _};
+use ed25519_dalek::Signature;
 use flate2::read::GzDecoder;
 use sha2::{Digest as _, Sha256};
 use std::collections::BTreeMap;
@@ -546,7 +546,9 @@ impl ArtifactCache {
             .decode(&signature.signature)
             .map_err(|_| ComponentError::InvalidSignatureEncoding)?;
         let signature = Signature::from_slice(&raw_signature).map_err(|_| ComponentError::InvalidSignatureEncoding)?;
-        key.verify(manifest_bytes, &signature)
+        // `verify_strict`, as the CLI uses: plain `verify` accepts signatures made with a
+        // small-order public key, which match every message.
+        key.verify_strict(manifest_bytes, &signature)
             .map_err(|_| ComponentError::SignatureVerification)
     }
 }
