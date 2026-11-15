@@ -1,4 +1,5 @@
 use crate::download::{DownloadOptions, TrackedReader, is_transient_request_error};
+use crate::identity::{FileIdentity, VerifiedFile};
 use crate::keys::decode_public_key;
 use crate::manifest::{COMPONENT_ABI_VERSION, COMPONENT_MANIFEST_SCHEMA};
 use crate::stamp;
@@ -145,25 +146,42 @@ impl ArtifactCache {
     /// says which check failed (digest, size, manifest, signature) -- so a caller can tell
     /// "installed and damaged" apart from "never installed" and log or report a repair.
     pub fn verify_cached(&self, entry: &ComponentLockEntry) -> Result<CachedArtifact, ComponentError> {
+        self.verify_cached_file(entry).map(|(cached, _)| cached)
+    }
+
+    /// [`Self::verify_cached`], also returning the open, verified library, which is what a caller
+    /// that loads or executes the artifact must use (see [`VerifiedFile`]).
+    pub(crate) fn verify_cached_file(
+        &self,
+        entry: &ComponentLockEntry,
+    ) -> Result<(CachedArtifact, VerifiedFile), ComponentError> {
         let destination = self.object_path(entry)?;
         self.verify_cached_at(entry, &destination)
     }
 
     pub fn install(&self, entry: &ComponentLockEntry) -> Result<CachedArtifact, ComponentError> {
+        self.install_verified(entry).map(|(cached, _)| cached)
+    }
+
+    /// [`Self::install`], also returning the open, verified library (see [`VerifiedFile`]).
+    pub(crate) fn install_verified(
+        &self,
+        entry: &ComponentLockEntry,
+    ) -> Result<(CachedArtifact, VerifiedFile), ComponentError> {
         let destination = self.object_path(entry)?;
         let mut damaged = None;
         if destination.is_dir() {
             match self.verify_cached_at(entry, &destination) {
-                Ok(cached) => {
+                Ok(verified) => {
                     self.touch_used(&entry.sha256);
-                    return Ok(cached);
+                    return Ok(verified);
                 }
                 Err(error) => damaged = Some(error),
             }
         }
         let url = self.resolve_url(entry);
         if let Some(path) = url.strip_prefix("file://") {
-            return self.install_from_reader(entry, File::open(path)?);
+            return self.install_reader_verified(entry, File::open(path)?);
         }
         if self.offline {
             return match damaged {
@@ -184,7 +202,7 @@ impl ArtifactCache {
                 return Err(ComponentError::Cancelled);
             }
             let (error, transient) = match self.download_once(entry, &url) {
-                Ok(cached) => return Ok(cached),
+                Ok(verified) => return Ok(verified),
                 Err(failure) => failure,
             };
             if !transient || attempt >= attempts {
@@ -196,7 +214,11 @@ impl ArtifactCache {
     }
 
     /// One request-and-install attempt; the flag says whether a failure is worth retrying.
-    fn download_once(&self, entry: &ComponentLockEntry, url: &str) -> Result<CachedArtifact, (ComponentError, bool)> {
+    fn download_once(
+        &self,
+        entry: &ComponentLockEntry,
+        url: &str,
+    ) -> Result<(CachedArtifact, VerifiedFile), (ComponentError, bool)> {
         let tls = self.download.tls_config(url).map_err(|error| (error, false))?;
         let response = ureq::get(url)
             .config()
@@ -220,7 +242,7 @@ impl ArtifactCache {
                 )
             })?;
         let mut body = TrackedReader::new(response.into_body().into_reader());
-        let result = self.install_from_reader(entry, &mut body);
+        let result = self.install_reader_verified(entry, &mut body);
         result.map_err(|error| {
             let transient = body.read_failed && matches!(error, ComponentError::Io(_));
             (error, transient)
@@ -234,16 +256,24 @@ impl ArtifactCache {
         entry: &ComponentLockEntry,
         reader: impl Read,
     ) -> Result<CachedArtifact, ComponentError> {
-        let cached = self.install_stream(entry, reader)?;
+        self.install_reader_verified(entry, reader).map(|(cached, _)| cached)
+    }
+
+    fn install_reader_verified(
+        &self,
+        entry: &ComponentLockEntry,
+        reader: impl Read,
+    ) -> Result<(CachedArtifact, VerifiedFile), ComponentError> {
+        let verified = self.install_stream(entry, reader)?;
         self.touch_used(&entry.sha256);
-        Ok(cached)
+        Ok(verified)
     }
 
     fn install_stream(
         &self,
         entry: &ComponentLockEntry,
         mut reader: impl Read,
-    ) -> Result<CachedArtifact, ComponentError> {
+    ) -> Result<(CachedArtifact, VerifiedFile), ComponentError> {
         let expected = decode_digest(&entry.sha256)?;
         let objects = self.root.join("sha256");
         fs::create_dir_all(&objects)?;
@@ -258,9 +288,9 @@ impl ArtifactCache {
 
         let destination = self.object_path(entry)?;
         if destination.is_dir()
-            && let Ok(cached) = self.verify_cached_at(entry, &destination)
+            && let Ok(verified) = self.verify_cached_at(entry, &destination)
         {
-            return Ok(cached);
+            return Ok(verified);
         }
 
         let mut archive = tempfile::NamedTempFile::new_in(&objects)?;
@@ -303,7 +333,7 @@ impl ArtifactCache {
         archive.as_file_mut().seek(SeekFrom::Start(0))?;
         let staging = tempfile::Builder::new().prefix(".install-").tempdir_in(&objects)?;
         extract_safely(archive.as_file_mut(), staging.path())?;
-        let cached = self.verify_installation(entry, staging.path(), None)?;
+        let (cached, verified) = self.verify_installation(entry, staging.path(), None)?;
 
         if destination.exists() {
             fs::remove_dir_all(&destination)?;
@@ -315,16 +345,25 @@ impl ArtifactCache {
             return Err(ComponentError::Io(error));
         }
         let library = destination.join(&cached.manifest.library.file);
+        // A rename keeps the inode, so the descriptor verified in staging is the installed file.
+        let verified = verified.relocated(library.clone());
+        // Stamped from the verified descriptor, not the path: a file swapped in after the rename
+        // must not inherit the stamp.
         if self.verified_stamp
-            && let Ok(stamp) = stamp::capture(&entry.sha256, &library)
+            && let Ok(stamp) = verified
+                .metadata()
+                .and_then(|metadata| stamp::from_metadata(&entry.sha256, &metadata))
         {
             stamp::write(&self.stamp_path(&entry.sha256), &stamp);
         }
-        Ok(CachedArtifact {
-            root: destination.clone(),
-            library,
-            manifest: cached.manifest,
-        })
+        Ok((
+            CachedArtifact {
+                root: destination.clone(),
+                library,
+                manifest: cached.manifest,
+            },
+            verified,
+        ))
     }
 
     pub(crate) fn stamp_path(&self, sha256: &str) -> PathBuf {
@@ -332,7 +371,11 @@ impl ArtifactCache {
     }
 
     /// Verify an object already in the cache, using the verified stamp when enabled.
-    fn verify_cached_at(&self, entry: &ComponentLockEntry, root: &Path) -> Result<CachedArtifact, ComponentError> {
+    fn verify_cached_at(
+        &self,
+        entry: &ComponentLockEntry,
+        root: &Path,
+    ) -> Result<(CachedArtifact, VerifiedFile), ComponentError> {
         let stamp_path = self.stamp_path(&entry.sha256);
         self.verify_installation(entry, root, self.verified_stamp.then_some(stamp_path.as_path()))
     }
@@ -342,7 +385,7 @@ impl ArtifactCache {
         entry: &ComponentLockEntry,
         root: &Path,
         stamp_path: Option<&Path>,
-    ) -> Result<CachedArtifact, ComponentError> {
+    ) -> Result<(CachedArtifact, VerifiedFile), ComponentError> {
         let manifest_bytes = fs::read(root.join("component.json"))?;
         if sha256(&manifest_bytes) != decode_digest(&entry.manifest_sha256)? {
             return Err(ComponentError::ManifestDigestMismatch);
@@ -359,12 +402,6 @@ impl ArtifactCache {
         }
         let library_relative = safe_relative_path(&manifest.library.file)?;
         let library = root.join(&library_relative);
-        let trusted = stamp_path.is_some_and(|path| stamp::is_current(path, &entry.sha256, &library));
-        let before = if trusted || stamp_path.is_none() {
-            None
-        } else {
-            stamp::capture(&entry.sha256, &library).ok()
-        };
         let missing = |error: std::io::Error| {
             if error.kind() == std::io::ErrorKind::NotFound {
                 ComponentError::MissingLibrary(library.clone())
@@ -372,27 +409,23 @@ impl ArtifactCache {
                 ComponentError::Io(error)
             }
         };
-        if trusted {
-            let size = fs::metadata(&library).map_err(missing)?.len();
-            if size != manifest.library.size {
-                return Err(ComponentError::SizeMismatch {
-                    expected: manifest.library.size,
-                    actual: size,
-                });
-            }
-        } else {
-            let file = File::open(&library).map_err(missing)?;
-            let size = file.metadata()?.len();
-            if size != manifest.library.size {
-                return Err(ComponentError::SizeMismatch {
-                    expected: manifest.library.size,
-                    actual: size,
-                });
-            }
+        // Every check below reads the library through this one descriptor, and the caller loads
+        // or executes that same file (see `identity`), so swapping the path afterwards cannot
+        // substitute unverified code.
+        let file = File::open(&library).map_err(missing)?;
+        let metadata = file.metadata()?;
+        if metadata.len() != manifest.library.size {
+            return Err(ComponentError::SizeMismatch {
+                expected: manifest.library.size,
+                actual: metadata.len(),
+            });
+        }
+        let trusted = stamp_path.is_some_and(|path| stamp::matches(path, &entry.sha256, &metadata));
+        if !trusted {
             let expected_library = decode_digest(&manifest.library.sha256)?;
             // Bounded one byte past the declared size, so a file that grew after the metadata
             // check is caught as a size mismatch rather than hashed without limit.
-            let (actual_library, hashed) = sha256_reader(file.take(manifest.library.size.saturating_add(1)))?;
+            let (actual_library, hashed) = sha256_reader((&file).take(manifest.library.size.saturating_add(1)))?;
             if hashed != manifest.library.size {
                 return Err(ComponentError::SizeMismatch {
                     expected: manifest.library.size,
@@ -408,16 +441,24 @@ impl ArtifactCache {
         }
         self.verify_manifest_signature(entry, root, &manifest_bytes)?;
         // Record the stamp only when the file did not change while it was being hashed.
-        if let (Some(path), Some(before)) = (stamp_path, before)
-            && stamp::capture(&entry.sha256, &library).is_ok_and(|after| after == before)
+        if let Some(path) = stamp_path
+            && !trusted
+            && file
+                .metadata()
+                .is_ok_and(|after| FileIdentity::of(&after) == FileIdentity::of(&metadata))
+            && let Ok(stamp) = stamp::from_metadata(&entry.sha256, &metadata)
         {
-            stamp::write(path, &before);
+            stamp::write(path, &stamp);
         }
-        Ok(CachedArtifact {
-            root: root.to_owned(),
-            library,
-            manifest,
-        })
+        let verified = VerifiedFile::new(library.clone(), file, &metadata);
+        Ok((
+            CachedArtifact {
+                root: root.to_owned(),
+                library,
+                manifest,
+            },
+            verified,
+        ))
     }
 
     fn verify_manifest_signature(

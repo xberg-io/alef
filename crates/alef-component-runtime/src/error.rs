@@ -50,6 +50,8 @@ pub enum ComponentError {
     UnsafeLibraryPath(String),
     #[error("component library is missing at `{0}`")]
     MissingLibrary(PathBuf),
+    #[error("component artifact `{0}` changed on disk after it was verified")]
+    ArtifactChanged(PathBuf),
     #[error("failed to download `{url}`: {message}")]
     Download { url: String, message: String },
     #[error("component `{component}` is not cached and network access is disabled (would fetch `{url}`)")]
@@ -152,6 +154,7 @@ impl ComponentError {
             Self::ExtractedSizeExceeded { .. } => "extracted_size_exceeded",
             Self::UnsafeLibraryPath(_) => "unsafe_library_path",
             Self::MissingLibrary(_) => "missing_library",
+            Self::ArtifactChanged(_) => "artifact_changed",
             Self::Download { .. } => "download_failed",
             Self::Offline { .. } => "offline",
             Self::CachedObjectInvalid { .. } => "cached_object_invalid",

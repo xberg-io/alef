@@ -43,6 +43,7 @@ mod cache;
 mod download;
 mod error;
 mod host_services;
+mod identity;
 mod keys;
 mod loader;
 mod maintenance;

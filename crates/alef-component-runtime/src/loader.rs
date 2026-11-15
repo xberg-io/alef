@@ -1,4 +1,5 @@
 use crate::host_services::ServicesHandle;
+use crate::identity::VerifiedFile;
 use crate::stdio::SidecarProcess;
 use crate::{COMPONENT_ABI_VERSION, COMPONENT_MANIFEST_SCHEMA, ComponentError, ComponentManifest, HostServices};
 use alef_component_abi::{
@@ -84,13 +85,12 @@ impl LoadedComponent {
     /// caller is [`crate::ComponentManager`], which loads nothing it has not verified against
     /// the lock first.
     pub(crate) fn load_with_services(
-        path: impl Into<std::path::PathBuf>,
+        verified: &VerifiedFile,
         entry_symbol: &[u8],
         requirements: &ComponentRequirements,
         mut host: AlefHostApiV1,
         services: Option<Arc<dyn HostServices>>,
     ) -> Result<Self, ComponentError> {
-        let path = path.into();
         host.struct_size = core::mem::size_of::<AlefHostApiV1>();
         host.abi_major = ABI_MAJOR_V1;
         host.abi_minor = ABI_MINOR_V1;
@@ -100,9 +100,11 @@ impl LoadedComponent {
         }
         let host = Box::new(host);
 
+        // The verified descriptor's path on Linux, else the checked path (see `identity`).
+        let load_path = verified.library_load_path()?;
         let library = Arc::new(
-            unsafe { Library::new(&path) }.map_err(|error| ComponentError::LibraryLoad {
-                path: path.clone(),
+            unsafe { Library::new(&load_path) }.map_err(|error| ComponentError::LibraryLoad {
+                path: verified.path().to_owned(),
                 message: error.to_string(),
             })?,
         );

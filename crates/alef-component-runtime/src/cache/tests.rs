@@ -528,6 +528,49 @@ fn set_mtime(path: &Path, offset_secs: u64) {
         .unwrap();
 }
 
+/// Regression for the verify-then-load race: verification hands back the descriptor it hashed,
+/// and a library swapped in after that is refused (or, on Linux, never reached) at load time.
+#[test]
+fn a_library_replaced_after_verification_is_not_loaded() {
+    let (bytes, entry) = package(None);
+    let dir = tempfile::tempdir().unwrap();
+    let cache = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly);
+    let (installed, verified) = cache.install_reader_verified(&entry, Cursor::new(bytes)).unwrap();
+    assert_eq!(verified.path(), installed.library);
+    verified.ensure_unchanged().unwrap();
+
+    let replacement = installed.root.join("swap.so");
+    fs::write(&replacement, b"evil").unwrap();
+    fs::rename(&replacement, &installed.library).unwrap();
+
+    assert!(matches!(
+        verified.ensure_unchanged(),
+        Err(ComponentError::ArtifactChanged(_))
+    ));
+    match verified.library_load_path() {
+        Ok(path) => assert_eq!(fs::read(path).unwrap(), b"native", "only a descriptor path may load"),
+        Err(error) => assert!(matches!(error, ComponentError::ArtifactChanged(_))),
+    }
+}
+
+/// The stamp vouches for the descriptor being verified: a library replaced with one carrying a
+/// different identity is hashed, not trusted, even though the stamp file is untouched.
+#[test]
+fn verified_stamp_is_checked_against_the_opened_descriptor() {
+    let (bytes, entry) = package(None);
+    let dir = tempfile::tempdir().unwrap();
+    let cache = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly).with_verified_stamp(true);
+    let installed = cache.install_from_reader(&entry, Cursor::new(bytes)).unwrap();
+    let replacement = installed.root.join("swap.so");
+    fs::write(&replacement, b"nativf").unwrap();
+    fs::rename(&replacement, &installed.library).unwrap();
+
+    assert!(matches!(
+        cache.verify_cached(&entry),
+        Err(ComponentError::DigestMismatch { .. })
+    ));
+}
+
 #[test]
 fn verified_stamp_is_off_by_default() {
     let (bytes, entry) = package(None);

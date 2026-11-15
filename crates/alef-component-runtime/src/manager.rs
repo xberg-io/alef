@@ -1,3 +1,4 @@
+use crate::identity::VerifiedFile;
 use crate::loader::{decode_hash, validate_manifest};
 use crate::manifest::COMPONENT_MANIFEST_SCHEMA;
 use crate::stdio::{SidecarPolicy, SidecarProcess, SidecarRestartEvent, SidecarSessionSetup};
@@ -52,10 +53,11 @@ pub struct ComponentManager {
     /// Artifacts this process has already installed and verified, keyed by the lock entry's
     /// own content-addressed `sha256` digest. A component that provides more than one
     /// contract shares one artifact across several `ensure_contract` calls; without this, each
-    /// call would re-read and re-hash the same (potentially large) dylib. On-disk tampering
-    /// with an artifact after this process has verified it once is out of scope: entries here
-    /// are trusted for the rest of the process, not re-checked against the disk.
-    verified_artifacts: Mutex<HashMap<String, CachedArtifact>>,
+    /// call would re-read and re-hash the same (potentially large) dylib. Each entry keeps the
+    /// verified library open, and every later load goes through that descriptor or re-checks the
+    /// path against it (see `identity`), so replacing the file after verification is refused
+    /// rather than loaded.
+    verified_artifacts: Mutex<HashMap<String, (CachedArtifact, VerifiedFile)>>,
     /// Whether the lock this manager was built from had zero artifacts *before* target
     /// filtering -- the shape `alef generate` bootstraps when a crate declares components but
     /// `alef component lock` has never run (see
@@ -352,14 +354,14 @@ impl ComponentManager {
 
         let entry = self.entry(component_id)?;
         let requirements = contract_requirements(entry, contract_name)?;
-        let cached = self.cached_artifact(entry)?;
+        let (cached, verified) = self.cached_artifact(entry)?;
         validate_manifest(&cached.manifest, &requirements)?;
         let component = Arc::new(if self.stdio_components.contains(component_id) {
             let process = self.sidecar_process(component_id, &cached)?;
             LoadedComponent::from_sidecar(process, &cached.manifest, &requirements, self.host)?
         } else {
             LoadedComponent::load_with_services(
-                cached.library,
+                &verified,
                 entry_symbol,
                 &requirements,
                 self.host,
@@ -402,7 +404,9 @@ impl ComponentManager {
     pub fn prefetch(&self, component_ids: &[&str]) -> Result<Vec<CachedArtifact>, ComponentError> {
         component_ids
             .iter()
-            .map(|component_id| self.cached_artifact(self.entry(component_id)?))
+            .map(|component_id| -> Result<CachedArtifact, ComponentError> {
+                Ok(self.cached_artifact(self.entry(component_id)?)?.0)
+            })
             .collect()
     }
 
@@ -436,22 +440,22 @@ impl ComponentManager {
 
     /// Install `entry`'s artifact, reusing an in-process-verified copy when this process has
     /// already installed it (see [`Self::verified_artifacts`]).
-    fn cached_artifact(&self, entry: &ComponentLockEntry) -> Result<CachedArtifact, ComponentError> {
-        if let Some(cached) = self
+    fn cached_artifact(&self, entry: &ComponentLockEntry) -> Result<(CachedArtifact, VerifiedFile), ComponentError> {
+        if let Some(verified) = self
             .verified_artifacts
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .get(&entry.sha256)
             .cloned()
         {
-            return Ok(cached);
+            return Ok(verified);
         }
-        let cached = self.cache.install(entry)?;
+        let verified = self.cache.install_verified(entry)?;
         self.verified_artifacts
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .insert(entry.sha256.clone(), cached.clone());
-        Ok(cached)
+            .insert(entry.sha256.clone(), verified.clone());
+        Ok(verified)
     }
 
     /// Report where `component_id` currently stands. Unlike [`Self::ensure_contract`],

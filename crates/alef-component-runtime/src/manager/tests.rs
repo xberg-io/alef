@@ -195,11 +195,16 @@ fn prefetch_reuses_an_already_verified_artifact_without_reinstalling() {
             },
         },
     };
+    std::fs::create_dir_all(&fake.root).unwrap();
+    std::fs::write(&fake.library, b"").unwrap();
+    let file = std::fs::File::open(&fake.library).unwrap();
+    let metadata = file.metadata().unwrap();
+    let verified = VerifiedFile::new(fake.library.clone(), file, &metadata);
     manager
         .verified_artifacts
         .lock()
         .unwrap()
-        .insert(entry.sha256.clone(), fake.clone());
+        .insert(entry.sha256.clone(), (fake.clone(), verified));
 
     // The lock entry's URL points nowhere real (`file:///does/not/exist`, see `lock()`),
     // so this call would fail if it attempted to actually install/verify the artifact;

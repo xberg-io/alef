@@ -45,8 +45,13 @@ pub(crate) struct VerifiedStamp {
 }
 
 /// Snapshot the identity of `library` as it is on disk right now.
+#[cfg(test)]
 pub(crate) fn capture(archive_sha256: &str, library: &Path) -> std::io::Result<VerifiedStamp> {
-    let metadata = fs::metadata(library)?;
+    from_metadata(archive_sha256, &fs::metadata(library)?)
+}
+
+/// The stamp for a library with `metadata`, typically read from the descriptor being verified.
+pub(crate) fn from_metadata(archive_sha256: &str, metadata: &fs::Metadata) -> std::io::Result<VerifiedStamp> {
     let modified = metadata
         .modified()?
         .duration_since(UNIX_EPOCH)
@@ -77,14 +82,22 @@ pub(crate) fn capture(archive_sha256: &str, library: &Path) -> std::io::Result<V
 }
 
 /// Whether the stamp at `stamp_path` matches `library`'s current identity.
+#[cfg(test)]
 pub(crate) fn is_current(stamp_path: &Path, archive_sha256: &str, library: &Path) -> bool {
+    fs::metadata(library).is_ok_and(|metadata| matches(stamp_path, archive_sha256, &metadata))
+}
+
+/// Whether the stamp at `stamp_path` matches a library with `metadata`. The cache passes the
+/// metadata of the descriptor it is verifying, so the stamp vouches for the open file rather
+/// than for whatever the path names.
+pub(crate) fn matches(stamp_path: &Path, archive_sha256: &str, metadata: &fs::Metadata) -> bool {
     let Ok(bytes) = fs::read(stamp_path) else {
         return false;
     };
     let Ok(stored) = serde_json::from_slice::<VerifiedStamp>(&bytes) else {
         return false;
     };
-    capture(archive_sha256, library).is_ok_and(|current| current == stored)
+    from_metadata(archive_sha256, metadata).is_ok_and(|current| current == stored)
 }
 
 /// Atomically write `stamp` to `stamp_path`. Best effort: failures leave no stamp.
