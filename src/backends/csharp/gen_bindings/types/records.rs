@@ -361,9 +361,12 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
     if has_native_from_json && let Some(field) = super::super::marshalling::split_bytes_field(typ) {
         let property = to_csharp_name(&field.name);
         let uri_kind = super::super::split_bytes_uri_kind(typ, enums).map(csharp_type_name);
+        let omit_byte_uri = uri_kind.is_some()
+            && binding_fields(&typ.fields)
+                .any(|field| field.name == "uri" && field.ty == TypeRef::String && field.optional && !field.serde_skip);
         out.push_str(&render(
             "record_split_bytes_handle.jinja",
-            crate::alef_context! { class_name, exception_class, property, uri_kind },
+            crate::alef_context! { class_name, exception_class, property, uri_kind, omit_byte_uri },
         ));
     }
 

@@ -11,7 +11,7 @@
             return handle;
         }
 
-        var metadata = JsonSerializer.Serialize(this with { {{ property }} = null }, JsonSerializationOptions);
+        var metadata = JsonSerializer.Serialize(this with { {{ property }} = null{% if omit_byte_uri %}, Uri = Kind == {{ uri_kind }}.Bytes ? null : Uri{% endif %} }, JsonSerializationOptions);
         var pinned = global::System.Runtime.InteropServices.GCHandle.Alloc(
             bytes, global::System.Runtime.InteropServices.GCHandleType.Pinned);
         try

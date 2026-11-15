@@ -615,6 +615,13 @@ fn split_byte_transport_keeps_uri_inputs_on_the_json_path() {
     };
     let render = |api: &ApiSurface| render_record_with_api(&typ, true, api);
     assert!(render(&api).contains("if (bytes is null || Kind == InputKind.Uri)"));
+    assert!(!render(&api).contains("Uri = Kind"));
+    let mut uri = field("uri", TypeRef::String);
+    uri.optional = true;
+    let mut with_uri = typ.clone();
+    with_uri.fields.push(uri);
+    let record = render_record_with_api(&with_uri, true, &api);
+    assert!(record.contains("Payload = null, Uri = Kind == InputKind.Bytes ? null : Uri"));
     api.enums[0].variants.pop();
     assert!(render(&api).contains("if (bytes is null)"));
 }
