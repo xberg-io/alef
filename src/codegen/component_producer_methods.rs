@@ -69,9 +69,12 @@ pub(super) fn emit_method_wrapper(
         "unsafe extern \"C\" fn {prefix}_component_{method_name}(instance: *mut c_void"
     )?;
     for param in &method.params {
+        // A `()` argument carries no data and is passed to the trait as a literal, so its
+        // parameter is never read.
+        let unused = if param.ty == WireType::Unit { "_" } else { "" };
         write!(
             out,
-            ", {}: {}",
+            ", {unused}{}: {}",
             param.name.to_snake_case(),
             rust_abi_type(&param.ty, false)
         )?;
@@ -98,12 +101,12 @@ pub(super) fn emit_method_wrapper(
         out.push_str("    if out_result.is_null() { return AlefStatus::INVALID_ARGUMENT; }\n");
     }
     for param in &method.params {
-        emit_input_conversion(out, param)?;
+        emit_input_conversion(out, param, method.is_async)?;
     }
     let args = method
         .params
         .iter()
-        .map(|param| format!("{}_value", param.name.to_snake_case()))
+        .map(|param| call_argument(param, method.is_async))
         .collect::<Vec<_>>()
         .join(", ");
     if method.is_async {
@@ -149,8 +152,26 @@ fn emit_async_body(
     Ok(())
 }
 
-fn emit_input_conversion(out: &mut String, param: &ComponentParamIr) -> Result<()> {
+/// The expression passed to the trait method for `param`. An async method's borrowed string or
+/// byte argument was copied into an owned value before the worker thread started (the host's
+/// buffer is only valid for the duration of the C call), so the call borrows from that copy. A
+/// `()` argument has no binding and is passed as a literal.
+fn call_argument(param: &ComponentParamIr, is_async: bool) -> String {
     let name = param.name.to_snake_case();
+    match &param.ty {
+        WireType::Unit => "()".into(),
+        WireType::Utf8 if param.borrowed && is_async => format!("{name}_value.as_str()"),
+        WireType::Bytes if param.borrowed && is_async => format!("{name}_value.as_slice()"),
+        _ => format!("{name}_value"),
+    }
+}
+
+/// Bind `{name}_value` for `param`. String and byte arguments become owned when the method takes
+/// them by value, or when it is async: its body runs on another thread after this C call returns,
+/// when the host no longer guarantees the argument's memory.
+fn emit_input_conversion(out: &mut String, param: &ComponentParamIr, is_async: bool) -> Result<()> {
+    let name = param.name.to_snake_case();
+    let owned = !param.borrowed || is_async;
     match &param.ty {
         WireType::Utf8 => {
             writeln!(
@@ -165,7 +186,7 @@ fn emit_input_conversion(out: &mut String, param: &ComponentParamIr) -> Result<(
                 out,
                 "    let Ok({name}_value) = std::str::from_utf8({name}_bytes) else {{ return AlefStatus::INVALID_ARGUMENT; }};"
             )?;
-            if !param.borrowed {
+            if owned {
                 writeln!(out, "    let {name}_value = {name}_value.to_owned();")?;
             }
         }
@@ -179,12 +200,12 @@ fn emit_input_conversion(out: &mut String, param: &ComponentParamIr) -> Result<(
                 out,
                 "    // SAFETY: a non-empty byte argument points at `len` bytes the host keeps readable for this call.\n    let {name}_value: &[u8] = if {name}.len == 0 {{ &[] }} else {{ unsafe {{ std::slice::from_raw_parts({name}.ptr, {name}.len) }} }};"
             )?;
-            if !param.borrowed {
+            if owned {
                 writeln!(out, "    let {name}_value = {name}_value.to_vec();")?;
             }
         }
         WireType::Bool => writeln!(out, "    let {name}_value = {name} != 0;")?,
-        WireType::Unit => writeln!(out, "    let {name}_value = ();")?,
+        WireType::Unit => {}
         _ => writeln!(out, "    let {name}_value = {name};")?,
     }
     Ok(())

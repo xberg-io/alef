@@ -2,8 +2,9 @@
 //!
 //! The generated `src/lib.rs` carries no crate- or module-level lint allowance, so every wire
 //! shape it emits must be warning-free on its own: borrowed and owned string and byte arguments,
-//! boolean and integer arguments and results, fallible and infallible methods, and an async
-//! method (which pulls in the cancellation task and the worker thread). The bytes-contract lane
+//! boolean and integer arguments and results, a `()` argument, fallible and infallible methods,
+//! and async methods (the cancellation task, the worker thread, and borrowed arguments copied
+//! before that thread starts). The bytes-contract lane
 //! (`e2e_component_bytes_contract_test`) covers the runtime round trip; this lane covers breadth.
 
 use alef::codegen::component_producer::generate_component_producers;
@@ -21,6 +22,8 @@ pub trait Probe: Send + Sync {
     fn check(&self, text: &str, data: Vec<u8>) -> Result<bool, Error>;
     fn count(&self, flag: bool) -> u32;
     fn warm(&self) -> impl Future<Output = Result<String, Error>> + Send;
+    fn digest(&self, label: &str, data: &[u8]) -> impl Future<Output = u64> + Send;
+    fn ping(&self, marker: ()) -> bool;
 }
 
 #[derive(Debug)]
@@ -57,6 +60,14 @@ impl demo_core::Probe for DemoProbe {
 
     async fn warm(&self) -> Result<String, demo_core::Error> {
         Ok(String::from("warm"))
+    }
+
+    async fn digest(&self, label: &str, data: &[u8]) -> u64 {
+        (label.len() + data.len()) as u64
+    }
+
+    fn ping(&self, _marker: ()) -> bool {
+        true
     }
 }
 "#;
@@ -99,7 +110,10 @@ fn probe_api() -> ApiSurface {
                 method("name", Vec::new(), TypeRef::String, false, false),
                 method(
                     "check",
-                    vec![param("text", TypeRef::String, true), param("data", TypeRef::Bytes, false)],
+                    vec![
+                        param("text", TypeRef::String, true),
+                        param("data", TypeRef::Bytes, false),
+                    ],
                     TypeRef::Primitive(PrimitiveType::Bool),
                     true,
                     false,
@@ -112,6 +126,23 @@ fn probe_api() -> ApiSurface {
                     false,
                 ),
                 method("warm", Vec::new(), TypeRef::String, true, true),
+                method(
+                    "digest",
+                    vec![
+                        param("label", TypeRef::String, true),
+                        param("data", TypeRef::Bytes, true),
+                    ],
+                    TypeRef::Primitive(PrimitiveType::U64),
+                    false,
+                    true,
+                ),
+                method(
+                    "ping",
+                    vec![param("marker", TypeRef::Unit, false)],
+                    TypeRef::Primitive(PrimitiveType::Bool),
+                    false,
+                    false,
+                ),
             ],
             ..TypeDef::default()
         }],

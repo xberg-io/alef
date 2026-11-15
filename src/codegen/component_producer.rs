@@ -459,6 +459,66 @@ mod tests {
     }
 
     #[test]
+    fn async_method_copies_borrowed_arguments_before_the_worker_thread_starts() {
+        let (mut api, config) = fixture();
+        let warm = api.types[0].methods.iter_mut().find(|method| method.is_async).unwrap();
+        warm.params = vec![
+            ParamDef {
+                name: "label".into(),
+                ty: TypeRef::String,
+                is_ref: true,
+                ..ParamDef::default()
+            },
+            ParamDef {
+                name: "data".into(),
+                ty: TypeRef::Bytes,
+                is_ref: true,
+                ..ParamDef::default()
+            },
+        ];
+        let source = producer_lib(&api, &config);
+        let warm_start = source.find("fn extractor_component_warm(").unwrap();
+        let wrapper = &source[warm_start..];
+        let spawn = wrapper.find("std::thread::spawn").unwrap();
+        let before_spawn = &wrapper[..spawn];
+        assert!(
+            before_spawn.contains("let label_value = label_value.to_owned();"),
+            "{wrapper}"
+        );
+        assert!(
+            before_spawn.contains("let data_value = data_value.to_vec();"),
+            "{wrapper}"
+        );
+        assert!(
+            wrapper.contains("demo::Extractor::warm(&*instance, label_value.as_str(), data_value.as_slice())"),
+            "{wrapper}"
+        );
+
+        let extract = &source[source.find("fn extractor_component_extract(").unwrap()..warm_start];
+        assert!(
+            !extract.contains("input_value.to_vec()"),
+            "a sync borrowed argument stays borrowed:\n{extract}"
+        );
+    }
+
+    #[test]
+    fn unit_parameter_is_passed_as_a_literal_without_a_binding() {
+        let (mut api, config) = fixture();
+        api.types[0].methods[0].params.push(ParamDef {
+            name: "marker".into(),
+            ty: TypeRef::Unit,
+            ..ParamDef::default()
+        });
+        let source = producer_lib(&api, &config);
+        assert!(!source.contains("= ();"), "{source}");
+        assert!(source.contains(", _marker: ()"), "{source}");
+        assert!(
+            source.contains("demo::Extractor::extract(&**instance, input_value, ())"),
+            "{source}"
+        );
+    }
+
+    #[test]
     fn mentions_identifier_ignores_longer_names_and_qualified_paths() {
         assert!(mentions_identifier("let x: Arc<u8>;", "Arc"));
         assert!(!mentions_identifier("ArcSwap", "Arc"));
