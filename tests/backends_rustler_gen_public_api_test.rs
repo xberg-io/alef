@@ -1904,7 +1904,8 @@ fn opaque_static_constructor_wraps_return_in_struct() {
 
     assert!(
         content.contains("def handler_name(obj, name) do")
-            && content.contains("Native.routebuilder_handler_name(obj.ref, name)"),
+            && content
+                .contains("Native.routebuilder_handler_name((if is_reference(obj), do: obj, else: obj.ref), name)"),
         "instance method handler_name must unpack obj.ref; got:\n{content}"
     );
 }

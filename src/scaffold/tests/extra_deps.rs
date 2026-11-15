@@ -288,8 +288,8 @@ fn test_scaffold_elixir_cargo_deps_are_alphabetically_sorted() {
 
     let keys = dep_keys_in_order(&cargo_toml.content);
     assert!(
-        keys.contains(&"async-trait"),
-        "async-trait must appear when trait bridges are configured; keys: {keys:?}"
+        !keys.contains(&"async-trait"),
+        "async-trait must be omitted without an async visitor bridge; keys: {keys:?}"
     );
     assert!(
         keys.contains(&"tokio"),

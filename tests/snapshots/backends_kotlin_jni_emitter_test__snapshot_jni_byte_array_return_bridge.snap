@@ -17,6 +17,8 @@ package dev.sample_crate
 
 @Suppress("TooManyFunctions")
 object DemoBridge {
+    internal val borrowedHandleLock = Any()
+
     init { System.loadLibrary("demo_jni") }
 
     // JNI external funs for client instance methods.
