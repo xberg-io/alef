@@ -622,6 +622,11 @@ fn split_byte_transport_keeps_uri_inputs_on_the_json_path() {
     with_uri.fields.push(uri);
     let record = render_record_with_api(&with_uri, true, &api);
     assert!(record.contains("Payload = null, Uri = Kind == InputKind.Bytes ? null : Uri"));
+    with_uri.fields.last_mut().unwrap().serde_rename = Some("source_url".into());
+    let renamed = render_record_with_api(&with_uri, true, &api);
+    assert!(renamed.contains("[JsonPropertyName(\"source_url\")]"));
+    assert!(renamed.contains("Serialize(this with { Payload = null }, JsonSerializationOptions)"));
+    assert!(!renamed.contains("Uri = Kind"));
     api.enums[0].variants.pop();
     assert!(render(&api).contains("if (bytes is null)"));
 }

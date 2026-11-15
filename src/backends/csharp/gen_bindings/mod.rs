@@ -767,7 +767,12 @@ pub(super) fn is_tuple_field(field: &FieldDef) -> bool {
 mod tests;
 
 fn split_bytes_uri_kind<'a>(typ: &crate::core::ir::TypeDef, enums: &'a [crate::core::ir::EnumDef]) -> Option<&'a str> {
-    let field = binding_fields(&typ.fields).find(|field| field.name == "kind" && !field.serde_skip)?;
+    let field = binding_fields(&typ.fields).find(|field| {
+        field.name == "kind"
+            && field.serde_rename.as_deref().unwrap_or(&field.name) == "kind"
+            && !field.serde_skip
+            && !field.serde_flatten
+    })?;
     let TypeRef::Named(name) = &field.ty else { return None };
     let kind = enums.iter().find(|kind| &kind.name == name)?;
     if kind.variants.iter().any(|variant| !variant.fields.is_empty()) {
