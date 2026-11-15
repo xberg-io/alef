@@ -788,4 +788,6 @@ fn stream_library_entry<R: Read>(
 #[cfg(test)]
 mod archive_tests;
 #[cfg(test)]
+mod signature_tests;
+#[cfg(test)]
 mod tests;

@@ -50,10 +50,69 @@ fn archive(entries: &[RawEntry<'_>]) -> Vec<u8> {
     compressed
 }
 
+fn manifest_bytes() -> Vec<u8> {
+    manifest_declaring_library_size(6).canonical_bytes().unwrap()
+}
+
 fn extract(entries: &[RawEntry<'_>]) -> (tempfile::TempDir, Result<(), ComponentError>) {
     let dir = tempfile::tempdir().unwrap();
     let result = extract_safely(Cursor::new(archive(entries)), dir.path());
     (dir, result)
+}
+
+#[test]
+fn a_well_formed_archive_extracts() {
+    let manifest = manifest_bytes();
+    let (dir, result) = extract(&[file("component.json", &manifest), file("libdemo.so", b"native")]);
+    result.unwrap();
+    assert_eq!(fs::read(dir.path().join("libdemo.so")).unwrap(), b"native");
+}
+
+#[test]
+fn rejects_an_archive_whose_first_entry_is_not_the_manifest() {
+    let manifest = manifest_bytes();
+    let (dir, result) = extract(&[file("libdemo.so", b"native"), file("component.json", &manifest)]);
+    assert!(matches!(result, Err(ComponentError::UnsafeArchiveEntry(path)) if path == "libdemo.so"));
+    assert!(!dir.path().join("libdemo.so").exists());
+}
+
+#[test]
+fn rejects_an_absolute_entry_path() {
+    let manifest = manifest_bytes();
+    let (_dir, result) = extract(&[file("component.json", &manifest), file("/tmp/libdemo.so", b"native")]);
+    assert!(matches!(result, Err(ComponentError::UnsafeArchiveEntry(path)) if path == "/tmp/libdemo.so"));
+}
+
+#[test]
+fn rejects_a_hard_link_library_entry() {
+    let manifest = manifest_bytes();
+    let (dir, result) = extract(&[
+        file("component.json", &manifest),
+        RawEntry {
+            name: b"libdemo.so",
+            kind: tar::EntryType::Link,
+            link: Some(b"component.json"),
+            content: b"",
+        },
+    ]);
+    assert!(matches!(result, Err(ComponentError::UnsafeArchiveEntry(path)) if path == "libdemo.so"));
+    assert!(!dir.path().join("libdemo.so").exists());
+}
+
+#[test]
+fn rejects_a_duplicate_library_entry() {
+    let manifest = manifest_bytes();
+    let (dir, result) = extract(&[
+        file("component.json", &manifest),
+        file("libdemo.so", b"native"),
+        file("libdemo.so", b"evil!!"),
+    ]);
+    assert!(matches!(result, Err(ComponentError::UnsafeArchiveEntry(path)) if path == "libdemo.so"));
+    assert_eq!(
+        fs::read(dir.path().join("libdemo.so")).unwrap(),
+        b"native",
+        "the second copy must never overwrite the first"
+    );
 }
 
 /// Regression: a manifest naming its library `component.json` made extraction overwrite the
