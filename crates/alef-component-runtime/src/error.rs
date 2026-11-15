@@ -96,6 +96,8 @@ pub enum ComponentError {
     InvalidPublicKey,
     #[error("component contract table is too small or incorrectly aligned")]
     InvalidContractTable,
+    #[error("component contract table has no function for method `{0}`")]
+    MissingContractMethod(&'static str),
     #[error("component descriptor does not provide an instance factory")]
     MissingInstanceFactory,
     #[error("component descriptor does not provide an instance destructor")]
@@ -174,6 +176,7 @@ impl ComponentError {
             Self::UnsignedLock(_) => "unsigned_lock",
             Self::InvalidPublicKey => "invalid_public_key",
             Self::InvalidContractTable => "invalid_contract_table",
+            Self::MissingContractMethod(_) => "missing_contract_method",
             Self::MissingInstanceFactory => "missing_instance_factory",
             Self::MissingInstanceDestructor => "missing_instance_destructor",
             Self::InstanceCreation { .. } => "instance_creation_failed",

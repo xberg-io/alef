@@ -240,7 +240,7 @@ fn activation_dispatch(config: &ResolvedCrateConfig, resolved: &[ResolvedCompone
             )?;
             writeln!(
                 out,
-                "            let proxy = std::sync::Arc::new({proxy_name}::new(&loaded)?);"
+                "            let proxy = std::sync::Arc::new({proxy_name}::new(&loaded).map_err(alef_component_error_message)?);"
             )?;
             writeln!(
                 out,

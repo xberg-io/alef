@@ -76,6 +76,7 @@ fn generate_proxy(config: &ResolvedCrateConfig, provided: &ResolvedProvidedContr
     }
     out.push_str("}\n\n");
 
+    out.push_str("// SAFETY: a `repr(C)` table of nullable C function pointers matching the producer's layout\n// for exactly this contract hash.\n");
     writeln!(out, "unsafe impl alef_component_abi::AlefContract for {table_name} {{")?;
     writeln!(out, "    const CONTRACT_HASH: [u8; 32] = {contract_hash};")?;
     out.push_str("}\n\n");
@@ -85,18 +86,11 @@ fn generate_proxy(config: &ResolvedCrateConfig, provided: &ResolvedProvidedContr
         out,
         "    instance: alef_component_runtime::ComponentInstance<{table_name}>,"
     )?;
+    for method in &provided.contract.methods {
+        writeln!(out, "    {}: {},", method_field(method), function_pointer_type(method))?;
+    }
     out.push_str("}\n\n");
-
-    writeln!(out, "impl {proxy_name} {{")?;
-    writeln!(
-        out,
-        "    pub fn new(component: &std::sync::Arc<alef_component_runtime::LoadedComponent>) -> Result<Self, String> {{"
-    )?;
-    writeln!(
-        out,
-        "        let instance = component.instantiate::<{table_name}>().map_err(|error| error.to_string())?;"
-    )?;
-    out.push_str("        Ok(Self { instance })\n    }\n}\n\n");
+    out.push_str(&emit_constructor(&proxy_name, &table_name, &provided.contract)?);
 
     writeln!(out, "impl {trait_path} for {proxy_name} {{")?;
     for method in &provided.contract.methods {
@@ -204,6 +198,37 @@ fn function_pointer_type(method: &ComponentMethodIr) -> String {
     )
 }
 
+/// The proxy field holding a method's validated function pointer. Prefixed so a method named
+/// `instance` cannot collide with the proxy's own field.
+fn method_field(method: &ComponentMethodIr) -> String {
+    format!("fn_{}", method.name.to_snake_case())
+}
+
+/// `new` checks every function-table slot once, before any instance exists, and keeps the
+/// pointers: a component with a null slot fails activation with a typed error instead of
+/// panicking on the first call to that method.
+fn emit_constructor(proxy_name: &str, table_name: &str, contract: &ComponentContractIr) -> Result<String> {
+    let mut out = String::new();
+    writeln!(out, "impl {proxy_name} {{")?;
+    out.push_str(
+        "    /// Bind a proxy to `component`, refusing a contract table with a missing method.\n    pub fn new(\n        component: &std::sync::Arc<alef_component_runtime::LoadedComponent>,\n    ) -> Result<Self, alef_component_runtime::ComponentError> {\n",
+    );
+    writeln!(out, "        let table = component.contract_table::<{table_name}>()?;")?;
+    for method in &contract.methods {
+        writeln!(
+            out,
+            "        let {field} = table\n            .{slot}\n            .ok_or(alef_component_runtime::ComponentError::MissingContractMethod({slot:?}))?;",
+            field = method_field(method),
+            slot = method.name.to_snake_case(),
+        )?;
+    }
+    writeln!(out, "        let instance = component.instantiate::<{table_name}>()?;")?;
+    let fields = contract.methods.iter().map(method_field).collect::<Vec<_>>().join(", ");
+    writeln!(out, "        Ok(Self {{ instance{} }})", prefixed(&fields))?;
+    out.push_str("    }\n}\n\n");
+    Ok(out)
+}
+
 fn rust_param_type(param: &ComponentParamIr) -> String {
     match &param.ty {
         WireType::Utf8 if param.borrowed => "&str".to_string(),
@@ -246,16 +271,19 @@ fn zero_wire_value(ty: &WireType) -> String {
     }
 }
 
-fn output_conversion(ty: &WireType, value: &str) -> String {
+/// Lines converting a successful call's `out_result` into the Rust result, ending with the
+/// expression to return (wrapped by the caller for fallible methods).
+fn success_value(ty: &WireType) -> (String, String) {
+    const TAKE: &str = "            // SAFETY: on success the component handed ownership of `out_result`, an owned buffer\n            // of its own, to this caller.\n            let value = unsafe { alef_component_runtime::take_owned_bytes(out_result) };\n";
     match ty {
-        WireType::Utf8 => {
-            format!(
-                "String::from_utf8_lossy(&unsafe {{ alef_component_runtime::take_owned_bytes({value}) }}).into_owned()"
-            )
-        }
-        WireType::Bytes => format!("unsafe {{ alef_component_runtime::take_owned_bytes({value}) }}"),
-        WireType::Bool => format!("{value} != 0"),
-        _ => value.to_string(),
+        WireType::Unit => (String::new(), "()".to_string()),
+        WireType::Utf8 => (
+            TAKE.to_string(),
+            "String::from_utf8_lossy(&value).into_owned()".to_string(),
+        ),
+        WireType::Bytes => (TAKE.to_string(), "value".to_string()),
+        WireType::Bool => (String::new(), "out_result != 0".to_string()),
+        _ => (String::new(), "out_result".to_string()),
     }
 }
 
@@ -299,22 +327,24 @@ fn call_arguments(method: &ComponentMethodIr) -> Vec<String> {
 }
 
 fn emit_success_arm(out: &mut String, method: &ComponentMethodIr) -> Result<()> {
-    let success_value = if method.result == WireType::Unit {
-        "()".to_string()
-    } else {
-        output_conversion(&method.result, "out_result")
-    };
+    let (setup, value) = success_value(&method.result);
+    out.push_str(&setup);
     if method.fallible {
-        writeln!(out, "            Ok({success_value})")?;
+        writeln!(out, "            Ok({value})")?;
     } else {
-        writeln!(out, "            {success_value}")?;
+        writeln!(out, "            {value}")?;
     }
     Ok(())
 }
 
+/// A failed fallible method returns the contract's error. A failed infallible one cannot, and
+/// must not panic the host over one misbehaving component: it reports the failure through
+/// `alef_component_runtime::report_infallible_failure` and returns the result type's default.
 fn emit_failure_arm(out: &mut String, trait_path: &str, method: &ComponentMethodIr) -> Result<()> {
     let method_name = method.name.to_snake_case();
-    out.push_str("            let message = unsafe { alef_component_runtime::take_owned_text(out_error) };\n");
+    out.push_str(
+        "            // SAFETY: on failure the component handed ownership of `out_error`, an owned buffer\n            // of its own or `EMPTY`, to this caller.\n            let message = unsafe { alef_component_runtime::take_owned_text(out_error) };\n",
+    );
     if method.fallible {
         let error_type = method
             .error_type
@@ -328,21 +358,18 @@ fn emit_failure_arm(out: &mut String, trait_path: &str, method: &ComponentMethod
     } else {
         writeln!(
             out,
-            "            panic!(\"component method `{method_name}` failed with status {{}}: {{message}}\", status.0)"
+            "            alef_component_runtime::report_infallible_failure(&alef_component_runtime::InfallibleCallFailure::new(\n                self.instance.component().component_id(),\n                {method_name:?},\n                status.0,\n                &message,\n            ));"
         )?;
+        if method.result != WireType::Unit {
+            out.push_str("            Default::default()\n");
+        }
     }
     Ok(())
 }
 
 fn emit_method(trait_path: &str, method: &ComponentMethodIr) -> Result<String> {
-    let method_name = method.name.to_snake_case();
     let mut out = String::new();
     writeln!(out, "    {} {{", method_signature(trait_path, method))?;
-    out.push_str("        let table = self.instance.table();\n");
-    writeln!(
-        out,
-        "        let function = table.{method_name}.expect(\"activated component table is missing `{method_name}`\");"
-    )?;
     if method.result != WireType::Unit {
         writeln!(
             out,
@@ -352,9 +379,13 @@ fn emit_method(trait_path: &str, method: &ComponentMethodIr) -> Result<String> {
         )?;
     }
     out.push_str("        let mut out_error = alef_component_abi::AlefOwnedBuffer::EMPTY;\n");
+    out.push_str(
+        "        // SAFETY: the function pointer comes from the component's validated contract table, the\n        // handle from its own `create`, and every argument borrows a value that outlives the call.\n",
+    );
     writeln!(
         out,
-        "        let status = unsafe {{ function({}) }};",
+        "        let status = unsafe {{ (self.{})({}) }};",
+        method_field(method),
         call_arguments(method).join(", ")
     )?;
 
@@ -516,6 +547,66 @@ mod tests {
 
         let wrapped = format!("mod generated {{ {generated} }}");
         syn::parse_file(&wrapped).expect("generated component proxy must be valid Rust syntax");
+    }
+
+    /// Regression: the proxy panicked on a null table slot (`expect`) and on any failure of an
+    /// infallible method (`panic!`), so one misbehaving component took the host process down.
+    #[test]
+    fn generated_proxy_never_panics_on_a_misbehaving_component() {
+        let (api, config) = fixture();
+        let resolved = resolve_components(&api, &config).unwrap();
+        let generated = generate_component_proxies(&config, &resolved).unwrap();
+
+        assert!(!generated.contains("panic!"), "{generated}");
+        assert!(!generated.contains(".expect("), "{generated}");
+        assert!(!generated.contains("self.instance.table()"), "{generated}");
+        assert!(
+            generated.contains(") -> Result<Self, alef_component_runtime::ComponentError> {"),
+            "{generated}"
+        );
+        for slot in ["transform", "name"] {
+            assert!(
+                generated.contains(&format!(
+                    ".ok_or(alef_component_runtime::ComponentError::MissingContractMethod({slot:?}))?;"
+                )),
+                "{slot}: {generated}"
+            );
+        }
+        // Slots are checked before the instance is created, so a bad table creates nothing.
+        let checked = generated.find("MissingContractMethod(\"name\")").unwrap();
+        let instantiated = generated.find("component.instantiate::<CodecApiV1>()").unwrap();
+        assert!(checked < instantiated, "{generated}");
+        // `name` is infallible: a failure is reported and the default returned.
+        assert!(
+            generated.contains("alef_component_runtime::report_infallible_failure("),
+            "{generated}"
+        );
+        assert!(generated.contains("Default::default()"), "{generated}");
+    }
+
+    #[test]
+    fn every_generated_unsafe_block_carries_a_safety_comment() {
+        let (api, config) = fixture();
+        let resolved = resolve_components(&api, &config).unwrap();
+        let generated = generate_component_proxies(&config, &resolved).unwrap();
+        let lines: Vec<&str> = generated.lines().collect();
+        let mut blocks = 0;
+        for (index, line) in lines.iter().enumerate() {
+            if !line.contains("unsafe {") && !line.starts_with("unsafe impl") {
+                continue;
+            }
+            blocks += 1;
+            let documented = lines[..index]
+                .iter()
+                .rev()
+                .take_while(|previous| previous.trim_start().starts_with("//"))
+                .any(|comment| comment.contains("SAFETY:"));
+            assert!(
+                documented,
+                "undocumented unsafe block at line {index}: {line}\n{generated}"
+            );
+        }
+        assert!(blocks >= 4, "expected call, result and error blocks, found {blocks}");
     }
 
     #[test]

@@ -51,6 +51,7 @@ mod loader;
 mod maintenance;
 mod manager;
 mod manifest;
+mod proxy_support;
 mod stamp;
 pub mod stdio;
 pub mod target;
@@ -68,6 +69,7 @@ pub use manifest::{
     ComponentIdentity, ComponentLibrary, ComponentLock, ComponentLockEntry, ComponentManifest,
     ComponentProvidedContract, ComponentSignature, canonical_json,
 };
+pub use proxy_support::{InfallibleCallFailure, report_infallible_failure, set_infallible_failure_hook};
 pub use stdio::{SidecarRestartEvent, SidecarSession, SidecarSessionSetup};
 
 pub use ed25519_dalek::VerifyingKey;
