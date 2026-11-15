@@ -409,6 +409,8 @@ jobs:
         run: mise exec -- cargo fetch --locked
       - name: Real cdylib bytes-contract round trip
         run: mise run test:run -- --test e2e_component_bytes_contract_test -- --ignored --nocapture
+      - name: Generated producer passes clippy -D warnings
+        run: mise run test:run -- --test e2e_component_producer_lint_test -- --ignored --nocapture
       - name: Go c-shared producer conformance
         run: mise run test:run -- --test component_go_producer_test -- --ignored --nocapture
       - name: Generated stdio host round trip
