@@ -383,6 +383,37 @@ jobs:
             scripts/toolchain-census.sh --require go --require ruby --require wasm-bindgen
           fi
 
+  # The component round trips are #[ignore]d because each builds and runs real native code: a
+  # downloaded cdylib behind a generated proxy, a Go c-shared producer through the conformance
+  # suite, and a standalone generated host driving a signed stdio sidecar. The `test` job runs
+  # none of them, so without this job the runtime's load, verify and spawn paths are only ever
+  # exercised by unit tests. ~keep
+  component-e2e:
+    name: Component end-to-end lanes
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Python and Go
+        uses: xberg-io/actions/setup-mise@v1
+        with:
+          install-args: python go
+      - uses: xberg-io/actions/setup-rust@v1
+        with:
+          use-sccache: "false"
+          install-llvm-cov: "false"
+          cache-key-prefix: ci-component-e2e
+      # The standalone stdio host builds with `--offline`; this populates the registry it reads. ~keep
+      - name: Fetch dependencies
+        run: mise exec -- cargo fetch --locked
+      - name: Real cdylib bytes-contract round trip
+        run: mise run test:run -- --test e2e_component_bytes_contract_test -- --ignored --nocapture
+      - name: Go c-shared producer conformance
+        run: mise run test:run -- --test component_go_producer_test -- --ignored --nocapture
+      - name: Generated stdio host round trip
+        run: mise run test:run -- --test e2e_component_stdio_host_test -- --ignored --nocapture
+
   # Runs the consumer's own toolchain gate over a tree alef emits, in a scratch directory.
   # The `validate` job above lints alef; this one lints alef's *output*, which nothing
   # else in this workflow looks at. Kept a separate job because it needs poly and

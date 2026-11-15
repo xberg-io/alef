@@ -4,7 +4,15 @@ on:
   issues:
     types: [opened, edited]
 
+permissions:
+  contents: read
+
 jobs:
   validate:
+    # The reusable workflow labels issues and adds them to the project board. ~keep
+    permissions:
+      contents: read
+      issues: write
+      repository-projects: write
     uses: xberg-io/actions/.github/workflows/reusable-validate-issues.yml@v1
     secrets: inherit
