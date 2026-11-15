@@ -34,12 +34,14 @@
 use alef::backends::ffi::FfiBackend;
 use alef::backends::go::GoBackend;
 use alef::backends::pyo3::Pyo3Backend;
-use alef::codegen::component::{ResolvedComponent, entry_point_symbol, resolve_components};
+use alef::codegen::component::{ResolvedComponent, resolve_components};
+use alef::codegen::component_host::generate_component_host;
 use alef::codegen::component_producer::generate_component_producers;
-use alef::codegen::component_proxy::generate_component_proxies;
 use alef::component::artifact::{PackageInput, ProvidedContractInput, create_manifest, feature_hash, write_package};
 use alef::core::backend::Backend;
-use alef::core::config::{ComponentConfig, ComponentContractConfig, ComponentProvidesConfig, ResolvedCrateConfig};
+use alef::core::config::{
+    ComponentConfig, ComponentContractConfig, ComponentHostConfig, ComponentProvidesConfig, ResolvedCrateConfig,
+};
 use alef::core::ir::{ApiSurface, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
 use std::collections::BTreeMap;
 use std::fs;
@@ -180,6 +182,11 @@ fn codec_config() -> ResolvedCrateConfig {
             producer_dir: None,
             extra_dependencies: Default::default(),
         }],
+        component_host: Some(ComponentHostConfig {
+            stdio_components: Vec::new(),
+            output: "src/components_gen.rs".into(),
+            lock_path: Some("../components.lock.json".into()),
+        }),
         ..ResolvedCrateConfig::default()
     }
 }
@@ -243,8 +250,39 @@ fn build_producer_library(root: &Path, api: &ApiSurface, config: &ResolvedCrateC
         &producer_dir,
     );
     assert!(passed, "building the generated component producer failed:\n{output}");
+    assert_clippy_clean(&producer_dir, None, "the generated component producer");
 
     find_built_library(&producer_dir.join("target"))
+}
+
+/// Run `cargo clippy -- -D warnings` on the crate in `dir`: generated code must pass the default
+/// lint set without any crate- or module-level allowance, since it carries none.
+fn assert_clippy_clean(dir: &Path, target_dir: Option<&Path>, what: &str) {
+    let mut command = Command::new("cargo");
+    command
+        .args([
+            "clippy",
+            "--release",
+            "--all-targets",
+            "--manifest-path",
+            "Cargo.toml",
+            "--",
+            "-D",
+            "warnings",
+        ])
+        .current_dir(dir);
+    if let Some(target_dir) = target_dir {
+        command.env("CARGO_TARGET_DIR", target_dir);
+    }
+    let output = command
+        .output()
+        .unwrap_or_else(|error| panic!("running cargo clippy in {}: {error}", dir.display()));
+    assert!(
+        output.status.success(),
+        "{what} is not clippy-clean under -D warnings:\n{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 /// Package the built library exactly as `alef component package --unsigned` would, then seed a
@@ -324,8 +362,9 @@ fn package_and_seed_cache(
     (lock, cache_root)
 }
 
-/// Write the harness crate: a real, compiled copy of the generated `CodecProxy`
-/// (`component_proxy::generate_component_proxies`) plus a thin library that ensures the
+/// Write the harness crate: a real, compiled copy of the generated host module
+/// (`component_host::generate_component_host`, which embeds the generated `CodecProxy`) mounted
+/// privately, as a host does, plus a thin library that ensures the
 /// component through a real `ComponentManager`, registers the proxy, and calls through the
 /// trait. Two binaries (`positive`/`negative`) run in separate processes so the process-wide
 /// `alef_component_abi` registry from one never contaminates the other.
@@ -336,9 +375,9 @@ fn write_harness(
     lock_json: &str,
     cache_root: &Path,
 ) -> PathBuf {
-    let resolved = resolve_components(api, config).expect("resolve the codec contract");
-    let proxy_source = generate_component_proxies(config, &resolved).expect("generate the codec proxy");
-    let entry_symbol = entry_point_symbol("codec");
+    let host_module = generate_component_host(api, config)
+        .expect("generate the host module")
+        .expect("component_host is configured");
 
     let harness_dir = root.join("crates/harness");
     fs::create_dir_all(harness_dir.join("src/bin")).expect("create harness crate directories");
@@ -360,9 +399,14 @@ serde_json = "1"
     );
     fs::write(harness_dir.join("Cargo.toml"), manifest).expect("write harness Cargo.toml");
     fs::write(harness_dir.join("components.lock.json"), lock_json).expect("write embedded lock");
+    fs::write(harness_dir.join(&host_module.path), &host_module.content).expect("write the generated host module");
 
     let lib_source = format!(
-        r#"{proxy_source}
+        r#"//! Harness over the generated host module.
+
+mod components_gen;
+
+use components_gen::{{CODEC_ENTRY_SYMBOL, CodecProxy}};
 
 fn manager() -> alef_component_runtime::ComponentManager {{
     let lock: alef_component_runtime::ComponentLock =
@@ -383,15 +427,17 @@ fn host_api() -> alef_component_abi::AlefHostApiV1 {{
     }}
 }}
 
+/// Ensure and activate the component, then call it through the contract trait.
 pub fn activate_and_call(input: &[u8]) -> Result<Vec<u8>, String> {{
     let loaded = manager()
-        .ensure_contract("reverse", "codec", b"{entry_symbol}\0")
+        .ensure_contract("reverse", "codec", CODEC_ENTRY_SYMBOL)
         .map_err(|error| error.to_string())?;
     let proxy = std::sync::Arc::new(CodecProxy::new(&loaded).map_err(|error| error.to_string())?);
     alef_component_abi::register_provider::<dyn demo_core::Codec>("reverse", "codec", proxy);
     demo_core::transform(input).map_err(|error| error.to_string())
 }}
 
+/// Call through the contract trait without activating any component.
 pub fn call_without_activation(input: &[u8]) -> Result<Vec<u8>, String> {{
     demo_core::transform(input).map_err(|error| error.to_string())
 }}
@@ -429,6 +475,44 @@ pub fn call_without_activation(input: &[u8]) -> Result<Vec<u8>, String> {{
     harness_dir
 }
 
+/// Write a crate that exports the generated host module publicly under `deny(missing_docs)`, so
+/// every public item it emits must carry documentation.
+fn write_docs_check(root: &Path, host_module: &str) -> PathBuf {
+    let dir = root.join("crates/host-docs");
+    fs::create_dir_all(dir.join("src")).expect("create docs-check crate directories");
+    fs::write(
+        dir.join("Cargo.toml"),
+        format!(
+            r#"[package]
+name = "host-docs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+demo-core = {{ path = "../demo-core" }}
+alef-component-abi = {{ path = {abi:?} }}
+alef-component-runtime = {{ path = {runtime:?} }}
+serde_json = "1"
+"#,
+            abi = repo_root().join("crates/alef-component-abi"),
+            runtime = repo_root().join("crates/alef-component-runtime"),
+        ),
+    )
+    .expect("write docs-check Cargo.toml");
+    fs::copy(
+        root.join("crates/harness/components.lock.json"),
+        dir.join("components.lock.json"),
+    )
+    .expect("copy the embedded lock");
+    fs::write(dir.join("src/components_gen.rs"), host_module).expect("write the generated host module");
+    fs::write(
+        dir.join("src/lib.rs"),
+        "//! Exports the generated host module.\n#![deny(missing_docs)]\n\npub mod components_gen;\n",
+    )
+    .expect("write docs-check src/lib.rs");
+    dir
+}
+
 #[test]
 #[ignore = "builds and runs real cdylibs against the host toolchain; run via \
             `cargo test --test e2e_component_bytes_contract_test -- --ignored`"]
@@ -461,6 +545,14 @@ fn bytes_contract_round_trips_through_a_real_downloaded_component() {
         &harness_dir,
     );
     assert!(build_passed, "building the harness crate failed:\n{build_output}");
+    assert_clippy_clean(&harness_dir, None, "the privately mounted generated host module");
+    let host_module = fs::read_to_string(harness_dir.join("src/components_gen.rs")).expect("read the host module");
+    let docs_dir = write_docs_check(&root, &host_module);
+    assert_clippy_clean(
+        &docs_dir,
+        Some(&harness_dir.join("target")),
+        "the publicly exported host module",
+    );
 
     let target_dir = harness_dir.join("target/release");
     let positive_bin = target_dir.join("positive");

@@ -58,7 +58,9 @@ fn emit_lifecycle_functions(out: &mut String, names: &ContractNames, implementat
         out,
         "unsafe fn {prefix}_component_ref<'a>(instance: *mut c_void) -> Option<&'a Arc<{implementation_alias}>> {{"
     )?;
-    out.push_str("    // SAFETY: the host supplies the handle returned by create_component.\n");
+    out.push_str(
+        "    // SAFETY: callers pass null or a handle `create_component` returned that the host has not\n    // destroyed yet, which points at a live `Arc` of the implementation.\n",
+    );
     writeln!(
         out,
         "    unsafe {{ instance.cast::<Arc<{implementation_alias}>>().as_ref() }}"
@@ -73,15 +75,15 @@ fn emit_lifecycle_functions(out: &mut String, names: &ContractNames, implementat
     out.push_str("    let host = unsafe { alef_component_abi::HostApi::from_raw(host) };\n");
     writeln!(
         out,
-        "    // Prefers `FromHost::from_host(&host)` when the implementation provides it, else `Default`.\n    match catch_unwind(AssertUnwindSafe(|| Arc::new((&alef_component_abi::Construct::<{implementation_alias}>::new()).construct(&host)))) {{"
+        "    // Prefers `FromHost::from_host(&host)` when the implementation provides it, else `Default`.\n    match catch_unwind(AssertUnwindSafe(|| Arc::new(alef_component_abi::construct_component!({implementation_alias}, &host)))) {{"
     )?;
     out.push_str("        Ok(instance) => {\n");
-    out.push_str("            // SAFETY: out_instance is non-null.\n");
+    out.push_str("            // SAFETY: out_instance is non-null and the host passes it writable for this call.\n");
     out.push_str("            unsafe { *out_instance = Box::into_raw(Box::new(instance)).cast() };\n");
     out.push_str("            AlefStatus::OK\n        }\n");
     out.push_str("        Err(payload) => {\n");
     out.push_str("            if !out_error.is_null() {\n");
-    out.push_str("                // SAFETY: out_error is non-null.\n");
+    out.push_str("                // SAFETY: out_error is non-null and the host passes it writable for this call.\n");
     out.push_str("                unsafe { *out_error = error_buffer(format!(\"component constructor panicked: {}\", panic_message(&*payload))) };\n");
     out.push_str("            }\n            AlefStatus::INTERNAL_ERROR\n        }\n    }\n}\n\n");
     writeln!(
@@ -89,7 +91,7 @@ fn emit_lifecycle_functions(out: &mut String, names: &ContractNames, implementat
         "unsafe extern \"C\" fn {prefix}_destroy_component(instance: *mut c_void) {{"
     )?;
     out.push_str("    if !instance.is_null() {\n        let _ = catch_unwind(AssertUnwindSafe(|| {\n");
-    out.push_str("            // SAFETY: the handle was allocated by create_component.\n");
+    out.push_str("            // SAFETY: a non-null handle is the `Box<Arc<_>>` create_component leaked, and the host\n            // destroys each handle exactly once.\n");
     writeln!(
         out,
         "            drop(unsafe {{ Box::from_raw(instance.cast::<Arc<{implementation_alias}>>()) }});"
@@ -135,7 +137,7 @@ fn emit_contract_table_and_entry(
 
     writeln!(
         out,
-        "static mut {screaming_prefix}_CONTRACT_API: {api_name} = {api_name} {{",
+        "static {screaming_prefix}_CONTRACT_API: {api_name} = {api_name} {{",
         screaming_prefix = names.screaming_prefix,
     )?;
     writeln!(out, "    struct_size: std::mem::size_of::<{api_name}>(),")?;
@@ -164,28 +166,31 @@ fn emit_descriptor_and_entrypoint(
     } = names;
     let contract_hash = super::byte_array(&provided.contract_hash);
 
+    out.push_str(
+        "// SAFETY: every pointer in the descriptor refers to immutable process-lifetime data: the id and\n// version literals, the contract table static and functions.\n",
+    );
     writeln!(
         out,
-        "static mut {screaming_prefix}_COMPONENT: AlefComponentV1 = AlefComponentV1 {{"
+        "static {screaming_prefix}_COMPONENT: SyncStatic<AlefComponentV1> = unsafe {{\n    SyncStatic::new(AlefComponentV1 {{"
     )?;
-    out.push_str("    struct_size: std::mem::size_of::<AlefComponentV1>(),\n");
-    out.push_str("    abi_major: 1,\n    abi_minor: 0,\n");
+    out.push_str("        struct_size: std::mem::size_of::<AlefComponentV1>(),\n");
+    out.push_str("        abi_major: 1,\n        abi_minor: 0,\n");
     out.push_str(
-        "    component_id: AlefStr { ptr: COMPONENT_ID.as_ptr().cast::<c_char>(), len: COMPONENT_ID.len() },\n",
+        "        component_id: AlefStr { ptr: COMPONENT_ID.as_ptr().cast::<c_char>(), len: COMPONENT_ID.len() },\n",
     );
     out.push_str(
-        "    component_version: AlefStr { ptr: COMPONENT_VERSION.as_ptr().cast::<c_char>(), len: COMPONENT_VERSION.len() },\n",
+        "        component_version: AlefStr { ptr: COMPONENT_VERSION.as_ptr().cast::<c_char>(), len: COMPONENT_VERSION.len() },\n",
     );
-    writeln!(out, "    contract_hash: {contract_hash},")?;
-    writeln!(out, "    feature_set_hash: {feature_hash},")?;
+    writeln!(out, "        contract_hash: {contract_hash},")?;
+    writeln!(out, "        feature_set_hash: {feature_hash},")?;
     writeln!(
         out,
-        "    contract: (&raw const {screaming_prefix}_CONTRACT_API).cast::<c_void>(),"
+        "        contract: std::ptr::from_ref(&{screaming_prefix}_CONTRACT_API).cast::<c_void>(),"
     )?;
-    writeln!(out, "    contract_size: std::mem::size_of::<{api_name}>(),")?;
+    writeln!(out, "        contract_size: std::mem::size_of::<{api_name}>(),")?;
     writeln!(
         out,
-        "    create: Some({prefix}_create_component),\n    destroy: Some({prefix}_destroy_component),\n}};\n"
+        "        create: Some({prefix}_create_component),\n        destroy: Some({prefix}_destroy_component),\n    }})\n}};\n"
     )?;
     out.push_str("/// Return this component's descriptor for the requested ABI version.\n");
     out.push_str("///\n/// # Safety\n");
@@ -201,11 +206,11 @@ fn emit_descriptor_and_entrypoint(
     );
     writeln!(
         out,
-        "    // SAFETY: out_component is non-null and {screaming_prefix}_COMPONENT has process lifetime."
+        "    // SAFETY: out_component is non-null and writable per this function's contract, and\n    // {screaming_prefix}_COMPONENT is a static with process lifetime."
     )?;
     writeln!(
         out,
-        "    unsafe {{ *out_component = &raw const {screaming_prefix}_COMPONENT }};"
+        "    unsafe {{ *out_component = {screaming_prefix}_COMPONENT.as_ptr() }};"
     )?;
     out.push_str("    AlefStatus::OK\n}\n\n");
     Ok(())

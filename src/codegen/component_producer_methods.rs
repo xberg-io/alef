@@ -21,7 +21,7 @@ fn rust_abi_type(ty: &WireType, output: bool) -> String {
         WireType::F64 => "f64".into(),
         WireType::Utf8 | WireType::Char | WireType::Path | WireType::Bytes if output => "AlefOwnedBuffer".into(),
         WireType::Utf8 | WireType::Char | WireType::Path => "AlefStr".into(),
-        WireType::Bytes => "alef_component_abi::AlefSlice".into(),
+        WireType::Bytes => "AlefSlice".into(),
         other => panic!("unsupported producer wire type: {other:?}"),
     }
 }
@@ -89,6 +89,7 @@ pub(super) fn emit_method_wrapper(
         out.push_str(", out_error: *mut AlefOwnedBuffer");
     }
     out.push_str(") -> AlefStatus {\n");
+    out.push_str("    // SAFETY: the host passes null or the live handle create_component returned.\n");
     writeln!(
         out,
         "    let Some(instance) = (unsafe {{ {prefix}_component_ref(instance) }}) else {{ return AlefStatus::INVALID_ARGUMENT; }};"
@@ -128,10 +129,14 @@ fn emit_async_body(
     out.push_str("    if out_task.is_null() { return AlefStatus::INVALID_ARGUMENT; }\n");
     out.push_str("    let instance = Arc::clone(instance);\n");
     out.push_str("    let cancelled = Arc::new(AtomicBool::new(false));\n");
-    out.push_str("    let task_context = Box::into_raw(Box::new(Arc::clone(&cancelled))).cast::<c_void>();\n");
-    out.push_str("    // SAFETY: out_task is non-null.\n");
-    out.push_str("    unsafe { *out_task = AlefTaskV1 { struct_size: std::mem::size_of::<AlefTaskV1>(), context: task_context, start: None, cancel: Some(cancel_task), drop: Some(free_task) } };\n");
+    out.push_str("    // SAFETY: out_task is non-null and the host passes it writable for this call.\n");
+    out.push_str("    unsafe { *out_task = cancel_flag_task(Arc::clone(&cancelled)) };\n");
+    out.push_str("    // Raw pointers are not `Send`; the worker thread rebuilds the context from its address.\n");
+    out.push_str("    let completion_context = completion_context.expose_provenance();\n");
     out.push_str("    std::thread::spawn(move || {\n");
+    out.push_str(
+        "        let completion_context = std::ptr::with_exposed_provenance_mut::<c_void>(completion_context);\n",
+    );
     out.push_str("        if cancelled.load(Ordering::Acquire) {\n");
     emit_completion(out, method, "AlefStatus::CANCELLED", None, 12)?;
     out.push_str("            return;\n        }\n");
@@ -154,7 +159,7 @@ fn emit_input_conversion(out: &mut String, param: &ComponentParamIr) -> Result<(
             )?;
             writeln!(
                 out,
-                "    let {name}_bytes: &[u8] = if {name}.len == 0 {{ &[] }} else {{ unsafe {{ std::slice::from_raw_parts({name}.ptr.cast::<u8>(), {name}.len) }} }};"
+                "    // SAFETY: a non-empty string argument points at `len` bytes the host keeps readable for this call.\n    let {name}_bytes: &[u8] = if {name}.len == 0 {{ &[] }} else {{ unsafe {{ std::slice::from_raw_parts({name}.ptr.cast::<u8>(), {name}.len) }} }};"
             )?;
             writeln!(
                 out,
@@ -172,7 +177,7 @@ fn emit_input_conversion(out: &mut String, param: &ComponentParamIr) -> Result<(
             )?;
             writeln!(
                 out,
-                "    let {name}_value: &[u8] = if {name}.len == 0 {{ &[] }} else {{ unsafe {{ std::slice::from_raw_parts({name}.ptr, {name}.len) }} }};"
+                "    // SAFETY: a non-empty byte argument points at `len` bytes the host keeps readable for this call.\n    let {name}_value: &[u8] = if {name}.len == 0 {{ &[] }} else {{ unsafe {{ std::slice::from_raw_parts({name}.ptr, {name}.len) }} }};"
             )?;
             if !param.borrowed {
                 writeln!(out, "    let {name}_value = {name}_value.to_vec();")?;
@@ -191,7 +196,7 @@ fn emit_sync_match(out: &mut String, method: &ComponentMethodIr) -> Result<()> {
         out.push_str("        Ok(Ok(value)) => {\n");
         emit_sync_success(out, method)?;
         out.push_str("        }\n        Ok(Err(error)) => {\n");
-        out.push_str("            if !out_error.is_null() { unsafe { *out_error = error_buffer(error) }; }\n");
+        out.push_str("            if !out_error.is_null() {\n                // SAFETY: out_error is non-null and the host passes it writable for this call.\n                unsafe { *out_error = error_buffer(error) };\n            }\n");
         out.push_str("            AlefStatus::INTERNAL_ERROR\n        }\n");
     } else {
         out.push_str("        Ok(value) => {\n");
@@ -199,13 +204,14 @@ fn emit_sync_match(out: &mut String, method: &ComponentMethodIr) -> Result<()> {
         out.push_str("        }\n");
     }
     out.push_str("        Err(payload) => {\n");
-    out.push_str("            if !out_error.is_null() { unsafe { *out_error = error_buffer(format!(\"component method panicked: {}\", panic_message(&*payload))) }; }\n");
+    out.push_str("            if !out_error.is_null() {\n                // SAFETY: out_error is non-null and the host passes it writable for this call.\n                unsafe { *out_error = error_buffer(format!(\"component method panicked: {}\", panic_message(&*payload))) };\n            }\n");
     out.push_str("            AlefStatus::INTERNAL_ERROR\n        }\n    }\n");
     Ok(())
 }
 
 fn emit_sync_success(out: &mut String, method: &ComponentMethodIr) -> Result<()> {
     if method.result != WireType::Unit {
+        out.push_str("            // SAFETY: out_result was checked non-null above and the host passes it writable.\n");
         writeln!(
             out,
             "            unsafe {{ *out_result = {} }};",
@@ -262,7 +268,7 @@ fn emit_completion(
     );
     writeln!(
         out,
-        "{pad}unsafe {{ completion(completion_context, {status}{result}, {error}) }};"
+        "{pad}// SAFETY: the host keeps completion_context valid until its completion runs, once.\n{pad}unsafe {{ completion(completion_context, {status}{result}, {error}) }};"
     )?;
     Ok(())
 }

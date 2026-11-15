@@ -81,6 +81,11 @@ fn generate_proxy(config: &ResolvedCrateConfig, provided: &ResolvedProvidedContr
     writeln!(out, "    const CONTRACT_HASH: [u8; 32] = {contract_hash};")?;
     out.push_str("}\n\n");
 
+    writeln!(
+        out,
+        "/// Calls the `{}` contract through a loaded component's function table.",
+        provided.contract.name
+    )?;
     writeln!(out, "pub struct {proxy_name} {{")?;
     writeln!(
         out,
