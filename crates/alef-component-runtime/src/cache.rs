@@ -618,12 +618,19 @@ fn sha256_reader(mut reader: impl Read) -> std::io::Result<([u8; 32], u64)> {
     Ok((hasher.finalize().into(), total))
 }
 
+/// Names the archive's own metadata files occupy; a library under either would overwrite one
+/// during extraction. Compared case-insensitively for case-insensitive file systems.
+const RESERVED_LIBRARY_NAMES: [&str; 2] = ["component.json", "component.sig"];
+
 fn safe_relative_path(value: &str) -> Result<PathBuf, ComponentError> {
     let path = Path::new(value);
     let safe = !path.as_os_str().is_empty()
         && path
             .components()
-            .all(|component| matches!(component, Component::Normal(_)));
+            .all(|component| matches!(component, Component::Normal(_)))
+        && !RESERVED_LIBRARY_NAMES
+            .iter()
+            .any(|reserved| value.eq_ignore_ascii_case(reserved));
     if safe {
         Ok(path.to_owned())
     } else {
@@ -778,5 +785,7 @@ fn stream_library_entry<R: Read>(
     Ok(())
 }
 
+#[cfg(test)]
+mod archive_tests;
 #[cfg(test)]
 mod tests;

@@ -744,7 +744,7 @@ fn full_verification_writes_the_stamp_for_a_pre_existing_install() {
     assert!(stamping.stamp_path(&entry.sha256).is_file());
 }
 
-fn manifest_declaring_library_size(size: u64) -> ComponentManifest {
+pub(super) fn manifest_declaring_library_size(size: u64) -> ComponentManifest {
     ComponentManifest {
         schema_version: COMPONENT_MANIFEST_SCHEMA,
         abi_version: 1,
