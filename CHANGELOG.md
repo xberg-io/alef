@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.130.1] - 2026-11-16
+
 ### Fixed
 
 - Extract every item a workspace sibling crate's `pub use`s name, whatever order they are walked in. The sibling was extracted once per run with the first re-export's name filter, so a later `pub use sibling::{A, B}` naming other items found nothing (a contract trait re-exported after a module that reached the same crate failed `alef generate` with "contract trait … not found"). Each sibling's whole surface is now kept for the run and every re-export merges its own names from it; re-export cycles still stop at the crate being extracted.
