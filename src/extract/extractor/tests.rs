@@ -1,6 +1,7 @@
 use super::reexports::{UseFilter, collect_use_names, find_crate_source, merge_surface, merge_surface_filtered};
 use super::*;
 use crate::core::ir::{PrimitiveType, ReceiverKind, TypeRef};
+use std::path::PathBuf;
 
 /// Helper: parse source and extract into an ApiSurface.
 fn extract_from_source(source: &str) -> ApiSurface {
@@ -23,7 +24,7 @@ fn extract_from_source(source: &str) -> ApiSurface {
         unsupported_public_items: Vec::new(),
         unresolved_modules: Vec::new(),
     };
-    let mut visited = Vec::new();
+    let mut visited = VisitedSources::default();
     let mut rwa = ahash::AHashSet::new();
     let mut pending_serde_defaults = SerdeDefaultsByType::default();
     let mut private_module_paths = ahash::AHashSet::new();

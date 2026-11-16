@@ -9,7 +9,7 @@ mod result_hints;
 pub(crate) mod service;
 mod types;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::core::ir::{ApiSurface, DefaultValue, MethodDef, TypeDef, UnsupportedPublicItem};
 use ahash::AHashMap;
@@ -31,7 +31,7 @@ use self::postprocess::{
     resolve_enum_field_defaults, resolve_newtypes, resolve_public_default_functions, resolve_trait_sources,
     warn_on_default_disagreements,
 };
-use self::reexports::{extract_module, resolve_use_tree};
+use self::reexports::{VisitedSources, extract_module, resolve_use_tree};
 use self::types::{extract_enum, extract_error_enum, extract_struct, validate_transparent_string_struct};
 
 /// A struct's field name → the serde reader's default for that field, keyed by the struct's
@@ -66,7 +66,7 @@ pub fn extract(
         ..ApiSurface::default()
     };
 
-    let mut visited = Vec::<PathBuf>::new();
+    let mut visited = VisitedSources::default();
     // Spans the whole `sources` loop below (not reset per file, unlike `result_wrapping_aliases`):
     // a struct and the manual `impl Default` that overwrites its fields' defaults may live in
     // different source files. ~keep
@@ -211,7 +211,7 @@ fn extract_items(
     module_path: &str,
     surface: &mut ApiSurface,
     workspace_root: Option<&Path>,
-    visited: &mut Vec<PathBuf>,
+    visited: &mut VisitedSources,
     result_wrapping_aliases: &mut ahash::AHashSet<String>,
     pending_serde_defaults: &mut SerdeDefaultsByType,
     private_module_paths: &mut ahash::AHashSet<String>,

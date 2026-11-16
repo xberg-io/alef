@@ -7,13 +7,37 @@ use syn;
 use super::helpers::ReexportKind;
 use super::helpers::extract_cfg_condition;
 
+/// The source files one extraction run has walked, and the surface each workspace sibling crate
+/// yielded.
+///
+/// The sibling surfaces are kept whole, before any `pub use` name filter, so a later re-export
+/// of the same crate naming other items still finds them; the file list alone used to make the
+/// first re-export's filter final for the whole run.
+#[derive(Default)]
+pub(crate) struct VisitedSources {
+    files: Vec<PathBuf>,
+    sibling_surfaces: ahash::AHashMap<PathBuf, ApiSurface>,
+}
+
+impl VisitedSources {
+    /// Whether `path` (canonicalized by the caller) has already been walked.
+    pub(crate) fn contains(&self, path: &Path) -> bool {
+        self.files.iter().any(|file| file == path)
+    }
+
+    /// Record `path` (canonicalized by the caller) as walked.
+    pub(crate) fn push(&mut self, path: PathBuf) {
+        self.files.push(path);
+    }
+}
+
 /// Resolve a `pub use` tree, extracting re-exported items from workspace sibling crates.
 pub(crate) fn resolve_use_tree(
     tree: &syn::UseTree,
     crate_name: &str,
     surface: &mut ApiSurface,
     workspace_root: Option<&Path>,
-    visited: &mut Vec<PathBuf>,
+    visited: &mut VisitedSources,
     attrs: &[syn::Attribute],
 ) -> Result<()> {
     let cfg = extract_cfg_condition(attrs);
@@ -52,7 +76,7 @@ fn resolve_external_use(
     crate_name: &str,
     surface: &mut ApiSurface,
     workspace_root: Option<&Path>,
-    visited: &mut Vec<PathBuf>,
+    visited: &mut VisitedSources,
     cfg: Option<String>,
 ) -> Result<()> {
     let Some(crate_source) = find_crate_source(ext_crate_name, workspace_root) else {
@@ -60,6 +84,14 @@ fn resolve_external_use(
     };
 
     let canonical = std::fs::canonicalize(&crate_source).unwrap_or_else(|_| crate_source.clone());
+    // A sibling reached again, possibly by a `pub use` naming different items than the one that
+    // first extracted it: merge from the whole surface it yielded, never from the first filter. ~keep
+    if let Some(ext_surface) = visited.sibling_surfaces.get(&canonical) {
+        merge_by_use_filter(surface, ext_surface.clone(), subtree, cfg);
+        return Ok(());
+    }
+    // Visited but not yet cached: the sibling is still being extracted further up the stack (a
+    // re-export cycle), or the file is the host crate's own source. ~keep
     if visited.contains(&canonical) {
         return Ok(());
     }
@@ -106,18 +138,18 @@ fn resolve_external_use(
     )?;
     super::paths::validate_no_private_path_leaks(&ext_surface, crate_name, &ext_private_module_paths)?;
 
-    let filter = collect_use_names(subtree);
-
-    match filter {
-        UseFilter::All => {
-            merge_surface(surface, ext_surface, cfg);
-        }
-        UseFilter::Names(names) => {
-            merge_surface_filtered(surface, ext_surface, &names, cfg);
-        }
-    }
+    visited.sibling_surfaces.insert(canonical, ext_surface.clone());
+    merge_by_use_filter(surface, ext_surface, subtree, cfg);
 
     Ok(())
+}
+
+/// Merge the items a `pub use` subtree names (all of them for a glob) from `ext_surface`.
+fn merge_by_use_filter(surface: &mut ApiSurface, ext_surface: ApiSurface, subtree: &syn::UseTree, cfg: Option<String>) {
+    match collect_use_names(subtree) {
+        UseFilter::All => merge_surface(surface, ext_surface, cfg),
+        UseFilter::Names(names) => merge_surface_filtered(surface, ext_surface, &names, cfg),
+    }
 }
 
 /// What names does a use subtree import?
@@ -337,7 +369,7 @@ pub(crate) fn extract_module(
     reexport_map: &ahash::AHashMap<String, ReexportKind>,
     surface: &mut ApiSurface,
     workspace_root: Option<&Path>,
-    visited: &mut Vec<PathBuf>,
+    visited: &mut VisitedSources,
     pending_serde_defaults: &mut super::SerdeDefaultsByType,
     private_module_paths: &mut ahash::AHashSet<String>,
 ) -> Result<()> {
