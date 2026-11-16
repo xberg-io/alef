@@ -68,7 +68,9 @@ impl VerifiedFile {
         }
     }
 
-    /// The same descriptor under the path a rename moved it to; a rename keeps the inode.
+    /// The same descriptor under the path a rename moved it to; a rename keeps the inode. Windows
+    /// cannot rename a directory holding an open file, so the install path re-verifies there instead.
+    #[cfg(not(windows))]
     pub(crate) fn relocated(mut self, path: PathBuf) -> Self {
         self.path = path;
         self
