@@ -2,69 +2,24 @@ use anyhow::Result;
 use std::process;
 
 use crate::cli::{cache, commands, dispatch, pipeline};
+use commands::release_metadata::ComputeReleaseMetadataInputs;
 
 use super::args::*;
 use super::dispatch::DispatchContext;
 use super::helpers::*;
 
 pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Option<Commands>> {
-    let config_path = &context.config_path;
     match command {
-        Commands::Cache { action } => match action {
-            CacheAction::Clear => {
-                cache::clear_cache()?;
-                tracing::info!("Cache cleared.");
-                Ok(None)
-            }
-            CacheAction::Status => {
-                cache::show_status();
-                Ok(None)
-            }
-        },
-        Commands::Validate { action } => match action {
-            ValidateAction::Versions { json, exit_code } => {
-                let (_workspace, resolved) = load_config(config_path)?;
-                let crates_to_process = dispatch::select_crates(&resolved, &context.crate_filter)?;
-                let workspace_root = std::env::current_dir()?;
-                let mut has_mismatches = false;
-                for resolved_cfg in &crates_to_process {
-                    let checks = commands::validate_versions::run(resolved_cfg, &workspace_root, json)?;
-                    // ~keep Ask `checks_pass` rather than re-deriving the verdict. The local
-                    // predicate this replaces tested only whether some check failed to match,
-                    // which disagreed with `checks_pass` in both directions: it passed a crate
-                    // whose check set was EMPTY, the vacuous pass `checks_pass` exists to
-                    // refuse, and it failed a `blocked_on_publish` row, which `checks_pass`
-                    // deliberately tolerates because such a row cannot resolve until the
-                    // release being gated is published. `--json` already reported
-                    // `checks_pass`, so one command could answer `ok: true` and exit 1.
-                    if !commands::component_version_checks::nothing_to_examine(resolved_cfg)
-                        && !commands::validate_versions::checks_pass(&checks)
-                    {
-                        has_mismatches = true;
-                    }
-                    // ~keep alef #1528: `checks_pass` above only compares version STRINGS across
-                    // manifests; it has no notion of whether a committed `Cargo.lock` can actually
-                    // resolve a requirement reachable from a manifest alef generated. That drift
-                    // (the `tower-http` shape: a hand-written dependency alef never watches moves,
-                    // and nothing about alef's own output changes) never prompts a regen, so
-                    // `check_generated_lock_freshness` -- correct, and already proven against real
-                    // incidents -- never gets a chance to run before the release is cut. This is
-                    // the same check, reachable from the actual release gate instead, and it
-                    // shares `checks_pass`'s own tolerance for a lock genuinely waiting on this
-                    // release's not-yet-published version rather than re-litigating it.
-                    if let Some(version) = resolved_cfg.resolved_version()
-                        && let Some(error) = pipeline::check_release_lock_freshness(&workspace_root, &version)
-                    {
-                        tracing::error!("[{}] {error:#}", resolved_cfg.name);
-                        has_mismatches = true;
-                    }
-                }
-                if has_mismatches && exit_code {
-                    process::exit(1);
-                }
-                Ok(None)
-            }
-        },
+        Commands::Cache { action } => {
+            handle_cache(action)?;
+            Ok(None)
+        }
+        Commands::Validate {
+            action: ValidateAction::Versions { json, exit_code },
+        } => {
+            validate_versions(context, json, exit_code)?;
+            Ok(None)
+        }
         Commands::ReleaseMetadata {
             tag,
             targets,
@@ -74,30 +29,18 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             force_republish,
             json: _,
         } => {
-            let effective_event = if event.is_empty() {
-                std::env::var("GITHUB_EVENT_NAME").unwrap_or_default()
-            } else {
-                event.clone()
-            };
-            let resolved_opt = load_config(config_path).ok().map(|(_ws, r)| r);
-            let resolved_cfg_opt: Option<&crate::core::config::ResolvedCrateConfig> =
-                resolved_opt.as_ref().and_then(|r| {
-                    dispatch::select_crates(r, &context.crate_filter)
-                        .ok()
-                        .and_then(|v| v.into_iter().next())
-                });
-            let meta = commands::release_metadata::compute(
+            emit_release_metadata(
+                context,
                 &tag,
-                commands::release_metadata::ComputeReleaseMetadataInputs {
+                ComputeReleaseMetadataInputs {
                     targets_csv: &targets,
                     git_ref: git_ref.as_deref(),
-                    event: &effective_event,
+                    event: &event,
                     dry_run,
                     force_republish,
-                    config: resolved_cfg_opt,
+                    config: None,
                 },
             )?;
-            crate::bin_cli::output::payload(meta.to_json()?);
             Ok(None)
         }
         Commands::CheckRegistry {
@@ -127,20 +70,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             dry_run,
             json,
         } => {
-            let (_workspace, resolved) = load_config(config_path)?;
-            let crates_to_process = dispatch::select_crates(&resolved, &context.crate_filter)?;
-            let workspace_root = std::env::current_dir()?;
-            for resolved_cfg in &crates_to_process {
-                let params = commands::go_tag::GoTagParams {
-                    version: &version,
-                    remote: &remote,
-                    dry_run,
-                    output_json: json,
-                    config: resolved_cfg,
-                    workspace_root: &workspace_root,
-                };
-                commands::go_tag::run(&params)?;
-            }
+            go_tag(context, &version, &remote, dry_run, json)?;
             Ok(None)
         }
         Commands::Snippets { action } => {
@@ -152,6 +82,107 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
         }
         other => Ok(Some(other)),
     }
+}
+
+fn handle_cache(action: CacheAction) -> Result<()> {
+    match action {
+        CacheAction::Clear => {
+            cache::clear_cache()?;
+            tracing::info!("Cache cleared.");
+        }
+        CacheAction::Status => cache::show_status(),
+    }
+    Ok(())
+}
+
+fn emit_release_metadata(context: &DispatchContext, tag: &str, inputs: ComputeReleaseMetadataInputs<'_>) -> Result<()> {
+    let effective_event;
+    let event = if inputs.event.is_empty() {
+        effective_event = std::env::var("GITHUB_EVENT_NAME").unwrap_or_default();
+        &effective_event
+    } else {
+        inputs.event
+    };
+    let resolved = load_config(&context.config_path)
+        .ok()
+        .map(|(_workspace, resolved)| resolved);
+    let config = resolved.as_ref().and_then(|resolved| {
+        dispatch::select_crates(resolved, &context.crate_filter)
+            .ok()
+            .and_then(|crates| crates.into_iter().next())
+    });
+    let metadata = commands::release_metadata::compute(
+        tag,
+        ComputeReleaseMetadataInputs {
+            event,
+            config,
+            ..inputs
+        },
+    )?;
+    crate::bin_cli::output::payload(metadata.to_json()?);
+    Ok(())
+}
+
+fn validate_versions(context: &DispatchContext, json: bool, exit_code: bool) -> Result<()> {
+    let config_path = &context.config_path;
+    let (_workspace, resolved) = load_config(config_path)?;
+    let crates_to_process = dispatch::select_crates(&resolved, &context.crate_filter)?;
+    let workspace_root = std::env::current_dir()?;
+    let mut has_mismatches = false;
+    for resolved_cfg in &crates_to_process {
+        let checks = commands::validate_versions::run(resolved_cfg, &workspace_root, json)?;
+        // ~keep Ask `checks_pass` rather than re-deriving the verdict. The local
+        // predicate this replaces tested only whether some check failed to match,
+        // which disagreed with `checks_pass` in both directions: it passed a crate
+        // whose check set was EMPTY, the vacuous pass `checks_pass` exists to
+        // refuse, and it failed a `blocked_on_publish` row, which `checks_pass`
+        // deliberately tolerates because such a row cannot resolve until the
+        // release being gated is published. `--json` already reported
+        // `checks_pass`, so one command could answer `ok: true` and exit 1.
+        if !commands::component_version_checks::nothing_to_examine(resolved_cfg)
+            && !commands::validate_versions::checks_pass(&checks)
+        {
+            has_mismatches = true;
+        }
+        // ~keep alef #1528: `checks_pass` above only compares version STRINGS across
+        // manifests; it has no notion of whether a committed `Cargo.lock` can actually
+        // resolve a requirement reachable from a manifest alef generated. That drift
+        // (the `tower-http` shape: a hand-written dependency alef never watches moves,
+        // and nothing about alef's own output changes) never prompts a regen, so
+        // `check_generated_lock_freshness` -- correct, and already proven against real
+        // incidents -- never gets a chance to run before the release is cut. This is
+        // the same check, reachable from the actual release gate instead, and it
+        // shares `checks_pass`'s own tolerance for a lock genuinely waiting on this
+        // release's not-yet-published version rather than re-litigating it.
+        if let Some(version) = resolved_cfg.resolved_version()
+            && let Some(error) = pipeline::check_release_lock_freshness(&workspace_root, &version)
+        {
+            tracing::error!("[{}] {error:#}", resolved_cfg.name);
+            has_mismatches = true;
+        }
+    }
+    if has_mismatches && exit_code {
+        process::exit(1);
+    }
+    Ok(())
+}
+
+fn go_tag(context: &DispatchContext, version: &str, remote: &str, dry_run: bool, json: bool) -> Result<()> {
+    let (_workspace, resolved) = load_config(&context.config_path)?;
+    let crates_to_process = dispatch::select_crates(&resolved, &context.crate_filter)?;
+    let workspace_root = std::env::current_dir()?;
+    for resolved_cfg in &crates_to_process {
+        let params = commands::go_tag::GoTagParams {
+            version,
+            remote,
+            dry_run,
+            output_json: json,
+            config: resolved_cfg,
+            workspace_root: &workspace_root,
+        };
+        commands::go_tag::run(&params)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

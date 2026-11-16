@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Split release command dispatch and init configuration rendering into smaller functions, retiring two size exemptions from the lint baseline (#338).
+
 ## [0.130.1] - 2026-11-16
 
 ### Fixed

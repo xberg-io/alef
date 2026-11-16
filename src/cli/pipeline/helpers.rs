@@ -553,6 +553,12 @@ fn generate_init_config(metadata: &CrateMetadata, languages: &[String]) -> Strin
         config.push_str(&format!("\n[crates.scaffold]\nrepository = \"{repo}\"\n"));
     }
 
+    append_init_language_config(&mut config, metadata, languages);
+    config
+}
+
+fn append_init_language_config(config: &mut String, metadata: &CrateMetadata, languages: &[String]) {
+    let crate_name = metadata.name.as_str();
     if languages.contains(&"python".to_string()) {
         config.push_str(&format!(
             "\n[crates.python]\nmodule_name = \"_{}\"\n",
@@ -610,8 +616,6 @@ fn generate_init_config(metadata: &CrateMetadata, languages: &[String]) -> Strin
             to_pascal_case(crate_name)
         ));
     }
-
-    config
 }
 
 fn to_pascal_case(s: &str) -> String {

@@ -83,7 +83,7 @@ pylint_max_returns = 10
 "src/e2e/codegen/python/lint_clean_python_tests.rs" = ["lazy-ignore"]
 "src/scaffold/languages/poly.rs" = ["cyclomatic-complexity", "function-too-long", "lazy-ignore"]
 # --- quality-debt baseline (generated) ---
-# 1155 size/complexity rule/file exemptions across 595 files that predate these
+# 1153 size/complexity rule/file exemptions across 593 files that predate these
 # metrics. Listed per file rather than switching the rules off, so the metrics still
 # fire on every file NOT listed here -- new code stays covered, and each path below is
 # one discrete unit of work.
@@ -590,7 +590,6 @@ pylint_max_returns = 10
 "src/bin_cli/helpers.rs" = ["function-too-long"]
 "src/bin_cli/helpers/frozen/tests.rs" = ["function-too-long"]
 "src/bin_cli/publish_commands.rs" = ["function-too-long", "nesting-too-deep"]
-"src/bin_cli/release_commands.rs" = ["function-too-long"]
 "src/cli/commands/migrate.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/cli/commands/snippets.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/cli/commands/snippets/gaps_command.rs" = ["cyclomatic-complexity", "function-too-long"]
@@ -612,7 +611,6 @@ pylint_max_returns = 10
 ]
 "src/cli/pipeline/generate/tests.rs" = ["file-too-long"]
 "src/cli/pipeline/generate/write.rs" = ["function-too-long"]
-"src/cli/pipeline/helpers.rs" = ["function-too-long"]
 "src/cli/pipeline/version.rs" = ["file-too-long"]
 "src/cli/pipeline/version_core.rs" = ["function-too-long", "nesting-too-deep"]
 "src/cli/pipeline/version_tests/e2e_manifests.rs" = ["function-too-long"]
