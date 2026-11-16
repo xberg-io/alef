@@ -144,6 +144,11 @@ fn ensure_contract_reaches_the_download_step_for_a_provided_contract() {
             contract_hash: hex::encode([9; 32]),
             implementation: "demo::Second".into(),
         });
+    // A real missing path rather than `lock()`'s `file:///does/not/exist`, which has no drive
+    // letter and so is not a local file URL on Windows.
+    two_contracts.artifacts[0].url = url::Url::from_file_path(dir.path().join("missing.tar.gz"))
+        .unwrap()
+        .to_string();
     let manager = ComponentManager::from_lock(two_contracts, dir.path(), "target-a", host()).unwrap();
     // Fails to find the library at the fake `file://` URL -- proving contract resolution
     // for "second" succeeded and the manager reached the download step, not that the
