@@ -143,8 +143,9 @@ pub fn verify_and_record_proof(root: &Path, jobs: &[Value]) {
     assert_eq!(
         jobs[1]["exit_code"],
         0,
-        "positive failed; retained proof: {}",
-        root.display()
+        "positive failed; retained proof: {}\nstderr:\n{}",
+        root.display(),
+        jobs[1]["stderr"].as_str().unwrap_or_default()
     );
     assert_eq!(jobs[2]["name"], "negative");
     assert_eq!(
