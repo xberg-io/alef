@@ -226,7 +226,10 @@ use std::path::PathBuf;
 
 fn positive(cache: PathBuf) {
     assert_eq!(components_gen::COMPONENT_IDS, &["reverse"]);
-    let manager = components_gen::component_manager(cache, false).expect("generated manager");
+    // Sidecars start with a cleared environment (ADR-0028); the audit log path is opted in.
+    let manager = components_gen::component_manager(cache, false)
+        .expect("generated manager")
+        .with_sidecar_env_passthrough(["ALEF_STDIO_AUDIT"]);
     assert_eq!(manager.status("reverse").unwrap(), ComponentStatus::NotDownloaded);
     let component = manager.ensure_contract("reverse", "codec", components_gen::CODEC_ENTRY_SYMBOL)
         .expect("generated stdio selection must load the executable");
