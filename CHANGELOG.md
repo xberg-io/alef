@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.130.0] - 2026-11-16
+
 ### Added
 
 - `alef component sign` signs the unsigned archives from `component package --unsigned` on a host that never builds: it loads no `alef.toml` and runs no cargo, rustc or go, so the release key can live on a runner that executes no dependency build scripts. Each archive is checked under the runtime's extraction rules and against its record and manifest (and, with `--plan`, its plan row) before anything is written; the output is byte-identical to a signed `package`, so `lock` and the runtime accept it unchanged. Keys come from `--key-file` or `--key-env`; `--public-key` checks the key against the configured one and `--resign` replaces an existing signature. ADR-0026; docs: `docs/design/components.md`.
