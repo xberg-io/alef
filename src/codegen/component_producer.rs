@@ -502,19 +502,19 @@ mod tests {
     }
 
     #[test]
-    fn unit_parameter_is_passed_as_a_literal_without_a_binding() {
+    fn unit_parameter_is_rejected_because_it_has_no_c_representation() {
         let (mut api, config) = fixture();
         api.types[0].methods[0].params.push(ParamDef {
             name: "marker".into(),
             ty: TypeRef::Unit,
             ..ParamDef::default()
         });
-        let source = producer_lib(&api, &config);
-        assert!(!source.contains("= ();"), "{source}");
-        assert!(source.contains(", _marker: ()"), "{source}");
+        let error = generate_component_producers(&api, &config)
+            .expect_err("a () parameter must not reach the C ABI")
+            .to_string();
         assert!(
-            source.contains("demo::Extractor::extract(&**instance, input_value, ())"),
-            "{source}"
+            error.contains("marker") && error.contains("no C ABI representation"),
+            "{error}"
         );
     }
 

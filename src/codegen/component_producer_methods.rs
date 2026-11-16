@@ -69,12 +69,9 @@ pub(super) fn emit_method_wrapper(
         "unsafe extern \"C\" fn {prefix}_component_{method_name}(instance: *mut c_void"
     )?;
     for param in &method.params {
-        // A `()` argument carries no data and is passed to the trait as a literal, so its
-        // parameter is never read.
-        let unused = if param.ty == WireType::Unit { "_" } else { "" };
         write!(
             out,
-            ", {unused}{}: {}",
+            ", {}: {}",
             param.name.to_snake_case(),
             rust_abi_type(&param.ty, false)
         )?;
@@ -154,12 +151,10 @@ fn emit_async_body(
 
 /// The expression passed to the trait method for `param`. An async method's borrowed string or
 /// byte argument was copied into an owned value before the worker thread started (the host's
-/// buffer is only valid for the duration of the C call), so the call borrows from that copy. A
-/// `()` argument has no binding and is passed as a literal.
+/// buffer is only valid for the duration of the C call), so the call borrows from that copy.
 fn call_argument(param: &ComponentParamIr, is_async: bool) -> String {
     let name = param.name.to_snake_case();
     match &param.ty {
-        WireType::Unit => "()".into(),
         WireType::Utf8 if param.borrowed && is_async => format!("{name}_value.as_str()"),
         WireType::Bytes if param.borrowed && is_async => format!("{name}_value.as_slice()"),
         _ => format!("{name}_value"),

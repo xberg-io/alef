@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Generated async producer methods copy borrowed `&str` and `&[u8]` arguments into owned values before starting the worker thread. The thread used to read the host's argument memory after the C call had returned, when the host no longer guarantees it. A `()` parameter no longer generates a `let x_value = ();` binding (clippy `let_unit_value`); it is passed as a literal.
+- Generated async producer methods copy borrowed `&str` and `&[u8]` arguments into owned values before starting the worker thread. The thread used to read the host's argument memory after the C call had returned, when the host no longer guarantees it. A component method with a `()` parameter is now rejected at generation time: `()` has no C ABI representation, and the generated `extern "C"` signature failed `improper_ctypes_definitions`.
 - Reject a protocol-1 stdio request whose JSON encoding exceeds the frame limit without stopping the sidecar.
 - Hash installed component libraries in 64 KiB chunks instead of reading the whole library into memory on every verification.
 - Component cache maintenance no longer races installs: `remove` waits for, and `prune` skips (reporting it under `skipped`), an object whose install holds its digest lock, and stamps of a digest being installed are kept. Per-digest `.lock` files are no longer deleted, since unlinking one while another process waited on it let two processes hold "exclusive" locks on different files. Older runtimes sharing the cache still delete them.

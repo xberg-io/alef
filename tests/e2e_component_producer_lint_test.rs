@@ -2,7 +2,7 @@
 //!
 //! The generated `src/lib.rs` carries no crate- or module-level lint allowance, so every wire
 //! shape it emits must be warning-free on its own: borrowed and owned string and byte arguments,
-//! boolean and integer arguments and results, a `()` argument, fallible and infallible methods,
+//! boolean and integer arguments and results, fallible and infallible methods,
 //! and async methods (the cancellation task, the worker thread, and borrowed arguments copied
 //! before that thread starts). The bytes-contract lane
 //! (`e2e_component_bytes_contract_test`) covers the runtime round trip; this lane covers breadth.
@@ -23,7 +23,6 @@ pub trait Probe: Send + Sync {
     fn count(&self, flag: bool) -> u32;
     fn warm(&self) -> impl Future<Output = Result<String, Error>> + Send;
     fn digest(&self, label: &str, data: &[u8]) -> impl Future<Output = u64> + Send;
-    fn ping(&self, marker: ()) -> bool;
 }
 
 #[derive(Debug)]
@@ -64,10 +63,6 @@ impl demo_core::Probe for DemoProbe {
 
     async fn digest(&self, label: &str, data: &[u8]) -> u64 {
         (label.len() + data.len()) as u64
-    }
-
-    fn ping(&self, _marker: ()) -> bool {
-        true
     }
 }
 "#;
@@ -135,13 +130,6 @@ fn probe_api() -> ApiSurface {
                     TypeRef::Primitive(PrimitiveType::U64),
                     false,
                     true,
-                ),
-                method(
-                    "ping",
-                    vec![param("marker", TypeRef::Unit, false)],
-                    TypeRef::Primitive(PrimitiveType::Bool),
-                    false,
-                    false,
                 ),
             ],
             ..TypeDef::default()

@@ -380,6 +380,15 @@ fn map_method(
             if param.sanitized || param.is_mut {
                 bail!("component parameter `{}::{}` is not ABI-safe", method.name, param.name);
             }
+            // `()` carries no data and has no C representation (`improper_ctypes_definitions`), so
+            // it cannot be a component argument; the trait method should drop the parameter.
+            if matches!(param.ty, TypeRef::Unit) {
+                bail!(
+                    "component parameter `{}::{}` is `()`, which has no C ABI representation; remove it from the method",
+                    method.name,
+                    param.name
+                );
+            }
             Ok(ComponentParamIr {
                 name: param.name.clone(),
                 ty: map_type(api, &param.ty, records, enums)?,
