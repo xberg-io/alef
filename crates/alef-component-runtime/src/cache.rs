@@ -360,6 +360,11 @@ impl ArtifactCache {
         let staging = tempfile::Builder::new().prefix(".install-").tempdir_in(&objects)?;
         extract_safely(archive.as_file_mut(), staging.path())?;
         let (cached, verified) = self.verify_installation(entry, staging.path(), None)?;
+        // Windows refuses to rename a directory while a file inside it is open, whatever share
+        // mode the file was opened with (ERROR_ACCESS_DENIED), so the staging descriptor is closed
+        // before the rename and the library is verified again at its installed path below.
+        #[cfg(windows)]
+        drop(verified);
 
         if destination.exists() {
             fs::remove_dir_all(&destination)?;
@@ -372,7 +377,12 @@ impl ArtifactCache {
         }
         let library = destination.join(&cached.manifest.library.file);
         // A rename keeps the inode, so the descriptor verified in staging is the installed file.
+        #[cfg(not(windows))]
         let verified = verified.relocated(library.clone());
+        // The staging descriptor was closed for the rename, so the returned descriptor is a fresh
+        // one, fully hashed (no stamp) under the digest lock this install still holds.
+        #[cfg(windows)]
+        let (_, verified) = self.verify_installation(entry, &destination, None)?;
         // Stamped from the verified descriptor, not the path: a file swapped in after the rename
         // must not inherit the stamp.
         if self.stamp_enabled()
