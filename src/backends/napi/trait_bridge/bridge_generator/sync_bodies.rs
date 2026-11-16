@@ -25,10 +25,7 @@ impl NapiBridgeGenerator {
 
         let error_lookup =
             spec.make_error("format!(\"Method '{}' not found on bridge object: {}\", self.cached_name, e)");
-        let error_call = spec.make_error(&format!(
-            "format!(\"Plugin '{{}}' method '{}' failed: {{}}\", self.cached_name, e)",
-            method.name
-        ));
+        let error_call = Self::make_callback_error(spec, &method.name, "failed");
 
         let has_default_impl = method.has_default_impl;
         if matches!(method.return_type, TypeRef::Unit) {
@@ -272,10 +269,7 @@ impl NapiBridgeGenerator {
             }
         };
 
-        let error_settle = spec.make_error(&format!(
-            "format!(\"Plugin '{{}}' method '{}' rejected: {{}}\", self.cached_name, e)",
-            method.name
-        ));
+        let error_settle = Self::make_callback_error(spec, &method.name, "rejected");
 
         let recv_body = if has_error {
             format!(

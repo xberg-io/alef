@@ -9,6 +9,11 @@ pub unsafe extern "system" fn {{ symbol }}(
     let Some(()) = run_or_throw(env, |env| {
     let result = core_crate::{{ clear_fn }}();
     if let Err(e) = result {
+{% if preserve_exceptions %}
+        if throw_jni_host_exception(env, &e) {
+            return;
+        }
+{% endif %}
         throw_jni_error(env, &e.to_string());
     }
     }) else {

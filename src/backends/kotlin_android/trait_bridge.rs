@@ -34,6 +34,11 @@ pub(crate) const UNREGISTER_METHOD: &str = "unregister";
 /// See [`REGISTER_METHOD`]. ~keep
 pub(crate) const CLEAR_METHOD: &str = "clearAll";
 
+pub(crate) struct DispatcherOptions<'a> {
+    pub excluded_types: &'a std::collections::HashSet<String>,
+    pub preserve_exceptions: bool,
+}
+
 pub fn gen_trait_bridge_files(
     package: &str,
     trait_name: &str,
@@ -42,6 +47,29 @@ pub fn gen_trait_bridge_files(
     bridge_class_name: &str,
     api: &crate::core::ir::ApiSurface,
     effective_excluded_types: &std::collections::HashSet<String>,
+) -> Vec<(String, String)> {
+    gen_trait_bridge_files_with_exceptions(
+        package,
+        trait_name,
+        bridge_cfg,
+        trait_def,
+        bridge_class_name,
+        api,
+        DispatcherOptions {
+            excluded_types: effective_excluded_types,
+            preserve_exceptions: false,
+        },
+    )
+}
+
+pub(crate) fn gen_trait_bridge_files_with_exceptions(
+    package: &str,
+    trait_name: &str,
+    bridge_cfg: &TraitBridgeConfig,
+    trait_def: &TypeDef,
+    bridge_class_name: &str,
+    api: &crate::core::ir::ApiSurface,
+    options: DispatcherOptions<'_>,
 ) -> Vec<(String, String)> {
     let interface_name = format!("I{trait_name}");
     let bridge_obj = bridge_object_name(trait_name);
@@ -80,13 +108,14 @@ pub fn gen_trait_bridge_files(
         files.push((format!("{bridge_obj}.kt"), content));
     }
 
-    files.push(gen_jni_dispatcher_file(
+    files.push(gen_jni_dispatcher_file_with_exceptions(
         package,
         trait_name,
         bridge_cfg,
         trait_def,
         api,
-        effective_excluded_types,
+        options.excluded_types,
+        options.preserve_exceptions,
     ));
 
     files
@@ -105,6 +134,26 @@ pub fn gen_jni_dispatcher_file(
     trait_def: &TypeDef,
     api: &crate::core::ir::ApiSurface,
     effective_excluded_types: &std::collections::HashSet<String>,
+) -> (String, String) {
+    gen_jni_dispatcher_file_with_exceptions(
+        package,
+        trait_name,
+        bridge_cfg,
+        trait_def,
+        api,
+        effective_excluded_types,
+        false,
+    )
+}
+
+pub(crate) fn gen_jni_dispatcher_file_with_exceptions(
+    package: &str,
+    trait_name: &str,
+    bridge_cfg: &TraitBridgeConfig,
+    trait_def: &TypeDef,
+    api: &crate::core::ir::ApiSurface,
+    effective_excluded_types: &std::collections::HashSet<String>,
+    preserve_exceptions: bool,
 ) -> (String, String) {
     let visible_type_names: std::collections::HashSet<&str> = api
         .types
@@ -145,7 +194,11 @@ pub fn gen_jni_dispatcher_file(
             let call = format!("impl.{method_camel}({args})");
             let call = if method.is_async {
                 any_async = true;
-                format!("runBlocking {{ {call} }}")
+                if preserve_exceptions {
+                    format!("runBlocking {{ runCatching {{ {call} }} }}.getOrThrow()")
+                } else {
+                    format!("runBlocking {{ {call} }}")
+                }
             } else {
                 call
             };
@@ -177,6 +230,7 @@ pub fn gen_jni_dispatcher_file(
             has_super_trait => bridge_cfg.super_trait.is_some(),
             methods => methods,
             implemented => implemented,
+            preserve_exceptions => preserve_exceptions,
         },
     );
 
@@ -596,6 +650,38 @@ mod dispatcher_tests {
             dispatcher.contains("fun implementedMethods(): String"),
             "dispatcher must report the implemented method names:\n{dispatcher}"
         );
+    }
+
+    #[test]
+    fn opt_in_dispatcher_lets_jvm_exceptions_cross_into_jni() {
+        let trait_def = ocr_like_trait();
+        let bridge_cfg = tests_support_bridge_cfg("OcrBackend", Some("Plugin"));
+        let api = make_api(&trait_def);
+        let args = std::collections::HashSet::new();
+        let render = |preserve| {
+            gen_jni_dispatcher_file_with_exceptions(
+                "dev.sample_crate",
+                "OcrBackend",
+                &bridge_cfg,
+                &trait_def,
+                &api,
+                &args,
+                preserve,
+            )
+            .1
+        };
+
+        let opted_in = render(true);
+        assert!(
+            opted_in.contains("runBlocking { runCatching { impl.processImage("),
+            "{opted_in}"
+        );
+        assert!(opted_in.contains("}.getOrThrow()"), "{opted_in}");
+        assert!(!opted_in.contains("catch (t: Throwable)"), "{opted_in}");
+
+        let legacy = render(false);
+        assert!(legacy.contains("catch (t: Throwable)"), "{legacy}");
+        assert!(legacy.contains("runBlocking { impl.processImage("), "{legacy}");
     }
 
     #[test]

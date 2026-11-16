@@ -163,6 +163,14 @@ pub fn gen_napi_error_converter(error: &ErrorDef, core_import: &str) -> String {
 /// status and retry delay; any other `Display` error becomes a plain `GenericFailure` error. The
 /// downcast lets a call site convert without naming the error type it came from.
 pub fn gen_napi_error_dispatch(errors: &[ErrorDef], core_import: &str) -> String {
+    gen_napi_error_dispatch_with_bridge_source(errors, core_import, None)
+}
+
+pub(crate) fn gen_napi_error_dispatch_with_bridge_source(
+    errors: &[ErrorDef],
+    core_import: &str,
+    bridge_error_type: Option<&str>,
+) -> String {
     let mut converters = Vec::new();
     for error in errors {
         let rust_path = if error.rust_path.is_empty() {
@@ -172,10 +180,38 @@ pub fn gen_napi_error_dispatch(errors: &[ErrorDef], core_import: &str) -> String
         };
         converters.push((rust_path, napi_converter_fn_name(error)));
     }
+    let source_errors = bridge_error_type
+        .map(|error_type| napi_source_error_paths(error_type, core_import, &converters))
+        .unwrap_or_default();
     crate::codegen::template_env::render(
         "error_gen/napi_error_dispatch.jinja",
-        crate::alef_context! { converters => converters },
+        crate::alef_context! { converters => converters, source_errors => source_errors },
     )
+}
+
+fn napi_source_error_paths(
+    bridge_error: &str,
+    core_import: &str,
+    converters: &[(String, String)],
+) -> Vec<(String, bool)> {
+    let bridge_path = if bridge_error.contains("::") || bridge_error.contains('<') {
+        bridge_error.to_owned()
+    } else {
+        format!("{core_import}::{bridge_error}")
+    };
+    let boxed = bridge_error.split_once('<').is_some_and(|(outer, _)| {
+        matches!(
+            outer.trim().trim_start_matches("::"),
+            "Box" | "std::boxed::Box" | "alloc::boxed::Box"
+        )
+    });
+    let mut paths = converters
+        .iter()
+        .filter(|(path, _)| *path != bridge_path)
+        .map(|(path, _)| (path.clone(), false))
+        .collect::<Vec<_>>();
+    paths.insert(0, (bridge_path, boxed));
+    paths
 }
 
 /// Return the NAPI converter function name for a given error type.

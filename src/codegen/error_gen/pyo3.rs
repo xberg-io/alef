@@ -39,6 +39,14 @@ pub fn gen_pyo3_error_types_with_parent(
 /// the message alone — the stable numeric `code` travels as its own tuple element, never
 /// interpolated into the human-facing text. (~keep)
 pub fn gen_pyo3_error_converter(error: &ErrorDef, core_import: &str) -> String {
+    gen_pyo3_error_converter_with_host_source(error, core_import, false)
+}
+
+pub(crate) fn gen_pyo3_error_converter_with_host_source(
+    error: &ErrorDef,
+    core_import: &str,
+    preserve_host_error: bool,
+) -> String {
     let rust_path = if error.rust_path.is_empty() {
         format!("{core_import}::{}", error.name)
     } else {
@@ -114,6 +122,7 @@ pub fn gen_pyo3_error_converter(error: &ErrorDef, core_import: &str) -> String {
             arms => arms,
             default_arm => default_arm.as_str(),
             attribute_arms => attribute_arms,
+            preserve_host_error => preserve_host_error,
         },
     )
 }

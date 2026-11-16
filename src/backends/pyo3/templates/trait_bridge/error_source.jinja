@@ -1,0 +1,32 @@
+fn alef_python_host_error(error: &(dyn std::error::Error + 'static)) -> Option<pyo3::PyErr> {
+    const MAX_SOURCE_DEPTH: usize = 64;
+    let mut current = Some(error);
+    for _ in 0..MAX_SOURCE_DEPTH {
+        let error = current?;
+        if let Some(host_error) = error.downcast_ref::<pyo3::PyErr>() {
+            return Some(pyo3::Python::attach(|py| host_error.clone_ref(py)));
+        }
+        current = error.source();
+    }
+    None
+}
+
+{% if has_registry_wrappers %}
+
+struct AlefPythonRegistryError<'a, E>(&'a E);
+
+impl<E: std::error::Error + 'static> AlefPythonRegistryError<'_, E> {
+    fn host_exception(&self) -> Option<pyo3::PyErr> {
+        alef_python_host_error(self.0)
+    }
+}
+
+#[allow(dead_code, reason = "only used when a registry returns a string or another non-Error type")]
+trait AlefPythonRegistryErrorFallback {
+    fn host_exception(&self) -> Option<pyo3::PyErr> {
+        None
+    }
+}
+
+impl<E> AlefPythonRegistryErrorFallback for AlefPythonRegistryError<'_, E> {}
+{% endif %}

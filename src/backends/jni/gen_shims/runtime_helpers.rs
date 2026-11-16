@@ -101,14 +101,45 @@ fn jni_error_contexts(api: &ApiSurface, core_import: &str) -> Vec<JniErrorContex
         .collect()
 }
 
-fn emit_runtime_helpers(out: &mut String, api: &ApiSurface, core_import: &str) {
+fn emit_runtime_helpers(out: &mut String, api: &ApiSurface, config: &ResolvedCrateConfig) {
+    let core_import = core_use_path(config);
+    let errors = jni_error_contexts(api, &core_import);
+    let preserve_exceptions = jni_preserves_host_exceptions(config);
+    let source_error_paths = if preserve_exceptions {
+        jni_source_error_paths(config, &core_import, &errors)
+    } else {
+        std::collections::BTreeSet::new()
+    };
     out.push_str(&template_env::render(
         "runtime_helpers.rs.jinja",
         crate::alef_context! {
-            errors => jni_error_contexts(api, core_import),
+            errors => errors,
+            preserve_exceptions => preserve_exceptions,
+            source_error_paths => source_error_paths,
         },
     ));
 }
 
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
+fn jni_source_error_paths(
+    config: &ResolvedCrateConfig,
+    core_import: &str,
+    errors: &[JniErrorContext],
+) -> std::collections::BTreeSet<String> {
+    let error_type = config.error_type_name();
+    let mut paths: std::collections::BTreeSet<_> = errors.iter().map(|error| error.rust_path.clone()).collect();
+    if error_type.split_once('<').is_some_and(|(outer, inner)| {
+        matches!(
+            outer.trim().trim_start_matches("::"),
+            "Box" | "std::boxed::Box" | "alloc::boxed::Box"
+        ) && inner.trim_start().starts_with("dyn ")
+    }) {
+        return paths;
+    }
+    let bridge_error = if error_type.contains("::") || error_type.contains('<') {
+        error_type
+    } else {
+        format!("{core_import}::{error_type}")
+    };
+    paths.insert(bridge_error);
+    paths
+}

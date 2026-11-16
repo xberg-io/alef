@@ -49,6 +49,10 @@ pub struct Pyo3BridgeGenerator {
     pub unit_enum_return_types: std::collections::HashSet<String>,
 }
 
+fn callback_error(spec: &TraitBridgeSpec, message: &str) -> String {
+    spec.make_error_with_source(message, "Some(Box::new(e) as Box<dyn std::error::Error + Send + Sync>)")
+}
+
 impl Pyo3BridgeGenerator {
     pub(super) fn sync_body(&self, method: &MethodDef, spec: &TraitBridgeSpec, host_alias: Option<&str>) -> String {
         let name = &method.name;
@@ -65,9 +69,10 @@ impl Pyo3BridgeGenerator {
         } else {
             format!("self.inner.bind(py).call_method1(\"{name}\", ({py_args}))")
         };
-        let error_expr = spec.make_error(&format!(
-            "format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", self.cached_name, e)"
-        ));
+        let error_expr = callback_error(
+            spec,
+            &format!("format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", self.cached_name, e)"),
+        );
 
         if matches!(method.return_type, TypeRef::Unit) {
             crate::backends::pyo3::template_env::render(
@@ -183,9 +188,10 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                 "trait_bridge/async_param_cloning.jinja",
                 crate::alef_context! { params => params },
             );
-            let error_expr = spec.make_error(&format!(
-                "format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e)"
-            ));
+            let error_expr = callback_error(
+                spec,
+                &format!("format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e)"),
+            );
             let json_error_expr =
                 spec.make_error("format!(\"Plugin '{}': JSON serialization failed: {}\", cached_name, e)");
             let deserialize_error_expr = spec.make_error(&format!(
@@ -256,9 +262,10 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         } else {
             format!("obj.call_method1(\"{name}\", ({py_args}))")
         };
-        let error_expr = spec.make_error(&format!(
-            "format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e)"
-        ));
+        let error_expr = callback_error(
+            spec,
+            &format!("format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e)"),
+        );
         let json_error_expr =
             spec.make_error("format!(\"Plugin '{}': JSON serialization failed: {}\", cached_name, e)");
         let return_type_name = self.return_type_display_name(&method.return_type);
@@ -338,6 +345,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                 unregister_fn => unregister_fn,
                 host_symbol => host_symbol,
                 host_path => host_path,
+                preserve_host_error => spec.error_constructor.contains("{source}"),
             },
         )
     }
@@ -354,6 +362,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                 clear_fn => clear_fn,
                 host_symbol => host_symbol,
                 host_path => host_path,
+                preserve_host_error => spec.error_constructor.contains("{source}"),
             },
         )
     }
@@ -391,6 +400,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                 registry_getter => registry_getter,
                 register_extra_args => register_extra_args,
                 has_required_methods => !req_methods.is_empty(),
+                preserve_host_error => spec.error_constructor.contains("{source}"),
                 required_methods_str => required_methods_str,
             },
         )

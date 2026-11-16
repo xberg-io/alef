@@ -16,6 +16,7 @@ pub use crate::codegen::generators::trait_bridge::find_bridge_param;
 pub use bridge_methods::gen_bridge_function;
 pub use generator::Pyo3BridgeGenerator;
 pub use options_field::gen_bridge_field_function;
+pub(crate) use registry::has_registry_wrappers;
 pub use registry::{
     collect_bridge_clear_fns, collect_bridge_register_fns, collect_bridge_unregister_fns, trait_bridge_imports,
 };

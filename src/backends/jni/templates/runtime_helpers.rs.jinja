@@ -141,8 +141,93 @@ fn throw_jni_error(env: &mut Env<'_>, msg: &str) {
     throw_jni_error_with_parts(env, msg, &JniErrorParts::NONE);
 }
 
+{% if preserve_exceptions %}
+#[derive(Debug)]
+struct JniHostException(jni::refs::Global<jni::objects::JThrowable<'static>>);
+
+impl std::fmt::Display for JniHostException {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Java callback threw an exception")
+    }
+}
+
+impl std::error::Error for JniHostException {}
+
+struct JniDispatchError {
+    jni_error: jni::errors::Error,
+    host_exception: Option<JniHostException>,
+}
+
+impl From<jni::errors::Error> for JniDispatchError {
+    fn from(jni_error: jni::errors::Error) -> Self {
+        Self { jni_error, host_exception: None }
+    }
+}
+
+impl std::fmt::Display for JniDispatchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.jni_error.fmt(f)
+    }
+}
+
+impl JniDispatchError {
+    fn capture(env: &mut Env<'_>, jni_error: jni::errors::Error) -> Self {
+        let host_exception = env.exception_occurred().and_then(|exception| {
+            env.exception_clear();
+            match env.new_global_ref(exception) {
+                Ok(reference) => Some(JniHostException(reference)),
+                Err(error) => {
+                    env.exception_clear();
+                    tracing::warn!(%error, "could not retain Java callback exception");
+                    None
+                }
+            }
+        });
+        Self { jni_error, host_exception }
+    }
+
+    #[allow(dead_code)]
+    fn into_host_source(self) -> Option<Box<dyn std::error::Error + Send + Sync>> {
+        self.host_exception.map(|exception| Box::new(exception) as _)
+    }
+}
+
+fn find_jni_host_exception<'a>(
+    mut error: &'a (dyn std::error::Error + 'static),
+) -> Option<&'a JniHostException> {
+    const MAX_ERROR_SOURCE_DEPTH: usize = 64;
+    for _ in 0..MAX_ERROR_SOURCE_DEPTH {
+        if let Some(exception) = error.downcast_ref::<JniHostException>() {
+            return Some(exception);
+        }
+        error = error.source()?;
+    }
+    None
+}
+
+fn throw_jni_host_exception(env: &mut Env<'_>, error: &dyn std::any::Any) -> bool {
+    let boxed = error.downcast_ref::<Box<dyn std::error::Error + Send + Sync>>();
+    let source = boxed.map(|error| error.as_ref() as &(dyn std::error::Error + 'static))
+{% for path in source_error_paths %}
+        .or_else(|| error.downcast_ref::<{{ path }}>().map(|error| error as _))
+{% endfor %}
+        ;
+    let Some(exception) = source.and_then(find_jni_host_exception) else { return false; };
+    if jni_throw_succeeded(env.throw(&exception.0)) {
+        return true;
+    }
+    env.exception_clear();
+    false
+}
+
+{% endif %}
 /// Throw a core error with its kind, HTTP status and retry delay.
 fn throw_jni_error_from<E: std::fmt::Display + 'static>(env: &mut Env<'_>, e: &E) {
+{% if preserve_exceptions %}
+    if throw_jni_host_exception(env, e) {
+        return;
+    }
+{% endif %}
     throw_jni_error_with_parts(env, &e.to_string(), &jni_error_parts(e));
 }
 
@@ -195,6 +280,9 @@ fn jni_dispatch_json(
             ],
         )
     };
+{% if preserve_exceptions %}
+    let result = call.and_then(|v| v.l())?;
+{% else %}
     let result = match call.and_then(|v| v.l()) {
         Ok(o) => o,
         Err(e) => {
@@ -205,6 +293,7 @@ fn jni_dispatch_json(
             return Err(e);
         }
     };
+{% endif %}
     // SAFETY: the dispatcher's `dispatch` method returns a Java String.
     let jstr = unsafe { JString::from_raw(env, result.into_raw()) };
     jstring_to_string(env, jstr)

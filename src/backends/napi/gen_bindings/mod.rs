@@ -250,7 +250,8 @@ impl Backend for NapiBackend {
             builder.add_item(support::js_visitor_ref_def());
         }
 
-        if crate::backends::napi::trait_bridge::has_non_visitor_trait_bridges(config, api) {
+        let has_plugin_bridges = crate::backends::napi::trait_bridge::has_non_visitor_trait_bridges(config, api);
+        if has_plugin_bridges {
             builder.add_item(support::trait_bridge_runtime_def());
         }
 
@@ -528,7 +529,7 @@ impl Backend for NapiBackend {
                     bridge_cfg,
                     &core_import,
                     &config.error_type_name(),
-                    &config.error_constructor_expr(),
+                    &config.trait_bridge_error_constructor_expr(),
                     api,
                     bridge_cfg
                         .context_type
@@ -792,25 +793,7 @@ impl Backend for NapiBackend {
             }
         }
 
-        for error in &api.errors {
-            builder.add_item(&crate::codegen::error_gen::gen_napi_error_types(error));
-            builder.add_item(&crate::codegen::error_gen::gen_napi_error_converter(
-                error,
-                &core_import,
-            ));
-            // Emit #[napi] class for errors with introspection methods.
-            let class_code = crate::codegen::error_gen::gen_napi_error_class(error, &core_import);
-            if !class_code.is_empty() {
-                builder.add_item(&class_code);
-            }
-        }
-
-        // Every generated call site converts its error through this one function, so each
-        // thrown error carries the properties of its typed converter (kind, status, retry delay).
-        builder.add_item(&crate::codegen::error_gen::gen_napi_error_dispatch(
-            &api.errors,
-            &core_import,
-        ));
+        support::add_error_bindings(&mut builder, api, &core_import, config, has_plugin_bridges);
 
         let mut content = builder.build();
 

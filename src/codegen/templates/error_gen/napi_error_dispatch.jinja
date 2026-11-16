@@ -1,5 +1,10 @@
 #[allow(dead_code)]
 fn alef_napi_err<E: std::fmt::Display + 'static>(e: E) -> napi::Error {
+{% if source_errors %}
+    if let Some(error) = alef_napi_find_bridge_error(&e) {
+        return error;
+    }
+{% endif %}
     let message = e.to_string();
     let boxed: Box<dyn std::any::Any> = Box::new(e);
 {% for rust_path, converter in converters %}
@@ -11,3 +16,35 @@ fn alef_napi_err<E: std::fmt::Display + 'static>(e: E) -> napi::Error {
     drop(boxed);
     napi::Error::new(napi::Status::GenericFailure, message)
 }
+{% if source_errors %}
+#[allow(dead_code, reason = "per-call trait bridges do not generate lifecycle functions")]
+fn alef_napi_lifecycle_error<E: std::fmt::Display + 'static>(e: E, prefix: &str) -> napi::Error {
+    alef_napi_find_bridge_error(&e)
+        .unwrap_or_else(|| napi::Error::new(napi::Status::GenericFailure, format!("{prefix}{e}")))
+}
+
+fn alef_napi_find_bridge_error(error: &dyn std::any::Any) -> Option<napi::Error> {
+{% for rust_path, boxed in source_errors %}
+    if let Some(error) = error
+        .downcast_ref::<{{ rust_path }}>()
+        .and_then(|error| alef_napi_bridge_error({{ "error.as_ref()" if boxed else "error" }}))
+    {
+        return Some(error);
+    }
+{% endfor %}
+    None
+}
+
+fn alef_napi_bridge_error(error: &(dyn std::error::Error + 'static)) -> Option<napi::Error> {
+    const MAX_SOURCE_DEPTH: usize = 64;
+    let mut current = Some(error);
+    for _ in 0..MAX_SOURCE_DEPTH {
+        let source = current?;
+        if let Some(error) = source.downcast_ref::<napi::Error>() {
+            return error.try_clone().ok();
+        }
+        current = std::error::Error::source(source);
+    }
+    None
+}
+{% endif %}

@@ -2,7 +2,11 @@
  * JSON dispatch wrapper for [I{{ trait_name }}] implementations, called from the
  * native trait bridge. Decodes each trait call's arguments, invokes the typed
  * implementation (bridging suspend methods via runBlocking), and encodes the
+{% if preserve_exceptions %}
+ * result as {"ok": ...} on success. JVM exceptions propagate to the native bridge.
+{% else %}
  * result as {"ok": ...} on success or {"err": "..."} on failure.
+{% endif %}
  *
  * Public because the generated `<Crate>Bridge` object declares public
  * `external fun nativeRegister*` functions that take this type as a parameter;
@@ -27,7 +31,11 @@ class {{ trait_name }}JniDispatcher(private val impl: I{{ trait_name }}) {
 
     @Suppress("UNUSED_PARAMETER", "CyclomaticComplexMethod")
     fun dispatch(method: String, argsJson: String): String =
+{% if preserve_exceptions %}
+        run {
+{% else %}
         try {
+{% endif %}
             val args = mapper.readTree(argsJson)
             val result: Any? =
                 when (method) {
@@ -49,7 +57,9 @@ class {{ trait_name }}JniDispatcher(private val impl: I{{ trait_name }}) {
                     else -> throw IllegalArgumentException("unknown trait method: $method")
                 }
             mapper.writeValueAsString(mapOf("ok" to result))
+{% if not preserve_exceptions %}
         } catch (t: Throwable) {
             mapper.writeValueAsString(mapOf("err" to (t.message ?: t.toString())))
+{% endif %}
         }
 }

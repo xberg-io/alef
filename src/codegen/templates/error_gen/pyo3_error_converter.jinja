@@ -1,5 +1,10 @@
 /// Convert a `{{ rust_path }}` error to a Python exception.
 fn {{ fn_name }}(e: {{ rust_path }}) -> pyo3::PyErr {
+{% if preserve_host_error %}
+    if let Some(error) = alef_python_host_error(&e) {
+        return error;
+    }
+{% endif %}
     let msg = e.to_string();
     #[allow(unreachable_patterns)]
 {% if attribute_arms %}

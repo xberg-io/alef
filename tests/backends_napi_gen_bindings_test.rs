@@ -2045,6 +2045,44 @@ fn test_napi_plugin_bridge_produces_wrapper_struct_with_obj_ref_and_cached_name(
 }
 
 #[test]
+fn napi_plugin_bridge_preserves_callback_errors_with_a_source_constructor() {
+    let trait_def = make_trait_def_napi(
+        "OcrBackend",
+        vec![
+            make_method_napi("process_sync", TypeRef::String, true, false),
+            make_async_method_napi("process_async", TypeRef::String),
+        ],
+    );
+    let mut api = make_api_napi();
+    api.types.push(trait_def);
+    let mut config = make_config();
+    let mut bridge = make_plugin_bridge_cfg("OcrBackend");
+    bridge.super_trait = None;
+    bridge.unregister_fn = Some("unregister_ocr_backend".to_owned());
+    bridge.clear_fn = Some("clear_ocr_backends".to_owned());
+    config.push_trait_bridge(bridge);
+    config.error_type = Some("BackendError".to_owned());
+    config.error_constructor = Some("test_lib::BackendError::new({msg}, {source})".to_owned());
+
+    let files = NapiBackend.generate_bindings(&api, &config).unwrap();
+    let lib = &files
+        .iter()
+        .find(|file| file.path.ends_with("src/lib.rs"))
+        .unwrap()
+        .content;
+    assert!(!lib.contains("{source}"), "unexpanded source placeholder");
+    assert_eq!(lib.matches("Some(Box::new(e)").count(), 4, "{lib}");
+    assert!(lib.contains("downcast_ref::<test_lib::BackendError>()"), "{lib}");
+    assert!(lib.contains("downcast_ref::<napi::Error>()"), "{lib}");
+    assert!(lib.contains("std::error::Error::source"), "{lib}");
+    assert!(
+        lib.contains(r#"alef_napi_lifecycle_error(e, "Failed to register backend: ")"#),
+        "{lib}"
+    );
+    assert_eq!(lib.matches(r#"alef_napi_lifecycle_error(e, "")"#).count(), 2, "{lib}");
+}
+
+#[test]
 fn test_napi_plugin_bridge_generates_super_trait_impl() {
     use alef::backends::napi::trait_bridge::gen_trait_bridge;
 

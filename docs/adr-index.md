@@ -38,3 +38,4 @@ log; add a row in the same change as a new record.
 | [0027](../adrs/0027-bind-loaded-component-code-to-the-verified-file.md) | Bind loaded component code to the verified file | proposed | 2026-11-15 |
 | [0028](../adrs/0028-start-stdio-sidecars-with-an-allowlisted-environment.md) | Start stdio sidecars with an allowlisted environment | proposed | 2026-11-15 |
 | [0029](../adrs/0029-report-infallible-component-method-failures-instead-of-panicking.md) | Report infallible component method failures instead of panicking | proposed | 2026-11-15 |
+| [0031](../adrs/0031-preserve-host-callback-exceptions-in-rust-error-sources.md) | Preserve host callback exceptions in Rust error sources | proposed | 2026-11-16 |

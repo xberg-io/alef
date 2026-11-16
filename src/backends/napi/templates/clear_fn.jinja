@@ -1,7 +1,11 @@
 #[napi(js_name = "{{ camel_fn_name }}")]
 pub fn _alef_{{ clear_fn }}() -> napi::Result<()> {
+{% if preserve_error_source %}
+    {{ host_path }}().map_err(|e| alef_napi_lifecycle_error(e, ""))
+{% else %}
     {{ host_path }}().map_err(|e| napi::Error::new(
         napi::Status::GenericFailure,
         format!("{}", e),
     ))
+{% endif %}
 }

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Split release command dispatch and init configuration rendering into smaller functions, retiring two size exemptions from the lint baseline (#338).
 
+### Fixed
+
+- Preserve the original Python, Node.js, and Kotlin/JNI exceptions raised by registered trait callbacks when the Rust error constructor accepts `{source}`. This includes plugin registration and teardown failures. See ADR-0031 (#927).
+
 ## [0.130.1] - 2026-11-16
 
 ### Fixed

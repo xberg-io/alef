@@ -101,14 +101,17 @@ pub(super) fn emit_trait_interfaces(
         });
 
         let bridge_class = bridge_class_name(&config.name);
-        for (filename, bridge_content) in trait_bridge::gen_trait_bridge_files(
+        for (filename, bridge_content) in trait_bridge::gen_trait_bridge_files_with_exceptions(
             package,
             &trait_def.name,
             bridge,
             trait_def,
             &bridge_class,
             api,
-            &effective_excluded_types,
+            trait_bridge::DispatcherOptions {
+                excluded_types: &effective_excluded_types,
+                preserve_exceptions: config.trait_bridge_preserves_error_source(),
+            },
         ) {
             files.push(GeneratedFile {
                 path: kotlin_source_dir.join(filename),

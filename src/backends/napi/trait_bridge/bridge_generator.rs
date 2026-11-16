@@ -64,6 +64,12 @@ pub struct NapiBridgeGenerator {
 }
 
 impl NapiBridgeGenerator {
+    fn make_callback_error(spec: &TraitBridgeSpec, method_name: &str, action: &str) -> String {
+        let message = format!("format!(\"Plugin '{{}}' method '{method_name}' {action}: {{}}\", self.cached_name, e)");
+        let source = "Some(Box::new(e) as Box<dyn std::error::Error + Send + Sync>)";
+        spec.make_error_with_source(&message, source)
+    }
+
     /// Every own method (required or Rust-defaulted/forwardable) that gets a per-method
     /// `ThreadsafeFunction` field — i.e. every bridged trait method, sync or async alike. Sync
     /// methods use their TSFN only on the off-JS-thread slow path (see
@@ -510,8 +516,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
     /// `call_async_catch` (never `call_async`, whose JS-throw path routes through
     /// `napi_fatal_exception` and kills the host process) enqueues the call and awaits its
     /// result off-thread, then `AlefJsReply::settle` awaits the `Promise` if the host returned
-    /// one. Both steps preserve the underlying error's `Display` text in the mapped
-    /// `core::Error` rather than discarding it.
+    /// one. Both steps map callback errors into the configured core error.
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
         let tsfn_field = Self::tsfn_field_name(method);
         let payload_expr = self.owned_payload_expr(method);
@@ -519,14 +524,8 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         let has_error = method.error_type.is_some();
         let wrapper = spec.wrapper_name();
 
-        let error_call = spec.make_error(&format!(
-            "format!(\"Plugin '{{}}' method '{}' failed: {{}}\", self.cached_name, e)",
-            method.name
-        ));
-        let error_settle = spec.make_error(&format!(
-            "format!(\"Plugin '{{}}' method '{}' rejected: {{}}\", self.cached_name, e)",
-            method.name
-        ));
+        let error_call = Self::make_callback_error(spec, &method.name, "failed");
+        let error_settle = Self::make_callback_error(spec, &method.name, "rejected");
         let error_parse = spec.make_error(&format!(
             "format!(\"Plugin '{{}}' failed to parse return value for method '{}': {{}}\", self.cached_name, e)",
             method.name
@@ -709,13 +708,13 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             return String::new();
         };
         let host_path = host_function_path(spec, unregister_fn);
-        let camel = to_camel_case(unregister_fn);
         crate::backends::napi::template_env::render(
             "unregistration_fn.jinja",
             crate::alef_context! {
                 unregister_fn => unregister_fn,
-                camel_fn_name => camel,
+                camel_fn_name => to_camel_case(unregister_fn),
                 host_path => host_path,
+                preserve_error_source => spec.error_constructor.contains("{source}"),
             },
         )
     }
@@ -725,13 +724,13 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             return String::new();
         };
         let host_path = host_function_path(spec, clear_fn);
-        let camel = to_camel_case(clear_fn);
         crate::backends::napi::template_env::render(
             "clear_fn.jinja",
             crate::alef_context! {
                 clear_fn => clear_fn,
-                camel_fn_name => camel,
+                camel_fn_name => to_camel_case(clear_fn),
                 host_path => host_path,
+                preserve_error_source => spec.error_constructor.contains("{source}"),
             },
         )
     }
@@ -761,6 +760,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
                 trait_path => trait_path,
                 registry_getter => registry_getter,
                 extra_args => extra,
+                preserve_error_source => spec.error_constructor.contains("{source}"),
             },
         )
     }

@@ -1,6 +1,6 @@
 /// Emit JNI Rust shims for every configured `[[crates.trait_bridges]]` entry.
 ///
-/// For each bridge whose `exclude_languages` does not contain `kotlin_android`,
+/// For each bridge selected by the configured JNI language,
 /// emits up to three `Java_*` symbols:
 ///   - `nativeRegister<Trait>(impl: I<Trait>)` — only emitted when the configured
 ///     trait resolves in the API surface with a non-empty method set, via
@@ -16,12 +16,11 @@ fn emit_trait_bridge_shims(
     package: &str,
     bridge: &str,
 ) {
-    let bridges: Vec<_> = config
-        .trait_bridges_for(crate::core::config::Language::KotlinAndroid)
-        .collect();
+    let bridges: Vec<_> = jni_trait_bridges(config).collect();
     if bridges.is_empty() {
         return;
     }
+    let preserve_exceptions = jni_preserves_host_exceptions(config);
     out.push_str("\n// ---------------------------------------------------------------------------\n");
     out.push_str("// Trait-bridge shims\n");
     out.push_str("// ---------------------------------------------------------------------------\n\n");
@@ -43,7 +42,7 @@ fn emit_trait_bridge_shims(
                         "core_crate",
                         crate::backends::jni::trait_bridge::BridgeErrorBinding {
                             error_type: &config.error_type_name(),
-                            error_constructor: &config.error_constructor_expr(),
+                            error_constructor: &config.trait_bridge_error_constructor_expr(),
                         },
                         api,
                     );
@@ -61,36 +60,38 @@ fn emit_trait_bridge_shims(
         if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
             let native_name = format!("nativeUnregister{trait_pascal}");
             let symbol = jni_symbol(package, bridge, &native_name);
-            emit_trait_unregister_shim(out, &symbol, unregister_fn);
+            emit_trait_unregister_shim(out, &symbol, unregister_fn, preserve_exceptions);
         }
         if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
             let native_name = format!("nativeClear{trait_pascal}s");
             let symbol = jni_symbol(package, bridge, &native_name);
-            emit_trait_clear_shim(out, &symbol, clear_fn);
+            emit_trait_clear_shim(out, &symbol, clear_fn, preserve_exceptions);
         }
     }
 }
 
 /// Emit `Java_*_nativeUnregister<Trait>(name: String)` shim that calls the
 /// host crate's configured `unregister_fn`.
-fn emit_trait_unregister_shim(out: &mut String, symbol: &str, unregister_fn: &str) {
+fn emit_trait_unregister_shim(out: &mut String, symbol: &str, unregister_fn: &str, preserve_exceptions: bool) {
     out.push_str(&template_env::render(
         "trait_unregister_shim.rs.jinja",
         crate::alef_context! {
             symbol => symbol,
             unregister_fn => unregister_fn,
+            preserve_exceptions => preserve_exceptions,
         },
     ));
 }
 
 /// Emit `Java_*_nativeClear<Trait>s()` shim that calls the host crate's
 /// configured `clear_fn`.
-fn emit_trait_clear_shim(out: &mut String, symbol: &str, clear_fn: &str) {
+fn emit_trait_clear_shim(out: &mut String, symbol: &str, clear_fn: &str, preserve_exceptions: bool) {
     out.push_str(&template_env::render(
         "trait_clear_shim.rs.jinja",
         crate::alef_context! {
             symbol => symbol,
             clear_fn => clear_fn,
+            preserve_exceptions => preserve_exceptions,
         },
     ));
 }

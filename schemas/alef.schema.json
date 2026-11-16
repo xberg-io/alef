@@ -5993,7 +5993,7 @@
         },
         "error_constructor": {
           "default": null,
-          "description": "Pattern for constructing error values from a String in trait bridges.\n`{msg}` is replaced with the format!(...) expression.",
+          "description": "Rust expression for constructing trait bridge errors. `{msg}` is a `String`.\nThe optional `{source}` is an `Option<Box<dyn std::error::Error + Send + Sync>>` (ADR-0031).",
           "type": [
             "string",
             "null"

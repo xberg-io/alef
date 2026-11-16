@@ -162,7 +162,7 @@ fn emit_jni_lib_header(api: &ApiSurface, config: &ResolvedCrateConfig, package: 
     for trait_path in collect_trait_imports(api) {
         out.push_str(&format!("use {trait_path};\n"));
     }
-    emit_runtime_helpers(&mut out, api, &core_use_path(config));
+    emit_runtime_helpers(&mut out, api, config);
     out
 }
 
@@ -193,9 +193,29 @@ fn jni_excluded_types(config: &ResolvedCrateConfig) -> std::collections::HashSet
     excluded
 }
 
-fn jni_trait_bridge_function_names(config: &ResolvedCrateConfig) -> std::collections::HashSet<&str> {
+fn jni_trait_bridges(config: &ResolvedCrateConfig) -> impl Iterator<Item = &crate::core::config::TraitBridgeConfig> {
+    let desktop = config.trait_bridge_preserves_error_source()
+        && config.targets(Language::Kotlin)
+        && config.kotlin_ffi_style() == crate::core::config::KotlinFfiStyle::Jni;
+    let android = config.targets(Language::KotlinAndroid) || !desktop;
     config
-        .trait_bridges_for(crate::core::config::Language::KotlinAndroid)
+        .trait_bridges_for(Language::KotlinAndroid)
+        .filter(move |_| android)
+        .chain(config.trait_bridges_for(Language::Kotlin).filter(move |bridge| {
+            desktop
+                && (!android
+                    || !config
+                        .trait_bridges_for(Language::KotlinAndroid)
+                        .any(|existing| std::ptr::eq(existing, *bridge)))
+        }))
+}
+
+fn jni_preserves_host_exceptions(config: &ResolvedCrateConfig) -> bool {
+    config.trait_bridge_preserves_error_source() && jni_trait_bridges(config).any(|bridge| bridge.register_fn.is_some())
+}
+
+fn jni_trait_bridge_function_names(config: &ResolvedCrateConfig) -> std::collections::HashSet<&str> {
+    jni_trait_bridges(config)
         .flat_map(|bridge| {
             [&bridge.register_fn, &bridge.unregister_fn, &bridge.clear_fn]
                 .into_iter()

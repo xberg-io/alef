@@ -30,6 +30,11 @@ pub unsafe extern "system" fn {{ symbol }}(
     };
     let backend: std::sync::Arc<dyn {{ trait_path }}> = std::sync::Arc::new(bridge);
     if let Err(e) = {{ register_call }}(backend{{ register_extra_args }}) {
+{% if preserve_exceptions %}
+        if throw_jni_host_exception(env, &e) {
+            return;
+        }
+{% endif %}
         throw_jni_error(env, &format!("register {{ trait_name }}: {e}"));
     }
     }) else {

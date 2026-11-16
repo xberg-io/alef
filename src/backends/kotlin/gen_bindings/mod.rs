@@ -916,14 +916,16 @@ fn generate_jni(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
             continue;
         }
         if let Some(trait_def) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
-            let (filename, content) = crate::backends::kotlin_android::trait_bridge::gen_jni_dispatcher_file(
-                &package,
-                &bridge_cfg.trait_name,
-                bridge_cfg,
-                trait_def,
-                api,
-                &std::collections::HashSet::new(),
-            );
+            let (filename, content) =
+                crate::backends::kotlin_android::trait_bridge::gen_jni_dispatcher_file_with_exceptions(
+                    &package,
+                    &bridge_cfg.trait_name,
+                    bridge_cfg,
+                    trait_def,
+                    api,
+                    &std::collections::HashSet::new(),
+                    config.trait_bridge_preserves_error_source(),
+                );
             files.push(GeneratedFile {
                 path: jni_emitter::jni_output_path(config, &filename),
                 content,

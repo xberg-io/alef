@@ -32,7 +32,7 @@ pub struct TraitBridgeSpec<'a> {
     pub lifetime_type_names: HashSet<String>,
     /// The crate's error type name (e.g., `"SampleCrateError"`). Defaults to `"Error"`.
     pub error_type: String,
-    /// Error constructor pattern. `{msg}` is replaced with the message expression.
+    /// Error constructor pattern with `{msg}` and an optional `{source}`.
     pub error_constructor: String,
 }
 
@@ -53,7 +53,21 @@ impl<'a> TraitBridgeSpec<'a> {
 
     /// Generate an error construction expression from a message expression.
     pub fn make_error(&self, msg_expr: &str) -> String {
-        self.error_constructor.replace("{msg}", msg_expr)
+        self.error_constructor
+            .replace("{source}", "None")
+            .replace("{msg}", msg_expr)
+    }
+
+    /// Pass the host error into a source-aware constructor when configured.
+    pub(crate) fn make_error_with_source(&self, msg_expr: &str, source_expr: &str) -> String {
+        if !self.error_constructor.contains("{source}") {
+            return self.make_error(msg_expr);
+        }
+        let constructor = self
+            .error_constructor
+            .replace("{source}", "__alef_error_source")
+            .replace("{msg}", "__alef_error_message");
+        format!("{{ let __alef_error_message = {msg_expr}; let __alef_error_source = {source_expr}; {constructor} }}")
     }
 
     /// Wrapper struct name: `{prefix}{TraitName}Bridge` (e.g., `PythonOcrBackendBridge`).

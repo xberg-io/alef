@@ -45,10 +45,19 @@ impl {{ wrapper_name }} {
     }
 
     /// Route one trait method call to the dispatcher on an attached JVM thread.
+{% if preserve_exceptions %}
+    fn __alef_dispatch(&self, method: &str, args_json: &str) -> std::result::Result<String, JniDispatchError> {
+        self.jvm.attach_current_thread(|env| {
+            jni_dispatch_json(env, self.inner.as_obj(), method, args_json)
+                .map_err(|error| JniDispatchError::capture(env, error))
+        })
+    }
+{% else %}
     fn __alef_dispatch(&self, method: &str, args_json: &str) -> std::result::Result<String, String> {
         let result: std::result::Result<String, jni::errors::Error> = self
             .jvm
             .attach_current_thread(|env| jni_dispatch_json(env, self.inner.as_obj(), method, args_json));
         result.map_err(|e| e.to_string())
     }
+{% endif %}
 }

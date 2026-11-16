@@ -72,8 +72,8 @@ pub struct RawCrateConfig {
     #[serde(default)]
     pub error_type: Option<String>,
 
-    /// Pattern for constructing error values from a String in trait bridges.
-    /// `{msg}` is replaced with the format!(...) expression.
+    /// Rust expression for constructing trait bridge errors. `{msg}` is a `String`.
+    /// The optional `{source}` is an `Option<Box<dyn std::error::Error + Send + Sync>>` (ADR-0031).
     #[serde(default)]
     pub error_constructor: Option<String>,
 

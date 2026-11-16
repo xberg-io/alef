@@ -1169,6 +1169,75 @@ register_fn = "register_backend"
     }
 
     #[test]
+    fn jni_trait_bridge_preserves_host_exceptions_through_core_errors() {
+        let mut config = config_with_trait_bridge("OcrBackend");
+        let mut bridge = config
+            .trait_bridges_for(Language::KotlinAndroid)
+            .next()
+            .unwrap()
+            .clone();
+        bridge.unregister_fn = Some("unregister_backend".into());
+        bridge.clear_fn = Some("clear_backends".into());
+        config.replace_trait_bridges(vec![bridge]);
+        config.error_constructor = Some("demo::Error::new({msg}, {source})".to_owned());
+        let api = api_with_types(vec![TypeDef {
+            name: "OcrBackend".into(),
+            rust_path: "demo::OcrBackend".into(),
+            is_trait: true,
+            methods: vec![MethodDef {
+                name: "process".into(),
+                receiver: Some(crate::core::ir::ReceiverKind::Ref),
+                error_type: Some("Error".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }]);
+        let content = emit_lib_rs(&api, &config);
+        assert!(content.contains("env.exception_occurred()"), "{content}");
+        assert!(
+            content.contains("let __alef_error_source = e.into_host_source();"),
+            "{content}"
+        );
+        assert!(
+            content.contains("demo::Error::new(__alef_error_message, __alef_error_source)"),
+            "{content}"
+        );
+        assert!(content.contains("env.throw(&exception.0)"), "{content}");
+        assert_eq!(content.matches("if throw_jni_host_exception(env, &e)").count(), 3);
+        assert!(!content.contains("{source}"), "{content}");
+    }
+
+    #[test]
+    fn opted_in_desktop_jni_uses_kotlin_trait_bridge_projection() {
+        let mut config =
+            config_with_trait_bridge("Worker").with_kotlin_ffi_style(crate::core::config::KotlinFfiStyle::Jni);
+        let mut bridge = config
+            .trait_bridges_for(Language::KotlinAndroid)
+            .next()
+            .unwrap()
+            .clone();
+        bridge.exclude_languages = vec!["kotlin_android".into()];
+        config.replace_trait_bridges(vec![bridge]);
+        config.languages = vec![Language::Kotlin, Language::Jni];
+        config.error_constructor = Some("demo::Error::new({msg}, {source})".into());
+        assert_eq!(
+            jni_trait_bridges(&config)
+                .map(|b| b.trait_name.as_str())
+                .collect::<Vec<_>>(),
+            ["Worker"]
+        );
+        config.error_constructor = None;
+        assert_eq!(jni_trait_bridges(&config).count(), 0);
+    }
+
+    #[test]
+    fn jni_recognizes_a_fully_qualified_boxed_dynamic_error() {
+        let mut config = config_with_trait_bridge("Worker");
+        config.error_type = Some("std::boxed::Box<dyn std::error::Error + Send + Sync>".into());
+        assert!(jni_source_error_paths(&config, "demo", &[]).is_empty());
+    }
+
+    #[test]
     fn jni_shim_borrows_tree_without_deserializing_it() {
         let method = MethodDef {
             name: "parse_incremental".into(),

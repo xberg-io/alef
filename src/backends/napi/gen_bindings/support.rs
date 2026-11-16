@@ -225,6 +225,34 @@ impl<T: 'static + napi::bindgen_prelude::FromNapiValue> AlefJsReply<T> {
 "#
 }
 
+pub(super) fn add_error_bindings(
+    builder: &mut crate::codegen::builder::RustFileBuilder,
+    api: &ApiSurface,
+    core_import: &str,
+    config: &crate::core::config::ResolvedCrateConfig,
+    has_plugin_bridges: bool,
+) {
+    for error in &api.errors {
+        builder.add_item(&crate::codegen::error_gen::gen_napi_error_types(error));
+        builder.add_item(&crate::codegen::error_gen::gen_napi_error_converter(error, core_import));
+        // Emit #[napi] class for errors with introspection methods.
+        let class_code = crate::codegen::error_gen::gen_napi_error_class(error, core_import);
+        if !class_code.is_empty() {
+            builder.add_item(&class_code);
+        }
+    }
+
+    // Every generated call site converts its error through this one function, so each
+    // thrown error carries the properties of its typed converter (kind, status, retry delay).
+    let bridge_error =
+        (has_plugin_bridges && config.trait_bridge_preserves_error_source()).then(|| config.error_type_name());
+    builder.add_item(&crate::codegen::error_gen::gen_napi_error_dispatch_with_bridge_source(
+        &api.errors,
+        core_import,
+        bridge_error.as_deref(),
+    ));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

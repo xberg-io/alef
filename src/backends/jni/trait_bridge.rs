@@ -60,9 +60,9 @@ impl JniBridgeGenerator {
             })
             .collect();
 
-        let dispatch_error_expr = spec.make_error(&format!(
-            "format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", self.cached_name, e)"
-        ));
+        let dispatch_error_message =
+            format!("format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", self.cached_name, e)");
+        let dispatch_error_expr = spec.make_error_with_source(&dispatch_error_message, "e.into_host_source()");
         let parse_error_expr = spec.make_error(&format!(
             "format!(\"Plugin '{{}}' method '{name}' returned invalid JSON: {{}}\", self.cached_name, e)"
         ));
@@ -135,6 +135,7 @@ impl TraitBridgeGenerator for JniBridgeGenerator {
                 wrapper_name => spec.wrapper_name(),
                 trait_name => &spec.trait_def.name,
                 has_super_trait => spec.bridge_config.super_trait.is_some(),
+                preserve_exceptions => spec.error_constructor.contains("{source}"),
             },
         )
     }
@@ -152,6 +153,7 @@ impl TraitBridgeGenerator for JniBridgeGenerator {
                 has_super_trait => spec.bridge_config.super_trait.is_some(),
                 register_call => format!("{}::{}", spec.core_import, register_fn),
                 register_extra_args => register_extra_args,
+                preserve_exceptions => spec.error_constructor.contains("{source}"),
             },
         )
     }

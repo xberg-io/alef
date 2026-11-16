@@ -22,11 +22,21 @@ impl ResolvedCrateConfig {
         self.error_type.clone().unwrap_or_else(|| "Error".to_string())
     }
 
-    /// Get the error constructor pattern. `{msg}` is replaced with the message expression.
+    /// Get the error constructor pattern for backends without host exception retention.
     ///
     /// Returns `[crate] error_constructor` if set, otherwise generates
-    /// `"{core_import}::{error_type}::from({msg})"`.
+    /// `"{core_import}::{error_type}::from({msg})"`. The optional `{source}` becomes `None`.
     pub fn error_constructor_expr(&self) -> String {
+        self.trait_bridge_error_constructor_expr().replace("{source}", "None")
+    }
+
+    pub(crate) fn trait_bridge_preserves_error_source(&self) -> bool {
+        self.error_constructor
+            .as_deref()
+            .is_some_and(|expr| expr.contains("{source}"))
+    }
+
+    pub(crate) fn trait_bridge_error_constructor_expr(&self) -> String {
         self.error_constructor
             .clone()
             .unwrap_or_else(|| format!("{}::{}::from({{msg}})", self.core_import_name(), self.error_type_name()))
@@ -284,6 +294,13 @@ error_constructor = "MyError::new({msg})"
 "#,
         );
         assert_eq!(r.error_constructor_expr(), "MyError::new({msg})");
+    }
+
+    #[test]
+    fn error_constructor_expr_uses_none_when_the_backend_has_no_host_source() {
+        let mut config = minimal();
+        config.error_constructor = Some("MyError::new({msg}, {source})".to_owned());
+        assert_eq!(config.error_constructor_expr(), "MyError::new({msg}, None)");
     }
 
     #[test]

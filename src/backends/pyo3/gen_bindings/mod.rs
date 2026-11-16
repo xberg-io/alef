@@ -773,7 +773,7 @@ impl Backend for ConfiguredPyo3Backend {
                         bridge_cfg,
                         &core_import,
                         &config.error_type_name(),
-                        &config.error_constructor_expr(),
+                        &config.trait_bridge_error_constructor_expr(),
                         api,
                         &reexported_types,
                         &bridge_pyclass_absent_types,
@@ -804,18 +804,13 @@ impl Backend for ConfiguredPyo3Backend {
                 family.parent.as_deref(),
             ));
         }
-        for error in &api.errors {
-            builder.add_item(&crate::codegen::error_gen::gen_pyo3_error_converter(
-                error,
-                &core_import,
-            ));
-            // Emit #[pymethods] impl block when the error exposes introspection methods.
-            // The impl adds #[getter] properties that read from the exception args tuple
-            let methods_impl = crate::codegen::error_gen::gen_pyo3_error_methods_impl(error);
-            if !methods_impl.is_empty() {
-                builder.add_item(&methods_impl);
-            }
-        }
+        support_items::add_error_converters(
+            &mut builder,
+            &api.errors,
+            &core_import,
+            config.trait_bridge_preserves_error_source() && !active_trait_bridges.is_empty(),
+            crate::backends::pyo3::trait_bridge::has_registry_wrappers(&active_trait_bridges, api),
+        );
 
         let binding_to_core = crate::codegen::conversions::convertible_types(api);
         let core_to_binding = crate::codegen::conversions::core_to_binding_convertible_types(api, &[]);

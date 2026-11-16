@@ -1,5 +1,6 @@
 use crate::codegen::builder::RustFileBuilder;
 use crate::codegen::shared::{format_crate_attributes, format_extra_clippy_allows};
+use crate::core::ir::ErrorDef;
 
 pub(super) fn add_generated_module_attributes(
     builder: &mut RustFileBuilder,
@@ -112,4 +113,32 @@ mod alef_json_str_opt {
 }
 "#,
     );
+}
+
+pub(super) fn add_error_converters(
+    builder: &mut RustFileBuilder,
+    errors: &[ErrorDef],
+    core_import: &str,
+    preserve_host_error: bool,
+    has_registry_wrappers: bool,
+) {
+    if preserve_host_error && (!errors.is_empty() || has_registry_wrappers) {
+        builder.add_item(&crate::backends::pyo3::template_env::render(
+            "trait_bridge/error_source.jinja",
+            crate::alef_context! { has_registry_wrappers => has_registry_wrappers },
+        ));
+    }
+    for error in errors {
+        builder.add_item(&crate::codegen::error_gen::gen_pyo3_error_converter_with_host_source(
+            error,
+            core_import,
+            preserve_host_error,
+        ));
+        // Emit #[pymethods] impl block when the error exposes introspection methods.
+        // The impl adds #[getter] properties that read from the exception args tuple
+        let methods_impl = crate::codegen::error_gen::gen_pyo3_error_methods_impl(error);
+        if !methods_impl.is_empty() {
+            builder.add_item(&methods_impl);
+        }
+    }
 }

@@ -5,8 +5,12 @@ pub fn {{ register_fn }}(obj: napi::bindgen_prelude::Object) -> napi::Result<()>
 
     let registry = {{ registry_getter }}();
     let mut registry = registry.write();
+{% if preserve_error_source %}
+    registry.register(arc{{ extra_args }}).map_err(|e| alef_napi_lifecycle_error(e, "Failed to register backend: "))
+{% else %}
     registry.register(arc{{ extra_args }}).map_err(|e| napi::Error::new(
         napi::Status::GenericFailure,
         format!("Failed to register backend: {}", e)
     ))
+{% endif %}
 }

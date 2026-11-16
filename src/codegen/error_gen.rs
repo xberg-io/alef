@@ -36,6 +36,7 @@ pub use host_langs::{
     gen_java_family_interface, go_error_method_fields, go_error_sentinel_name,
 };
 pub use last_error_fields::{LastErrorField, LastErrorFieldKind, last_error_field_kind, last_error_fields};
+pub(crate) use napi_wasm::gen_napi_error_dispatch_with_bridge_source;
 pub use napi_wasm::{
     NAPI_ERROR_INFO_MARKER, NapiErrorProperty, gen_napi_error_class, gen_napi_error_converter, gen_napi_error_dispatch,
     gen_napi_error_types, gen_wasm_error_converter, gen_wasm_error_dispatch, gen_wasm_error_methods,
@@ -46,6 +47,7 @@ pub use native::{
     gen_php_error_converter_with_errors, gen_php_error_methods_impl, magnus_converter_fn_name,
     magnus_error_methods_registrations, php_converter_fn_name,
 };
+pub(crate) use pyo3::gen_pyo3_error_converter_with_host_source;
 pub use pyo3::{
     converter_fn_name, gen_pyo3_error_converter, gen_pyo3_error_methods_impl, gen_pyo3_error_registration,
     gen_pyo3_error_types, gen_pyo3_error_types_with_parent, gen_pyo3_shared_exception_setup, pyo3_class_attributes,

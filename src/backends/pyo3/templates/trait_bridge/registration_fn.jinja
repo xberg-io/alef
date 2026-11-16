@@ -18,9 +18,17 @@ pub fn {{ register_fn }}(py: Python<'_>, backend: Py<PyAny>) -> PyResult<()> {
     py.detach(|| {
         let registry = {{ registry_getter }}();
         let mut registry = registry.write();
+{% if preserve_host_error %}
+        registry.register(arc{{ register_extra_args }}).map_err(|e| {
+            AlefPythonRegistryError(&e).host_exception().unwrap_or_else(|| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to register backend: {}", e))
+            })
+        })
+{% else %}
         registry.register(arc{{ register_extra_args }}).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(
             format!("Failed to register backend: {}", e)
         ))
+{% endif %}
     })?;
     Ok(())
 }

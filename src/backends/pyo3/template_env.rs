@@ -42,6 +42,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/trait_bridge/options_from_native.jinja"),
     ),
     (
+        "trait_bridge/error_source.jinja",
+        include_str!("templates/trait_bridge/error_source.jinja"),
+    ),
+    (
         "trait_bridge/options_from_native_helper.jinja",
         include_str!("templates/trait_bridge/options_from_native_helper.jinja"),
     ),

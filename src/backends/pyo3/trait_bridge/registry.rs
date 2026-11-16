@@ -13,6 +13,14 @@ fn active_configs<'a>(
         .filter(move |c| super::active_bridge_trait(c, api).is_some())
 }
 
+pub(crate) fn has_registry_wrappers(configs: &[TraitBridgeConfig], api: &ApiSurface) -> bool {
+    active_configs(configs, api).any(|c| {
+        crate::codegen::generators::trait_bridge::bridge_register_symbol(c).is_some()
+            || c.unregister_fn.is_some()
+            || c.clear_fn.is_some()
+    })
+}
+
 /// Register function names for `#[pymodule]` wiring, restricted to bridges PyO3 actually emits.
 ///
 /// `register_fn` alone is not enough: `Pyo3BridgeGenerator::gen_registration_fn` writes no
