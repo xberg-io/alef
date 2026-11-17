@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Use `{python_source}` in a trait bridge `error_constructor` to retain Python callback exceptions while keeping other backends on their message-based error paths.
+
 ## [0.130.3] - 2026-11-17
 
 ### Added

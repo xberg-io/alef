@@ -70,7 +70,7 @@ fn write_fixture(root: &Path) {
     let config = toml::from_str::<NewAlefConfig>(
         "[workspace]\nlanguages=['python']\n[[crates]]\nname='sample'\nsources=[]\n\
          core_import='sample'\nerror_type='WorkerError'\n\
-         error_constructor='sample::callback_error({trait}, {msg}, {source})'\n\
+         error_constructor='sample::callback_error({trait}, {msg}, {python_source})'\n\
          [crates.python]\nmodule_name='_sample'\n\
          [[crates.trait_bridges]]\ntrait_name='Worker'\n\
          register_fn='register_worker'\nregistry_getter='sample::workers'\n\

@@ -48,6 +48,10 @@ error_constructor = "core_crate::Error::Plugin { message: {msg}, source: {source
 Rust-side conversion and transport errors supply `None`. This also keeps the same
 constructor usable by backends that provide message-only callback errors.
 
+Use `{python_source}` to enable exception transport for PyO3 only. It has the
+same type as `{source}` and expands to `None` in other bindings. The unqualified
+`{source}` enables transport across all supported backends.
+
 A crate-wide constructor can use `{trait}` to distinguish callbacks from
 different traits. The generated Rust expression receives the configured trait
 name as a string literal. Outside a trait bridge context, `{trait}` expands to

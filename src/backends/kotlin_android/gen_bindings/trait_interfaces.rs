@@ -110,7 +110,7 @@ pub(super) fn emit_trait_interfaces(
             api,
             trait_bridge::DispatcherOptions {
                 excluded_types: &effective_excluded_types,
-                preserve_exceptions: config.trait_bridge_preserves_error_source(),
+                preserve_exceptions: config.trait_bridge_preserves_error_source(Language::Jni),
             },
         ) {
             files.push(GeneratedFile {

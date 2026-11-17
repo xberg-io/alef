@@ -1,3 +1,4 @@
+use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, ParamDef, TypeRef};
 
 fn contains_map(ty: &TypeRef) -> bool {
@@ -229,7 +230,7 @@ pub(super) fn add_error_bindings(
     builder: &mut crate::codegen::builder::RustFileBuilder,
     api: &ApiSurface,
     core_import: &str,
-    config: &crate::core::config::ResolvedCrateConfig,
+    config: &ResolvedCrateConfig,
     has_plugin_bridges: bool,
 ) {
     for error in &api.errors {
@@ -244,8 +245,8 @@ pub(super) fn add_error_bindings(
 
     // Every generated call site converts its error through this one function, so each
     // thrown error carries the properties of its typed converter (kind, status, retry delay).
-    let bridge_error =
-        (has_plugin_bridges && config.trait_bridge_preserves_error_source()).then(|| config.error_type_name());
+    let bridge_error = (has_plugin_bridges && config.trait_bridge_preserves_error_source(Language::Node))
+        .then(|| config.error_type_name());
     builder.add_item(&crate::codegen::error_gen::gen_napi_error_dispatch_with_bridge_source(
         &api.errors,
         core_import,

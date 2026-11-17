@@ -194,7 +194,7 @@ fn jni_excluded_types(config: &ResolvedCrateConfig) -> std::collections::HashSet
 }
 
 fn jni_trait_bridges(config: &ResolvedCrateConfig) -> impl Iterator<Item = &crate::core::config::TraitBridgeConfig> {
-    let desktop = config.trait_bridge_preserves_error_source()
+    let desktop = config.trait_bridge_preserves_error_source(Language::Jni)
         && config.targets(Language::Kotlin)
         && config.kotlin_ffi_style() == crate::core::config::KotlinFfiStyle::Jni;
     let android = config.targets(Language::KotlinAndroid) || !desktop;
@@ -211,7 +211,8 @@ fn jni_trait_bridges(config: &ResolvedCrateConfig) -> impl Iterator<Item = &crat
 }
 
 fn jni_preserves_host_exceptions(config: &ResolvedCrateConfig) -> bool {
-    config.trait_bridge_preserves_error_source() && jni_trait_bridges(config).any(|bridge| bridge.register_fn.is_some())
+    config.trait_bridge_preserves_error_source(Language::Jni)
+        && jni_trait_bridges(config).any(|bridge| bridge.register_fn.is_some())
 }
 
 fn jni_trait_bridge_function_names(config: &ResolvedCrateConfig) -> std::collections::HashSet<&str> {

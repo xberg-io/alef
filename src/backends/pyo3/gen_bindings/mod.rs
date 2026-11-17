@@ -773,7 +773,7 @@ impl Backend for ConfiguredPyo3Backend {
                         bridge_cfg,
                         &core_import,
                         &config.error_type_name(),
-                        &config.trait_bridge_error_constructor_expr(&bridge_cfg.trait_name),
+                        &config.trait_bridge_error_constructor_expr(&bridge_cfg.trait_name, Some(Language::Python)),
                         api,
                         &reexported_types,
                         &bridge_pyclass_absent_types,
@@ -808,7 +808,7 @@ impl Backend for ConfiguredPyo3Backend {
             &mut builder,
             &api.errors,
             &core_import,
-            config.trait_bridge_preserves_error_source() && !active_trait_bridges.is_empty(),
+            config.trait_bridge_preserves_error_source(Language::Python) && !active_trait_bridges.is_empty(),
             crate::backends::pyo3::trait_bridge::has_registry_wrappers(&active_trait_bridges, api),
         );
 

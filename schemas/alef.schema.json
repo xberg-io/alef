@@ -5993,7 +5993,7 @@
         },
         "error_constructor": {
           "default": null,
-          "description": "Rust expression for trait bridge errors. `{msg}` is a `String`. `{trait}` is the trait name as a string literal.\n`{source}` is an `Option<Box<dyn std::error::Error + Send + Sync>>` (ADR-0031).",
+          "description": "Rust expression for trait bridge errors. `{msg}` is a `String`. `{trait}` is the trait name as a string literal.\n`{source}` is an `Option<Box<dyn std::error::Error + Send + Sync>>` (ADR-0031).\nUse `{python_source}` to carry a host exception only in PyO3. It expands to `None` elsewhere.",
           "type": [
             "string",
             "null"

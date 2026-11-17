@@ -924,7 +924,7 @@ fn generate_jni(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
                     trait_def,
                     api,
                     &std::collections::HashSet::new(),
-                    config.trait_bridge_preserves_error_source(),
+                    config.trait_bridge_preserves_error_source(Language::Jni),
                 );
             files.push(GeneratedFile {
                 path: jni_emitter::jni_output_path(config, &filename),

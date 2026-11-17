@@ -25,32 +25,44 @@ impl ResolvedCrateConfig {
     /// Get the error constructor pattern without a trait bridge context.
     ///
     /// Returns `[crate] error_constructor` if set, otherwise generates
-    /// `"{core_import}::{error_type}::from({msg})"`. The optional `{source}` becomes `None`
+    /// `"{core_import}::{error_type}::from({msg})"`. Source placeholders become `None`
     /// and `{trait}` becomes an empty Rust string literal.
     pub fn error_constructor_expr(&self) -> String {
         self.trait_bridge_error_constructor_without_source("")
     }
 
-    pub(crate) fn trait_bridge_preserves_error_source(&self) -> bool {
-        self.error_constructor
-            .as_deref()
-            .is_some_and(|expr| expr.contains("{source}"))
+    pub(crate) fn trait_bridge_preserves_error_source(&self, language: Language) -> bool {
+        self.error_constructor_template(Some(language)).contains("{source}")
     }
 
-    pub(crate) fn trait_bridge_error_constructor_expr(&self, trait_name: &str) -> String {
-        self.error_constructor_template()
+    pub(crate) fn trait_bridge_error_constructor_expr(
+        &self,
+        trait_name: &str,
+        source_language: Option<Language>,
+    ) -> String {
+        self.error_constructor_template(source_language)
             .replace("{trait}", &format!("{trait_name:?}"))
     }
 
     pub(crate) fn trait_bridge_error_constructor_without_source(&self, trait_name: &str) -> String {
-        self.trait_bridge_error_constructor_expr(trait_name)
-            .replace("{source}", "None")
+        self.trait_bridge_error_constructor_expr(trait_name, None)
     }
 
-    pub(crate) fn error_constructor_template(&self) -> String {
-        self.error_constructor
+    pub(crate) fn error_constructor_template(&self, source_language: Option<Language>) -> String {
+        let python_source = if source_language == Some(Language::Python) {
+            "{source}"
+        } else {
+            "None"
+        };
+        let template = self
+            .error_constructor
             .clone()
             .unwrap_or_else(|| format!("{}::{}::from({{msg}})", self.core_import_name(), self.error_type_name()))
+            .replace("{python_source}", python_source);
+        if source_language.is_none() {
+            return template.replace("{source}", "None");
+        }
+        template
     }
 
     /// Get the directory name of the core crate (derived from sources or falling back to name).
@@ -221,6 +233,7 @@ impl ResolvedCrateConfig {
 
 #[cfg(test)]
 mod tests {
+    use super::Language;
     use crate::core::config::new_config::NewAlefConfig;
 
     fn resolved_one(toml: &str) -> super::super::ResolvedCrateConfig {
@@ -322,11 +335,45 @@ error_constructor = "MyError::new({msg})"
     }
 
     #[test]
+    fn error_constructor_without_a_host_source_omits_the_python_source() {
+        let mut config = minimal();
+        config.error_constructor = Some("MyError::new({msg}, {python_source})".to_owned());
+        assert_eq!(config.error_constructor_expr(), "MyError::new({msg}, None)");
+    }
+
+    #[test]
+    fn scoped_python_source_keeps_other_host_transports_disabled() {
+        let mut config = minimal();
+        config.error_constructor = Some("MyError::new({trait}, {msg}, {python_source})".to_owned());
+        assert!(config.trait_bridge_preserves_error_source(Language::Python));
+        assert_eq!(
+            config.trait_bridge_error_constructor_expr("OcrBackend", Some(Language::Python)),
+            "MyError::new(\"OcrBackend\", {msg}, {source})"
+        );
+        for language in [Language::Jni, Language::Node] {
+            assert!(!config.trait_bridge_preserves_error_source(language));
+            assert_eq!(
+                config.trait_bridge_error_constructor_expr("Validator", Some(language)),
+                "MyError::new(\"Validator\", {msg}, None)"
+            );
+        }
+    }
+
+    #[test]
+    fn unscoped_source_keeps_the_existing_transport_defaults() {
+        let mut config = minimal();
+        config.error_constructor = Some("MyError::new({msg}, {source})".to_owned());
+        for language in [Language::Python, Language::Jni, Language::Node] {
+            assert!(config.trait_bridge_preserves_error_source(language));
+        }
+    }
+
+    #[test]
     fn bridge_error_constructor_uses_the_originating_trait_name() {
         let mut config = minimal();
         config.error_constructor = Some("MyError::new({trait}, {msg}, {source})".to_owned());
         assert_eq!(
-            config.trait_bridge_error_constructor_expr("OcrBackend"),
+            config.trait_bridge_error_constructor_expr("OcrBackend", Some(Language::Python)),
             "MyError::new(\"OcrBackend\", {msg}, {source})"
         );
         assert_eq!(

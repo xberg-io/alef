@@ -74,6 +74,7 @@ pub struct RawCrateConfig {
 
     /// Rust expression for trait bridge errors. `{msg}` is a `String`. `{trait}` is the trait name as a string literal.
     /// `{source}` is an `Option<Box<dyn std::error::Error + Send + Sync>>` (ADR-0031).
+    /// Use `{python_source}` to carry a host exception only in PyO3. It expands to `None` elsewhere.
     #[serde(default)]
     pub error_constructor: Option<String>,
 

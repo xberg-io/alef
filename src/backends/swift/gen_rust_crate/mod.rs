@@ -678,7 +678,7 @@ fn emit_lib_rs(
         out.push('\n');
     }
 
-    let error_constructor = config.error_constructor_template().replace("{source}", "None");
+    let error_constructor = config.error_constructor_template(None);
     if !active_bridges.is_empty() {
         out.push_str(&plugin_inbound::emit_plugin_error_helper(
             &source_crate,
