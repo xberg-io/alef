@@ -1,2 +1,2 @@
         let envelope = {{ call_expr }};
-        decode_inbound_envelope::<()>(&envelope).map(|_| ())
+        decode_inbound_envelope::<()>(&envelope{{ trait_argument }}).map(|_| ())

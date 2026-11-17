@@ -825,7 +825,6 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             .collect();
 
         let error_type_name = config.error_type_name();
-        let error_constructor = config.error_constructor_expr();
         let plugin_error_constructor = config.ffi_plugin_error_constructor();
         for bridge_cfg in &active_trait_bridges {
             if visitor_callbacks_enabled
@@ -841,7 +840,7 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
                     prefix,
                     &core_import,
                     &error_type_name,
-                    &error_constructor,
+                    &config.trait_bridge_error_constructor_without_source(&bridge_cfg.trait_name),
                     plugin_error_constructor.as_deref(),
                     api,
                 );

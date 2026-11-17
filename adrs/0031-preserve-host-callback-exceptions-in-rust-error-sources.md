@@ -48,6 +48,13 @@ error_constructor = "core_crate::Error::Plugin { message: {msg}, source: {source
 Rust-side conversion and transport errors supply `None`. This also keeps the same
 constructor usable by backends that provide message-only callback errors.
 
+A crate-wide constructor can use `{trait}` to distinguish callbacks from
+different traits. The generated Rust expression receives the configured trait
+name as a string literal. Outside a trait bridge context, `{trait}` expands to
+the empty string literal `""`.
+The FFI lifecycle shims use their separate `[crates.ffi] plugin_error_constructor`
+expression.
+
 PyO3 uses generated typed error converters to recover the exception from
 public Rust results. Node and JNI inspect the configured bridge error and
 projected Rust error enums at their native return boundary. Opt-in plugin

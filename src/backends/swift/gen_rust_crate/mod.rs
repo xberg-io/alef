@@ -678,11 +678,12 @@ fn emit_lib_rs(
         out.push('\n');
     }
 
+    let error_constructor = config.error_constructor_template().replace("{source}", "None");
     if !active_bridges.is_empty() {
         out.push_str(&plugin_inbound::emit_plugin_error_helper(
             &source_crate,
             &config.error_type_name(),
-            &config.error_constructor_expr(),
+            &error_constructor,
         ));
     }
     for (bridge_cfg, trait_def) in &active_bridges {
@@ -693,7 +694,7 @@ fn emit_lib_rs(
             &source_crate,
             &type_paths,
             &config.error_type_name(),
-            &config.error_constructor_expr(),
+            &error_constructor,
         ));
         out.push('\n');
     }

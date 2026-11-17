@@ -11,6 +11,17 @@ pub enum WorkerError {
     NativeFailure,
 }
 
+pub fn callback_error(
+    trait_name: &str,
+    message: String,
+    source: Option<Box<dyn std::error::Error + Send + Sync>>,
+) -> WorkerError {
+    match trait_name {
+        "Worker" => WorkerError::Callback(message, source),
+        _ => WorkerError::NativeFailure,
+    }
+}
+
 #[async_trait::async_trait]
 pub trait Worker: Send + Sync {
     fn initialize(&self) -> Result<(), WorkerError>;

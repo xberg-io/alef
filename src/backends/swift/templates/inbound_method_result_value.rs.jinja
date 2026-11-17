@@ -1,2 +1,2 @@
         let envelope = {{ call_expr }};
-        decode_inbound_envelope::<{{ native_ty }}>(&envelope)
+        decode_inbound_envelope::<{{ native_ty }}>(&envelope{{ trait_argument }})

@@ -1263,6 +1263,60 @@ fn inbound_plugin_impl_uses_qualified_super_trait_config_path() {
 }
 
 #[test]
+fn swift_trait_bridge_error_constructor_receives_callback_trait_name() {
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![
+            make_trait_type(
+                "TextBackend",
+                "demo::TextBackend",
+                vec![make_method("scan", vec![], TypeRef::String, false, Some("Error"))],
+            ),
+            make_trait_type(
+                "Tokenizer",
+                "demo::Tokenizer",
+                vec![make_method("reset", vec![], TypeRef::Unit, false, Some("Error"))],
+            ),
+        ],
+        ..ApiSurface::default()
+    };
+    let mut config = config_with_plugin_bridge("TextBackend", "demo::Plugin");
+    let tokenizer = config_with_plugin_bridge("Tokenizer", "demo::Plugin");
+    config.push_trait_bridge(
+        tokenizer
+            .trait_bridges_for(alef::core::config::Language::Swift)
+            .next()
+            .unwrap()
+            .clone(),
+    );
+    config.error_constructor = Some("demo::Error::from_plugin({trait}, {msg}, {source})".into());
+
+    let files = gen_rust_crate::emit(&api, &config).unwrap();
+    let lib = &files.iter().find(|file| file.path.ends_with("lib.rs")).unwrap().content;
+    assert!(
+        lib.contains("demo::Error::from_plugin(alef_trait_name, message, None)"),
+        "{lib}"
+    );
+    assert!(
+        lib.contains(r#"decode_inbound_envelope::<String>(&envelope, "TextBackend")"#),
+        "{lib}"
+    );
+    assert!(
+        lib.contains(r#"decode_inbound_envelope::<()>(&envelope, "Tokenizer")"#),
+        "{lib}"
+    );
+    for (method, trait_name) in [("initialize", "TextBackend"), ("shutdown", "Tokenizer")] {
+        assert!(
+            lib.contains(&format!(
+                "decode_inbound_envelope::<()>(&self.inner.alef_{method}(), {trait_name:?})"
+            )),
+            "{lib}"
+        );
+    }
+}
+
+#[test]
 fn inbound_plugin_impl_omits_unresolved_simple_super_trait_with_diagnostic() {
     let api = ApiSurface {
         unresolved_modules: Vec::new(),

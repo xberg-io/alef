@@ -714,7 +714,7 @@ impl Backend for ExtendrBackend {
                     bridge_cfg,
                     &core_import,
                     &config.error_type_name(),
-                    &config.error_constructor_expr(),
+                    &config.trait_bridge_error_constructor_without_source(&bridge_cfg.trait_name),
                     api,
                     bridge_cfg
                         .context_type

@@ -22,12 +22,13 @@ impl ResolvedCrateConfig {
         self.error_type.clone().unwrap_or_else(|| "Error".to_string())
     }
 
-    /// Get the error constructor pattern for backends without host exception retention.
+    /// Get the error constructor pattern without a trait bridge context.
     ///
     /// Returns `[crate] error_constructor` if set, otherwise generates
-    /// `"{core_import}::{error_type}::from({msg})"`. The optional `{source}` becomes `None`.
+    /// `"{core_import}::{error_type}::from({msg})"`. The optional `{source}` becomes `None`
+    /// and `{trait}` becomes an empty Rust string literal.
     pub fn error_constructor_expr(&self) -> String {
-        self.trait_bridge_error_constructor_expr().replace("{source}", "None")
+        self.trait_bridge_error_constructor_without_source("")
     }
 
     pub(crate) fn trait_bridge_preserves_error_source(&self) -> bool {
@@ -36,7 +37,17 @@ impl ResolvedCrateConfig {
             .is_some_and(|expr| expr.contains("{source}"))
     }
 
-    pub(crate) fn trait_bridge_error_constructor_expr(&self) -> String {
+    pub(crate) fn trait_bridge_error_constructor_expr(&self, trait_name: &str) -> String {
+        self.error_constructor_template()
+            .replace("{trait}", &format!("{trait_name:?}"))
+    }
+
+    pub(crate) fn trait_bridge_error_constructor_without_source(&self, trait_name: &str) -> String {
+        self.trait_bridge_error_constructor_expr(trait_name)
+            .replace("{source}", "None")
+    }
+
+    pub(crate) fn error_constructor_template(&self) -> String {
         self.error_constructor
             .clone()
             .unwrap_or_else(|| format!("{}::{}::from({{msg}})", self.core_import_name(), self.error_type_name()))
@@ -301,6 +312,27 @@ error_constructor = "MyError::new({msg})"
         let mut config = minimal();
         config.error_constructor = Some("MyError::new({msg}, {source})".to_owned());
         assert_eq!(config.error_constructor_expr(), "MyError::new({msg}, None)");
+    }
+
+    #[test]
+    fn unscoped_error_constructor_uses_an_empty_trait_name() {
+        let mut config = minimal();
+        config.error_constructor = Some("MyError::new({trait}, {msg}, {source})".to_owned());
+        assert_eq!(config.error_constructor_expr(), "MyError::new(\"\", {msg}, None)");
+    }
+
+    #[test]
+    fn bridge_error_constructor_uses_the_originating_trait_name() {
+        let mut config = minimal();
+        config.error_constructor = Some("MyError::new({trait}, {msg}, {source})".to_owned());
+        assert_eq!(
+            config.trait_bridge_error_constructor_expr("OcrBackend"),
+            "MyError::new(\"OcrBackend\", {msg}, {source})"
+        );
+        assert_eq!(
+            config.trait_bridge_error_constructor_without_source("Tokenizer"),
+            "MyError::new(\"Tokenizer\", {msg}, None)"
+        );
     }
 
     #[test]

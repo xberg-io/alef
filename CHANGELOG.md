@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Use `{trait}` in a crate's trait bridge `error_constructor` to pass the originating Rust trait name as a string literal alongside `{msg}` and `{source}`.
+
 ## [0.130.2] - 2026-11-16
 
 ### Changed

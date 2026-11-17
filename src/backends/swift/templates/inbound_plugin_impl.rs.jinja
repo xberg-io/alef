@@ -8,10 +8,10 @@ impl {{ plugin_path }} for {{ wrapper_name }} {
     }
 
     fn initialize(&self) -> {{ result_type }} {
-        decode_inbound_envelope::<()>(&self.inner.alef_initialize()).map(|_| ())
+        decode_inbound_envelope::<()>(&self.inner.alef_initialize(){{ trait_argument }}).map(|_| ())
     }
 
     fn shutdown(&self) -> {{ result_type }} {
-        decode_inbound_envelope::<()>(&self.inner.alef_shutdown()).map(|_| ())
+        decode_inbound_envelope::<()>(&self.inner.alef_shutdown(){{ trait_argument }}).map(|_| ())
     }
 }

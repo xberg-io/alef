@@ -1,6 +1,6 @@
 /// Convert a stringified Swift error into the configured source-crate error type.
 #[allow(dead_code)]
-fn plugin_error_from_string(message: String) -> {{ error_type_path }} {
+fn plugin_error_from_string(message: String{% if uses_trait_name %}, alef_trait_name: &'static str{% endif %}) -> {{ error_type_path }} {
     {{ plugin_error_constructor }}
 }
 
@@ -14,13 +14,13 @@ enum InboundEnvelope<T> { Ok(T), Err(String) }
 
 /// Deserialise a JSON envelope returned from a Swift FFI shim into a typed Result.
 #[allow(dead_code)]
-fn decode_inbound_envelope<T>(json: &str) -> std::result::Result<T, {{ error_type_path }}>
+fn decode_inbound_envelope<T>(json: &str{% if uses_trait_name %}, alef_trait_name: &'static str{% endif %}) -> std::result::Result<T, {{ error_type_path }}>
 where
     T: ::serde::de::DeserializeOwned,
 {
     match ::serde_json::from_str::<InboundEnvelope<T>>(json) {
         Ok(InboundEnvelope::Ok(value)) => Ok(value),
-        Ok(InboundEnvelope::Err(message)) => Err(plugin_error_from_string(message)),
-        Err(e) => Err(plugin_error_from_string(format!("swift returned malformed envelope: {e}"))),
+        Ok(InboundEnvelope::Err(message)) => Err(plugin_error_from_string(message{% if uses_trait_name %}, alef_trait_name{% endif %})),
+        Err(e) => Err(plugin_error_from_string(format!("swift returned malformed envelope: {e}"){% if uses_trait_name %}, alef_trait_name{% endif %})),
     }
 }

@@ -61,7 +61,7 @@ pub(crate) fn scaffold_elixir_cargo(
                 bridge,
                 &config.core_import_name(),
                 &config.error_type_name(),
-                &config.error_constructor_expr(),
+                &config.trait_bridge_error_constructor_without_source(&bridge.trait_name),
                 api,
             )?;
             if output.code.contains("#[async_trait::async_trait") {

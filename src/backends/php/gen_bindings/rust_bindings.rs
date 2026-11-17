@@ -631,7 +631,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                     bridge_cfg,
                     &core_import,
                     &config.error_type_name(),
-                    &config.error_constructor_expr(),
+                    &config.trait_bridge_error_constructor_without_source(&bridge_cfg.trait_name),
                     api,
                 );
                 for imp in &bridge.imports {

@@ -27,6 +27,7 @@ pub(super) fn emit_inbound_method_impl(
     out: &mut String,
     method: &MethodDef,
     trait_snake: &str,
+    trait_argument: &str,
     source_crate: &str,
     type_paths: &std::collections::HashMap<String, String>,
     error_type: &str,
@@ -118,6 +119,7 @@ pub(super) fn emit_inbound_method_impl(
                 "inbound_method_result_unit.rs.jinja",
                 crate::alef_context! {
                     call_expr => &call_expr,
+                    trait_argument => trait_argument,
                 },
             ));
         } else {
@@ -127,6 +129,7 @@ pub(super) fn emit_inbound_method_impl(
                 crate::alef_context! {
                     call_expr => &call_expr,
                     native_ty => &native_ty,
+                    trait_argument => trait_argument,
                 },
             ));
         }
@@ -550,6 +553,7 @@ mod tests {
             &mut out,
             &method,
             "document_sink",
+            "",
             "fixture_core",
             &std::collections::HashMap::new(),
             "SinkError",
@@ -605,6 +609,7 @@ mod tests {
             &mut out,
             &method,
             "document_sink",
+            "",
             "fixture_core",
             &std::collections::HashMap::new(),
             "SinkError",

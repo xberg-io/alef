@@ -529,7 +529,7 @@ impl Backend for NapiBackend {
                     bridge_cfg,
                     &core_import,
                     &config.error_type_name(),
-                    &config.trait_bridge_error_constructor_expr(),
+                    &config.trait_bridge_error_constructor_expr(&bridge_cfg.trait_name),
                     api,
                     bridge_cfg
                         .context_type

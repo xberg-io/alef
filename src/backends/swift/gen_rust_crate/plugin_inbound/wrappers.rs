@@ -20,6 +20,11 @@ pub(crate) fn emit_inbound_wrapper(
     error_constructor: &str,
 ) -> String {
     let trait_name = &trait_def.name;
+    let trait_argument = if error_constructor.contains("{trait}") {
+        format!(", {:?}", bridge_config.trait_name)
+    } else {
+        String::new()
+    };
     let trait_snake = heck::AsSnakeCase(trait_name.as_str()).to_string();
     let box_name = format!("Swift{trait_name}Box");
     let wrapper_name = format!("Swift{trait_name}Wrapper");
@@ -78,6 +83,7 @@ pub(crate) fn emit_inbound_wrapper(
                     plugin_path => plugin_path,
                     wrapper_name => &wrapper_name,
                     result_type => result_type(source_crate, error_type, "()"),
+                    trait_argument => &trait_argument,
                 },
             ));
         } else {
@@ -111,6 +117,7 @@ pub(crate) fn emit_inbound_wrapper(
             &mut out,
             method,
             &trait_snake,
+            &trait_argument,
             source_crate,
             type_paths,
             error_type,
@@ -222,12 +229,15 @@ fn build_bridge_spec<'a>(
 /// FFI plumbing.
 pub(crate) fn emit_plugin_error_helper(source_crate: &str, error_type: &str, error_constructor: &str) -> String {
     let error_type_path = error_type_path(source_crate, error_type);
-    let plugin_error_constructor = error_constructor.replace("{msg}", "message");
+    let plugin_error_constructor = error_constructor
+        .replace("{trait}", "alef_trait_name")
+        .replace("{msg}", "message");
     crate::backends::swift::template_env::render(
         "plugin_error_helper.rs.jinja",
         crate::alef_context! {
             error_type_path => &error_type_path,
             plugin_error_constructor => &plugin_error_constructor,
+            uses_trait_name => error_constructor.contains("{trait}"),
         },
     )
 }

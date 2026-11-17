@@ -42,7 +42,7 @@ fn emit_trait_bridge_shims(
                         "core_crate",
                         crate::backends::jni::trait_bridge::BridgeErrorBinding {
                             error_type: &config.error_type_name(),
-                            error_constructor: &config.trait_bridge_error_constructor_expr(),
+                            error_constructor: &config.trait_bridge_error_constructor_expr(&bridge_cfg.trait_name),
                         },
                         api,
                     );
