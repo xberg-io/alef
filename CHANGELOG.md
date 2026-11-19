@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.131.0] - 2026-11-19
+
 ### Changed
 
 - Emit the v2 `poly.toml` schema poly 0.36 reads: `[engines.*]` tables, `[per_file_ignores]`, `[workspace] run` for `lint-workspace`, `required_version = ">=0.36.1"`, and `[engines.typos] enabled = true` so spell checking stays on. An existing v1 `poly.toml` is converted in place, the way `poly migrate --to-v2` writes it, before the managed merge, so no consumer ends up with a mixed file poly rejects.
