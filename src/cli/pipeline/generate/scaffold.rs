@@ -545,6 +545,8 @@ fn merge_managed_toml_core(
 ) -> anyhow::Result<(String, std::collections::BTreeMap<String, Vec<String>>)> {
     let mut existing_doc = existing.parse::<toml_edit::DocumentMut>()?;
     let generated_doc = generated.parse::<toml_edit::DocumentMut>()?;
+    let previous_generated_arrays =
+        &crate::scaffold::convert_v1_poly_merge(existing_doc.as_table_mut(), previous_generated_arrays);
 
     let mut current_generated_arrays = std::collections::BTreeMap::new();
     collect_arrays_by_path(generated_doc.as_table(), "", &mut current_generated_arrays);
@@ -1055,22 +1057,22 @@ mod merge_managed_toml_tests {
     }
 
     /// The protection this must never regress, and the reason the generic guard existed: a scoped
-    /// run (`alef generate --lang java`) omits `[lint.python.ruff]` wholesale. Its absence says
+    /// run (`alef generate --lang java`) omits `[engines.ruff.lint]` wholesale. Its absence says
     /// nothing, and pruning on it would leave `select = []` -- which every linter reads as "check
     /// nothing" while still exiting green. ~keep
     #[test]
     fn merge_keeps_a_scoped_runs_unemitted_nested_table_entries() {
-        let existing = "[lint.python.ruff]\nselect = [\"ANN\", \"D\"]\n";
-        let generated = "[lint.java.checkstyle]\nselect = [\"X\"]\n";
+        let existing = "[engines.ruff.lint]\nselect = [\"ANN\", \"D\"]\n";
+        let generated = "[engines.checkstyle.lint]\nselect = [\"X\"]\n";
         let mut previous = std::collections::BTreeMap::new();
         previous.insert(
-            "lint.python.ruff.select".to_string(),
+            "engines.ruff.lint.select".to_string(),
             vec!["ANN".to_string(), "D".to_string()],
         );
 
         let (merged, _) = merge_managed_toml_core(existing, generated, &previous).expect("merge succeeds");
         let document = merged.parse::<toml_edit::DocumentMut>().expect("merged output parses");
-        let select: Vec<String> = document["lint"]["python"]["ruff"]["select"]
+        let select: Vec<String> = document["engines"]["ruff"]["lint"]["select"]
             .as_array()
             .expect("select survives")
             .iter()
@@ -1080,25 +1082,25 @@ mod merge_managed_toml_tests {
         assert_eq!(
             select,
             vec!["ANN".to_string(), "D".to_string()],
-            "a run that never emitted [lint.python.ruff] must not prune it; got:\n{merged}"
+            "a run that never emitted [engines.ruff.lint] must not prune it; got:\n{merged}"
         );
     }
 
-    /// `[lint]` emitted but `[lint.python.ruff]` not: resolution must stop at `[lint]`, whose
-    /// literal keys do not include `python.ruff.select`, so nothing is removed. ~keep
+    /// `[engines]` emitted but `[engines.ruff.lint]` not: resolution must stop at `[engines]`, whose
+    /// literal keys do not include `ruff.lint.select`, so nothing is removed. ~keep
     #[test]
     fn merge_keeps_nested_entries_when_only_the_outer_table_was_emitted() {
-        let existing = "[lint]\nshared = [\"A\"]\n\n[lint.python.ruff]\nselect = [\"ANN\"]\n";
-        let generated = "[lint]\nshared = [\"A\"]\n";
+        let existing = "[engines]\nshared = [\"A\"]\n\n[engines.ruff.lint]\nselect = [\"ANN\"]\n";
+        let generated = "[engines]\nshared = [\"A\"]\n";
         let mut previous = std::collections::BTreeMap::new();
-        previous.insert("lint.python.ruff.select".to_string(), vec!["ANN".to_string()]);
+        previous.insert("engines.ruff.lint.select".to_string(), vec!["ANN".to_string()]);
 
         let (merged, _) = merge_managed_toml_core(existing, generated, &previous).expect("merge succeeds");
         let document = merged.parse::<toml_edit::DocumentMut>().expect("merged output parses");
 
         assert!(
-            document["lint"]["python"]["ruff"]["select"].as_array().is_some(),
-            "resolution must not treat [lint]'s emission as testimony about a nested table; got:\n{merged}"
+            document["engines"]["ruff"]["lint"]["select"].as_array().is_some(),
+            "resolution must not treat [engines]'s emission as testimony about a nested table; got:\n{merged}"
         );
     }
 

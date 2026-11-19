@@ -82,10 +82,10 @@ owner = "maintainers"
         std::fs::write(base.join("poly.toml"), existing).expect("write existing config");
         let generated = GeneratedFile {
             path: PathBuf::from("poly.toml"),
-            content: r#"[lint.python.ruff]
+            content: r#"[engines.ruff.lint]
 ignore = ["F401"]
 
-[per-file-ignores]
+[per_file_ignores]
 "tests/**" = ["S101"]
 
 [hooks.builtin]
@@ -101,9 +101,10 @@ file_safety = { exclude = ["target/**"] }
 
         assert!(merged.contains("# Project policy. ~keep"), "{merged}");
         assert_eq!(parsed["project-policy"]["owner"].as_str(), Some("maintainers"));
-        assert!(parsed["per-file-ignores"]["tools/**"].is_value());
-        assert!(parsed["per-file-ignores"]["tests/**"].is_value());
-        let ruff_ignores = parsed["lint"]["python"]["ruff"]["ignore"]
+        assert!(parsed.get("lint").is_none(), "v1 tables must be converted: {merged}");
+        assert!(parsed["per_file_ignores"]["tools/**"].is_value());
+        assert!(parsed["per_file_ignores"]["tests/**"].is_value());
+        let ruff_ignores = parsed["engines"]["ruff"]["lint"]["ignore"]
             .as_array()
             .expect("ruff ignore array");
         assert!(ruff_ignores.iter().any(|value| value.as_str() == Some("PT027")));
@@ -121,10 +122,10 @@ file_safety = { exclude = ["target/**"] }
 
         let generated_again = GeneratedFile {
             path: PathBuf::from("poly.toml"),
-            content: r#"[lint.python.ruff]
+            content: r#"[engines.ruff.lint]
 ignore = ["F401"]
 
-[per-file-ignores]
+[per_file_ignores]
 "tests/**" = ["S101"]
 
 [hooks.builtin]
@@ -269,13 +270,13 @@ file_safety = { exclude = ["target/**"] }
         let all_languages = GeneratedFile {
             path: PathBuf::from("poly.toml"),
             content: "[discovery]\nexclude = [\"docs/assets/**\", \"target/**\"]\n\n\
-                      [lint.python.ruff]\nselect = [\"E\", \"F\"]\n"
+                      [engines.ruff.lint]\nselect = [\"E\", \"F\"]\n"
                 .to_owned(),
             generated_header: true,
         };
         write_scaffold_files_with_overwrite(&[all_languages], base, true).expect("all-languages run");
 
-        // `--lang java`: no `[lint.python.ruff]` at all, and `docs/assets/**` dropped from a
+        // `--lang java`: no `[engines.ruff.lint]` at all, and `docs/assets/**` dropped from a
         // table this run DOES emit.
         let scoped = GeneratedFile {
             path: PathBuf::from("poly.toml"),

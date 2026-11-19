@@ -139,6 +139,8 @@ mod package_filters;
 mod poly;
 mod poly_migrations;
 mod poly_schema_exclude;
+mod poly_v2;
+mod poly_v2_migration;
 mod python_node;
 mod r_rust_msrv;
 mod repair;

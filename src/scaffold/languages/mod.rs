@@ -13,6 +13,7 @@ mod node;
 pub(crate) mod php;
 mod poly;
 mod poly_migrations;
+mod poly_v2_migration;
 mod python;
 mod r;
 mod ruby;
@@ -45,6 +46,9 @@ pub(crate) use poly::scaffold_poly_config;
 pub(crate) use poly_migrations::{
     migrate_poly_toml_drop_snippet_hook, migrate_poly_toml_drop_unrunnable_snapshot_hooks,
 };
+pub(crate) use poly_v2_migration::{convert_v1_merge, migrate_poly_toml_to_v2};
+#[cfg(test)]
+pub(crate) use poly_v2_migration::{convert_v1_tables, v2_provenance_path};
 pub(crate) use python::{scaffold_python, scaffold_python_cargo};
 pub(crate) use r::{scaffold_r, scaffold_r_cargo};
 pub(crate) use ruby::{ruby_native_manifest_path, scaffold_ruby, scaffold_ruby_cargo};

@@ -72,7 +72,7 @@ pub use output::{
 };
 pub use ownership::{OwnershipConfig, UserOwnedPaths};
 pub use package_metadata::{CargoPackageFilesConfig, PackageMetadataConfig};
-pub use poly::{PolyConfig, TyposConfig};
+pub use poly::{HarperConfig, JsEngineConfig, PolyConfig, TsrsConfig, TyposConfig};
 pub use publish::{PublishConfig, PublishLanguageConfig, VendorMode};
 pub use raw_crate::RawCrateConfig;
 pub use resolve_helpers::{OutputLayout, detect_serde_available, resolve_output_dir, resolve_output_layout};

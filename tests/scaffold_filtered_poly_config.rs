@@ -41,23 +41,23 @@ fn scoped_generation_preserves_configured_python_rules_and_prunes_withdrawn_supp
     let before = write_poly(root.path(), &config, &config.languages);
     for glob in PYTHON_GLOBS {
         assert!(
-            before["per-file-ignores"][glob]
+            before["per_file_ignores"][glob]
                 .as_array()
                 .is_some_and(|rules| !rules.is_empty())
         );
     }
-    assert!(before["per-file-ignores"].get("paid/off.rs").is_some());
+    assert!(before["per_file_ignores"].get("paid/off.rs").is_some());
     config.poly.per_file_ignores.clear();
     let after = write_poly(root.path(), &config, &[Language::Dart]);
     for glob in PYTHON_GLOBS {
         assert_eq!(
-            after["per-file-ignores"].get(glob),
-            before["per-file-ignores"].get(glob),
+            after["per_file_ignores"].get(glob),
+            before["per_file_ignores"].get(glob),
             "lost {glob}"
         );
     }
-    assert!(after["per-file-ignores"].get("paid/off.rs").is_none());
-    assert_eq!(after["lint"]["python"], before["lint"]["python"]);
+    assert!(after["per_file_ignores"].get("paid/off.rs").is_none());
+    assert_eq!(after["engines"]["ruff"], before["engines"]["ruff"]);
 }
 
 #[test]
@@ -68,14 +68,14 @@ fn removing_python_from_configuration_withdraws_python_suppressions() {
     assert!(
         PYTHON_GLOBS
             .iter()
-            .all(|glob| before["per-file-ignores"].get(glob).is_some())
+            .all(|glob| before["per_file_ignores"].get(glob).is_some())
     );
     config.languages = vec![Language::Dart];
     let generated = poly(&config, &[Language::Dart]);
-    assert!(!generated.content.contains("[lint.python.ruff]"));
+    assert!(!generated.content.contains("[engines.ruff.lint]"));
     assert!(!generated.content.contains("pyrefly"));
     let after = write_poly(root.path(), &config, &[Language::Dart]);
     for glob in PYTHON_GLOBS {
-        assert!(after["per-file-ignores"].get(glob).is_none(), "retained {glob}");
+        assert!(after["per_file_ignores"].get(glob).is_none(), "retained {glob}");
     }
 }

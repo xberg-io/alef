@@ -27,15 +27,20 @@ pub use languages::{
     render_csharp_runtime_json_template,
 };
 pub(crate) use languages::{
-    elixir_native_crate_dir, migrate_build_zig_test_target, migrate_dart_placeholder_test, migrate_dart_pubignore,
-    migrate_dart_pubspec_sdk_floor, migrate_java_checkstyle_line_length, migrate_kotlin_build_gradle,
-    migrate_node_error_shim, migrate_node_package_json_service_export, migrate_php_composer_phpunit_constraint,
-    migrate_poly_toml_drop_snippet_hook, migrate_poly_toml_drop_unrunnable_snapshot_hooks,
+    convert_v1_merge as convert_v1_poly_merge, elixir_native_crate_dir, migrate_build_zig_test_target,
+    migrate_dart_placeholder_test, migrate_dart_pubignore, migrate_dart_pubspec_sdk_floor,
+    migrate_java_checkstyle_line_length, migrate_kotlin_build_gradle, migrate_node_error_shim,
+    migrate_node_package_json_service_export, migrate_php_composer_phpunit_constraint,
+    migrate_poly_toml_drop_snippet_hook, migrate_poly_toml_drop_unrunnable_snapshot_hooks, migrate_poly_toml_to_v2,
     migrate_swift_placeholder_test, migrate_swift_rust_bridge_language_mode, migrate_swift_static_frameworks,
     migrate_wasm_cargo_config_allow_multiple_definition, migrate_wasm_package_json, migrate_zig_build_c_translation,
     migrate_zig_build_ffi_include_default, migrate_zig_example, ruby_native_manifest_path,
 };
 
+#[cfg(test)]
+pub(crate) use languages::{
+    convert_v1_tables as convert_v1_poly_tables, v2_provenance_path as v2_poly_provenance_path,
+};
 pub use manifest_header::{ScaffoldMeta, scaffold_meta};
 pub(crate) use manifest_header::{
     WorkspacePackageInheritance, cargo_package_file_filters, cargo_package_header,

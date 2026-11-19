@@ -317,6 +317,8 @@ fn migrate_poly_toml_unconditional(
     if declared.matches(base_dir, &base_dir.join("poly.toml")) {
         return Ok(());
     }
+    crate::scaffold::migrate_poly_toml_to_v2(base_dir)
+        .context("failed to convert pre-existing poly.toml to the v2 schema")?;
     crate::scaffold::migrate_poly_toml_drop_snippet_hook(base_dir)
         .context("failed to migrate pre-existing poly.toml alef-snippets pre-commit hook")?;
     crate::scaffold::migrate_poly_toml_drop_unrunnable_snapshot_hooks(base_dir).context(

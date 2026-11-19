@@ -201,7 +201,7 @@ const EXCLUDES: &[(&str, ExcludeScope)] = &[
 ///   emits.
 ///
 /// The hazard motivating the second table is **latent, not observed**, and deserves that
-/// label: poly's `[lint.uncomment]` pass (on by default in this same generated file) does
+/// label: poly's `[engines.uncomment]` pass (on by default in this same generated file) does
 /// not list alef's marker among its preserved patterns, so it *could* strip the
 /// `<!-- alef:hash: -->` comment `docs::render::with_html_header` embeds in generated
 /// snippet Markdown — the only ownership proof such a file carries, since
@@ -267,6 +267,66 @@ AllowShortFunctionsOnASingleLine: Empty
 AllowShortIfStatementsOnASingleLine: false
 SortIncludes: true
 ";
+
+/// Oldest poly that reads the v2 `poly.toml` this module emits (`[engines.*]`, `per_file_ignores`,
+/// `[workspace] run`) and records hook-source refs in `poly.lock`.
+const POLY_REQUIRED_VERSION: &str = ">=0.36.0";
+
+/// The clang-format release poly downloads for `[tools.clang-format]`. Since poly 0.36 its generic
+/// C reindenter stands aside for any file under a `.clang-format`, so clang-format alone decides
+/// the bytes of a C header, and its layout differs between releases (18.1.8 and 23.1.0 each
+/// reproduce a different blob). Pinning the static build poly ships a checksum for makes the
+/// generated headers byte-identical on every machine and in CI. ~keep
+const CLANG_FORMAT_VERSION: &str = "21.1.8";
+
+/// harper rules switched off by default: they contradict the org's sentence-case headings and
+/// no-Oxford-comma style, or misread technical prose (denylist, MB, stdin).
+const HARPER_IGNORE: &[&str] = &[
+    "UseTitleCase",
+    "OxfordComma",
+    "SplitWords",
+    "OrthographicConsistency",
+    "ExpandMemoryShorthands",
+    "ExpandStandardInputAndOutput",
+    "ExpandConfiguration",
+    "ExpandMinimum",
+];
+
+/// Emit the opt-in `skif`, `tsrs` and `harper` engines a consumer enabled under `[workspace.poly]`.
+fn push_opt_in_engines(out: &mut String, poly: &crate::core::config::PolyConfig) {
+    if let Some(skif) = &poly.skif {
+        out.push_str(&format!(
+            "[engines.skif]\nenabled = {}\ndir = \"{}\"\n\n",
+            skif.enabled,
+            portable_dir(&skif.dir)
+        ));
+    }
+    if let Some(tsrs) = &poly.tsrs {
+        out.push_str(&format!(
+            "[engines.tsrs]\nenabled = {}\ndir = \"{}\"\n",
+            tsrs.enabled,
+            portable_dir(&tsrs.dir)
+        ));
+        if let Some(project) = &tsrs.project {
+            out.push_str(&format!("project = \"{}\"\n", portable_dir(project)));
+        }
+        out.push('\n');
+    }
+    if let Some(harper) = &poly.harper {
+        out.push_str(&format!("[engines.harper]\nenabled = {}\n", harper.enabled));
+        match &harper.ignore {
+            Some(ignore) => out.push_str(&format!("ignore = {}\n", toml_array(ignore))),
+            None => {
+                out.push_str(
+                    "# Off: rules that contradict the org's sentence-case headings and no-Oxford-comma style, or misread\n\
+                     # technical prose (denylist, MB, stdin). ~keep\n",
+                );
+                out.push_str(&format!("ignore = {}\n", toml_array(HARPER_IGNORE)));
+            }
+        }
+        out.push('\n');
+    }
+}
 
 /// Ruff rule families selected for generated + hand-written Python. This is an
 /// explicit allowlist rather than `select = ["ALL"]`: enabling every rule then
@@ -477,12 +537,12 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
 
     let mut out = String::new();
 
+    out.push_str(&format!("required_version = \"{POLY_REQUIRED_VERSION}\"\n\n"));
     out.push_str(&format!("[discovery]\nexclude = {discovery_excludes_toml}\n\n"));
 
-    // The `[lint]` super-table must precede every `[lint.*]` sub-table below: a super-table
-    // defined after its children parses but reads as a redefinition to a human. ~keep
     if let Some(workspace) = config.poly.lint_workspace {
-        out.push_str(&format!("[lint]\nworkspace = {workspace}\n\n"));
+        let run = if workspace { "auto" } else { "never" };
+        out.push_str(&format!("[workspace]\nrun = \"{run}\"\n\n"));
     }
 
     let md_lint_disable = toml_array(RUMDL_DISABLE);
@@ -493,14 +553,18 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
             .copied()
             .collect::<Vec<_>>(),
     );
-    out.push_str(&format!("[lint.markdown.rumdl]\ndisable = {md_lint_disable}\n\n"));
-    out.push_str(&format!("[fmt.markdown.rumdl]\ndisable = {md_fmt_disable}\n\n"));
+    out.push_str(&format!(
+        "[engines.rumdl.lang.markdown.lint]\ndisable = {md_lint_disable}\n\n"
+    ));
+    out.push_str(&format!(
+        "[engines.rumdl.lang.markdown.format]\ndisable = {md_fmt_disable}\n\n"
+    ));
 
     // NOTE: alef deliberately does NOT enable poly's opt-in native-toolchain
 
     if has(Language::Python) {
         out.push_str(&format!(
-            "[lint.python.ruff]\nselect = {select}\nignore = {ignore}\n",
+            "[engines.ruff.lint]\nselect = {select}\nignore = {ignore}\n",
             select = toml_array(RUFF_SELECT),
             ignore = toml_array(RUFF_IGNORE)
         ));
@@ -515,21 +579,23 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
 
     if has(Language::Php) {
         out.push_str(&format!(
-            "[lint.php.mago]\nselect = [\"correctness\", \"security\"]\nignore = {ignore}\nphp_version = \"{php_min}\"\n\n",
+            "[engines.mago.lint]\nselect = [\"correctness\", \"security\"]\nignore = {ignore}\nphp_version = \"{php_min}\"\n\n",
             ignore = toml_array(MAGO_IGNORE),
             php_min = crate::core::template_versions::toolchain::PHP_MIN_VERSION,
         ));
     }
 
+    // typos is opt-in under the v2 schema; v1 ran it by default and every consumer relies on it. ~keep
+    out.push_str("[engines.typos]\nenabled = true\n\n");
     if !config.poly.typos.extend_words.is_empty() {
-        out.push_str("[lint.typos.extend_words]\n");
+        out.push_str("[engines.typos.extend_words]\n");
         for (word, correct) in &config.poly.typos.extend_words {
             out.push_str(&format!("{word} = \"{correct}\"\n"));
         }
         out.push('\n');
     }
     if !config.poly.typos.extend_identifiers.is_empty() {
-        out.push_str("[lint.typos.extend_identifiers]\n");
+        out.push_str("[engines.typos.extend_identifiers]\n");
         for (ident, correct) in &config.poly.typos.extend_identifiers {
             out.push_str(&format!("{ident} = \"{correct}\"\n"));
         }
@@ -537,7 +603,7 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
     }
 
     if let Some(uncomment) = &config.poly.uncomment {
-        out.push_str("[lint.uncomment]\n");
+        out.push_str("[engines.uncomment]\n");
         out.push_str(&format!("enabled = {}\n", uncomment.enabled));
         out.push_str(&format!("remove_todos = {}\n", uncomment.remove_todos));
         out.push_str(&format!("remove_fixme = {}\n", uncomment.remove_fixme));
@@ -552,7 +618,7 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
     // `poly_toml_never_enables_system_native_formatters`. A consumer that hand-edits
     // shell scripts and wants them formatted declares `[workspace.poly.shell-formatter]`.
     if let Some(shell_formatter) = &config.poly.shell_formatter {
-        out.push_str("[fmt.shell.shfmt]\n");
+        out.push_str("[engines.shfmt.format]\n");
         out.push_str(&format!("enabled = {}\n", shell_formatter.enabled));
         if let Some(indent_width) = shell_formatter.indent_width {
             out.push_str(&format!("indent_width = {indent_width}\n"));
@@ -567,8 +633,12 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
     // `.clang-format`) whenever they exist. The headers are deliberately NOT in
     // EXCLUDES so poly can reach them.
     if has(Language::Ffi) {
-        out.push_str("[tools.clang-format]\nenabled = true\n\n");
+        out.push_str(&format!(
+            "[tools.clang-format]\nenabled = true\nversion = \"{CLANG_FORMAT_VERSION}\"\ninstall = \"auto\"\n\n"
+        ));
     }
+
+    push_opt_in_engines(&mut out, &config.poly);
 
     // poly has no native Elixir formatter and no bundled `indents.scm`, so without
     // this it reindents `.ex`/`.exs` with a hand-rolled tree-sitter query that models
@@ -581,7 +651,7 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
         out.push_str(&format!("[tools.mix]\nenabled = true\nroot = \"{dir}\"\n\n"));
     }
 
-    out.push_str("[per-file-ignores]\n");
+    out.push_str("[per_file_ignores]\n");
     if has(Language::Python) {
         out.push_str(
             "\"**/api.py\" = [ \"F401\", \"I001\", \"TC006\", \"UP035\" ]\n\
@@ -793,11 +863,11 @@ mod tests {
     fn should_disable_md025_for_fmt_only() {
         let content = poly_toml();
         assert!(
-            disable_list(&content, "[fmt.markdown.rumdl]").contains("\"MD025\""),
+            disable_list(&content, "[engines.rumdl.lang.markdown.format]").contains("\"MD025\""),
             "fmt must not run MD025's autofix: it demotes every heading after a stray H1"
         );
         assert!(
-            !disable_list(&content, "[lint.markdown.rumdl]").contains("\"MD025\""),
+            !disable_list(&content, "[engines.rumdl.lang.markdown.lint]").contains("\"MD025\""),
             "lint must keep reporting MD025 so a stray H1 is still surfaced"
         );
     }
@@ -805,8 +875,8 @@ mod tests {
     #[test]
     fn should_keep_shared_rumdl_disables_in_both_tables() {
         let content = poly_toml();
-        let lint = disable_list(&content, "[lint.markdown.rumdl]");
-        let fmt = disable_list(&content, "[fmt.markdown.rumdl]");
+        let lint = disable_list(&content, "[engines.rumdl.lang.markdown.lint]");
+        let fmt = disable_list(&content, "[engines.rumdl.lang.markdown.format]");
         for rule in RUMDL_DISABLE {
             assert!(
                 lint.contains(&format!("\"{rule}\"")),

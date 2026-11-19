@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Emit the v2 `poly.toml` schema poly 0.36 reads: `[engines.*]` tables, `[per_file_ignores]`, `[workspace] run` for `lint-workspace`, `required_version = ">=0.36.0"`, and `[engines.typos] enabled = true` so spell checking stays on. An existing v1 `poly.toml` is converted in place, the way `poly migrate --to-v2` writes it, before the managed merge, so no consumer ends up with a mixed file poly rejects.
+- Pin `[tools.clang-format]` to the 21.1.8 static build poly downloads (`install = "auto"`): since poly 0.36, clang-format alone formats C headers under the generated `.clang-format`, and its layout differs between releases.
+
+### Added
+
+- `[workspace.poly.skif]`, `[workspace.poly.tsrs]` (`dir`, optional `project`) and `[workspace.poly.harper]` (optional `ignore`, defaulting to the org's list) enable poly's opt-in skif, tsrs and harper engines in the generated `poly.toml`.
+
 ## [0.130.4] - 2026-11-17
 
 ### Added
