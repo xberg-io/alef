@@ -52,7 +52,7 @@ fn emits_only_v2_tables_for_every_language() {
     for v1_key in ["lint", "fmt", "per-file-ignores", "rules"] {
         assert!(parsed.get(v1_key).is_none(), "v1 `{v1_key}` emitted:\n{content}");
     }
-    assert_eq!(parsed["required_version"].as_str(), Some(">=0.36.0"));
+    assert_eq!(parsed["required_version"].as_str(), Some(">=0.36.1"));
     assert_eq!(parsed["workspace"]["run"].as_str(), Some("never"));
     let engines = &parsed["engines"];
     assert!(engines["ruff"]["lint"]["select"].is_array());
@@ -85,6 +85,18 @@ fn pins_the_clang_format_release_poly_downloads_for_ffi_headers() {
     assert_eq!(clang_format["enabled"].as_bool(), Some(true), "{content}");
     assert_eq!(clang_format["version"].as_str(), Some("21.1.8"), "{content}");
     assert_eq!(clang_format["install"].as_str(), Some("auto"), "{content}");
+}
+
+/// Since 0.36.1, poly hands clang-format the C family only; a `files` key opts every language clang-format
+/// knows into it, so `tsconfig.json`, `.js` and `.java` would be rewritten to the `.clang-format` indent.
+#[test]
+fn clang_format_table_leaves_json_javascript_and_java_to_their_own_formatters() {
+    let languages = [Language::Ffi, Language::Node, Language::Java];
+    let (content, parsed) = poly_toml_for(&ResolvedCrateConfig::default(), &languages);
+    let clang_format = parsed["tools"]["clang-format"].as_table().expect("clang-format table");
+    let mut keys: Vec<&str> = clang_format.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["enabled", "install", "version"], "{content}");
 }
 
 #[test]

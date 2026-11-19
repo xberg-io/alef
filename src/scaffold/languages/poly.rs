@@ -269,8 +269,10 @@ SortIncludes: true
 ";
 
 /// Oldest poly that reads the v2 `poly.toml` this module emits (`[engines.*]`, `per_file_ignores`,
-/// `[workspace] run`) and records hook-source refs in `poly.lock`.
-const POLY_REQUIRED_VERSION: &str = ">=0.36.0";
+/// `[workspace] run`) and records hook-source refs in `poly.lock`. Release 0.36.0 read it too, but
+/// handed every JSON, JavaScript and Java file to the `[tools.clang-format]` enabled for FFI
+/// headers; 0.36.1 keeps clang-format to the C family unless the table names `files`. ~keep
+const POLY_REQUIRED_VERSION: &str = ">=0.36.1";
 
 /// The clang-format release poly downloads for `[tools.clang-format]`. Since poly 0.36 its generic
 /// C reindenter stands aside for any file under a `.clang-format`, so clang-format alone decides

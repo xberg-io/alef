@@ -9,8 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Emit the v2 `poly.toml` schema poly 0.36 reads: `[engines.*]` tables, `[per_file_ignores]`, `[workspace] run` for `lint-workspace`, `required_version = ">=0.36.0"`, and `[engines.typos] enabled = true` so spell checking stays on. An existing v1 `poly.toml` is converted in place, the way `poly migrate --to-v2` writes it, before the managed merge, so no consumer ends up with a mixed file poly rejects.
+- Emit the v2 `poly.toml` schema poly 0.36 reads: `[engines.*]` tables, `[per_file_ignores]`, `[workspace] run` for `lint-workspace`, `required_version = ">=0.36.1"`, and `[engines.typos] enabled = true` so spell checking stays on. An existing v1 `poly.toml` is converted in place, the way `poly migrate --to-v2` writes it, before the managed merge, so no consumer ends up with a mixed file poly rejects.
 - Pin `[tools.clang-format]` to the 21.1.8 static build poly downloads (`install = "auto"`): since poly 0.36, clang-format alone formats C headers under the generated `.clang-format`, and its layout differs between releases.
+- Require poly 0.36.1 in the generated `poly.toml`: poly 0.36.0 handed every JSON, JavaScript and Java file to the `[tools.clang-format]` enabled for FFI headers, rewriting `tsconfig.json` and friends to the `.clang-format` indent. 0.36.1 keeps clang-format to C, C++ and Objective-C, and the generated table names no `files`, which would opt the other languages back in.
 - alef's own toolchain follows baseline v1.21.0 (poly 0.36.1), and CI pins poly 0.36.1.
 
 ### Added
