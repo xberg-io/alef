@@ -28,17 +28,17 @@ const POLY_ACTION_MAJOR_TAG: &str = "v0";
 
 /// The `version:` value the action's `with:` block, and the "Verify downstream tooling"
 /// step's own runtime check, must both agree on.
-const PINNED_POLY_VERSION: &str = "v0.32.1";
+const PINNED_POLY_VERSION: &str = "v0.36.0";
 
-/// Whether `block` has an actual `uses:` step line installing `Goldziher/poly` at its major tag.
+/// Whether `block` has an actual `uses:` step line installing `polylint/polylint` at its major tag.
 ///
 /// Deliberately line-scoped rather than a whole-block substring search: the surrounding
-/// comments and the version-mismatch error message both mention `Goldziher/poly` refs in prose,
+/// comments and the version-mismatch error message both mention `polylint/polylint` refs in prose,
 /// so a whole-block search would pass even if the `uses:` line itself were deleted. Only a line
-/// whose trimmed text starts with `uses: Goldziher/poly@` counts, and the ref that follows must
+/// whose trimmed text starts with `uses: polylint/polylint@` counts, and the ref that follows must
 /// be exactly [`POLY_ACTION_MAJOR_TAG`]. ~keep
 fn uses_line_installs_poly_at_major_tag(block: &str) -> bool {
-    const USES_PREFIX: &str = "uses: Goldziher/poly@";
+    const USES_PREFIX: &str = "uses: polylint/polylint@";
     block.lines().any(|line| {
         let Some(rest) = line.trim_start().strip_prefix(USES_PREFIX) else {
             return false;
@@ -87,7 +87,7 @@ fn ci_workflow_pins_poly_in_the_generated_output_gate() {
 
     assert!(
         uses_line_installs_poly_at_major_tag(&block),
-        "the `{GATE_JOB}` job in {} must have a `uses: Goldziher/poly@{POLY_ACTION_MAJOR_TAG}` \
+        "the `{GATE_JOB}` job in {} must have a `uses: polylint/polylint@{POLY_ACTION_MAJOR_TAG}` \
          step, not just prose mentioning a ref -- a full release tag, a commit SHA, or a step \
          deleted outright would not satisfy this:\n\
          --- job block as parsed ---\n{block}",
@@ -120,24 +120,23 @@ fn ci_workflow_pins_poly_in_the_generated_output_gate() {
 /// with nothing here to catch it. ~keep
 #[test]
 fn uses_line_installs_poly_at_major_tag_rejects_comment_only_and_other_ref_shapes() {
-    let major_tag_uses = "      - name: Install poly\n        uses: Goldziher/poly@v0\n";
+    let major_tag_uses = "      - name: Install poly\n        uses: polylint/polylint@v0\n";
     assert!(
         uses_line_installs_poly_at_major_tag(major_tag_uses),
         "a real `uses:` line at the major tag must be accepted"
     );
     let uses_comment_only =
-        "      # Goldziher/poly@v0 currently resolves to fed55c3355480f0d1c23cb6084395e66bbb1cdc8\n";
+        "      # polylint/polylint@v0 currently resolves to fed55c3355480f0d1c23cb6084395e66bbb1cdc8\n";
     assert!(
         !uses_line_installs_poly_at_major_tag(uses_comment_only),
         "prose mentioning the tag, with no `uses:` line, must not satisfy the check"
     );
-    let uses_release_tag = "      - name: Install poly\n        uses: Goldziher/poly@v0.27.0\n";
+    let uses_release_tag = "      - name: Install poly\n        uses: polylint/polylint@v0.27.0\n";
     assert!(
         !uses_line_installs_poly_at_major_tag(uses_release_tag),
         "a full release tag drifts out of step with the rest of the workflow and must not satisfy the check"
     );
-    let uses_sha =
-        "      - name: Install poly\n        uses: Goldziher/poly@fed55c3355480f0d1c23cb6084395e66bbb1cdc8 # v0.22.0\n";
+    let uses_sha = "      - name: Install poly\n        uses: polylint/polylint@fed55c3355480f0d1c23cb6084395e66bbb1cdc8 # v0.22.0\n";
     assert!(
         !uses_line_installs_poly_at_major_tag(uses_sha),
         "a commit SHA must not satisfy the check"

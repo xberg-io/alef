@@ -73,7 +73,7 @@ jobs:
   poly-validate:
     uses: xberg-io/actions/.github/workflows/reusable-validate.yml@v1
     with:
-      poly-version: v0.32.1
+      poly-version: v0.36.0
       setup-rust: true
       rust-use-sccache: false
       setup-python: true
@@ -93,6 +93,8 @@ jobs:
     env:
       # uv must use an installed interpreter, not download its own. ~keep
       UV_PYTHON_PREFERENCE: only-system
+      # poly 0.36 ignores exec-capable poly.toml keys in an untrusted repository. ~keep
+      POLY_TRUST: "1"
     steps:
       - uses: actions/checkout@v7
       # Bats has no Windows build in mise.lock; the Windows leg skips the Bats runtime tests. ~keep
@@ -140,7 +142,7 @@ jobs:
       # poly version this repo's tests run against. ~keep
       #
       # Linux and macOS only: poly's installer refuses to run on Windows ("Windows detected.
-      # Use the PowerShell installer"), and the `Goldziher/poly@v0` action wraps that same
+      # Use the PowerShell installer"), and the `polylint/polylint@v0` action wraps that same
       # `install.sh`, so requesting it on the Windows leg fails the job outright. Skipping it
       # there is correct rather than a workaround: since alef#458 the drift check degrades to a
       # counted, reported skip when poly is absent instead of inventing drift, so the Windows
@@ -148,9 +150,9 @@ jobs:
       # OSes every run. ~keep
       - name: Install poly
         if: runner.os != 'Windows'
-        uses: Goldziher/poly@v0
+        uses: polylint/polylint@v0
         with:
-          version: v0.32.1
+          version: v0.36.0
       # Matches `template_versions::toolchain::JAVA_JVM_TARGET`: alef's generated Java service
       # bindings use the `java.lang.foreign` FFM API, stable only from JDK 22. This JDK is also
       # `javac`, the oracle `ALEF_REQUIRE_JAVAC` below requires. ~keep
@@ -425,6 +427,9 @@ jobs:
     name: Generated output gate
     needs: validate
     runs-on: ubuntu-latest
+    env:
+      # poly 0.36 ignores exec-capable poly.toml keys in an untrusted repository. ~keep
+      POLY_TRUST: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: xberg-io/actions/setup-rust@v1
@@ -440,19 +445,19 @@ jobs:
       # added-large-files]` entry in poly.toml shells out to `poly hooks check
       # --added-large-files`, which poly's own `--help` labels internal/hidden -- not part
       # of its user-facing surface, so a future poly could rename or drop it without that
-      # being a documented breaking change. `Goldziher/poly` is the project's own
+      # being a documented breaking change. `polylint/polylint` is the project's own
       # composite action; it forwards `version:` to the project's checksum-verified
       # `install.sh`, so this is a true, verified pin, not a presence check. See
-      # https://github.com/Goldziher/poly#github-actions. ~keep
+      # https://github.com/polylint/polylint#github-actions. ~keep
       - name: Install poly
         # The `uses:` major tag selects the *action code*, like every other action in this
         # workflow. `version:` pins the *poly release the action installs*, which the step
         # below re-checks at runtime; bumping it is a deliberate call, because this repo's lint
         # output is version-sensitive and has differed between poly patch releases.
         # `tests/ci_poly_pin_gate.rs` enforces both. ~keep
-        uses: Goldziher/poly@v0
+        uses: polylint/polylint@v0
         with:
-          version: v0.32.1
+          version: v0.36.0
       # Both tools must be present *before* the lanes run. The lanes fail on a missing
       # tool rather than skipping, so this step exists to fail earlier and more legibly,
       # not to decide whether the gate runs. The poly assertions are deliberately strict
@@ -468,8 +473,8 @@ jobs:
           cargo sort --version
 
           installed_poly_version="$(poly --version | awk '{print $2}')"
-          if [ "$installed_poly_version" != "0.32.1" ]; then
-            echo "::error::expected poly 0.32.1 (pinned for the poly.toml added-large-files hook), got ${installed_poly_version:-<empty>}. Update the Goldziher/poly version: input above together with this check." >&2
+          if [ "$installed_poly_version" != "0.36.0" ]; then
+            echo "::error::expected poly 0.36.0 (pinned for the poly.toml added-large-files hook), got ${installed_poly_version:-<empty>}. Update the polylint/polylint version: input above together with this check." >&2
             exit 1
           fi
           echo "poly ${installed_poly_version} matches the pinned version."

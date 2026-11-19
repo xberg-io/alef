@@ -1,3 +1,5 @@
+required_version = ">=0.36.0"
+
 [discovery]
 exclude = [
   "**/*.jinja",
@@ -13,8 +15,6 @@ exclude = [
   "schemas/**",
   "target/**",
   "tests/snapshots/**",
-  "crates/*-ffi/include/*.h",
-  "packages/go/include/*.h",
   "/.ai-rulez/.generated-manifest.json",
   "/.mcp.json",
   # adrlint owns ADR Markdown with its own rumdl config and content-hash lock; poly would
@@ -22,27 +22,7 @@ exclude = [
   "/adrs/**",
 ]
 
-[lint.typos]
-extend_words = { Prelease = "Prelease", wrkspace = "wrkspace", abl = "abl", unparseable = "unparseable", tring = "tring", ser = "ser", arange = "arange", delocate = "delocate", flate = "flate", CPY = "CPY", mis = "mis", alls = "alls", substantiable = "substantiable", clude = "clude", Confg = "Confg", Respnse = "Respnse", dcoker = "dcoker", pyhton = "pyhton", addresss = "addresss", caf = "caf", compilability = "compilability", orgin = "orgin" }
-
-[lint.markdown.rumdl]
-disable = ["MD025", "MD012", "MD013", "MD024", "MD033", "MD036", "MD041", "MD046", "MD051", "MD076"]
-
-
-[lint.uncomment]
-enabled = true
-remove_todos = false
-remove_fixme = false
-remove_docs = false
-use_default_ignores = true
-preserve_patterns = ["SAFETY", "HACK", "WORKAROUND", "NOTE", "~keep"]
-# MD025 stays enabled for lint but disabled for fmt: rumdl's autofix for a second
-# level-1 heading demotes every heading that follows it, which silently reparents a
-# whole CHANGELOG under [Unreleased] and breaks release-note extraction. ~keep
-[fmt.markdown.rumdl]
-disable = ["MD012", "MD013", "MD024", "MD033", "MD036", "MD041", "MD046", "MD051", "MD076", "MD025"]
-
-[lint.python.ruff]
+[engines.ruff.lint]
 select = ["ALL"]
 ignore = [
   "ANN401",
@@ -75,7 +55,48 @@ pylint_max_args = 10
 pylint_max_branches = 15
 pylint_max_returns = 10
 
-[per-file-ignores]
+[engines.rumdl.lang.markdown.lint]
+disable = ["MD025", "MD012", "MD013", "MD024", "MD033", "MD036", "MD041", "MD046", "MD051", "MD076"]
+
+[engines.rumdl.lang.markdown.format]
+# MD025 stays enabled for lint but disabled for fmt: rumdl's autofix for a second
+# level-1 heading demotes every heading that follows it, which silently reparents a
+# whole CHANGELOG under [Unreleased] and breaks release-note extraction. ~keep
+disable = ["MD012", "MD013", "MD024", "MD033", "MD036", "MD041", "MD046", "MD051", "MD076", "MD025"]
+
+[engines.shfmt.format]
+# Shell is two-space in this tree. Both keys are load-bearing: without `enabled` poly runs no
+# shell formatter at all, and without `indent_width` it falls through to the language default of
+# four and reindents every script. poly resolves this from here, not .editorconfig -- it pipes
+# stdin to shfmt with an explicit -i, under which .editorconfig is inert by design. ~keep
+enabled = true
+indent_width = 2
+
+[engines.typos]
+# typos is opt-in in poly v2; this keeps the v1 default (on).
+enabled = true
+extend_words = { Prelease = "Prelease", wrkspace = "wrkspace", abl = "abl", unparseable = "unparseable", tring = "tring", ser = "ser", arange = "arange", delocate = "delocate", flate = "flate", CPY = "CPY", mis = "mis", alls = "alls", substantiable = "substantiable", clude = "clude", Confg = "Confg", Respnse = "Respnse", dcoker = "dcoker", pyhton = "pyhton", addresss = "addresss", caf = "caf", compilability = "compilability", orgin = "orgin" }
+
+[engines.uncomment]
+enabled = true
+preserve_patterns = ["SAFETY", "HACK", "WORKAROUND", "NOTE", "~keep"]
+
+[engines.harper]
+enabled = true
+# Off: rules that contradict the org's sentence-case headings and no-Oxford-comma style, or misread technical prose
+# (denylist, MB, stdin). ~keep
+ignore = [
+  "UseTitleCase",
+  "OxfordComma",
+  "SplitWords",
+  "OrthographicConsistency",
+  "ExpandMemoryShorthands",
+  "ExpandStandardInputAndOutput",
+  "ExpandConfiguration",
+  "ExpandMinimum",
+]
+
+[per_file_ignores]
 # `lazy-ignore` fires on Python suppression directives quoted inside Rust PROSE: these
 # files document how the generated Python suppression surface works, so they name those
 # directives in comments and doc strings. None is an actual directive. Verified at all
@@ -1189,18 +1210,12 @@ pylint_max_returns = 10
 "src/e2e/codegen/python/visitor_context_runtime_driver.py" = ["CPY001", "INP001"]
 # ~keep Embedded by a Rust test, this driver uses assertions and is not an importable Python package.
 "tests/backends_pyo3_managed_runtime_test/runtime.py" = ["INP001", "S101"]
-"e2e/**" = ["comment", "doc-comment"]
 "**/e2e/**" = ["comment", "doc-comment"]
-"test_apps/**" = ["comment", "doc-comment"]
 "**/test_apps/**" = ["comment", "doc-comment"]
-"docs/assets/**" = ["comment", "doc-comment"]
 "**/generated/**" = ["comment", "doc-comment"]
 "**/*.generated.*" = ["comment", "doc-comment"]
 "**/*.g.*" = ["comment", "doc-comment"]
 "**/*.freezed.*" = ["comment", "doc-comment"]
-"crates/*-ffi/include/*.h" = ["comment", "doc-comment"]
-"packages/go/include/*.h" = ["comment", "doc-comment"]
-"Package.swift" = ["comment", "doc-comment"]
 
 [hooks]
 stages = ["pre-commit"]
@@ -1220,8 +1235,6 @@ lint = { exclude = [
   "schemas/**",
   "target/**",
   "tests/snapshots/**",
-  "crates/*-ffi/include/*.h",
-  "packages/go/include/*.h",
   "/.ai-rulez/.generated-manifest.json",
   "/.mcp.json",
   "/adrs/**",
@@ -1240,8 +1253,6 @@ fmt = { exclude = [
   "schemas/**",
   "target/**",
   "tests/snapshots/**",
-  "crates/*-ffi/include/*.h",
-  "packages/go/include/*.h",
   "/.ai-rulez/.generated-manifest.json",
   "/.mcp.json",
   "/adrs/**",
@@ -1260,8 +1271,6 @@ file_safety = { added_large_files = false, exclude = [
   "schemas/**",
   "target/**",
   "tests/snapshots/**",
-  "crates/*-ffi/include/*.h",
-  "packages/go/include/*.h",
   "/.ai-rulez/.generated-manifest.json",
   "/.mcp.json",
 ] }
@@ -1287,8 +1296,6 @@ exclude = [
   "schemas/**",
   "target/**",
   "tests/snapshots/**",
-  "crates/*-ffi/include/*.h",
-  "packages/go/include/*.h",
 ]
 
 [[hooks.sources]]
@@ -1302,11 +1309,3 @@ id = "adrlint"
 git = "https://github.com/Goldziher/adrlint.git"
 revision = "v0"
 hooks = ["adrlint-lint", "adrlint-format-check", "adrlint-lock-check"]
-
-# Shell is two-space in this tree. Both keys are load-bearing: without `enabled` poly runs no
-# shell formatter at all, and without `indent_width` it falls through to the language default of
-# four and reindents every script. poly resolves this from here, not .editorconfig -- it pipes
-# stdin to shfmt with an explicit -i, under which .editorconfig is inert by design. ~keep
-[fmt.shell.shfmt]
-enabled = true
-indent_width = 2
