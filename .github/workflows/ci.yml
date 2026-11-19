@@ -73,7 +73,7 @@ jobs:
   poly-validate:
     uses: xberg-io/actions/.github/workflows/reusable-validate.yml@v1
     with:
-      poly-version: v0.36.0
+      poly-version: v0.36.1
       setup-rust: true
       rust-use-sccache: false
       setup-python: true
@@ -152,7 +152,7 @@ jobs:
         if: runner.os != 'Windows'
         uses: polylint/polylint@v0
         with:
-          version: v0.36.0
+          version: v0.36.1
       # Matches `template_versions::toolchain::JAVA_JVM_TARGET`: alef's generated Java service
       # bindings use the `java.lang.foreign` FFM API, stable only from JDK 22. This JDK is also
       # `javac`, the oracle `ALEF_REQUIRE_JAVAC` below requires. ~keep
@@ -457,7 +457,7 @@ jobs:
         # `tests/ci_poly_pin_gate.rs` enforces both. ~keep
         uses: polylint/polylint@v0
         with:
-          version: v0.36.0
+          version: v0.36.1
       # Both tools must be present *before* the lanes run. The lanes fail on a missing
       # tool rather than skipping, so this step exists to fail earlier and more legibly,
       # not to decide whether the gate runs. The poly assertions are deliberately strict
@@ -473,8 +473,8 @@ jobs:
           cargo sort --version
 
           installed_poly_version="$(poly --version | awk '{print $2}')"
-          if [ "$installed_poly_version" != "0.36.0" ]; then
-            echo "::error::expected poly 0.36.0 (pinned for the poly.toml added-large-files hook), got ${installed_poly_version:-<empty>}. Update the polylint/polylint version: input above together with this check." >&2
+          if [ "$installed_poly_version" != "0.36.1" ]; then
+            echo "::error::expected poly 0.36.1 (pinned for the poly.toml added-large-files hook), got ${installed_poly_version:-<empty>}. Update the polylint/polylint version: input above together with this check." >&2
             exit 1
           fi
           echo "poly ${installed_poly_version} matches the pinned version."
