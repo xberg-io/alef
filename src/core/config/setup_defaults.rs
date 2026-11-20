@@ -110,6 +110,19 @@ mod tests {
     }
 
     #[test]
+    fn php_install_runs_where_composer_json_is_and_never_prompts() {
+        let command = cfg(Language::Php, "packages/php")
+            .install
+            .expect("php setup command")
+            .commands()
+            .join(" ");
+        assert_eq!(
+            command,
+            "if [ -f packages/php/composer.json ]; then cd packages/php; fi && composer install --no-interaction"
+        );
+    }
+
+    #[test]
     fn ffi_has_no_install_command() {
         let c = cfg(Language::Ffi, "packages/ffi");
         assert!(c.install.is_none());

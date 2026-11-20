@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Default PHP setup runs `composer install --no-interaction` in the output directory only when it holds a `composer.json`, else at the repository root: repos with a root-only manifest no longer hang `alef setup` on Composer's parent-directory prompt until the timeout.
+
 ## [0.131.0] - 2026-11-19
 
 ### Changed

@@ -97,7 +97,11 @@ pub(super) fn php_config(lang: Language, output_dir: &str) -> SetupConfig {
     SetupConfig {
         precondition: Some(require_tool("composer")),
         before: None,
-        install: Some(StringOrVec::Single(format!("cd {output_dir} && composer install"))),
+        // Some repos keep composer.json only at the repository root; Composer would otherwise
+        // prompt interactively to use the parent directory and hang until the timeout.
+        install: Some(StringOrVec::Single(format!(
+            "if [ -f {output_dir}/composer.json ]; then cd {output_dir}; fi && composer install --no-interaction"
+        ))),
         timeout_seconds: 1800,
         workdir: default_setup_workdir(lang),
     }
