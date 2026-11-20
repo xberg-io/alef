@@ -118,7 +118,7 @@ mod tests {
             .join(" ");
         assert_eq!(
             command,
-            "if [ -f packages/php/composer.json ]; then cd packages/php; fi && composer install --no-interaction"
+            "if [ -f 'packages/php'/composer.json ]; then cd 'packages/php'; fi && composer install --no-interaction"
         );
     }
 
