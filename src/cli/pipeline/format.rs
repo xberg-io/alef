@@ -672,7 +672,14 @@ fn poly_format_pass_with(
         pass.record_missing(PACKAGE_TREE_SCOPE, "poly", POLY_FMT_STEP);
         return true;
     }
-    let outcome = run_poly(&existing, config_start);
+    // A first failure may be transient (poly refuses a file that changed while it was being
+    // processed), so a failed run is retried once before it is recorded. A missing executable
+    // is not retried. ~keep
+    let mut outcome = run_poly(&existing, config_start);
+    if outcome.as_ref().is_err_and(|error| !is_not_found(error)) {
+        warn!("poly fmt failed, retrying once: {:#}", outcome.as_ref().unwrap_err());
+        outcome = run_poly(&existing, config_start);
+    }
     if let Err(error) = outcome {
         // The working directory exists, so a spawn ENOENT means the `poly` executable itself is
         // gone (removed between the PATH probe and the run): that is a missing toolchain, fatal

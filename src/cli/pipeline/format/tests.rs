@@ -723,6 +723,43 @@ fn partial_regen_poly_convergence_is_capped_and_stops_on_failure() {
         },
         &|_dir| panic!("a failed pass must not be followed by a cleanliness probe"),
     );
-    assert_eq!(failing_runs.get(), 1);
+    assert_eq!(failing_runs.get(), 2, "one retry, then recorded");
+    assert_eq!(pass.skipped.len(), 1);
+}
+
+#[test]
+fn poly_fmt_failing_once_then_succeeding_records_nothing() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut pass = pass_with_poly_installed();
+    let paths = vec![dir.path().to_path_buf()];
+    let runs = std::cell::Cell::new(0u32);
+
+    let ran = poly_format_pass_with(&paths, dir.path(), &mut pass, &|_paths, _dir| {
+        runs.set(runs.get() + 1);
+        if runs.get() == 1 {
+            anyhow::bail!("file changed while it was being processed")
+        }
+        Ok(())
+    });
+
+    assert!(ran);
+    assert_eq!(runs.get(), 2);
+    assert!(pass.skipped.is_empty());
+}
+
+#[test]
+fn poly_fmt_failing_twice_is_recorded() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut pass = pass_with_poly_installed();
+    let paths = vec![dir.path().to_path_buf()];
+    let runs = std::cell::Cell::new(0u32);
+
+    let ran = poly_format_pass_with(&paths, dir.path(), &mut pass, &|_paths, _dir| {
+        runs.set(runs.get() + 1);
+        anyhow::bail!("still failing")
+    });
+
+    assert!(!ran);
+    assert_eq!(runs.get(), 2);
     assert_eq!(pass.skipped.len(), 1);
 }
