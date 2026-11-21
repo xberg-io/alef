@@ -27,6 +27,17 @@
       <url>{{ license_url }}</url>
 {% endif %}
     </license>
+{% for extra in additional_licenses %}
+    <license>
+      <name>{{ extra.name }}</name>
+{% if extra.url %}
+      <url>{{ extra.url }}</url>
+{% endif %}
+{% if extra.comments %}
+      <comments>{{ extra.comments }}</comments>
+{% endif %}
+    </license>
+{% endfor %}
   </licenses>
 
 {% if authors %}

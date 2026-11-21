@@ -146,6 +146,36 @@
       ],
       "type": "string"
     },
+    "AdditionalLicenseConfig": {
+      "additionalProperties": false,
+      "description": "One extra `<license>` entry in a generated Maven POM.",
+      "properties": {
+        "comments": {
+          "default": null,
+          "description": "Free-form note shown in the POM, e.g. which bundled component the\nlicense covers.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "SPDX expression or license name, e.g. `\"LGPL-2.1-or-later\"`.",
+          "type": "string"
+        },
+        "url": {
+          "default": null,
+          "description": "URL of the license text.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
     "ArgMapping": {
       "additionalProperties": false,
       "description": "Maps a fixture input field to a function argument.",
@@ -4178,6 +4208,14 @@
             "null"
           ]
         },
+        "bundled_notices": {
+          "default": [],
+          "description": "Workspace-root-relative files (e.g. `\"LICENSE\"`, `\"THIRD_PARTY_LICENSES.md\"`)\ncopied into the generated AAR at `META-INF/<path>`. Every path is\nchecked to exist when alef generates the project.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "capsule_types": {
           "additionalProperties": {
             "$ref": "#/$defs/HostCapsuleTypeConfig"
@@ -4913,6 +4951,14 @@
       "additionalProperties": false,
       "description": "Shared package metadata used by language package manifests.\n\nValues can be set at `[workspace.package_metadata]` and overridden per\n`[[crates]]` entry with `[crates.package_metadata]`.",
       "properties": {
+        "additional_licenses": {
+          "default": [],
+          "description": "Extra licenses shipped inside the generated package, declared after the\nproject license in a generated Maven POM's `<licenses>` block (for\nexample the license of a bundled native library).",
+          "items": {
+            "$ref": "#/$defs/AdditionalLicenseConfig"
+          },
+          "type": "array"
+        },
         "authors": {
           "default": [],
           "items": {
@@ -8849,7 +8895,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/xberg-io/alef/releases/download/v0.131.1/alef.schema.json",
+  "$id": "https://github.com/xberg-io/alef/releases/download/v0.132.0/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -8984,6 +9030,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.131.1",
-  "x-alef-version": "0.131.1"
+  "version": "0.132.0",
+  "x-alef-version": "0.132.0"
 }
