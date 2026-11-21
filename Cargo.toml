@@ -80,7 +80,7 @@ heck = "0.5"
 icu_casemap = "2.4"
 jsonschema = { version = "0.62", default-features = false, features = ["resolve-file"] }
 libloading = { version = "0.9", optional = true }
-minijinja = { version = "3.0", features = ["serde"] }
+minijinja = { version = "3.1", features = ["serde"] }
 proc-macro2 = "1"
 quote = "1"
 rayon = "1"
@@ -88,7 +88,7 @@ regex = "1"
 schemars = "1"
 semver = "1"
 serde = { version = "1", features = ["derive"] }
-serde-saphyr = { version = "2.1", default-features = false, features = ["deserialize"] }
+serde-saphyr = { version = "2.2", default-features = false, features = ["deserialize"] }
 serde_json = "1"
 sha2 = "0.11"
 similar = "3"
