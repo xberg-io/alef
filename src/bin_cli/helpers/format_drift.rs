@@ -278,22 +278,40 @@ fn real_formatter_drift_with_runner(
 }
 
 /// Run each writer-context formatter batch and return the contexts whose bytes cannot be trusted
-/// because the formatter failed. ~keep
+/// because the formatter failed.
+///
+/// Each batch is re-run until its staged bytes stop changing, bounded by the writer's own pass
+/// cap: `alef all` converges `poly fmt --fix` to a fixed point because some bundled engines
+/// (`.java`, `.cs`, `.json`) are not single-pass idempotent, so one staged pass would compare
+/// disk against an intermediate state the writer never leaves behind (alef#934). ~keep
 fn run_format_candidates(
     paths_by_context: BTreeMap<&Path, Vec<PathBuf>>,
     run_formatter: &dyn Fn(&[PathBuf], &Path) -> anyhow::Result<()>,
 ) -> HashSet<PathBuf> {
     let mut failed = HashSet::new();
     for (context, paths) in paths_by_context {
-        if let Err(error) = run_formatter(&paths, context) {
-            tracing::warn!(
-                context = %context.display(),
-                "poly fmt over the drift-check temp copies failed (non-fatal): {error:#}"
-            );
-            failed.insert(context.to_path_buf());
+        let mut previous = staged_bytes(&paths);
+        for _pass in 0..crate::cli::pipeline::MAX_POLY_FMT_PASSES {
+            if let Err(error) = run_formatter(&paths, context) {
+                tracing::warn!(
+                    context = %context.display(),
+                    "poly fmt over the drift-check temp copies failed (non-fatal): {error:#}"
+                );
+                failed.insert(context.to_path_buf());
+                break;
+            }
+            let current = staged_bytes(&paths);
+            if current == previous {
+                break;
+            }
+            previous = current;
         }
     }
     failed
+}
+
+fn staged_bytes(paths: &[PathBuf]) -> Vec<Option<Vec<u8>>> {
+    paths.iter().map(|path| std::fs::read(path).ok()).collect()
 }
 
 /// Compare only staged files whose formatter completed and whose formatted bytes remain readable. ~keep

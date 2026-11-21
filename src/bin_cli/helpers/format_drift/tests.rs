@@ -312,6 +312,30 @@ fn failed_formatter_candidates_are_not_reported_as_content_verified() {
     assert!(stats.content_verified_paths.is_empty());
 }
 
+/// The writer converges `poly fmt --fix` to a fixed point because some bundled engines (Java
+/// among them) are not single-pass idempotent. A single staged pass reports drift for a file
+/// whose on-disk bytes are exactly the writer's fixed point (alef#934). ~keep
+#[test]
+fn staged_formatting_converges_like_the_writer_for_non_idempotent_formatters() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let real_path = dir.path().join("Xberg.java");
+    std::fs::write(&real_path, "converged\n").unwrap();
+    let item = candidate(&real_path, "converged\n", "raw render\n");
+
+    let runner = |paths: &[std::path::PathBuf], _context: &std::path::Path| {
+        let next = match std::fs::read_to_string(&paths[0])?.as_str() {
+            "raw render\n" => "half formatted\n",
+            _ => "converged\n",
+        };
+        std::fs::write(&paths[0], next)?;
+        Ok(())
+    };
+    let (drifted, stats) = real_formatter_drift_with_runner(vec![item], dir.path(), &|tool| tool == "poly", &runner);
+
+    assert!(drifted.is_empty(), "a fixed-point file must not drift: {drifted:?}");
+    assert_eq!(stats.compared, 1);
+}
+
 #[test]
 fn real_poly_formats_a_gitignored_staged_e2e_render() {
     let Some(_poly) = crate::test_support::tool_available_with_stable_path("poly") else {
