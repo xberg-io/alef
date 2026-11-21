@@ -281,7 +281,7 @@ pub(crate) fn format_owned_paths_reporting(
         strict,
         &is_tool_available,
         &poly_format_strict,
-        &poly_paths_are_clean,
+        &poly_paths_dry_run,
     )
 }
 
@@ -294,7 +294,7 @@ fn format_owned_paths_with(
     strict: bool,
     is_available: &dyn Fn(&str) -> bool,
     run_poly: &dyn Fn(&[PathBuf], &Path) -> anyhow::Result<()>,
-    paths_are_clean: &dyn Fn(&[PathBuf], &Path) -> bool,
+    paths_dry_run: &dyn Fn(&[PathBuf], &Path) -> PolyDryRun,
 ) -> anyhow::Result<Vec<DeferredFormatting>> {
     let mut pass = FormatPass::new(is_available);
     let existing: Vec<PathBuf> = paths.iter().filter(|path| path.is_file()).cloned().collect();
@@ -302,20 +302,20 @@ fn format_owned_paths_with(
     // it reads as the working directory).
     if !existing.is_empty() {
         converge_poly_format(&existing, base_dir, &mut pass, run_poly, &|dir| {
-            paths_are_clean(&existing, dir)
+            paths_dry_run(&existing, dir)
         });
     }
     warn_skipped(&pass.skipped);
     escalate_missing_toolchains(pass.skipped, strict)
 }
 
-/// Whether a poly dry run over exactly `paths` would change nothing.
-fn poly_paths_are_clean(paths: &[PathBuf], base_dir: &Path) -> bool {
+/// A poly dry run over exactly `paths`.
+fn poly_paths_dry_run(paths: &[PathBuf], base_dir: &Path) -> PolyDryRun {
     let mut args = vec!["fmt".to_owned()];
     args.extend(paths.iter().map(|path| path.to_string_lossy().into_owned()));
     push_poly_format_excludes(&mut args);
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    run_poly_dry_run(&arg_refs, base_dir) == PolyDryRun::Clean
+    run_poly_dry_run(&arg_refs, base_dir)
 }
 
 /// Testable seam for [`format_generated_reporting`]: resolves executable presence through
@@ -427,7 +427,7 @@ fn run_format_pass(
             // poly's config, not a hand-picked directory list, decides what it touches.
             let mut paths = vec![base_dir.to_path_buf()];
             paths.extend(extra_paths.iter().filter(|path| path.exists()).cloned());
-            converge_poly_format(&paths, base_dir, &mut pass, &poly_format_strict, &poly_fmt_is_clean);
+            converge_poly_format(&paths, base_dir, &mut pass, &poly_format_strict, &poly_fmt_dry_run);
             for &lang in &poly_langs {
                 let lang_str = lang.to_string().to_lowercase();
                 for step in language_residuals(config, lang, base_dir) {
@@ -532,9 +532,13 @@ fn converge_full_regen(base_dir: &Path, pass: &mut FormatPass<'_>) {
 /// stamp from everything this run is allowed to reformat. Adding the flag here would make the loop
 /// spin on stamped files the paired `poly fmt --fix` is not touching, and never report clean. ~keep
 fn poly_fmt_is_clean(base_dir: &Path) -> bool {
+    poly_fmt_dry_run(base_dir) == PolyDryRun::Clean
+}
+
+fn poly_fmt_dry_run(base_dir: &Path) -> PolyDryRun {
     let args = poly_fmt_is_clean_args(base_dir);
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    run_poly_dry_run(&arg_refs, base_dir) == PolyDryRun::Clean
+    run_poly_dry_run(&arg_refs, base_dir)
 }
 
 fn poly_fmt_is_clean_args(base_dir: &Path) -> Vec<String> {
@@ -671,15 +675,22 @@ fn converge_poly_format(
     config_start: &Path,
     pass: &mut FormatPass<'_>,
     run_poly: &dyn Fn(&[PathBuf], &Path) -> anyhow::Result<()>,
-    is_clean: &dyn Fn(&Path) -> bool,
+    dry_run: &dyn Fn(&Path) -> PolyDryRun,
 ) {
     for _iteration in 1..=MAX_POLY_FMT_PASSES {
         let skipped_before = pass.skipped.len();
         if !poly_format_pass_with(paths, config_start, pass, run_poly) || pass.skipped.len() != skipped_before {
             return;
         }
-        if is_clean(config_start) {
-            return;
+        match dry_run(config_start) {
+            PolyDryRun::Clean => return,
+            PolyDryRun::WouldChange => {}
+            PolyDryRun::Failed => {
+                let error = anyhow::anyhow!("the `poly fmt` dry run that checks for convergence failed");
+                warn!("{error:#}");
+                pass.record_failed(PACKAGE_TREE_SCOPE, POLY_FMT_STEP, &error);
+                return;
+            }
         }
     }
     warn!(

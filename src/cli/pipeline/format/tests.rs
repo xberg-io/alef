@@ -685,7 +685,13 @@ fn partial_regen_reruns_poly_until_the_tree_is_clean() {
             runs.set(runs.get() + 1);
             Ok(())
         },
-        &|_dir| runs.get() >= 2,
+        &|_dir| {
+            if runs.get() >= 2 {
+                PolyDryRun::Clean
+            } else {
+                PolyDryRun::WouldChange
+            }
+        },
     );
 
     assert_eq!(runs.get(), 2);
@@ -707,7 +713,7 @@ fn partial_regen_poly_convergence_is_capped_and_stops_on_failure() {
             runs.set(runs.get() + 1);
             Ok(())
         },
-        &|_dir| false,
+        &|_dir| PolyDryRun::WouldChange,
     );
     assert_eq!(runs.get(), MAX_POLY_FMT_PASSES);
 
@@ -785,7 +791,13 @@ fn owned_paths_are_reformatted_until_clean_and_never_widen_scope() {
             runs.borrow_mut().push(paths.to_vec());
             Ok(())
         },
-        &|_paths, _dir| runs.borrow().len() >= 2,
+        &|_paths, _dir| {
+            if runs.borrow().len() >= 2 {
+                PolyDryRun::Clean
+            } else {
+                PolyDryRun::WouldChange
+            }
+        },
     )
     .expect("formats");
 
@@ -809,4 +821,29 @@ fn owned_paths_with_no_existing_file_never_run_or_probe_poly() {
     .expect("nothing to do");
 
     assert!(skipped.is_empty());
+}
+
+/// A dry run that errors is a formatter failure, not "still dirty": it is recorded and fatal, not
+/// swallowed into a non-fatal "did not converge" warning.
+#[test]
+fn failed_convergence_dry_run_is_recorded_not_treated_as_dirty() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let paths = vec![dir.path().to_path_buf()];
+    let mut pass = pass_with_poly_installed();
+    let runs = std::cell::Cell::new(0u32);
+
+    converge_poly_format(
+        &paths,
+        dir.path(),
+        &mut pass,
+        &|_paths, _dir| {
+            runs.set(runs.get() + 1);
+            Ok(())
+        },
+        &|_dir| PolyDryRun::Failed,
+    );
+
+    assert_eq!(runs.get(), 1, "a failed probe must stop convergence");
+    assert_eq!(pass.skipped.len(), 1);
+    escalate_missing_toolchains(pass.skipped, false).expect_err("a failed dry run must be fatal");
 }
