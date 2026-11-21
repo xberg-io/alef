@@ -61,6 +61,67 @@ authors = ["Alice <alice@example.com>", "Bob"]
     );
 }
 
+/// Extracts the `<licenses>...</licenses>` block, with blank lines removed so the assertion
+/// states the exact elements, order and indentation without pinning minijinja's blank-line
+/// policy around control tags.
+fn licenses_block(pom_content: &str) -> String {
+    let start = pom_content
+        .find("  <licenses>")
+        .unwrap_or_else(|| panic!("expected a <licenses> block in:\n{pom_content}"));
+    let end = pom_content[start..]
+        .find("  </licenses>")
+        .unwrap_or_else(|| panic!("<licenses> block is not well-formed in:\n{pom_content}"))
+        + start
+        + "  </licenses>".len();
+    pom_content[start..end]
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Bundled native code under a license the project itself does not use (LGPL libheif, the
+/// GPL Windows build) must be visible to a consumer reading the POM's `<licenses>` block, after
+/// the primary license. ~keep
+#[test]
+fn test_scaffold_java_pom_declares_additional_licenses_after_the_primary_license() {
+    let config = test_config_from_toml(
+        r#"
+[crates.package_metadata]
+additional_licenses = [
+  { name = "LGPL-2.1-or-later", url = "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html", comments = "Bundled libheif" },
+  { name = "GPL-3.0-only", comments = "Windows build" },
+]
+"#,
+    );
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Java]).unwrap();
+    let files = language_files(&all_files);
+    let pom = files.iter().find(|f| f.path.ends_with("pom.xml")).unwrap();
+
+    assert_eq!(
+        licenses_block(&pom.content),
+        r#"  <licenses>
+    <license>
+      <name>MIT</name>
+      <url>https://opensource.org/licenses/MIT</url>
+    </license>
+    <license>
+      <name>LGPL-2.1-or-later</name>
+      <url>https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html</url>
+      <comments>Bundled libheif</comments>
+    </license>
+    <license>
+      <name>GPL-3.0-only</name>
+      <comments>Windows build</comments>
+    </license>
+  </licenses>"#,
+        "the licenses block must declare the project license first, then the configured \
+         additional licenses in order; content:\n{}",
+        pom.content
+    );
+}
+
 /// Extracts the `<plugin>` block for `artifact_id` out of a rendered pom.xml.
 fn plugin_section<'a>(pom_content: &'a str, artifact_id: &str) -> &'a str {
     pom_content

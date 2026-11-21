@@ -51,6 +51,11 @@ pub struct KotlinAndroidConfig {
     /// `["arm64-v8a", "x86_64"]`.
     #[serde(default)]
     pub abis: Option<Vec<String>>,
+    /// Workspace-root-relative files (e.g. `"LICENSE"`, `"THIRD_PARTY_LICENSES.md"`)
+    /// copied into the generated AAR at `META-INF/<path>`. Every path is
+    /// checked to exist when alef generates the project.
+    #[serde(default)]
+    pub bundled_notices: Vec<String>,
     /// Override the serde rename_all strategy for JSON field names.
     #[serde(default)]
     pub serde_rename_all: Option<String>,
@@ -95,5 +100,20 @@ mod tests {
     fn shares_native_runtime_defaults_to_false() {
         let config = toml::from_str::<KotlinAndroidConfig>("").expect("empty config parses");
         assert!(!config.shares_native_runtime);
+    }
+
+    #[test]
+    fn bundled_notices_parse_in_declaration_order() {
+        let config =
+            toml::from_str::<KotlinAndroidConfig>(r#"bundled_notices = ["LICENSE", "THIRD_PARTY_LICENSES.md"]"#)
+                .expect("bundled_notices parses");
+
+        assert_eq!(config.bundled_notices, vec!["LICENSE", "THIRD_PARTY_LICENSES.md"]);
+    }
+
+    #[test]
+    fn bundled_notices_default_to_empty() {
+        let config = toml::from_str::<KotlinAndroidConfig>("").expect("empty config parses");
+        assert!(config.bundled_notices.is_empty());
     }
 }

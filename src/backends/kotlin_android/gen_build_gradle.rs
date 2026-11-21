@@ -4,6 +4,7 @@
 
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::template_versions::{maven, toolchain};
+use std::path::PathBuf;
 
 use crate::backends::kotlin_android::naming::{
     aar_artifact_id, aar_group_id, abis, compile_sdk, jvm_target, min_sdk, namespace,
@@ -12,6 +13,97 @@ use crate::backends::kotlin_android::template_env::render;
 use crate::scaffold::{parse_author, scaffold_meta, xml_escape};
 
 mod author_metadata;
+
+/// Workspace-root-relative notice files configured for the AAR, in declaration order.
+fn bundled_notice_paths(config: &ResolvedCrateConfig) -> Vec<&str> {
+    config
+        .kotlin_android
+        .as_ref()
+        .map(|android| android.bundled_notices.iter().map(String::as_str).collect())
+        .unwrap_or_default()
+}
+
+/// Directory `[crates.kotlin_android] bundled_notices` paths are resolved against: the
+/// configured workspace root, else the directory alef runs in (the workspace root for a
+/// normal `alef generate`).
+fn bundled_notices_root(config: &ResolvedCrateConfig) -> PathBuf {
+    config
+        .workspace_root
+        .clone()
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Escape a value for a Kotlin string literal.
+fn kotlin_string_literal(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"").replace('$', "\\$")
+}
+
+/// Render the Gradle block that copies `bundled_notices` into the AAR.
+///
+/// Fails, naming every missing path, when a configured notice file does not exist under the
+/// workspace root: silently emitting a copy task that fails at build time (or ships an AAR
+/// without its notices) defeats the point of configuring them.
+fn render_bundled_notices_block(config: &ResolvedCrateConfig) -> anyhow::Result<String> {
+    let paths = bundled_notice_paths(config);
+    if paths.is_empty() {
+        return Ok(String::new());
+    }
+
+    let root = bundled_notices_root(config);
+    let mut missing = Vec::new();
+    for path in &paths {
+        let resolved = root.join(path);
+        if !resolved.is_file() {
+            missing.push(format!("`{path}` (resolved to {})", resolved.display()));
+        }
+    }
+    if !missing.is_empty() {
+        anyhow::bail!(
+            "kotlin_android bundled_notices path(s) not found under workspace root `{}`: {}; \
+             `[crates.kotlin_android] bundled_notices` paths are relative to the workspace root",
+            root.display(),
+            missing.join(", ")
+        );
+    }
+
+    let literals = paths
+        .iter()
+        .map(|path| format!("    \"{}\",", kotlin_string_literal(path)))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    Ok(format!(
+        r#"// Bundle the configured third-party notice files into the AAR. The AAR packages
+// src/main/resources, so each workspace-root-relative bundled_notices path lands at
+// META-INF/<path>; preBuild depends on the copy, so every variant (AGP 8 and AGP 9 alike)
+// packages the files. The path list is emitted in config order, keeping the file stable.
+val bundledNoticePaths = listOf(
+{literals}
+)
+tasks.register("bundleNotices", Copy::class) {{
+    val configuredRoot = project.providers.gradleProperty("alef.workspaceRoot").orNull
+    val workspaceRoot = configuredRoot?.let(::file)
+        ?: generateSequence(projectDir) {{ it.parentFile }}
+            .firstOrNull {{ candidate -> bundledNoticePaths.all {{ candidate.resolve(it).isFile }} }}
+        ?: throw GradleException(
+            "Cannot locate a workspace root containing every bundled_notices path (" +
+                bundledNoticePaths.joinToString(", ") + ") from $projectDir; " +
+                "set -Palef.workspaceRoot=/absolute/path/to/workspace"
+        )
+    from(workspaceRoot) {{
+        include(bundledNoticePaths)
+    }}
+    into(layout.projectDirectory.dir("src/main/resources/META-INF"))
+    description = "Bundle third-party notice files into the AAR"
+}}
+
+tasks.named("preBuild") {{
+    dependsOn("bundleNotices")
+}}
+"#
+    ))
+}
 
 /// Render the Gradle task that cross-compiles the JNI crate into `src/main/jniLibs/<abi>/`.
 ///
@@ -43,7 +135,7 @@ fn render_jni_libs_task(config: &ResolvedCrateConfig, jni_manifest_workspace_pat
 /// pin, so moving the pin across the 8→9 boundary stays correct
 /// automatically. The `kotlin {}` compiler-options block and `JvmTarget`
 /// import remain valid under AGP 9 built-in Kotlin.
-pub fn emit(config: &ResolvedCrateConfig) -> String {
+pub fn emit(config: &ResolvedCrateConfig) -> anyhow::Result<String> {
     let kotlin_version = maven::KOTLIN_JVM_PLUGIN;
     let android_gradle_plugin = maven::ANDROID_GRADLE_PLUGIN;
     let agp_major: u32 = android_gradle_plugin
@@ -171,7 +263,8 @@ pub fn emit(config: &ResolvedCrateConfig) -> String {
     let developers_block = author_metadata::render_developers(&meta.authors);
 
     let marker = crate::core::hash::SELF_MARKING_HEADER_LINE;
-    format!(
+    let bundled_notices_block = render_bundled_notices_block(config)?;
+    Ok(format!(
         r#"{marker}
 
 import com.vanniktech.maven.publish.AndroidSingleVariantLibrary
@@ -368,7 +461,7 @@ tasks.named("preBuild") {{
 }}
 
 {android_jni_libs_task}
-mavenPublishing {{
+{bundled_notices_block}mavenPublishing {{
     configure(
         AndroidSingleVariantLibrary(
             variant = "release",
@@ -394,7 +487,7 @@ mavenPublishing {{
 }}
 "#,
         xml_escape(&meta.description),
-    )
+    ))
 }
 
 #[cfg(test)]
@@ -428,7 +521,7 @@ description = "Test library"
         let resolved = cfg.resolve().unwrap();
         let config = &resolved[0];
 
-        let gradle = emit(config);
+        let gradle = emit(config).expect("fixture config emits build.gradle.kts");
 
         assert!(
             gradle.contains(r#"tasks.register("buildHostJni", Exec::class)"#),
@@ -499,7 +592,7 @@ description = "Test library"
 
         let cfg: NewAlefConfig = toml::from_str(toml_str).unwrap();
         let resolved = cfg.resolve().unwrap();
-        let gradle = emit(&resolved[0]);
+        let gradle = emit(&resolved[0]).expect("fixture config emits build.gradle.kts");
 
         // ktlint "Unnecessary long whitespace": exactly one space before a trailing comment.
         assert!(
@@ -551,7 +644,7 @@ description = "Test library"
         let config = &resolved[0];
         let jni_lib_name = config.jni_lib_name();
 
-        let gradle = emit(config);
+        let gradle = emit(config).expect("fixture config emits build.gradle.kts");
 
         // The release guard must assert the correctly-named JNI library is present in ~keep
         // each ABI dir, not merely that jniLibs is non-empty (which a stray C-FFI ~keep
@@ -610,7 +703,7 @@ description = "Test library"
 
         let cfg: NewAlefConfig = toml::from_str(&android_config_toml(extra)).expect("fixture config parses");
         let resolved = cfg.resolve().expect("fixture config resolves");
-        emit(&resolved[0])
+        emit(&resolved[0]).expect("fixture config emits build.gradle.kts")
     }
 
     #[test]
@@ -733,6 +826,89 @@ description = "Test library"
         );
     }
 
+    fn resolve_android_config(extra: &str) -> crate::core::config::ResolvedCrateConfig {
+        use crate::core::config::new_config::NewAlefConfig;
+
+        let cfg: NewAlefConfig = toml::from_str(&android_config_toml(extra)).expect("fixture config parses");
+        cfg.resolve().expect("fixture config resolves").remove(0)
+    }
+
+    /// The AAR carries every configured notice file at `META-INF/<path>`; the copier must name
+    /// exactly the configured paths, in config order, and hang off `preBuild` so every variant
+    /// (release assembly, AAR packaging) sees them. AGP 8 and AGP 9 both wire `preBuild` ahead
+    /// of resource processing, so the same block covers both.
+    #[test]
+    fn bundled_notice_files_are_copied_into_the_aar_meta_inf() {
+        let workspace = tempfile::tempdir().expect("tempdir");
+        std::fs::write(workspace.path().join("LICENSE"), b"license text").expect("write LICENSE");
+        std::fs::create_dir_all(workspace.path().join("legal")).expect("create legal dir");
+        std::fs::write(workspace.path().join("legal/THIRD_PARTY_LICENSES.md"), b"notices").expect("write notices");
+
+        let mut config = resolve_android_config(r#"bundled_notices = ["LICENSE", "legal/THIRD_PARTY_LICENSES.md"]"#);
+        config.workspace_root = Some(workspace.path().to_path_buf());
+
+        let gradle = emit(&config).expect("configured notice files exist");
+
+        assert!(
+            gradle.contains(
+                "val bundledNoticePaths = listOf(\n    \"LICENSE\",\n    \"legal/THIRD_PARTY_LICENSES.md\",\n)"
+            ),
+            "the copier must name the configured workspace-relative paths verbatim, in order:\n{gradle}"
+        );
+        assert!(
+            gradle.contains(r#"tasks.register("bundleNotices", Copy::class)"#),
+            "the notice copier must be a Copy task:\n{gradle}"
+        );
+        assert!(
+            gradle.contains(r#"into(layout.projectDirectory.dir("src/main/resources/META-INF"))"#),
+            "the copy target must be the resource tree the AAR packages:\n{gradle}"
+        );
+        assert!(
+            gradle.contains("tasks.named(\"preBuild\") {\n    dependsOn(\"bundleNotices\")\n}"),
+            "preBuild must depend on the copier, or variants package resources before it runs:\n{gradle}"
+        );
+        assert_eq!(
+            gradle,
+            emit(&config).expect("second emission succeeds"),
+            "repeated generation must be byte-stable"
+        );
+    }
+
+    #[test]
+    fn unconfigured_bundled_notices_emit_no_notice_block() {
+        let gradle = emit_android_gradle("");
+
+        assert!(
+            !gradle.contains("bundleNotices") && !gradle.contains("META-INF"),
+            "an empty bundled_notices list must not emit a copier or its wiring:\n{gradle}"
+        );
+    }
+
+    #[test]
+    fn a_missing_bundled_notice_fails_generation_naming_the_path() {
+        let workspace = tempfile::tempdir().expect("tempdir");
+        std::fs::write(workspace.path().join("LICENSE"), b"license text").expect("write LICENSE");
+
+        let mut config = resolve_android_config(r#"bundled_notices = ["LICENSE", "THIRD_PARTY_LICENSES.md"]"#);
+        config.workspace_root = Some(workspace.path().to_path_buf());
+
+        let error = emit(&config).expect_err("a configured notice file that does not exist must fail generation");
+        let message = error.to_string();
+
+        assert!(
+            message.contains("THIRD_PARTY_LICENSES.md"),
+            "the failure must name the missing path; got: {message}"
+        );
+        assert!(
+            message.contains(&workspace.path().display().to_string()),
+            "the failure must name the workspace root that was searched; got: {message}"
+        );
+        assert!(
+            !message.contains("`LICENSE`"),
+            "only the missing path should be reported; got: {message}"
+        );
+    }
+
     /// ben-manes/gradle-versions-plugin releases through 0.54.0 predate the Gradle 9 rework
     /// (v0.55.0's per-project aggregation, which also raised the plugin's floor to Gradle 8.4);
     /// running `dependencyUpdates` from one of those releases against alef's Gradle 9 wrapper is
@@ -784,7 +960,7 @@ package = "dev.example"
         )
         .unwrap();
         let resolved = config.resolve().unwrap();
-        let generated = super::emit(&resolved[0]);
+        let generated = super::emit(&resolved[0]).expect("fixture config emits build.gradle.kts");
         crate::test_support::kotlin_gradle::assert_resource_edges(&generated);
     }
 }

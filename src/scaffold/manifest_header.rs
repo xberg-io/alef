@@ -1,7 +1,7 @@
 //! Crate manifest header rendering: workspace-package-inheritance detection, scaffold
 //! metadata, and the `[package]` header line assembly that consumes both.
 
-use crate::core::config::{CargoPackageFilesConfig, ResolvedCrateConfig};
+use crate::core::config::{AdditionalLicenseConfig, CargoPackageFilesConfig, ResolvedCrateConfig};
 
 /// Fields available via `[workspace.package]` inheritance detected from the root `Cargo.toml`.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -179,6 +179,9 @@ pub(crate) fn cargo_package_header(
 pub struct ScaffoldMeta {
     pub description: String,
     pub license: Option<String>,
+    /// Extra licenses flagged in `[package_metadata] additional_licenses`, emitted after the
+    /// project license in generated Maven POMs.
+    pub additional_licenses: Vec<AdditionalLicenseConfig>,
     pub repository: Option<String>,
     pub configured_repository: Option<String>,
     pub homepage: String,
@@ -217,6 +220,7 @@ pub fn scaffold_meta(config: &ResolvedCrateConfig) -> ScaffoldMeta {
         license: package
             .and_then(|p| p.license.clone())
             .or_else(|| scaffold.and_then(|s| s.license.clone())),
+        additional_licenses: package.map(|p| p.additional_licenses.clone()).unwrap_or_default(),
         repository: configured_repository.clone(),
         configured_repository,
         homepage: package

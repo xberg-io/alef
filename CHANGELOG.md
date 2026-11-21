@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `[package_metadata] additional_licenses` (workspace-wide or per crate) declares extra `<license>` entries in the generated Maven POM after the project license, so a package that bundles differently licensed native code (LGPL-2.1-or-later libheif, GPL-3.0 on Windows) declares it instead of showing the project license alone.
+- `[crates.kotlin_android] bundled_notices` copies workspace-root-relative notice files (`LICENSE`, `THIRD_PARTY_LICENSES.md`) into the generated AAR at `META-INF/<path>`, wired into `preBuild` for both AGP 8 and AGP 9. Generation fails, naming the path and the workspace root, when a configured file does not exist.
+
 ## [0.131.1] - 2026-11-21
 
 ### Fixed

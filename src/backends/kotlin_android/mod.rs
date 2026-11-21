@@ -170,7 +170,7 @@ impl Backend for KotlinAndroidBackend {
             &filtered_api
         };
         let layout = ProjectLayout::resolve(config);
-        let mut files = emit_android_project_scaffolding(config, &layout);
+        let mut files = emit_android_project_scaffolding(config, &layout)?;
         files.extend(gen_jni_skeleton::emit(config, &layout.package_root));
         let deduped_api = effective_codegen_api(api, config);
         files.extend(gen_bindings::emit(&deduped_api, config, &layout.kotlin_source_dir));
@@ -233,10 +233,13 @@ impl Backend for KotlinAndroidBackend {
     }
 }
 
-fn emit_android_project_scaffolding(config: &ResolvedCrateConfig, layout: &ProjectLayout) -> Vec<GeneratedFile> {
+fn emit_android_project_scaffolding(
+    config: &ResolvedCrateConfig,
+    layout: &ProjectLayout,
+) -> anyhow::Result<Vec<GeneratedFile>> {
     let root = &layout.package_root;
-    vec![
-        android_project_file(root, "build.gradle.kts", gen_build_gradle::emit(config)),
+    Ok(vec![
+        android_project_file(root, "build.gradle.kts", gen_build_gradle::emit(config)?),
         android_project_file(root, "gradle.properties", gen_gradle_properties::emit()),
         android_project_file(root, "settings.gradle.kts", gen_settings_gradle::emit(config)),
         android_project_file(
@@ -256,7 +259,7 @@ fn emit_android_project_scaffolding(config: &ResolvedCrateConfig, layout: &Proje
         android_project_file(root, "proguard-rules.pro", gen_proguard::emit_module()),
         android_project_file(root, ".gitignore", gen_gitignore::emit()),
         android_project_file(root, ".editorconfig", gen_editorconfig::emit()),
-    ]
+    ])
 }
 
 fn android_project_file(root: &Path, relative_path: &str, content: String) -> GeneratedFile {
