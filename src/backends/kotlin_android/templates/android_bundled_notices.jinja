@@ -1,0 +1,16 @@
+
+// Bundled notices ([crates.kotlin_android] bundled_notices): staged under META-INF/ and added
+// to the main source set's resources so the licence files ship inside the AAR.
+val bundledNoticesRoot = layout.buildDirectory.dir("generated/bundledNotices")
+val stageBundledNotices = tasks.register<Sync>("stageBundledNotices") {
+    val noticePaths = listOf({{ notice_literals }})
+    val noticeFiles = noticePaths.map { relativePath ->
+        generateSequence(projectDir) { it.parentFile }
+            .map { it.resolve(relativePath) }
+            .firstOrNull { it.isFile }
+            ?: throw GradleException("Cannot locate bundled notice $relativePath from $projectDir")
+    }
+    from(noticeFiles)
+    into(bundledNoticesRoot.map { it.dir("META-INF") })
+}
+android.sourceSets.getByName("main").resources.srcDir(stageBundledNotices.map { bundledNoticesRoot })

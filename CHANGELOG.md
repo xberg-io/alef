@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `package_metadata.additional_licenses = [{ name, url, comments }]` declares licenses for bundled third-party code; the generated Maven `pom.xml` emits them as extra `<license>` entries after the project license (#942).
+- `[crates.kotlin_android] bundled_notices = [...]` lists workspace-root-relative notice files (`LICENSE`, `THIRD_PARTY_LICENSES.md`) that the generated `build.gradle.kts` stages under `META-INF/` so they ship inside the AAR (#943).
 
 ### Fixed
 

@@ -24,6 +24,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/android_streaming_method.jinja"),
     ),
     (
+        "android_bundled_notices.jinja",
+        include_str!("templates/android_bundled_notices.jinja"),
+    ),
+    (
         "android_jni_libs_task.jinja",
         include_str!("templates/android_jni_libs_task.jinja"),
     ),

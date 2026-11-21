@@ -33,6 +33,35 @@ fn render_jni_libs_task(config: &ResolvedCrateConfig, jni_manifest_workspace_pat
     )
 }
 
+/// Render the Gradle wiring that packages `[crates.kotlin_android] bundled_notices` into the AAR.
+///
+/// Each path is resolved by walking up from `projectDir` to the workspace root (the same way
+/// the JNI manifest is located), staged under `build/generated/bundledNotices/META-INF/`, and
+/// that directory is added to the main source set's resources, which AGP packages into the AAR.
+/// Empty when no notices are configured. ~keep
+fn render_bundled_notices(config: &ResolvedCrateConfig) -> String {
+    let notices = config
+        .kotlin_android
+        .as_ref()
+        .map(|android| android.bundled_notices.as_slice())
+        .unwrap_or_default();
+    if notices.is_empty() {
+        return String::new();
+    }
+    let literals = notices
+        .iter()
+        .map(|path| {
+            let escaped = path.replace('\\', "\\\\").replace('"', "\\\"").replace('$', "\\$");
+            format!("\"{escaped}\"")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    render(
+        "android_bundled_notices.jinja",
+        crate::alef_context! { notice_literals => literals },
+    )
+}
+
 /// Emit `build.gradle.kts` for the generated AAR module.
 ///
 /// Note on plugin compatibility: AGP 8.x requires an explicit
@@ -76,6 +105,7 @@ pub fn emit(config: &ResolvedCrateConfig) -> String {
     let jni_manifest_workspace_path = format!("crates/{}-jni/Cargo.toml", config.jni_crate_base());
     let jni_lib_name = config.jni_lib_name();
     let android_jni_libs_task = render_jni_libs_task(config, &jni_manifest_workspace_path, &jni_lib_name);
+    let bundled_notices = render_bundled_notices(config);
 
     let capsule_deps: String = {
         let mut deps: Vec<(String, String)> = config
@@ -209,7 +239,7 @@ android {{
         }}
     }}
 }}
-
+{bundled_notices}
 kotlin {{
     compilerOptions {{
         jvmTarget.set(JvmTarget.JVM_{android_jvm_target})
@@ -762,6 +792,29 @@ description = "Test library"
             "gradle-versions-plugin {version} predates the Gradle 9 fix in v0.55.0; \
              bump `template_versions::maven::GRADLE_VERSIONS_PLUGIN`"
         );
+    }
+
+    #[test]
+    fn bundled_notices_are_staged_into_the_aar_resources() {
+        let gradle = emit_android_gradle(r#"bundled_notices = ["LICENSE", "THIRD_PARTY_LICENSES.md"]"#);
+
+        assert!(
+            gradle.contains(r#"listOf("LICENSE", "THIRD_PARTY_LICENSES.md")"#),
+            "every configured notice must be referenced:\n{gradle}"
+        );
+        assert!(
+            gradle.contains(r#"into(bundledNoticesRoot.map { it.dir("META-INF") })"#),
+            "{gradle}"
+        );
+        assert!(
+            gradle.contains("resources.srcDir(stageBundledNotices.map { bundledNoticesRoot })"),
+            "the staged directory must be a main resources dir so AGP packages it:\n{gradle}"
+        );
+    }
+
+    #[test]
+    fn no_bundled_notices_emits_no_notice_wiring() {
+        assert!(!emit_android_gradle("").contains("stageBundledNotices"));
     }
 }
 

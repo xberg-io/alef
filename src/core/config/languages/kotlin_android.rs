@@ -51,6 +51,11 @@ pub struct KotlinAndroidConfig {
     /// `["arm64-v8a", "x86_64"]`.
     #[serde(default)]
     pub abis: Option<Vec<String>>,
+    /// Files bundled into the AAR under `META-INF/`, as paths relative to the workspace root
+    /// (e.g. `["LICENSE", "THIRD_PARTY_LICENSES.md"]`). Each is staged by a generated Gradle
+    /// task and added to the main source set's resources; the build fails if one is missing.
+    #[serde(default)]
+    pub bundled_notices: Vec<String>,
     /// Override the serde rename_all strategy for JSON field names.
     #[serde(default)]
     pub serde_rename_all: Option<String>,
@@ -89,6 +94,20 @@ mod tests {
             )
         });
         assert!(config.shares_native_runtime);
+    }
+
+    #[test]
+    fn bundled_notices_parse_from_toml_and_default_to_empty() {
+        let config =
+            toml::from_str::<KotlinAndroidConfig>(r#"bundled_notices = ["LICENSE", "THIRD_PARTY_LICENSES.md"]"#)
+                .expect("bundled_notices parses");
+        assert_eq!(config.bundled_notices, ["LICENSE", "THIRD_PARTY_LICENSES.md"]);
+        assert!(
+            toml::from_str::<KotlinAndroidConfig>("")
+                .unwrap()
+                .bundled_notices
+                .is_empty()
+        );
     }
 
     #[test]
