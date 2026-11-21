@@ -591,3 +591,259 @@ fn max_poly_fmt_passes_is_bounded() {
         "the convergence loop must be capped at 3 passes per the full-regen contract"
     );
 }
+
+fn pass_with_poly_installed() -> FormatPass<'static> {
+    FormatPass::new(&|tool| tool == "poly")
+}
+
+/// alef#934: a `poly fmt` that ran and failed used to be a `warn!`, leaving ~400 unformatted
+/// files written and the run green.
+#[test]
+fn failed_poly_fmt_is_recorded_and_escalated_without_strict() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut pass = pass_with_poly_installed();
+    let paths = vec![dir.path().to_path_buf()];
+
+    let ran = poly_format_pass_with(&paths, dir.path(), &mut pass, &|_paths, _dir| {
+        anyhow::bail!("TOML parse error at line 7")
+    });
+
+    assert!(!ran);
+    assert_eq!(pass.skipped.len(), 1);
+    let error = escalate_missing_toolchains(pass.skipped, false).expect_err("a failed formatter must be fatal");
+    let message = error.to_string();
+    assert!(message.contains("TOML parse error at line 7"), "{message}");
+    assert!(message.contains("NOT formatted"), "{message}");
+}
+
+#[test]
+fn successful_poly_fmt_records_nothing_and_does_not_escalate() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut pass = pass_with_poly_installed();
+    let paths = vec![dir.path().to_path_buf()];
+
+    let ran = poly_format_pass_with(&paths, dir.path(), &mut pass, &|_paths, _dir| Ok(()));
+
+    assert!(ran);
+    assert!(
+        escalate_missing_toolchains(pass.skipped, false)
+            .expect("clean pass")
+            .is_empty()
+    );
+}
+
+/// A partial regen over a package directory that does not exist has nothing to format: poly must
+/// not be spawned, and nothing may be recorded or escalated.
+#[test]
+fn nonexistent_format_target_is_a_no_op_not_a_failure() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let absent = dir.path().join("absent");
+    let mut pass = pass_with_poly_installed();
+
+    let ran = poly_format_pass_with(std::slice::from_ref(&absent), &absent, &mut pass, &|_paths, _dir| {
+        panic!("poly must not run over a target that does not exist")
+    });
+
+    assert!(ran);
+    assert!(pass.skipped.is_empty());
+}
+
+/// Spawn ENOENT of the poly binary itself keeps meaning "missing poly": recorded as a missing
+/// toolchain, fatal only under `--strict`.
+#[test]
+fn poly_spawn_not_found_is_a_missing_toolchain_not_a_formatter_failure() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut pass = pass_with_poly_installed();
+    let paths = vec![dir.path().to_path_buf()];
+
+    let ran = poly_format_pass_with(&paths, dir.path(), &mut pass, &|_paths, _dir| {
+        Err(std::io::Error::from(std::io::ErrorKind::NotFound).into())
+    });
+
+    assert!(ran);
+    assert_eq!(pass.skipped.len(), 1);
+    assert!(pass.skipped[0].is_missing_toolchain());
+    let skipped = pass.skipped.clone();
+    assert_eq!(escalate_missing_toolchains(skipped.clone(), false).unwrap(), skipped);
+    escalate_missing_toolchains(skipped, true).expect_err("--strict makes a missing poly fatal");
+}
+
+/// alef#934: a partial regen formats to a fixed point like `alef all` and `alef verify` do, so a
+/// non-idempotent engine's intermediate output is never what `alef generate` leaves behind.
+#[test]
+fn partial_regen_reruns_poly_until_the_tree_is_clean() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut pass = pass_with_poly_installed();
+    let paths = vec![dir.path().to_path_buf()];
+    let runs = std::cell::Cell::new(0u32);
+
+    converge_poly_format(
+        &paths,
+        dir.path(),
+        &mut pass,
+        &|_paths, _dir| {
+            runs.set(runs.get() + 1);
+            Ok(())
+        },
+        &|_dir| {
+            if runs.get() >= 2 {
+                PolyDryRun::Clean
+            } else {
+                PolyDryRun::WouldChange
+            }
+        },
+    );
+
+    assert_eq!(runs.get(), 2);
+    assert!(pass.skipped.is_empty());
+}
+
+#[test]
+fn partial_regen_poly_convergence_is_capped_and_stops_on_failure() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let paths = vec![dir.path().to_path_buf()];
+
+    let mut pass = pass_with_poly_installed();
+    let runs = std::cell::Cell::new(0u32);
+    converge_poly_format(
+        &paths,
+        dir.path(),
+        &mut pass,
+        &|_paths, _dir| {
+            runs.set(runs.get() + 1);
+            Ok(())
+        },
+        &|_dir| PolyDryRun::WouldChange,
+    );
+    assert_eq!(runs.get(), MAX_POLY_FMT_PASSES);
+
+    let mut pass = pass_with_poly_installed();
+    let failing_runs = std::cell::Cell::new(0u32);
+    converge_poly_format(
+        &paths,
+        dir.path(),
+        &mut pass,
+        &|_paths, _dir| {
+            failing_runs.set(failing_runs.get() + 1);
+            anyhow::bail!("TOML parse error")
+        },
+        &|_dir| panic!("a failed pass must not be followed by a cleanliness probe"),
+    );
+    assert_eq!(failing_runs.get(), 2, "one retry, then recorded");
+    assert_eq!(pass.skipped.len(), 1);
+}
+
+#[test]
+fn poly_fmt_failing_once_then_succeeding_records_nothing() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut pass = pass_with_poly_installed();
+    let paths = vec![dir.path().to_path_buf()];
+    let runs = std::cell::Cell::new(0u32);
+
+    let ran = poly_format_pass_with(&paths, dir.path(), &mut pass, &|_paths, _dir| {
+        runs.set(runs.get() + 1);
+        if runs.get() == 1 {
+            anyhow::bail!("file changed while it was being processed")
+        }
+        Ok(())
+    });
+
+    assert!(ran);
+    assert_eq!(runs.get(), 2);
+    assert!(pass.skipped.is_empty());
+}
+
+#[test]
+fn poly_fmt_failing_twice_is_recorded() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut pass = pass_with_poly_installed();
+    let paths = vec![dir.path().to_path_buf()];
+    let runs = std::cell::Cell::new(0u32);
+
+    let ran = poly_format_pass_with(&paths, dir.path(), &mut pass, &|_paths, _dir| {
+        runs.set(runs.get() + 1);
+        anyhow::bail!("still failing")
+    });
+
+    assert!(!ran);
+    assert_eq!(runs.get(), 2);
+    assert_eq!(pass.skipped.len(), 1);
+}
+
+/// A components-only crate formats only the paths it owns, and still reaches the fixed point.
+#[test]
+fn owned_paths_are_reformatted_until_clean_and_never_widen_scope() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let owned = dir.path().join("owned.json");
+    let stray = dir.path().join("hand_written.json");
+    std::fs::write(&owned, "{}").expect("write");
+    std::fs::write(&stray, "{}").expect("write");
+    let missing = dir.path().join("gone.json");
+    let set: std::collections::BTreeSet<PathBuf> = [owned.clone(), missing].into_iter().collect();
+    let runs = std::cell::RefCell::new(Vec::<Vec<PathBuf>>::new());
+
+    let skipped = format_owned_paths_with(
+        dir.path(),
+        &set,
+        false,
+        &|tool| tool == "poly",
+        &|paths, _dir| {
+            runs.borrow_mut().push(paths.to_vec());
+            Ok(())
+        },
+        &|_paths, _dir| {
+            if runs.borrow().len() >= 2 {
+                PolyDryRun::Clean
+            } else {
+                PolyDryRun::WouldChange
+            }
+        },
+    )
+    .expect("formats");
+
+    assert!(skipped.is_empty());
+    assert_eq!(*runs.borrow(), vec![vec![owned.clone()], vec![owned]]);
+}
+
+#[test]
+fn owned_paths_with_no_existing_file_never_run_or_probe_poly() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let set: std::collections::BTreeSet<PathBuf> = [dir.path().join("gone.json")].into_iter().collect();
+
+    let skipped = format_owned_paths_with(
+        dir.path(),
+        &set,
+        false,
+        &|tool| tool == "poly",
+        &|_paths, _dir| panic!("poly must not run with nothing to format"),
+        &|_paths, _dir| panic!("the cleanliness probe must not run with nothing to format"),
+    )
+    .expect("nothing to do");
+
+    assert!(skipped.is_empty());
+}
+
+/// A dry run that errors is a formatter failure, not "still dirty": it is recorded and fatal, not
+/// swallowed into a non-fatal "did not converge" warning.
+#[test]
+fn failed_convergence_dry_run_is_recorded_not_treated_as_dirty() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let paths = vec![dir.path().to_path_buf()];
+    let mut pass = pass_with_poly_installed();
+    let runs = std::cell::Cell::new(0u32);
+
+    converge_poly_format(
+        &paths,
+        dir.path(),
+        &mut pass,
+        &|_paths, _dir| {
+            runs.set(runs.get() + 1);
+            Ok(())
+        },
+        &|_dir| PolyDryRun::Failed,
+    );
+
+    assert_eq!(runs.get(), 1, "a failed probe must stop convergence");
+    assert_eq!(pass.skipped.len(), 1);
+    escalate_missing_toolchains(pass.skipped, false).expect_err("a failed dry run must be fatal");
+}
