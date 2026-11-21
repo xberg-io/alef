@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `alef generate` and `alef all` fail when `poly fmt` runs and fails (for example an older `poly` rejecting the repo's newer `poly.lock`), instead of warning and writing unformatted output. A missing `poly` stays a warning unless `--strict` (#934).
+- `alef verify` exits non-zero when the formatter invocation failed for some generated files, rather than reporting them as SKIPPED and passing (#934).
 
 ## [0.131.1] - 2026-11-21
 

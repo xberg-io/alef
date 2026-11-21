@@ -356,6 +356,7 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
         ));
     }
     let fresh_render_verified_paths = format_drift_stats.content_verified_paths.clone();
+    let formatter_failure_count = format_drift_stats.skipped_formatter_error;
     crate::bin_cli::helpers::report_format_drift_coverage(format_drift_stats);
     // The consumer's vendored copy of alef's own `alef.toml` JSON Schema, if they keep one. It
     // is not a generated binding and nothing here writes it -- see `verify_schema`'s module doc
@@ -597,6 +598,7 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
     super::ensure_required_records_tracked(&untracked_records, report_only)?;
     super::ensure_generation_completed(&incomplete_crates, report_only)?;
     ensure_configured_snippet_directories_exist(&missing_snippet_roots, report_only)?;
+    super::super::verify_outcome::ensure_formatter_ran(formatter_failure_count, report_only)?;
     Ok(None)
 }
 
