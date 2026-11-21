@@ -444,6 +444,7 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
         && !has_missing_snippet_roots
         && !has_incomplete_crates
         && !has_schema_surface_drift
+        && super::super::verify_outcome::formatter_allows_sign_off(formatter_failure_count)
     {
         // Derived FROM `drifted_seeds` -- the same finding set `drifted_seed_report_lines`
         // (printed above, unconditionally) reports -- not a second, independently-maintained

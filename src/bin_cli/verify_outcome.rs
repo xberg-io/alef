@@ -18,6 +18,10 @@ pub(super) fn ensure_success(
 /// claims; passing would certify bytes it did not check (alef#934). A formatter that is merely
 /// not installed stays a counted, non-fatal skip, as before. `report_only` downgrades it like
 /// every other verify failure. ~keep
+pub(super) fn formatter_allows_sign_off(skipped_formatter_error: usize) -> bool {
+    skipped_formatter_error == 0
+}
+
 pub(super) fn ensure_formatter_ran(skipped_formatter_error: usize, report_only: bool) -> Result<()> {
     if report_only || skipped_formatter_error == 0 {
         return Ok(());
@@ -37,6 +41,12 @@ mod tests {
     fn failed_formatter_invocation_fails_verification() {
         let error = ensure_formatter_ran(3, false).expect_err("skipped files must not pass");
         assert!(error.to_string().contains("3 generated file(s)"));
+    }
+
+    #[test]
+    fn a_failed_formatter_blocks_the_clean_sign_off_even_when_report_only() {
+        assert!(formatter_allows_sign_off(0));
+        assert!(!formatter_allows_sign_off(1));
     }
 
     #[test]
