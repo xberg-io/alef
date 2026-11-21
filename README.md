@@ -184,6 +184,25 @@ Use `exclude` instead of `include` for a denylist. Alef rejects configuring both
 `[crates.package_metadata.cargo]` table replaces the workspace table for that crate, and an empty
 crate table clears the inherited filters.
 
+### Bundled Third-Party Notices
+
+A package that bundles third-party native code can declare its licenses and ship the notice files:
+
+```toml
+[[workspace.package_metadata.additional_licenses]]
+name = "LGPL-2.1-or-later"
+url = "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html"
+comments = "Bundled libheif"
+
+[crates.kotlin_android]
+bundled_notices = ["LICENSE", "THIRD_PARTY_LICENSES.md"]
+```
+
+`additional_licenses` (also settable per crate in `[crates.package_metadata]`, where it replaces the
+workspace list) is emitted as extra `<license>` entries after the project license in the generated
+Maven `pom.xml`. `bundled_notices` lists workspace-root-relative files that the generated
+`build.gradle.kts` stages under `META-INF/` in the AAR; the Gradle build fails if one is missing.
+
 ### Transparent String Wrappers
 
 A core type that deliberately hides its string value from `Display` can still be exposed as a

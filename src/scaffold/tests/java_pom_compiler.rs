@@ -400,3 +400,47 @@ fn test_scaffold_java_javadoc_plugin_fails_build_on_javadoc_warning() {
         String::from_utf8_lossy(&broken_output.stderr),
     );
 }
+
+/// `additional_licenses` declares licenses for bundled third-party code as extra `<license>`
+/// entries after the project license, so a consumer reading the POM does not see MIT alone. ~keep
+#[test]
+fn test_scaffold_java_pom_emits_additional_licenses_after_project_license() {
+    let config = test_config_from_toml(
+        r#"
+[[crates.package_metadata.additional_licenses]]
+name = "LGPL-2.1-or-later"
+url = "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html"
+comments = "Bundled libheif & friends"
+
+[[crates.package_metadata.additional_licenses]]
+name = "GPL-3.0-only"
+"#,
+    );
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Java]).unwrap();
+    let files = language_files(&all_files);
+    let pom = files.iter().find(|f| f.path.ends_with("pom.xml")).unwrap();
+
+    let licenses = pom
+        .content
+        .split("<licenses>")
+        .nth(1)
+        .and_then(|rest| rest.split("</licenses>").next())
+        .expect("pom.xml has a <licenses> block");
+    assert_eq!(licenses.matches("<license>").count(), 3, "{licenses}");
+    let lgpl = licenses.find("<name>LGPL-2.1-or-later</name>").expect("LGPL entry");
+    let project = licenses.find("<name>MIT</name>").expect("project license entry");
+    assert!(
+        project < lgpl,
+        "additional licenses follow the project license: {licenses}"
+    );
+    assert!(
+        licenses.contains("<url>https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html</url>"),
+        "{licenses}"
+    );
+    assert!(
+        licenses.contains("<comments>Bundled libheif &amp; friends</comments>"),
+        "comments must be XML-escaped: {licenses}"
+    );
+    assert!(licenses.contains("<name>GPL-3.0-only</name>"), "{licenses}");
+}

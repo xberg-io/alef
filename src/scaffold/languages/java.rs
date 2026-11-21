@@ -84,6 +84,21 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         _ => "",
     };
 
+    let additional_licenses: Vec<minijinja::Value> = config
+        .package_metadata
+        .as_ref()
+        .map(|metadata| metadata.additional_licenses.as_slice())
+        .unwrap_or_default()
+        .iter()
+        .map(|extra| {
+            crate::alef_context! {
+                name => xml_escape(&extra.name),
+                url => extra.url.as_deref().map(xml_escape).unwrap_or_default(),
+                comments => extra.comments.as_deref().map(xml_escape).unwrap_or_default(),
+            }
+        })
+        .collect();
+
     let content = crate::scaffold::template_env::render(
         "java_pom.xml.jinja",
         crate::alef_context! {
@@ -94,6 +109,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
             repository => repo_url,
             license => license,
             license_url => license_url,
+            additional_licenses => additional_licenses,
             authors => authors,
             scm_connection => scm.connection,
             scm_developer_connection => scm.developer_connection,

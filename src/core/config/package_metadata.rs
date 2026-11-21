@@ -14,6 +14,10 @@ pub struct PackageMetadataConfig {
     pub description: Option<String>,
     #[serde(default)]
     pub license: Option<String>,
+    /// Extra licenses covering code bundled in the artifact, declared next to `license`.
+    /// Emitted as additional `<license>` entries in the generated Maven POM.
+    #[serde(default)]
+    pub additional_licenses: Vec<AdditionalLicenseConfig>,
     #[serde(default)]
     pub repository: Option<String>,
     #[serde(default)]
@@ -49,6 +53,11 @@ impl PackageMetadataConfig {
         Some(Self {
             description: krate.description.clone().or_else(|| workspace.description.clone()),
             license: krate.license.clone().or_else(|| workspace.license.clone()),
+            additional_licenses: if krate.additional_licenses.is_empty() {
+                workspace.additional_licenses.clone()
+            } else {
+                krate.additional_licenses.clone()
+            },
             repository: krate.repository.clone().or_else(|| workspace.repository.clone()),
             homepage: krate.homepage.clone().or_else(|| workspace.homepage.clone()),
             documentation: krate.documentation.clone().or_else(|| workspace.documentation.clone()),
@@ -61,6 +70,20 @@ impl PackageMetadataConfig {
             truncate_registry_lists: krate.truncate_registry_lists || workspace.truncate_registry_lists,
         })
     }
+}
+
+/// One extra license declared in `additional_licenses`, for third-party code the artifact bundles.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AdditionalLicenseConfig {
+    /// License name, e.g. `LGPL-2.1-or-later`.
+    pub name: String,
+    /// URL of the license text.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Free-text note on what the license covers, e.g. `Bundled libheif`.
+    #[serde(default)]
+    pub comments: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
@@ -133,5 +156,26 @@ mod tests {
         let merged = PackageMetadataConfig::merge(Some(&workspace), None).expect("merged metadata");
 
         assert_eq!(merged.cargo, workspace.cargo);
+    }
+
+    #[test]
+    fn crate_additional_licenses_replace_workspace_ones() {
+        let license = |name: &str| AdditionalLicenseConfig {
+            name: name.to_string(),
+            ..Default::default()
+        };
+        let workspace = PackageMetadataConfig {
+            additional_licenses: vec![license("GPL-3.0-only")],
+            ..Default::default()
+        };
+        let inherited = PackageMetadataConfig::merge(Some(&workspace), None).expect("merged metadata");
+        assert_eq!(inherited.additional_licenses, workspace.additional_licenses);
+
+        let krate = PackageMetadataConfig {
+            additional_licenses: vec![license("LGPL-2.1-or-later")],
+            ..Default::default()
+        };
+        let merged = PackageMetadataConfig::merge(Some(&workspace), Some(&krate)).expect("merged metadata");
+        assert_eq!(merged.additional_licenses, krate.additional_licenses);
     }
 }

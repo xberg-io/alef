@@ -146,6 +146,36 @@
       ],
       "type": "string"
     },
+    "AdditionalLicenseConfig": {
+      "additionalProperties": false,
+      "description": "One extra license declared in `additional_licenses`, for third-party code the artifact bundles.",
+      "properties": {
+        "comments": {
+          "default": null,
+          "description": "Free-text note on what the license covers, e.g. `Bundled libheif`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "License name, e.g. `LGPL-2.1-or-later`.",
+          "type": "string"
+        },
+        "url": {
+          "default": null,
+          "description": "URL of the license text.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
     "ArgMapping": {
       "additionalProperties": false,
       "description": "Maps a fixture input field to a function argument.",
@@ -4178,6 +4208,14 @@
             "null"
           ]
         },
+        "bundled_notices": {
+          "default": [],
+          "description": "Files bundled into the AAR under `META-INF/`, as paths relative to the workspace root\n(e.g. `[\"LICENSE\", \"THIRD_PARTY_LICENSES.md\"]`). Each is staged by a generated Gradle\ntask and added to the main source set's resources; the build fails if one is missing.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "capsule_types": {
           "additionalProperties": {
             "$ref": "#/$defs/HostCapsuleTypeConfig"
@@ -4913,6 +4951,14 @@
       "additionalProperties": false,
       "description": "Shared package metadata used by language package manifests.\n\nValues can be set at `[workspace.package_metadata]` and overridden per\n`[[crates]]` entry with `[crates.package_metadata]`.",
       "properties": {
+        "additional_licenses": {
+          "default": [],
+          "description": "Extra licenses covering code bundled in the artifact, declared next to `license`.\nEmitted as additional `<license>` entries in the generated Maven POM.",
+          "items": {
+            "$ref": "#/$defs/AdditionalLicenseConfig"
+          },
+          "type": "array"
+        },
         "authors": {
           "default": [],
           "items": {
