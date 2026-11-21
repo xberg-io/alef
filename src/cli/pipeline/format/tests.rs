@@ -763,3 +763,32 @@ fn poly_fmt_failing_twice_is_recorded() {
     assert_eq!(runs.get(), 2);
     assert_eq!(pass.skipped.len(), 1);
 }
+
+/// A components-only crate formats only the paths it owns, and still reaches the fixed point.
+#[test]
+fn owned_paths_are_reformatted_until_clean_and_never_widen_scope() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let owned = dir.path().join("owned.json");
+    let stray = dir.path().join("hand_written.json");
+    std::fs::write(&owned, "{}").expect("write");
+    std::fs::write(&stray, "{}").expect("write");
+    let missing = dir.path().join("gone.json");
+    let set: std::collections::BTreeSet<PathBuf> = [owned.clone(), missing].into_iter().collect();
+    let runs = std::cell::RefCell::new(Vec::<Vec<PathBuf>>::new());
+
+    let skipped = format_owned_paths_with(
+        dir.path(),
+        &set,
+        false,
+        &|tool| tool == "poly",
+        &|paths, _dir| {
+            runs.borrow_mut().push(paths.to_vec());
+            Ok(())
+        },
+        &|_paths, _dir| runs.borrow().len() >= 2,
+    )
+    .expect("formats");
+
+    assert!(skipped.is_empty());
+    assert_eq!(*runs.borrow(), vec![vec![owned.clone()], vec![owned]]);
+}

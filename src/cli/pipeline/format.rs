@@ -275,11 +275,43 @@ pub(crate) fn format_owned_paths_reporting(
     paths: &std::collections::BTreeSet<PathBuf>,
     strict: bool,
 ) -> anyhow::Result<Vec<DeferredFormatting>> {
-    let mut pass = FormatPass::new(&is_tool_available);
+    format_owned_paths_with(
+        base_dir,
+        paths,
+        strict,
+        &is_tool_available,
+        &poly_format_strict,
+        &poly_paths_are_clean,
+    )
+}
+
+/// Testable seam for [`format_owned_paths_reporting`]. Runs poly over exactly the owned `paths`
+/// until they are clean (bounded by [`MAX_POLY_FMT_PASSES`]), so a non-idempotent engine settles
+/// to the same fixed point `alef verify` computes. ~keep
+fn format_owned_paths_with(
+    base_dir: &Path,
+    paths: &std::collections::BTreeSet<PathBuf>,
+    strict: bool,
+    is_available: &dyn Fn(&str) -> bool,
+    run_poly: &dyn Fn(&[PathBuf], &Path) -> anyhow::Result<()>,
+    paths_are_clean: &dyn Fn(&[PathBuf], &Path) -> bool,
+) -> anyhow::Result<Vec<DeferredFormatting>> {
+    let mut pass = FormatPass::new(is_available);
     let existing: Vec<PathBuf> = paths.iter().filter(|path| path.is_file()).cloned().collect();
-    poly_format_pass(&existing, base_dir, &mut pass);
+    converge_poly_format(&existing, base_dir, &mut pass, run_poly, &|dir| {
+        paths_are_clean(&existing, dir)
+    });
     warn_skipped(&pass.skipped);
     escalate_missing_toolchains(pass.skipped, strict)
+}
+
+/// Whether a poly dry run over exactly `paths` would change nothing.
+fn poly_paths_are_clean(paths: &[PathBuf], base_dir: &Path) -> bool {
+    let mut args = vec!["fmt".to_owned()];
+    args.extend(paths.iter().map(|path| path.to_string_lossy().into_owned()));
+    push_poly_format_excludes(&mut args);
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    run_poly_dry_run(&arg_refs, base_dir) == PolyDryRun::Clean
 }
 
 /// Testable seam for [`format_generated_reporting`]: resolves executable presence through
