@@ -634,14 +634,29 @@ fn poly_format_pass_with(
     pass: &mut FormatPass<'_>,
     run_poly: &dyn Fn(&[PathBuf], &Path) -> anyhow::Result<()>,
 ) -> bool {
-    if paths.is_empty() {
+    // A target that does not exist yet (a partial regen over a package directory nothing has
+    // generated) has nothing to format. Without this filter poly's spawn fails with ENOENT on the
+    // missing working directory, which is indistinguishable from a missing `poly` binary.
+    let existing: Vec<PathBuf> = paths.iter().filter(|path| path.exists()).cloned().collect();
+    if existing.is_empty() || !config_start.is_dir() {
         return true;
     }
     if !pass.available("poly") {
         pass.record_missing(PACKAGE_TREE_SCOPE, "poly", POLY_FMT_STEP);
         return true;
     }
-    if let Err(error) = run_poly(paths, config_start) {
+    if let Err(error) = run_poly(&existing, config_start) {
+        // The working directory exists, so a spawn ENOENT means the `poly` executable itself is
+        // gone (removed between the PATH probe and the run): that is a missing toolchain, fatal
+        // only under --strict, not a formatter that ran and failed.
+        if error
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound)
+        {
+            warn!("poly executable not found: {error:#}");
+            pass.record_missing(PACKAGE_TREE_SCOPE, "poly", POLY_FMT_STEP);
+            return true;
+        }
         warn!("poly fmt failed: {error:#}");
         pass.record_failed(PACKAGE_TREE_SCOPE, POLY_FMT_STEP, &error);
         return false;

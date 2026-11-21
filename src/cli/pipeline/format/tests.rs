@@ -600,10 +600,11 @@ fn pass_with_poly_installed() -> FormatPass<'static> {
 /// files written and the run green.
 #[test]
 fn failed_poly_fmt_is_recorded_and_escalated_without_strict() {
+    let dir = tempfile::tempdir().expect("tempdir");
     let mut pass = pass_with_poly_installed();
-    let paths = vec![PathBuf::from("packages")];
+    let paths = vec![dir.path().to_path_buf()];
 
-    let ran = poly_format_pass_with(&paths, Path::new("."), &mut pass, &|_paths, _dir| {
+    let ran = poly_format_pass_with(&paths, dir.path(), &mut pass, &|_paths, _dir| {
         anyhow::bail!("TOML parse error at line 7")
     });
 
@@ -617,10 +618,11 @@ fn failed_poly_fmt_is_recorded_and_escalated_without_strict() {
 
 #[test]
 fn successful_poly_fmt_records_nothing_and_does_not_escalate() {
+    let dir = tempfile::tempdir().expect("tempdir");
     let mut pass = pass_with_poly_installed();
-    let paths = vec![PathBuf::from("packages")];
+    let paths = vec![dir.path().to_path_buf()];
 
-    let ran = poly_format_pass_with(&paths, Path::new("."), &mut pass, &|_paths, _dir| Ok(()));
+    let ran = poly_format_pass_with(&paths, dir.path(), &mut pass, &|_paths, _dir| Ok(()));
 
     assert!(ran);
     assert!(
@@ -628,4 +630,40 @@ fn successful_poly_fmt_records_nothing_and_does_not_escalate() {
             .expect("clean pass")
             .is_empty()
     );
+}
+
+/// A partial regen over a package directory that does not exist has nothing to format: poly must
+/// not be spawned, and nothing may be recorded or escalated.
+#[test]
+fn nonexistent_format_target_is_a_no_op_not_a_failure() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let absent = dir.path().join("absent");
+    let mut pass = pass_with_poly_installed();
+
+    let ran = poly_format_pass_with(std::slice::from_ref(&absent), &absent, &mut pass, &|_paths, _dir| {
+        panic!("poly must not run over a target that does not exist")
+    });
+
+    assert!(ran);
+    assert!(pass.skipped.is_empty());
+}
+
+/// Spawn ENOENT of the poly binary itself keeps meaning "missing poly": recorded as a missing
+/// toolchain, fatal only under `--strict`.
+#[test]
+fn poly_spawn_not_found_is_a_missing_toolchain_not_a_formatter_failure() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut pass = pass_with_poly_installed();
+    let paths = vec![dir.path().to_path_buf()];
+
+    let ran = poly_format_pass_with(&paths, dir.path(), &mut pass, &|_paths, _dir| {
+        Err(std::io::Error::from(std::io::ErrorKind::NotFound).into())
+    });
+
+    assert!(ran);
+    assert_eq!(pass.skipped.len(), 1);
+    assert!(pass.skipped[0].is_missing_toolchain());
+    let skipped = pass.skipped.clone();
+    assert_eq!(escalate_missing_toolchains(skipped.clone(), false).unwrap(), skipped);
+    escalate_missing_toolchains(skipped, true).expect_err("--strict makes a missing poly fatal");
 }
