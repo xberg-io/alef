@@ -792,3 +792,21 @@ fn owned_paths_are_reformatted_until_clean_and_never_widen_scope() {
     assert!(skipped.is_empty());
     assert_eq!(*runs.borrow(), vec![vec![owned.clone()], vec![owned]]);
 }
+
+#[test]
+fn owned_paths_with_no_existing_file_never_run_or_probe_poly() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let set: std::collections::BTreeSet<PathBuf> = [dir.path().join("gone.json")].into_iter().collect();
+
+    let skipped = format_owned_paths_with(
+        dir.path(),
+        &set,
+        false,
+        &|tool| tool == "poly",
+        &|_paths, _dir| panic!("poly must not run with nothing to format"),
+        &|_paths, _dir| panic!("the cleanliness probe must not run with nothing to format"),
+    )
+    .expect("nothing to do");
+
+    assert!(skipped.is_empty());
+}

@@ -298,9 +298,13 @@ fn format_owned_paths_with(
 ) -> anyhow::Result<Vec<DeferredFormatting>> {
     let mut pass = FormatPass::new(is_available);
     let existing: Vec<PathBuf> = paths.iter().filter(|path| path.is_file()).cloned().collect();
-    converge_poly_format(&existing, base_dir, &mut pass, run_poly, &|dir| {
-        paths_are_clean(&existing, dir)
-    });
+    // Nothing to format: skip the loop so poly is never run, and never probed with no target (which
+    // it reads as the working directory).
+    if !existing.is_empty() {
+        converge_poly_format(&existing, base_dir, &mut pass, run_poly, &|dir| {
+            paths_are_clean(&existing, dir)
+        });
+    }
     warn_skipped(&pass.skipped);
     escalate_missing_toolchains(pass.skipped, strict)
 }
