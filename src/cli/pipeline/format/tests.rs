@@ -591,3 +591,41 @@ fn max_poly_fmt_passes_is_bounded() {
         "the convergence loop must be capped at 3 passes per the full-regen contract"
     );
 }
+
+fn pass_with_poly_installed() -> FormatPass<'static> {
+    FormatPass::new(&|tool| tool == "poly")
+}
+
+/// alef#934: a `poly fmt` that ran and failed used to be a `warn!`, leaving ~400 unformatted
+/// files written and the run green.
+#[test]
+fn failed_poly_fmt_is_recorded_and_escalated_without_strict() {
+    let mut pass = pass_with_poly_installed();
+    let paths = vec![PathBuf::from("packages")];
+
+    let ran = poly_format_pass_with(&paths, Path::new("."), &mut pass, &|_paths, _dir| {
+        anyhow::bail!("TOML parse error at line 7")
+    });
+
+    assert!(!ran);
+    assert_eq!(pass.skipped.len(), 1);
+    let error = escalate_missing_toolchains(pass.skipped, false).expect_err("a failed formatter must be fatal");
+    let message = error.to_string();
+    assert!(message.contains("TOML parse error at line 7"), "{message}");
+    assert!(message.contains("NOT formatted"), "{message}");
+}
+
+#[test]
+fn successful_poly_fmt_records_nothing_and_does_not_escalate() {
+    let mut pass = pass_with_poly_installed();
+    let paths = vec![PathBuf::from("packages")];
+
+    let ran = poly_format_pass_with(&paths, Path::new("."), &mut pass, &|_paths, _dir| Ok(()));
+
+    assert!(ran);
+    assert!(
+        escalate_missing_toolchains(pass.skipped, false)
+            .expect("clean pass")
+            .is_empty()
+    );
+}
