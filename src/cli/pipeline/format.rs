@@ -391,7 +391,7 @@ fn run_format_pass(
             // poly's config, not a hand-picked directory list, decides what it touches.
             let mut paths = vec![base_dir.to_path_buf()];
             paths.extend(extra_paths.iter().filter(|path| path.exists()).cloned());
-            poly_format_pass(&paths, base_dir, &mut pass);
+            converge_poly_format(&paths, base_dir, &mut pass, &poly_format_strict, &poly_fmt_is_clean);
             for &lang in &poly_langs {
                 let lang_str = lang.to_string().to_lowercase();
                 for step in language_residuals(config, lang, base_dir) {
@@ -625,6 +625,33 @@ fn poly_format_pass(paths: &[PathBuf], config_start: &Path, pass: &mut FormatPas
     poly_format_pass_with(paths, config_start, pass, &poly_format_strict)
 }
 
+/// Run `poly fmt --fix` over `paths` until the tree is clean, at most [`MAX_POLY_FMT_PASSES`]
+/// times: the partial-regen counterpart of [`converge_full_regen`]'s loop. A single pass leaves
+/// the bundled non-idempotent engines (`.java`, `.cs`, `.json`) in an intermediate state, while
+/// `alef verify` formats to a fixed point, so a lone `alef generate` pass would be reported as
+/// drift (alef#934). Stops at once when poly is absent or fails; that is already recorded. ~keep
+fn converge_poly_format(
+    paths: &[PathBuf],
+    config_start: &Path,
+    pass: &mut FormatPass<'_>,
+    run_poly: &dyn Fn(&[PathBuf], &Path) -> anyhow::Result<()>,
+    is_clean: &dyn Fn(&Path) -> bool,
+) {
+    for _iteration in 1..=MAX_POLY_FMT_PASSES {
+        let skipped_before = pass.skipped.len();
+        if !poly_format_pass_with(paths, config_start, pass, run_poly) || pass.skipped.len() != skipped_before {
+            return;
+        }
+        if is_clean(config_start) {
+            return;
+        }
+    }
+    warn!(
+        "poly fmt did not converge after {MAX_POLY_FMT_PASSES} passes (non-fatal); generated \
+         output may have residual formatting drift"
+    );
+}
+
 /// [`poly_format_pass`] with the poly invocation injected, so the failure policy is provable
 /// without a poly binary. Returns `false` when poly ran and failed; that failure is recorded
 /// into `pass` and escalated by [`escalate_missing_toolchains`]. ~keep
@@ -645,14 +672,12 @@ fn poly_format_pass_with(
         pass.record_missing(PACKAGE_TREE_SCOPE, "poly", POLY_FMT_STEP);
         return true;
     }
-    if let Err(error) = run_poly(&existing, config_start) {
+    let outcome = run_poly(&existing, config_start);
+    if let Err(error) = outcome {
         // The working directory exists, so a spawn ENOENT means the `poly` executable itself is
         // gone (removed between the PATH probe and the run): that is a missing toolchain, fatal
         // only under --strict, not a formatter that ran and failed.
-        if error
-            .downcast_ref::<std::io::Error>()
-            .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound)
-        {
+        if is_not_found(&error) {
             warn!("poly executable not found: {error:#}");
             pass.record_missing(PACKAGE_TREE_SCOPE, "poly", POLY_FMT_STEP);
             return true;
@@ -662,6 +687,12 @@ fn poly_format_pass_with(
         return false;
     }
     true
+}
+
+fn is_not_found(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<std::io::Error>()
+        .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound)
 }
 
 /// Step names recorded when a whole-tree formatter is skipped for want of its executable.

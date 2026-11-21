@@ -667,3 +667,62 @@ fn poly_spawn_not_found_is_a_missing_toolchain_not_a_formatter_failure() {
     assert_eq!(escalate_missing_toolchains(skipped.clone(), false).unwrap(), skipped);
     escalate_missing_toolchains(skipped, true).expect_err("--strict makes a missing poly fatal");
 }
+
+/// alef#934: a partial regen formats to a fixed point like `alef all` and `alef verify` do, so a
+/// non-idempotent engine's intermediate output is never what `alef generate` leaves behind.
+#[test]
+fn partial_regen_reruns_poly_until_the_tree_is_clean() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut pass = pass_with_poly_installed();
+    let paths = vec![dir.path().to_path_buf()];
+    let runs = std::cell::Cell::new(0u32);
+
+    converge_poly_format(
+        &paths,
+        dir.path(),
+        &mut pass,
+        &|_paths, _dir| {
+            runs.set(runs.get() + 1);
+            Ok(())
+        },
+        &|_dir| runs.get() >= 2,
+    );
+
+    assert_eq!(runs.get(), 2);
+    assert!(pass.skipped.is_empty());
+}
+
+#[test]
+fn partial_regen_poly_convergence_is_capped_and_stops_on_failure() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let paths = vec![dir.path().to_path_buf()];
+
+    let mut pass = pass_with_poly_installed();
+    let runs = std::cell::Cell::new(0u32);
+    converge_poly_format(
+        &paths,
+        dir.path(),
+        &mut pass,
+        &|_paths, _dir| {
+            runs.set(runs.get() + 1);
+            Ok(())
+        },
+        &|_dir| false,
+    );
+    assert_eq!(runs.get(), MAX_POLY_FMT_PASSES);
+
+    let mut pass = pass_with_poly_installed();
+    let failing_runs = std::cell::Cell::new(0u32);
+    converge_poly_format(
+        &paths,
+        dir.path(),
+        &mut pass,
+        &|_paths, _dir| {
+            failing_runs.set(failing_runs.get() + 1);
+            anyhow::bail!("TOML parse error")
+        },
+        &|_dir| panic!("a failed pass must not be followed by a cleanliness probe"),
+    );
+    assert_eq!(failing_runs.get(), 1);
+    assert_eq!(pass.skipped.len(), 1);
+}
