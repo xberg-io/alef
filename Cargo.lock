@@ -33,7 +33,7 @@ dependencies = [
 
 [[package]]
 name = "alef"
-version = "0.132.0"
+version = "0.132.1"
 dependencies = [
  "ahash",
  "alef-component-runtime",
@@ -85,11 +85,11 @@ dependencies = [
 
 [[package]]
 name = "alef-component-abi"
-version = "0.132.0"
+version = "0.132.1"
 
 [[package]]
 name = "alef-component-runtime"
-version = "0.132.0"
+version = "0.132.1"
 dependencies = [
  "alef-component-abi",
  "base64",
@@ -996,9 +996,9 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
-version = "0.17.1"
+version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+checksum = "735eaa21a6a5ffb2e84362faaeb90c05ba8e19797ca30428478cb6ea3a4921bc"
 dependencies = [
  "allocator-api2",
  "equivalent",
