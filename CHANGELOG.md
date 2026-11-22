@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.132.2] - 2026-11-22
+
 ### Fixed
 
 - Generated binding crate manifests (Dart, Swift, JNI, FFI, Node, Python, PHP, Ruby, Elixir, R, WASM) carry `[lints.cargo] unused_dependencies = "allow"`. Rust 1.100's `cargo::unused_dependencies` warning ignores the cargo-machete `ignored` list and failed builds that deny warnings when `async-trait` was emitted but unused.
