@@ -25,6 +25,7 @@ fn should_route_php_free_function_failures_through_the_typed_converter() {
         opaque: &empty,
         default: &empty,
         enums: &empty,
+        type_paths: None,
     };
     let sync = gen_function_as_static_method(
         &function,
@@ -91,6 +92,7 @@ fn should_refuse_invalid_json_in_php_free_function_params() {
                 opaque: &empty,
                 default: &empty,
                 enums: &empty,
+                type_paths: None,
             },
             PhpFunctionTarget {
                 core_import: "sample",

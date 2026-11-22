@@ -247,9 +247,16 @@ pub(super) fn gen_function(
                     opaque_types,
                     &AHashSet::new(),
                     core_import,
+                    cfg.type_paths,
                 )
             } else {
-                generators::gen_named_let_bindings_no_promote(&func.params, opaque_types, &AHashSet::new(), core_import)
+                generators::gen_named_let_bindings_no_promote(
+                    &func.params,
+                    opaque_types,
+                    &AHashSet::new(),
+                    core_import,
+                    cfg.type_paths,
+                )
             }
         } else {
             String::new()
@@ -300,9 +307,16 @@ pub(super) fn gen_function(
                     opaque_types,
                     &AHashSet::new(),
                     core_import,
+                    cfg.type_paths,
                 )
             } else {
-                generators::gen_named_let_bindings_no_promote(&func.params, opaque_types, &AHashSet::new(), core_import)
+                generators::gen_named_let_bindings_no_promote(
+                    &func.params,
+                    opaque_types,
+                    &AHashSet::new(),
+                    core_import,
+                    cfg.type_paths,
+                )
             }
         } else {
             String::new()

@@ -1,7 +1,7 @@
 {% if mode == "optional" -%}
-let {% if is_mut %}mut {% endif %}{{ name }}_core: Option<{{ core_import }}::{{ type_name }}> = match {{ name }} { Some(_v) if !_v.is_nil() => Some({ let binding_val: {{ type_name }} = {{ type_name }}::try_convert(_v).map_err(|e| {{ error_expr }})?; binding_val.into() }), _ => None };
+let {% if is_mut %}mut {% endif %}{{ name }}_core: Option<{{ core_path }}> = match {{ name }} { Some(_v) if !_v.is_nil() => Some({ let binding_val: {{ type_name }} = {{ type_name }}::try_convert(_v).map_err(|e| {{ error_expr }})?; binding_val.into() }), _ => None };
 {%- elif mode == "default" -%}
-let {% if is_mut %}mut {% endif %}{{ name }}_core: {{ core_import }}::{{ type_name }} = match {{ name }} { Some(_v) if !_v.is_nil() => { let binding_val: {{ type_name }} = {{ type_name }}::try_convert(_v).map_err(|e| {{ error_expr }})?; binding_val.into() }, _ => Default::default() };
+let {% if is_mut %}mut {% endif %}{{ name }}_core: {{ core_path }} = match {{ name }} { Some(_v) if !_v.is_nil() => { let binding_val: {{ type_name }} = {{ type_name }}::try_convert(_v).map_err(|e| {{ error_expr }})?; binding_val.into() }, _ => Default::default() };
 {%- else -%}
-let {% if is_mut %}mut {% endif %}{{ name }}_core: {{ core_import }}::{{ type_name }} = { let binding_val: {{ type_name }} = {{ type_name }}::try_convert({{ name }}).map_err(|e| {{ error_expr }})?; binding_val.into() };
+let {% if is_mut %}mut {% endif %}{{ name }}_core: {{ core_path }} = { let binding_val: {{ type_name }} = {{ type_name }}::try_convert({{ name }}).map_err(|e| {{ error_expr }})?; binding_val.into() };
 {%- endif %}

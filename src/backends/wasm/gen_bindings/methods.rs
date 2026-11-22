@@ -283,6 +283,7 @@ pub(super) fn gen_method_with_type_paths(
                     opaque_types,
                     &ahash::AHashSet::new(),
                     core_import,
+                    None,
                 )
             } else {
                 String::new()
@@ -489,6 +490,7 @@ pub(super) fn gen_method_with_type_paths(
                     opaque_types,
                     &ahash::AHashSet::new(),
                     core_import,
+                    None,
                 )
             } else {
                 String::new()

@@ -53,6 +53,7 @@ pub fn gen_named_let_bindings_with_augmented(
     opaque_types: &AHashSet<String>,
     fallible_named: &AHashSet<String>,
     core_import: &str,
+    type_paths: Option<&std::collections::HashMap<String, String>>,
 ) -> String {
     gen_named_let_bindings_inner_augmented(
         augmented_params,
@@ -60,7 +61,7 @@ pub fn gen_named_let_bindings_with_augmented(
         opaque_types,
         fallible_named,
         core_import,
-        None,
+        type_paths,
     )
 }
 
@@ -71,8 +72,9 @@ pub fn gen_named_let_bindings_no_promote(
     opaque_types: &AHashSet<String>,
     fallible_named: &AHashSet<String>,
     core_import: &str,
+    type_paths: Option<&std::collections::HashMap<String, String>>,
 ) -> String {
-    gen_named_let_bindings_inner(params, opaque_types, fallible_named, core_import, false, None)
+    gen_named_let_bindings_inner(params, opaque_types, fallible_named, core_import, false, type_paths)
 }
 
 pub(in crate::codegen::generators) fn gen_named_let_bindings(

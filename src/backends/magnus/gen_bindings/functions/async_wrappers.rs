@@ -29,6 +29,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_async_function(
     core_import: &str,
     api: &ApiSurface,
 ) -> String {
+    let type_paths = crate::codegen::generators::type_paths::build_type_path_lookup(api);
     let is_default_config_func = last_param_is_default_struct(func, api);
     let variadic = needs_variadic_arity(&func.params) || is_default_config_func;
 
@@ -63,6 +64,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_async_function(
             core_import,
             mapper,
             is_default_config_func,
+            &type_paths,
         ));
     } else {
         for (idx, p) in func.params.iter().enumerate() {
@@ -76,7 +78,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_async_function(
                             crate::alef_context! {
                                 mode => "optional",
                                 binding_name => binding_ty,
-                                core_import => core_import,
+                                core_path => crate::codegen::generators::type_paths::resolve_type_path(name, core_import, &type_paths),
                                 type_name => name,
                                 is_mut => p.is_mut,
                             },
@@ -87,7 +89,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_async_function(
                             crate::alef_context! {
                                 mode => "default",
                                 binding_name => binding_ty,
-                                core_import => core_import,
+                                core_path => crate::codegen::generators::type_paths::resolve_type_path(name, core_import, &type_paths),
                                 type_name => name,
                                 is_mut => p.is_mut,
                             },
@@ -98,7 +100,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_async_function(
                             crate::alef_context! {
                                 mode => "required",
                                 binding_name => binding_ty,
-                                core_import => core_import,
+                                core_path => crate::codegen::generators::type_paths::resolve_type_path(name, core_import, &type_paths),
                                 type_name => name,
                                 is_mut => p.is_mut,
                             },
@@ -109,7 +111,8 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_async_function(
                 && let TypeRef::Named(name) = inner.as_ref()
                 && !opaque_types.contains(name.as_str())
             {
-                let core_inner_ty = format!("{core_import}::{name}");
+                let core_inner_ty =
+                    crate::codegen::generators::type_paths::resolve_type_path(name, core_import, &type_paths);
                 let vec_ty = format!("Vec<{core_inner_ty}>");
                 deser_lines.push(crate::backends::magnus::template_env::render(
                     "function_named_vec_binding.rs.jinja",

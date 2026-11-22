@@ -41,12 +41,35 @@ pub(crate) fn param_conversion_is_fallible(
     enum_names: &AHashSet<String>,
 ) -> bool {
     use crate::core::ir::TypeRef;
+    if nested_vec_plain_struct_name(&p.ty, opaque_types, enum_names).is_some() {
+        return true;
+    }
     if let TypeRef::Vec(inner) = &p.ty
         && let TypeRef::Named(name) = inner.as_ref()
     {
         return !opaque_types.contains(name.as_str()) && !enum_names.contains(name.as_str());
     }
     matches!(p.ty, TypeRef::Json)
+}
+
+/// The struct name of a `Vec<Vec<Struct>>` type whose element is a plain `#[php_class]` struct
+/// (not opaque, not an enum). ext-php-rs has no `FromZval` impl for a nested `Vec` of such a
+/// class, so the parameter is taken as a `ZendHashTable` of `ZendHashTable` rows and decoded
+/// per element.
+pub(crate) fn nested_vec_plain_struct_name<'a>(
+    ty: &'a TypeRef,
+    opaque_types: &AHashSet<String>,
+    enum_names: &AHashSet<String>,
+) -> Option<&'a str> {
+    if let TypeRef::Vec(outer) = ty
+        && let TypeRef::Vec(inner) = outer.as_ref()
+        && let TypeRef::Named(name) = inner.as_ref()
+        && !opaque_types.contains(name.as_str())
+        && !enum_names.contains(name.as_str())
+    {
+        return Some(name.as_str());
+    }
+    None
 }
 
 /// Decode the JSON text a PHP caller passes for a `Json` parameter. Text that does not parse is
@@ -121,7 +144,13 @@ pub(crate) fn gen_php_function_params(
                 }
                 TypeRef::Vec(inner) => {
                     // Vec<T> when T is a #[php_class] type. Use &ZendHashTable instead and
-                    if let TypeRef::Named(name) = inner.as_ref() {
+                    if nested_vec_plain_struct_name(&p.ty, opaque_types, &mapper.enum_names).is_some() {
+                        if p.optional {
+                            "Option<&ext_php_rs::types::ZendHashTable>".to_string()
+                        } else {
+                            "&ext_php_rs::types::ZendHashTable".to_string()
+                        }
+                    } else if let TypeRef::Named(name) = inner.as_ref() {
                         if !opaque_types.contains(name.as_str()) && !mapper.enum_names.contains(name.as_str()) {
                             if p.optional {
                                 "Option<&ext_php_rs::types::ZendHashTable>".to_string()
@@ -366,6 +395,7 @@ pub(crate) fn gen_php_named_let_bindings(
     opaque_types: &AHashSet<String>,
     enum_names: &AHashSet<String>,
     core_import: &str,
+    type_paths: Option<&std::collections::HashMap<String, String>>,
 ) -> String {
     let mut out = String::new();
 
@@ -404,6 +434,7 @@ pub(crate) fn gen_php_named_let_bindings(
                     crate::alef_context! {
                         php_name => &php_param_name,
                         core_import => core_import,
+                        core_path => crate::codegen::generators::type_paths::resolve_type_path_opt(name, core_import, type_paths),
                         type_name => name.as_str(),
                         is_optional => p.optional,
                         is_mut => p.is_mut,
@@ -417,7 +448,18 @@ pub(crate) fn gen_php_named_let_bindings(
                 }
             }
             TypeRef::Vec(inner) => {
-                if let TypeRef::Named(name) = inner.as_ref() {
+                if let Some(name) = nested_vec_plain_struct_name(&p.ty, opaque_types, enum_names) {
+                    out.push_str(&crate::backends::php::template_env::render(
+                        "php_vec_vec_named_struct_let_binding.jinja",
+                        crate::alef_context! {
+                            php_name => &php_param_name,
+                            core_path => crate::codegen::generators::type_paths::resolve_type_path_opt(name, core_import, type_paths),
+                            struct_name => name,
+                            is_optional => p.optional,
+                            to_core => true,
+                        },
+                    ));
+                } else if let TypeRef::Named(name) = inner.as_ref() {
                     if !opaque_types.contains(name.as_str()) {
                         if enum_names.contains(name.as_str()) {
                             out.push_str(&crate::backends::php::template_env::render(

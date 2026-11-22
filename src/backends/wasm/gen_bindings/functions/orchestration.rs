@@ -162,12 +162,15 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos_an
         )
     } else if can_delegate {
         let has_named = crate::codegen::generators::has_named_params(&func.params, opaque_types);
+        let std_type_paths: std::collections::HashMap<String, String> =
+            type_paths.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         let mut let_bindings = if has_named {
             crate::codegen::generators::gen_named_let_bindings_no_promote(
                 &func.params,
                 opaque_types,
                 &ahash::AHashSet::new(),
                 core_import,
+                Some(&std_type_paths),
             )
         } else {
             String::new()

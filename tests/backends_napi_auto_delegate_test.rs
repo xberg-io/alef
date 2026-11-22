@@ -239,3 +239,25 @@ fn free_fn_optional_bytes_param_converts_option_buffer_not_option_to_vec() {
         "call site should pass Option<&[u8]> via as_deref():\n{content}"
     );
 }
+
+#[test]
+fn free_fn_let_binding_names_non_root_param_type_by_real_module_path() {
+    let append = func(
+        "append",
+        vec![param("annotation", TypeRef::Named("Input".to_string()), true, false)],
+        TypeRef::String,
+        None,
+    );
+    let mut input = dto("Input", vec![]);
+    input.rust_path = "test_lib::deep::write::Input".to_string();
+    let content = lib_rs(&api(vec![input], vec![append]));
+
+    assert!(
+        content.contains("Option<test_lib::deep::write::Input> = annotation.map(Into::into)"),
+        "let-binding must use the type's real module path:\n{content}"
+    );
+    assert!(
+        !content.contains("Option<test_lib::Input>"),
+        "crate-root fallback path must not be emitted for a non-root type:\n{content}"
+    );
+}

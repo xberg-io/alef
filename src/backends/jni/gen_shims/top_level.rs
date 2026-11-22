@@ -15,6 +15,7 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
     );
     let opaque_types = jni_opaque_type_names(&filtered_api);
     let capsule_types = jni_capsule_types(config);
+    let type_paths = crate::codegen::generators::type_paths::build_type_path_lookup(api);
     let mut out = emit_jni_lib_header(&filtered_api, config, &package);
     emit_top_level_function_shims(
         &mut out,
@@ -25,6 +26,7 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
             bridge: &bridge,
             opaque_types: &opaque_types,
             capsule_types: &capsule_types,
+            type_paths: &type_paths,
         },
     );
     emit_jni_type_shims(
@@ -291,6 +293,7 @@ struct TopLevelFunctionShimsParams<'a> {
     bridge: &'a str,
     opaque_types: &'a std::collections::HashSet<&'a str>,
     capsule_types: &'a std::collections::HashMap<String, crate::core::config::FfiCapsuleTypeConfig>,
+    type_paths: &'a std::collections::HashMap<String, String>,
 }
 
 fn emit_top_level_function_shims(out: &mut String, params: TopLevelFunctionShimsParams) {
@@ -301,6 +304,7 @@ fn emit_top_level_function_shims(out: &mut String, params: TopLevelFunctionShims
         bridge,
         opaque_types,
         capsule_types,
+        type_paths,
     } = params;
     // The symbol is keyed by its resolved predicate because duplicate IR entries can represent the same re-export. ~keep
     let mut emitted_native_symbols: std::collections::HashSet<(String, Option<String>)> =
@@ -321,7 +325,15 @@ fn emit_top_level_function_shims(out: &mut String, params: TopLevelFunctionShims
             ));
         }
         let symbol = jni_symbol(package, bridge, &method_name);
-        emit_function_shim(out, &symbol, function, opaque_types, capsule_types, &config.name);
+        emit_function_shim(
+            out,
+            &symbol,
+            function,
+            opaque_types,
+            capsule_types,
+            &config.name,
+            type_paths,
+        );
     }
 }
 

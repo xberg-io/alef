@@ -26,6 +26,28 @@ mod tests {
     }
 
     #[test]
+    fn resolved_core_path_uses_real_module_path_for_non_root_type() {
+        let type_paths =
+            std::collections::HashMap::from([("Input".to_string(), "sample_crate::deep::write::Input".to_string())]);
+        let paths = CoreTypePaths {
+            crate_prefix: "sample_crate",
+            type_paths: &type_paths,
+        };
+        assert_eq!(
+            type_ref_to_core_path_resolved(&TypeRef::Named("Input".to_string()), false, &paths),
+            "core_crate::deep::write::Input"
+        );
+        assert_eq!(
+            type_ref_to_core_path_resolved(
+                &TypeRef::Vec(Box::new(TypeRef::Named("Unknown".to_string()))),
+                false,
+                &paths
+            ),
+            "Vec<core_crate::Unknown>"
+        );
+    }
+
+    #[test]
     fn type_ref_to_core_path_uses_btree_for_btree_map() {
         let map = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String));
         assert_eq!(
