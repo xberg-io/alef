@@ -459,8 +459,8 @@ print_stdout = "deny"
     // "no triple newline" check would be wrong here, because the `[features]` block leaves a
     // documented double blank before `[dependencies]` on an empty API surface. ~keep
     assert!(
-        cargo.trim_end().ends_with("print_stdout = \"deny\""),
-        "expected [lints.clippy] to be the final table, got:\n{cargo}"
+        cargo.trim_end().ends_with("[lints.cargo]\nunused_dependencies = \"allow\""),
+        "expected [lints.cargo] to be the final table, got:\n{cargo}"
     );
     assert!(
         cargo.len() - cargo.trim_end_matches('\n').len() <= 2,

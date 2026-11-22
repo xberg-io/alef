@@ -258,7 +258,7 @@ fn cargo_toml_emits_builtin_clippy_denies_when_cargo_lints_unset() {
         file.content.ends_with(
             "[lints.rust]\n# flutter_rust_bridge uses #[cfg(frb_expand)] internally during macro expansion.\n\
                  unexpected_cfgs = { level = \"warn\", check-cfg = ['cfg(frb_expand)'] }\n\n\
-                 [lints.clippy]\ndbg_macro = \"deny\"\nprint_stderr = \"deny\"\nprint_stdout = \"deny\"\n"
+                 [lints.clippy]\ndbg_macro = \"deny\"\nprint_stderr = \"deny\"\nprint_stdout = \"deny\"\n\n[lints.cargo]\nunused_dependencies = \"allow\"\n"
         ),
         "got:\n{}",
         file.content
