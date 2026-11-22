@@ -184,16 +184,12 @@ fn format_type_ref_rust(ty: &TypeRef, optional: bool) -> String {
         TypeRef::Optional(inner) => {
             return format!("Option<{}>", format_type_ref_rust(inner, false));
         }
-        TypeRef::Vec(inner) => {
-            return format!("Vec<{}>", format_type_ref_rust(inner, false));
-        }
-        TypeRef::Map(k, v) => {
-            return format!(
-                "HashMap<{}, {}>",
-                format_type_ref_rust(k, false),
-                format_type_ref_rust(v, false)
-            );
-        }
+        TypeRef::Vec(inner) => format!("Vec<{}>", format_type_ref_rust(inner, false)),
+        TypeRef::Map(k, v) => format!(
+            "HashMap<{}, {}>",
+            format_type_ref_rust(k, false),
+            format_type_ref_rust(v, false)
+        ),
         TypeRef::Named(name) => name.rsplit("::").next().unwrap_or(name).to_string(),
     };
     if optional && !matches!(ty, TypeRef::Optional(_)) {
@@ -503,4 +499,21 @@ fn append_error_type(out: &mut String, err: &crate::core::ir::ErrorDef) {
     }
     out.push('\n');
     out.push_str("---\n\n");
+}
+
+#[cfg(test)]
+mod optional_collection_tests {
+    use super::format_type_ref_rust;
+    use crate::core::ir::TypeRef;
+
+    #[test]
+    fn optional_vec_and_map_fields_render_as_option_of_the_collection() {
+        let list = TypeRef::Vec(Box::new(TypeRef::String));
+        assert_eq!(format_type_ref_rust(&list, true), "Option<Vec<String>>");
+        assert_eq!(format_type_ref_rust(&list, false), "Vec<String>");
+        let map = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String));
+        assert_eq!(format_type_ref_rust(&map, true), "Option<HashMap<String, String>>");
+        let nested = TypeRef::Optional(Box::new(list));
+        assert_eq!(format_type_ref_rust(&nested, true), "Option<Vec<String>>");
+    }
 }
