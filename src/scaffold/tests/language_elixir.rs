@@ -878,6 +878,11 @@ fn test_scaffold_elixir_cargo_lints_unset_emits_builtin_clippy_denies() {
         "the builtin [lints.clippy] deny block must be emitted even when cargo_lints is unset; content:\n{}",
         cargo_toml.content
     );
+    assert!(
+        lints_block.contains("[lints.cargo]\nunused_dependencies = \"allow\""),
+        "content:\n{}",
+        cargo_toml.content
+    );
     toml::from_str::<toml::Value>(&cargo_toml.content).expect("generated Cargo.toml must be valid TOML");
 }
 

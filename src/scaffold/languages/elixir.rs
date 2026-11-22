@@ -271,7 +271,11 @@ pub(crate) fn scaffold_elixir_cargo(
         } else {
             format!("\n\n{clippy_block}")
         };
-        format!("\n[lints.rust]\n{}{clippy_section}\n", rust_lines.join("\n"))
+        format!(
+            "\n[lints.rust]\n{}{clippy_section}\n\n{}\n",
+            rust_lines.join("\n"),
+            config.cargo_lints.cargo_block()
+        )
     };
 
     let content = format!(
