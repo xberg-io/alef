@@ -677,6 +677,11 @@ fn converge_poly_format(
     run_poly: &dyn Fn(&[PathBuf], &Path) -> anyhow::Result<()>,
     dry_run: &dyn Fn(&Path) -> PolyDryRun,
 ) {
+    // Nothing exists to format, so there is nothing to converge: the dry run would spawn poly in a
+    // missing working directory, and that ENOENT would be recorded as a failed formatter.
+    if !config_start.is_dir() || !paths.iter().any(|path| path.exists()) {
+        return;
+    }
     for _iteration in 1..=MAX_POLY_FMT_PASSES {
         let skipped_before = pass.skipped.len();
         if !poly_format_pass_with(paths, config_start, pass, run_poly) || pass.skipped.len() != skipped_before {
