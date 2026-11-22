@@ -1,0 +1,39 @@
+{% if is_optional %}
+let {{ php_name }}_core: Option<Vec<Vec<{% if to_core %}{{ core_path }}{% else %}{{ struct_name }}{% endif %}>>> = if let Some(rows) = {{ php_name }} {
+    let mut result = Vec::new();
+    for (_, row) in rows.iter() {
+        let Some(row_ht) = row.array() else {
+            return Err(ext_php_rs::exception::PhpException::from_message("Failed to convert array row to a list of {{ struct_name }}".to_string()));
+        };
+        let mut inner = Vec::new();
+        for (_, item) in row_ht.iter() {
+            if let Some(parsed) = <&{{ struct_name }} as ext_php_rs::convert::FromZval>::from_zval(item) {
+                inner.push(parsed.clone(){% if to_core %}.into(){% endif %});
+            } else {
+                return Err(ext_php_rs::exception::PhpException::from_message("Failed to convert array element to {{ struct_name }}".to_string()));
+            }
+        }
+        result.push(inner);
+    }
+    Some(result)
+} else {
+    None
+};
+{% else %}
+let mut {{ php_name }}_core_result: Vec<Vec<{% if to_core %}{{ core_path }}{% else %}{{ struct_name }}{% endif %}>> = Vec::new();
+for (_, row) in {{ php_name }}.iter() {
+    let Some(row_ht) = row.array() else {
+        return Err(ext_php_rs::exception::PhpException::from_message("Failed to convert array row to a list of {{ struct_name }}".to_string()));
+    };
+    let mut inner = Vec::new();
+    for (_, item) in row_ht.iter() {
+        if let Some(parsed) = <&{{ struct_name }} as ext_php_rs::convert::FromZval>::from_zval(item) {
+            inner.push(parsed.clone(){% if to_core %}.into(){% endif %});
+        } else {
+            return Err(ext_php_rs::exception::PhpException::from_message("Failed to convert array element to {{ struct_name }}".to_string()));
+        }
+    }
+    {{ php_name }}_core_result.push(inner);
+}
+let {{ php_name }}_core: Vec<Vec<{% if to_core %}{{ core_path }}{% else %}{{ struct_name }}{% endif %}>> = {{ php_name }}_core_result;
+{% endif %}

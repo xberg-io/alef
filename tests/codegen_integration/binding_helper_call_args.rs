@@ -399,8 +399,13 @@ fn test_gen_named_let_bindings_no_promote_non_opaque() {
         core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
-    let result =
-        binding_helpers::gen_named_let_bindings_no_promote(&params, &opaque_types, &ahash::AHashSet::new(), "my_crate");
+    let result = binding_helpers::gen_named_let_bindings_no_promote(
+        &params,
+        &opaque_types,
+        &ahash::AHashSet::new(),
+        "my_crate",
+        None,
+    );
     assert!(
         result.contains("let config_core: my_crate::Config = config.into();"),
         "should generate let binding for non-opaque named param"

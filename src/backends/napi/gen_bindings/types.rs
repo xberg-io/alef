@@ -541,13 +541,15 @@ pub(super) fn gen_dto_method_fns(
                         opaque_types,
                         &ahash::AHashSet::new(),
                         cfg.core_import,
+                        cfg.type_paths,
                     )
                 } else {
-                    generators::gen_named_let_bindings_pub(
+                    generators::gen_named_let_bindings_pub_with_paths(
                         &method.params,
                         opaque_types,
                         &ahash::AHashSet::new(),
                         cfg.core_import,
+                        cfg.type_paths,
                     )
                 },
             )

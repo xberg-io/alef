@@ -426,7 +426,7 @@ pub struct RustBindingConfig<'a> {
     /// `None` (the default for every backend other than pyo3, and for any pyo3 call site that
     /// has not wired this) preserves today's generic conversion unchanged. ~keep
     pub error_converters: Option<&'a [String]>,
-    /// Short type name to the real module path of the core type (`xberg::inner::mod::Type`), for
+    /// Short type name to the real module path of the core type (`my_crate::inner::mod::Type`), for
     /// let-bindings that name a Named param's core type. `None` falls back to
     /// `{core_import}::{Name}`, which only resolves for types re-exported at the crate root.
     pub type_paths: Option<&'a std::collections::HashMap<String, String>>,

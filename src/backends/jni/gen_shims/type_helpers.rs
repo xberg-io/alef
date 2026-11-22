@@ -178,6 +178,21 @@ fn jni_newtype_wrapper(wrapper: &str) -> String {
     crate::core::ir::NewtypeWrapper::encode_explicit(&paths)
 }
 
+/// Like [`type_ref_to_core_path_with_btree`] but names each `Named` type by its real module path
+/// from `paths` (rewritten to `core_crate::`), so types that are not re-exported at the crate
+/// root resolve. Types without a recorded path keep the `core_crate::{Name}` form.
+fn type_ref_to_core_path_resolved(ty: &TypeRef, map_is_btree: bool, paths: &CoreTypePaths<'_>) -> String {
+    match ty {
+        TypeRef::Named(n) => paths.type_paths.get(n).map_or_else(
+            || format!("core_crate::{n}"),
+            |p| core_function_path(p, paths.crate_prefix),
+        ),
+        TypeRef::Optional(inner) => format!("Option<{}>", type_ref_to_core_path_resolved(inner, map_is_btree, paths)),
+        TypeRef::Vec(inner) => format!("Vec<{}>", type_ref_to_core_path_resolved(inner, map_is_btree, paths)),
+        other => type_ref_to_core_path_with_btree(other, "core_crate", map_is_btree),
+    }
+}
+
 /// Like [`type_ref_to_core_path`] but honours the concrete map container declared
 /// by the core function. When `map_is_btree` is true and `ty` is a `Map`, the
 /// outermost (possibly `Option`/`Vec`-wrapped) map is emitted as

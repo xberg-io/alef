@@ -1,4 +1,5 @@
 use crate::backends::magnus::type_map::MagnusMapper;
+use crate::codegen::generators::type_paths::resolve_type_path;
 use crate::core::ir::{FunctionDef, ParamDef, TypeRef};
 use ahash::AHashSet;
 
@@ -129,6 +130,7 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn magnus_serde_let_bin
     core_import: &str,
     _mapper: &MagnusMapper,
     is_default_config_func: bool,
+    type_paths: &std::collections::HashMap<String, String>,
 ) -> Vec<String> {
     let err = "magnus::Error::new(unsafe { Ruby::get_unchecked() }.exception_runtime_error(), e.to_string())";
     let mut out = Vec::new();
@@ -144,7 +146,7 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn magnus_serde_let_bin
                         crate::alef_context! {
                             mode => "optional",
                             name => &p.name,
-                            core_import => core_import,
+                            core_path => resolve_type_path(name, core_import, type_paths),
                             type_name => name,
                             error_expr => err,
                             is_mut => p.is_mut,
@@ -156,7 +158,7 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn magnus_serde_let_bin
                         crate::alef_context! {
                             mode => "default",
                             name => &p.name,
-                            core_import => core_import,
+                            core_path => resolve_type_path(name, core_import, type_paths),
                             type_name => name,
                             error_expr => err,
                             is_mut => p.is_mut,
@@ -168,7 +170,7 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn magnus_serde_let_bin
                         crate::alef_context! {
                             mode => "required",
                             name => &p.name,
-                            core_import => core_import,
+                            core_path => resolve_type_path(name, core_import, type_paths),
                             type_name => name,
                             error_expr => err,
                             is_mut => p.is_mut,
@@ -222,7 +224,7 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn magnus_serde_let_bin
             }
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
                 if let TypeRef::Named(name) = inner.as_ref() {
-                    let core_inner_ty = format!("{core_import}::{name}");
+                    let core_inner_ty = resolve_type_path(name, core_import, type_paths);
                     let vec_ty = format!("Vec<{core_inner_ty}>");
                     if p.optional {
                         out.push(crate::backends::magnus::template_env::render(

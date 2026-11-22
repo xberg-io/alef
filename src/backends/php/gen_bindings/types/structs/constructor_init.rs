@@ -259,6 +259,11 @@ fn representable_field_init(
     {
         return format!("{}: {php_param_name}_core", field.name);
     }
+    if crate::backends::php::gen_bindings::helpers::nested_vec_plain_struct_name(&field.ty, opaque_types, enum_names)
+        .is_some()
+    {
+        return format!("{}: {php_param_name}_core", field.name);
+    }
     if is_named_struct_by_ref(&field.ty, enum_names, opaque_types) {
         if field.optional {
             // `.cloned()`, not `.map(|v| v.clone())` — same value on `Option<&T>`, but the

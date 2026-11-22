@@ -21,6 +21,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_function(
     core_import: &str,
     api: &ApiSurface,
 ) -> String {
+    let type_paths = crate::codegen::generators::type_paths::build_type_path_lookup(api);
     let is_default_config_func = last_param_is_default_struct(func, api);
     let variadic = needs_variadic_arity(&func.params) || is_default_config_func;
 
@@ -65,6 +66,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_function(
             core_import,
             mapper,
             is_default_config_func,
+            &type_paths,
         ));
     } else {
         for (idx, p) in func.params.iter().enumerate() {
@@ -78,7 +80,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_function(
                             crate::alef_context! {
                                 mode => "optional",
                                 binding_name => binding_ty,
-                                core_import => core_import,
+                                core_path => crate::codegen::generators::type_paths::resolve_type_path(name, core_import, &type_paths),
                                 type_name => name,
                                 is_mut => p.is_mut,
                             },
@@ -89,7 +91,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_function(
                             crate::alef_context! {
                                 mode => "default",
                                 binding_name => binding_ty,
-                                core_import => core_import,
+                                core_path => crate::codegen::generators::type_paths::resolve_type_path(name, core_import, &type_paths),
                                 type_name => name,
                                 is_mut => p.is_mut,
                             },
@@ -100,7 +102,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_function(
                             crate::alef_context! {
                                 mode => "required",
                                 binding_name => binding_ty,
-                                core_import => core_import,
+                                core_path => crate::codegen::generators::type_paths::resolve_type_path(name, core_import, &type_paths),
                                 type_name => name,
                                 is_mut => p.is_mut,
                             },
@@ -111,7 +113,8 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_function(
                 && let TypeRef::Named(name) = inner.as_ref()
                 && !opaque_types.contains(name.as_str())
             {
-                let core_inner_ty = format!("{core_import}::{name}");
+                let core_inner_ty =
+                    crate::codegen::generators::type_paths::resolve_type_path(name, core_import, &type_paths);
                 let vec_ty = format!("Vec<{core_inner_ty}>");
                 deser_lines.push(crate::backends::magnus::template_env::render(
                     "function_named_vec_binding.rs.jinja",
@@ -322,6 +325,60 @@ mod gen_magnus_unimplemented_body_tests {
         assert!(
             body.contains("exception_runtime_error"),
             "expected runtime error raise, got: {body}"
+        );
+    }
+
+    #[test]
+    fn named_param_let_binding_uses_real_module_path_for_non_root_type() {
+        use super::gen_function;
+        use crate::backends::magnus::type_map::MagnusMapper;
+        use crate::core::ir::{ApiSurface, FunctionDef, ParamDef, TypeDef, TypeRef};
+        let param = ParamDef {
+            name: "annotation".to_string(),
+            ty: TypeRef::Named("Input".to_string()),
+            optional: true,
+            ..ParamDef::default()
+        };
+        let func = FunctionDef {
+            name: "append".to_string(),
+            rust_path: "test_lib::deep::write::append".to_string(),
+            params: vec![param],
+            return_type: TypeRef::String,
+            ..FunctionDef::default()
+        };
+        let api = ApiSurface {
+            crate_name: "test_lib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![TypeDef {
+                name: "Input".to_string(),
+                rust_path: "test_lib::deep::write::Input".to_string(),
+                ..TypeDef::default()
+            }],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::BTreeMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
+            unsupported_public_items: Vec::new(),
+            unresolved_modules: Vec::new(),
+        };
+        let code = gen_function(
+            &func,
+            &MagnusMapper,
+            &Default::default(),
+            &Default::default(),
+            "test_lib",
+            &api,
+        );
+        assert!(
+            code.contains("Option<test_lib::deep::write::Input>"),
+            "let-binding must use the real module path, got: {code}"
+        );
+        assert!(
+            !code.contains("Option<test_lib::Input>"),
+            "crate-root fallback must not be emitted for a non-root type, got: {code}"
         );
     }
 }

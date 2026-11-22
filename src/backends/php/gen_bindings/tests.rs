@@ -90,6 +90,7 @@ fn should_emit_rust_line_doc_comments_when_doc_text_contains_block_comment_seque
         opaque: &empty,
         default: &empty,
         enums: &empty,
+        type_paths: None,
     };
 
     let generated = gen_function_as_static_method(
@@ -699,6 +700,7 @@ fn php_mut_dto_param_returns_the_updated_value() {
         opaque: &empty,
         default: &empty,
         enums: &empty,
+        type_paths: None,
     };
 
     let generated = gen_function_as_static_method(
@@ -767,6 +769,7 @@ fn php_immutable_dto_param_keeps_void_return() {
         opaque: &empty,
         default: &empty,
         enums: &empty,
+        type_paths: None,
     };
 
     let generated = gen_function_as_static_method(
@@ -928,4 +931,65 @@ fn generate_type_stubs_declares_error_duration_methods() {
     let files = super::PhpBackend.generate_type_stubs(&api, &config).unwrap();
     let stub = &files[0].content;
     assert!(stub.contains("public function retryAfter(): ?int"), "{stub}");
+}
+
+/// A free function whose optional struct param is not re-exported at the core crate root must
+/// name the param's core type by its real module path, not `{core_import}::{Name}`.
+#[test]
+fn php_free_function_let_binding_uses_real_type_path_for_non_root_type() {
+    use super::super::type_map::PhpMapper;
+    use crate::backends::php::gen_bindings::functions::{
+        PhpFunctionTarget, PhpParamTypeSets, gen_function_as_static_method,
+    };
+    use crate::core::ir::{FunctionDef, ParamDef, TypeRef};
+    use ahash::AHashSet;
+
+    let param = ParamDef {
+        name: "annotation".to_string(),
+        ty: TypeRef::Named("Input".to_string()),
+        optional: true,
+        is_ref: true,
+        ..ParamDef::default()
+    };
+    let func = FunctionDef {
+        name: "append".to_string(),
+        rust_path: "sample_crate::deep::write::append".to_string(),
+        params: vec![param],
+        return_type: TypeRef::String,
+        ..FunctionDef::default()
+    };
+    let mapper = PhpMapper {
+        enum_names: AHashSet::new(),
+        data_enum_names: AHashSet::new(),
+        untagged_data_enum_names: AHashSet::new(),
+        json_string_enum_names: AHashSet::new(),
+    };
+    let empty = AHashSet::new();
+    let paths =
+        std::collections::HashMap::from([("Input".to_string(), "sample_crate::deep::write::Input".to_string())]);
+    let generated = gen_function_as_static_method(
+        &func,
+        &mapper,
+        PhpParamTypeSets {
+            opaque: &empty,
+            default: &empty,
+            enums: &empty,
+            type_paths: Some(&paths),
+        },
+        PhpFunctionTarget {
+            core_import: "sample_crate",
+            error_converter: None,
+        },
+        &[],
+        false,
+        &empty,
+    );
+    assert!(
+        generated.contains("Option<sample_crate::deep::write::Input>"),
+        "let-binding must use the real module path, got:\n{generated}"
+    );
+    assert!(
+        !generated.contains("sample_crate::Input"),
+        "crate-root fallback path must not be emitted for a non-root type, got:\n{generated}"
+    );
 }
