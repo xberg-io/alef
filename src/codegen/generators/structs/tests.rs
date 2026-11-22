@@ -308,6 +308,7 @@ fn base_cfg<'a>() -> RustBindingConfig<'a> {
         emit_delegating_default_for_types: None,
         delegate_deserialize_to_core_for_types: None,
         error_converters: None,
+        type_paths: None,
     }
 }
 

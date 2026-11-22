@@ -426,6 +426,10 @@ pub struct RustBindingConfig<'a> {
     /// `None` (the default for every backend other than pyo3, and for any pyo3 call site that
     /// has not wired this) preserves today's generic conversion unchanged. ~keep
     pub error_converters: Option<&'a [String]>,
+    /// Short type name to the real module path of the core type (`xberg::inner::mod::Type`), for
+    /// let-bindings that name a Named param's core type. `None` falls back to
+    /// `{core_import}::{Name}`, which only resolves for types re-exported at the crate root.
+    pub type_paths: Option<&'a std::collections::HashMap<String, String>>,
 }
 
 /// Method names that conflict with standard trait methods.
@@ -441,9 +445,9 @@ pub use binding_helpers::{
     gen_call_args_with_let_bindings, gen_call_args_with_let_bindings_json_str, gen_call_args_with_let_bindings_mutex,
     gen_call_args_with_let_bindings_mutex_json_str, gen_call_args_with_let_bindings_mutex_no_promote,
     gen_call_args_with_let_bindings_no_promote, gen_lossy_binding_to_core_fields, gen_lossy_binding_to_core_fields_mut,
-    gen_named_let_bindings_no_promote, gen_named_let_bindings_pub, gen_named_let_bindings_with_augmented,
-    gen_serde_let_bindings, gen_unimplemented_body, has_named_params, is_simple_non_opaque_param, wrap_return,
-    wrap_return_with_mutex, wrap_return_with_mutex_mapped,
+    gen_named_let_bindings_no_promote, gen_named_let_bindings_pub, gen_named_let_bindings_pub_with_paths,
+    gen_named_let_bindings_with_augmented, gen_serde_let_bindings, gen_unimplemented_body, has_named_params,
+    is_simple_non_opaque_param, wrap_return, wrap_return_with_mutex, wrap_return_with_mutex_mapped,
 };
 pub use dto_coercion::{
     CoercibleShape, PYO3_DTO_COERCE_HELPER, coercible_payload, data_enum_needs_dto_coercion,

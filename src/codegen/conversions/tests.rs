@@ -1237,6 +1237,7 @@ fn test_enum_map_field_without_flatten_flag_keeps_iterator_template() {
 
 mod boxed_fields;
 mod nested_maps;
+mod nested_vec_named;
 mod vec_element_preservation;
 
 fn transparent_secret_field(name: &str, ty: TypeRef, containers: Vec<NewtypeContainer>) -> FieldDef {

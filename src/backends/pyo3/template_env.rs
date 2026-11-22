@@ -305,6 +305,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "struct_vec_coerce.jinja",
         include_str!("templates/struct_vec_coerce.jinja"),
     ),
+    (
+        "struct_vec_vec_coerce.jinja",
+        include_str!("templates/struct_vec_vec_coerce.jinja"),
+    ),
     ("typing_import.jinja", include_str!("templates/typing_import.jinja")),
     (
         "import_from_module_header.jinja",

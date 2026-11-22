@@ -3,6 +3,19 @@ mod fallible;
 use crate::core::ir::{ParamDef, TypeRef};
 use ahash::AHashSet;
 
+/// Core path of a Named param type: its real module path when `type_paths` knows it, otherwise
+/// `{core_import}::{name}` (valid only for types re-exported at the crate root).
+fn named_core_path(
+    name: &str,
+    core_import: &str,
+    type_paths: Option<&std::collections::HashMap<String, String>>,
+) -> String {
+    type_paths
+        .and_then(|paths| paths.get(name))
+        .cloned()
+        .unwrap_or_else(|| format!("{core_import}::{name}"))
+}
+
 /// Generate let bindings for non-opaque Named params, converting them to core types.
 pub fn gen_named_let_bindings_pub(
     params: &[ParamDef],
@@ -10,7 +23,19 @@ pub fn gen_named_let_bindings_pub(
     fallible_named: &AHashSet<String>,
     core_import: &str,
 ) -> String {
-    gen_named_let_bindings(params, opaque_types, fallible_named, core_import)
+    gen_named_let_bindings(params, opaque_types, fallible_named, core_import, None)
+}
+
+/// Like [`gen_named_let_bindings_pub`] but names each Named param's core type by its real module
+/// path from `type_paths` instead of assuming it is re-exported at the crate root.
+pub fn gen_named_let_bindings_pub_with_paths(
+    params: &[ParamDef],
+    opaque_types: &AHashSet<String>,
+    fallible_named: &AHashSet<String>,
+    core_import: &str,
+    type_paths: Option<&std::collections::HashMap<String, String>>,
+) -> String {
+    gen_named_let_bindings(params, opaque_types, fallible_named, core_import, type_paths)
 }
 
 /// Like `gen_named_let_bindings_pub` but for augmented params where non-optional Named params
@@ -35,6 +60,7 @@ pub fn gen_named_let_bindings_with_augmented(
         opaque_types,
         fallible_named,
         core_import,
+        None,
     )
 }
 
@@ -46,7 +72,7 @@ pub fn gen_named_let_bindings_no_promote(
     fallible_named: &AHashSet<String>,
     core_import: &str,
 ) -> String {
-    gen_named_let_bindings_inner(params, opaque_types, fallible_named, core_import, false)
+    gen_named_let_bindings_inner(params, opaque_types, fallible_named, core_import, false, None)
 }
 
 pub(in crate::codegen::generators) fn gen_named_let_bindings(
@@ -54,8 +80,9 @@ pub(in crate::codegen::generators) fn gen_named_let_bindings(
     opaque_types: &AHashSet<String>,
     fallible_named: &AHashSet<String>,
     core_import: &str,
+    type_paths: Option<&std::collections::HashMap<String, String>>,
 ) -> String {
-    gen_named_let_bindings_inner(params, opaque_types, fallible_named, core_import, true)
+    gen_named_let_bindings_inner(params, opaque_types, fallible_named, core_import, true, type_paths)
 }
 
 /// Variant of `gen_named_let_bindings` for backends where Named non-opaque params
@@ -66,13 +93,14 @@ pub(in crate::codegen::generators) fn gen_named_let_bindings_by_ref(
     opaque_types: &AHashSet<String>,
     fallible_named: &AHashSet<String>,
     core_import: &str,
+    type_paths: Option<&std::collections::HashMap<String, String>>,
 ) -> String {
     let _ = fallible_named;
     let mut bindings = String::new();
     for (idx, p) in params.iter().enumerate() {
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
-                let core_type_path = format!("{core_import}::{name}");
+                let core_type_path = named_core_path(name, core_import, type_paths);
                 let binding = if p.optional {
                     crate::codegen::template_env::render(
                         "binding_helpers/named_let_binding_by_ref_optional.jinja",
@@ -155,6 +183,7 @@ fn gen_named_let_bindings_inner(
     fallible_named: &AHashSet<String>,
     core_import: &str,
     promote: bool,
+    type_paths: Option<&std::collections::HashMap<String, String>>,
 ) -> String {
     let mut bindings = String::new();
     for (idx, p) in params.iter().enumerate() {
@@ -165,7 +194,7 @@ fn gen_named_let_bindings_inner(
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 let promoted = promote && crate::codegen::shared::is_promoted_optional(params, idx);
-                let core_type_path = format!("{}::{}", core_import, name);
+                let core_type_path = named_core_path(name, core_import, type_paths);
                 let binding = if p.optional {
                     if p.is_ref {
                         crate::codegen::template_env::render(
@@ -295,6 +324,7 @@ fn gen_named_let_bindings_inner_augmented(
     opaque_types: &AHashSet<String>,
     fallible_named: &AHashSet<String>,
     core_import: &str,
+    type_paths: Option<&std::collections::HashMap<String, String>>,
 ) -> String {
     let mut bindings = String::new();
     for (idx, p) in augmented_params.iter().enumerate() {
@@ -305,7 +335,7 @@ fn gen_named_let_bindings_inner_augmented(
         }
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
-                let core_type_path = format!("{}::{}", core_import, name);
+                let core_type_path = named_core_path(name, core_import, type_paths);
                 let binding = if is_augmented_optional {
                     crate::codegen::template_env::render(
                         "binding_helpers/named_let_binding_promoted.jinja",

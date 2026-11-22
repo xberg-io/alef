@@ -2,7 +2,7 @@ use super::trait_names::is_trait_method_name;
 use crate::codegen::generators::binding_helpers::{
     apply_return_newtype_unwrap, gen_async_body_with_error_type as gen_async_body, gen_call_args, gen_call_args_cfg,
     gen_call_args_with_let_bindings_json_str, gen_lossy_binding_to_core_fields, gen_lossy_binding_to_core_fields_mut,
-    gen_named_let_bindings_pub, gen_serde_let_bindings, gen_unimplemented_body, has_named_params,
+    gen_named_let_bindings_pub_with_paths, gen_serde_let_bindings, gen_unimplemented_body, has_named_params,
     is_simple_non_opaque_param, wrap_return_with_mutex_mapped,
 };
 use crate::codegen::generators::{AdapterBodies, AsyncPattern, RustBindingConfig};
@@ -45,7 +45,13 @@ pub fn gen_method(
     let (call_args, ref_let_bindings) = if has_ref_named_params {
         (
             gen_call_args_with_let_bindings_json_str(&method.params, opaque_types),
-            gen_named_let_bindings_pub(&method.params, opaque_types, &ahash::AHashSet::new(), core_import),
+            gen_named_let_bindings_pub_with_paths(
+                &method.params,
+                opaque_types,
+                &ahash::AHashSet::new(),
+                core_import,
+                cfg.type_paths,
+            ),
         )
     } else if cfg.cast_uints_to_i32 || cfg.cast_large_ints_to_f64 {
         (

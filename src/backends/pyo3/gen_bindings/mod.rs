@@ -136,6 +136,9 @@ impl Backend for ConfiguredPyo3Backend {
         let has_serde = crate_has_serde(config);
         let mut cfg = config::binding_config(&core_import, has_serde);
         let mut cfg_unsendable = config::unsendable_binding_config(&core_import, has_serde);
+        let type_paths = crate::codegen::generators::type_paths::build_type_path_lookup(api);
+        cfg.type_paths = Some(&type_paths);
+        cfg_unsendable.type_paths = Some(&type_paths);
 
         let mut adapter_bodies = crate::adapters::build_adapter_bodies(config, Language::Python)?;
 

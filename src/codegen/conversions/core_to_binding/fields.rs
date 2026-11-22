@@ -1,7 +1,9 @@
 use crate::codegen::conversions::ConversionConfig;
 use crate::codegen::conversions::config::WasmCamelRecasedEnum;
 use crate::codegen::conversions::field_conversion_to_core;
-use crate::codegen::conversions::helpers::{binding_prim_str, needs_f64_cast, needs_i32_cast, needs_i64_cast};
+use crate::codegen::conversions::helpers::{
+    binding_prim_str, is_vec_of_named, needs_f64_cast, needs_i32_cast, needs_i64_cast,
+};
 use crate::codegen::json_wire_types::out_pipeline_expr;
 use crate::core::ir::{PrimitiveType, TypeRef};
 use ahash::AHashSet;
@@ -303,6 +305,22 @@ pub fn field_conversion_from_core(
         TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(_))) =>
         {
             format!("{name}: val.{name}.map(|v| v.into_iter().map(Into::into).collect())")
+        }
+        TypeRef::Vec(inner) if is_vec_of_named(inner) => {
+            if optional {
+                format!(
+                    "{name}: val.{name}.map(|v| v.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect())"
+                )
+            } else {
+                format!(
+                    "{name}: val.{name}.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect()"
+                )
+            }
+        }
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Vec(vi) if is_vec_of_named(vi)) => {
+            format!(
+                "{name}: val.{name}.map(|v| v.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect())"
+            )
         }
         TypeRef::Vec(_) => {
             if optional {

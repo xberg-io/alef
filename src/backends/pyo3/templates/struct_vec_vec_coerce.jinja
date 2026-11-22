@@ -1,0 +1,1 @@
+        {{ name }}={% if optional %}([[_to_rust_{{ struct_snake }}(v) for v in row] for row in {{ accessor }}] if {{ accessor }} is not None else None){% else %}[[_to_rust_{{ struct_snake }}(v) for v in row] for row in {{ accessor }}]{% endif %},

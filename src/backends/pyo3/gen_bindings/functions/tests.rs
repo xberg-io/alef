@@ -419,3 +419,38 @@ fn pyo3_async_mut_dto_param_with_error_returns_the_updated_value() {
         "expected the fallible future to resolve to the mutated intermediate on success:\n{output}"
     );
 }
+
+/// A Named param whose type is not re-exported at the core crate root must be named by its real
+/// module path in the `let <param>_core: <path>` binding, not as `{core_import}::{Name}`.
+#[test]
+fn free_fn_let_binding_names_param_type_by_its_module_path() {
+    use crate::codegen::generators::gen_function;
+    use crate::core::ir::{FunctionDef, ParamDef};
+
+    let func = FunctionDef {
+        name: "append_annotation".to_owned(),
+        rust_path: "sample_core::inner::write::append_annotation".to_owned(),
+        params: vec![ParamDef {
+            name: "annotation".to_owned(),
+            ty: TypeRef::Named("AnnotationInput".to_owned()),
+            ..ParamDef::default()
+        }],
+        return_type: TypeRef::Unit,
+        ..FunctionDef::default()
+    };
+    let type_paths = std::collections::HashMap::from([(
+        "AnnotationInput".to_owned(),
+        "sample_core::inner::write::AnnotationInput".to_owned(),
+    )]);
+
+    let mapper = crate::backends::pyo3::type_map::Pyo3Mapper::new();
+    let mut cfg = crate::backends::pyo3::gen_bindings::config::binding_config("sample_core", true);
+    cfg.type_paths = Some(&type_paths);
+    let output = gen_function(&func, &mapper, &cfg, &ahash::AHashMap::new(), &ahash::AHashSet::new());
+
+    assert!(
+        output.contains("let annotation_core: sample_core::inner::write::AnnotationInput"),
+        "{output}"
+    );
+    assert!(!output.contains("sample_core::AnnotationInput"), "{output}");
+}

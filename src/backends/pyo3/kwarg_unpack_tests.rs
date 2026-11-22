@@ -773,3 +773,38 @@ fn should_withhold_a_none_default_from_a_non_option_parameter_that_has_no_serde_
          carries a `#[serde(default)]` marker:\n{facade}"
     );
 }
+
+/// A `Vec<Vec<Struct>>` field must convert every inner element; passing the nested list through
+/// leaves Python dataclasses where the native constructor expects `_rust.Point` objects.
+#[test]
+fn nested_vec_of_struct_field_converts_each_inner_element() {
+    let point = TypeDef {
+        name: "Point".to_string(),
+        rust_path: "test_lib::Point".to_string(),
+        has_serde: true,
+        has_default: true,
+        fields: vec![FieldDef {
+            name: "x".to_string(),
+            ty: TypeRef::Primitive(crate::core::ir::PrimitiveType::F64),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let strokes = FieldDef {
+        name: "strokes".to_string(),
+        ty: TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::Named("Point".to_string()))))),
+        optional: true,
+        ..Default::default()
+    };
+    let (facade, _stub) = render_facade_and_stub(&surface(vec![strokes], Vec::new(), vec![point]));
+    let arguments = constructor_call_arguments(&facade);
+
+    assert_eq!(
+        arguments,
+        vec![
+            "strokes=([[_to_rust_point(v) for v in row] for row in value.strokes] if value.strokes is not None else None)"
+                .to_string()
+        ],
+        "{facade}"
+    );
+}

@@ -1,6 +1,7 @@
 use super::streaming::emit_streaming_sink_method;
 use std::collections::HashSet;
 
+use crate::codegen::generators::type_paths::resolve_type_path;
 use crate::codegen::naming::{PublicIdentifierKind, public_host_identifier};
 use crate::core::config::{AdapterConfig, Language, ResolvedCrateConfig};
 use crate::core::ir::{EnumDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
@@ -163,6 +164,7 @@ pub(super) fn emit_opaque_impl_block(
                 types_needing_from_conversion,
                 opaque_type_names,
                 errors,
+                type_paths,
             );
             continue;
         }
@@ -174,6 +176,7 @@ pub(super) fn emit_opaque_impl_block(
             types_needing_from_conversion,
             opaque_type_names,
             errors,
+            type_paths,
         );
     }
     out.push_str("}\n");
@@ -188,6 +191,7 @@ fn emit_opaque_method(
     types_needing_from_conversion: &HashSet<String>,
     opaque_type_names: &HashSet<String>,
     errors: &[crate::core::ir::ErrorDef],
+    type_paths: &std::collections::HashMap<String, String>,
 ) {
     use bridge_fn::frb_rust_type_mirror;
 
@@ -245,6 +249,7 @@ fn emit_opaque_method(
         types_needing_from_conversion,
         opaque_type_names,
         errors,
+        type_paths,
     );
 
     out.push_str("    }\n");
@@ -254,6 +259,7 @@ fn emit_opaque_method(
 ///
 /// Static methods are bridged as `pub fn method_name(params...) -> Result<ReturnType, String>`
 /// without a receiver. The body calls `TypeName::method_name(...)` on the core type directly.
+#[allow(clippy::too_many_arguments)]
 fn emit_static_opaque_method(
     out: &mut String,
     ty: &TypeDef,
@@ -262,6 +268,7 @@ fn emit_static_opaque_method(
     types_needing_from_conversion: &HashSet<String>,
     opaque_type_names: &HashSet<String>,
     errors: &[crate::core::ir::ErrorDef],
+    type_paths: &std::collections::HashMap<String, String>,
 ) {
     use bridge_fn::frb_rust_type_mirror;
 
@@ -308,6 +315,7 @@ fn emit_static_opaque_method(
         types_needing_from_conversion,
         opaque_type_names,
         errors,
+        type_paths,
     );
 
     out.push_str("    }\n");
@@ -317,6 +325,7 @@ fn emit_static_opaque_method(
 ///
 /// Converts each parameter from the local mirror type to the core type, calls
 /// `CoreTypeName::method_name(...)` statically, and wraps the return value in the mirror type.
+#[allow(clippy::too_many_arguments)]
 fn emit_static_opaque_method_body(
     out: &mut String,
     ty: &TypeDef,
@@ -325,12 +334,13 @@ fn emit_static_opaque_method_body(
     types_needing_from_conversion: &HashSet<String>,
     opaque_type_names: &HashSet<String>,
     errors: &[crate::core::ir::ErrorDef],
+    type_paths: &std::collections::HashMap<String, String>,
 ) {
     use conversions::frb_rust_type_inner;
 
     let method_name = &method.name;
     let type_name = &ty.name;
-    let core_type_path = format!("{source_crate_name}::{type_name}");
+    let core_type_path = resolve_type_path(type_name, source_crate_name, type_paths);
 
     let call_args: Vec<String> = method
         .params
@@ -348,7 +358,7 @@ fn emit_static_opaque_method_body(
                         }
                         return format!("{param_name}.inner");
                     }
-                    let core_ty = format!("{source_crate_name}::{mirror_name}");
+                    let core_ty = resolve_type_path(mirror_name, source_crate_name, type_paths);
                     if types_needing_from_conversion.contains(mirror_name.as_str()) {
                         if p.optional {
                             format!("{param_name}.map({core_ty}::from)")
@@ -369,7 +379,7 @@ fn emit_static_opaque_method_body(
                 }
                 TypeRef::Vec(inner) => {
                     if let TypeRef::Named(mirror_name) = inner.as_ref() {
-                        let core_ty = format!("{source_crate_name}::{mirror_name}");
+                        let core_ty = resolve_type_path(mirror_name, source_crate_name, type_paths);
                         if types_needing_from_conversion.contains(mirror_name.as_str()) {
                             if p.optional {
                                 format!("{param_name}.map(|v| v.into_iter().map({core_ty}::from).collect())")
@@ -496,6 +506,7 @@ fn emit_opaque_method_body(
     types_needing_from_conversion: &HashSet<String>,
     opaque_type_names: &HashSet<String>,
     errors: &[crate::core::ir::ErrorDef],
+    type_paths: &std::collections::HashMap<String, String>,
 ) {
     use conversions::frb_rust_type_inner;
 
@@ -521,7 +532,7 @@ fn emit_opaque_method_body(
                         }
                         return format!("{param_name}.inner");
                     }
-                    let core_ty = format!("{source_crate_name}::{mirror_name}");
+                    let core_ty = resolve_type_path(mirror_name, source_crate_name, type_paths);
                     if types_needing_from_conversion.contains(mirror_name.as_str()) {
                         if p.optional {
                             format!("{param_name}.map({core_ty}::from)")
@@ -546,7 +557,7 @@ fn emit_opaque_method_body(
                 }
                 TypeRef::Vec(inner) => {
                     if let TypeRef::Named(mirror_name) = inner.as_ref() {
-                        let core_ty = format!("{source_crate_name}::{mirror_name}");
+                        let core_ty = resolve_type_path(mirror_name, source_crate_name, type_paths);
                         if types_needing_from_conversion.contains(mirror_name.as_str()) {
                             if p.optional {
                                 format!("{param_name}.map(|v| v.into_iter().map({core_ty}::from).collect::<Vec<_>>())")

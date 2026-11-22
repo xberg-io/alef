@@ -379,6 +379,17 @@ fn vec_inner_from_expr(
                     )
                 };
             }
+            TypeRef::Named(inner_name) => {
+                return if optional {
+                    format!(
+                        "v.{name}.map(|vec| vec.into_iter().map(|inner| inner.into_iter().map({inner_name}::from).collect::<Vec<_>>()).collect::<Vec<_>>())"
+                    )
+                } else {
+                    format!(
+                        "v.{name}.into_iter().map(|inner| inner.into_iter().map({inner_name}::from).collect::<Vec<_>>()).collect::<Vec<_>>()"
+                    )
+                };
+            }
             _ => {
                 return format!("v.{name}");
             }
