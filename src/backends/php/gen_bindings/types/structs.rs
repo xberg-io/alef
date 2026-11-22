@@ -408,6 +408,7 @@ pub(crate) fn gen_php_struct(
             emit_delegating_default_for_types: cfg.emit_delegating_default_for_types,
             delegate_deserialize_to_core_for_types: cfg.delegate_deserialize_to_core_for_types,
             error_converters: cfg.error_converters,
+            type_paths: cfg.type_paths,
         };
         generators::gen_struct_with_per_field_attrs(binding_type.as_ref(), mapper, &modified_cfg, field_attrs_fn)
     } else {

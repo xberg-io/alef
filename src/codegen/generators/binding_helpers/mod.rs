@@ -19,8 +19,8 @@ pub use call_args::{
 pub(crate) use error_conversion::resolve_err_conv;
 pub(in crate::codegen::generators) use let_bindings::{gen_named_let_bindings, gen_named_let_bindings_by_ref};
 pub use let_bindings::{
-    gen_named_let_bindings_no_promote, gen_named_let_bindings_pub, gen_named_let_bindings_with_augmented,
-    gen_serde_let_bindings,
+    gen_named_let_bindings_no_promote, gen_named_let_bindings_pub, gen_named_let_bindings_pub_with_paths,
+    gen_named_let_bindings_with_augmented, gen_serde_let_bindings,
 };
 pub use lossy_fields::{gen_lossy_binding_to_core_fields, gen_lossy_binding_to_core_fields_mut};
 pub use returns::{

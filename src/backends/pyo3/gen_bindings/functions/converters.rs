@@ -612,6 +612,25 @@ pub(super) fn emit_converters(
                 continue;
             }
 
+            if let Some((inner, is_optional)) = vec_field
+                && let TypeRef::Vec(element) = inner.as_ref()
+                && let TypeRef::Named(struct_name) = element.as_ref()
+                && default_types.contains_key(struct_name.as_str())
+            {
+                let accessor = field_access(&field.name);
+                let struct_snake = struct_name.to_snake_case();
+                out.push_str(&crate::backends::pyo3::template_env::render(
+                    "struct_vec_vec_coerce.jinja",
+                    crate::alef_context! {
+                        name => &field.name,
+                        struct_snake => &struct_snake,
+                        accessor => &accessor,
+                        optional => is_optional,
+                    },
+                ));
+                continue;
+            }
+
             if let Some((kwarg_name, field_name, _)) = bridge_visitor_field
                 && field.name == field_name
             {

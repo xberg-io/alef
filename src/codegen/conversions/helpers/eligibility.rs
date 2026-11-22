@@ -386,6 +386,13 @@ pub(crate) fn is_tuple_type_name(name: &str) -> bool {
     name.starts_with('(')
 }
 
+/// Returns true for `Vec<Named>` whose element is a real (non-tuple) named type. As the element
+/// of an outer `Vec`, it needs a per-inner-element `.into()`; a bare `.collect()` only converts
+/// the outer container and leaves the inner `Vec<CoreT>` where `Vec<BindingT>` is expected.
+pub(crate) fn is_vec_of_named(ty: &TypeRef) -> bool {
+    matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !is_tuple_type_name(n)))
+}
+
 /// Check if a type has any sanitized fields (binding→core conversion is lossy).
 pub fn has_sanitized_fields(typ: &TypeDef) -> bool {
     binding_fields(&typ.fields).any(|f| f.sanitized)

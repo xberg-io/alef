@@ -33,6 +33,8 @@ mod mirror_conversions;
 mod mirror_conversions_tests;
 #[cfg(test)]
 mod mirror_enum_cfg_parity_tests;
+#[cfg(test)]
+mod nested_vec_and_path_tests;
 mod newtype_conversions;
 mod opaque;
 #[cfg(test)]

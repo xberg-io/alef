@@ -1684,11 +1684,11 @@ fn opaque_method_named_param_with_is_ref_passes_by_reference() {
     let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
 
     assert!(
-        lib.contains("transmute::<&ProcessConfig, &demo_crate::ProcessConfig>(&config)"),
+        lib.contains("transmute::<&ProcessConfig, &demo::ProcessConfig>(&config)"),
         "is_ref Named param must be passed by reference (transmute &ref) to the core call: {lib}"
     );
     assert!(
-        !lib.contains("transmute::<ProcessConfig, demo_crate::ProcessConfig>(config)"),
+        !lib.contains("transmute::<ProcessConfig, demo::ProcessConfig>(config)"),
         "is_ref Named param must NOT be passed by owned transmute: {lib}"
     );
 }
