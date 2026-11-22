@@ -451,7 +451,11 @@ pub(crate) fn emit_cargo_toml(
     } else {
         format!("\n\n{clippy_block}")
     };
-    let lints_block = format!("[lints.rust]\n{}{clippy_section}", lints_rust_lines.join("\n"));
+    let lints_block = format!(
+        "[lints.rust]\n{}{clippy_section}\n\n{}",
+        lints_rust_lines.join("\n"),
+        config.cargo_lints.cargo_block()
+    );
 
     let content = template_env::render(
         "rust_cargo_toml.rs.jinja",

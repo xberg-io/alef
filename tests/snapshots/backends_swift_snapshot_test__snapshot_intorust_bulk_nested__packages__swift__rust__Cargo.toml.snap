@@ -42,3 +42,6 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
 dbg_macro = "deny"
 print_stderr = "deny"
 print_stdout = "deny"
+
+[lints.cargo]
+unused_dependencies = "allow"

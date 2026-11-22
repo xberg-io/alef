@@ -43,6 +43,13 @@ const BUILTIN_CLIPPY_DEFAULTS: &[(&str, &str)] = &[
     ("print_stdout", "deny"),
 ];
 
+/// The `[lints.cargo]` table every generated binding crate carries. Its manifests list
+/// dependencies the generated code only sometimes uses (`async-trait`, `tracing`, ...) and
+/// guard them for `cargo machete` through `[package.metadata.cargo-machete] ignored`. Cargo's
+/// own `unused_dependencies` lint (Rust 1.100) does not read that key and, with
+/// `build.warnings = "deny"`, fails the build, so it is allowed here. ~keep
+const CARGO_LINTS_BLOCK: &str = "[lints.cargo]\nunused_dependencies = \"allow\"";
+
 /// Raw `[lints.rust]` / `[lints.clippy]` tables for a generated binding-crate
 /// `Cargo.toml`. Each entry's value may be a bare string (`print_stdout = "deny"`)
 /// or a table (`unexpected_cfgs = { level = "warn", check-cfg = [...] }`) — alef
@@ -89,6 +96,11 @@ impl CargoLintsConfig {
         render_lint_tables(&self.rust, &self.effective_clippy())
     }
 
+    /// The `[lints.cargo]` table alone, for backends that hand-assemble their lint tables.
+    pub fn cargo_block(&self) -> &'static str {
+        CARGO_LINTS_BLOCK
+    }
+
     /// `"key = value"` lines for every `[lints.rust]` entry except `exclude`, sorted
     /// by key. Used by backends (dart, swift, elixir) that already emit their own
     /// `unexpected_cfgs` check-cfg allowlist into `[lints.rust]` as a hand-written
@@ -126,6 +138,7 @@ fn render_lint_tables(rust: &BTreeMap<String, toml::Value>, clippy: &BTreeMap<St
     if !clippy.is_empty() {
         sections.push(render_table("[lints.clippy]", clippy));
     }
+    sections.push(CARGO_LINTS_BLOCK.to_string());
     sections.join("\n\n")
 }
 
@@ -154,7 +167,7 @@ mod tests {
         let cfg = CargoLintsConfig::default();
         assert_eq!(
             cfg.render(),
-            "[lints.clippy]\ndbg_macro = \"deny\"\nprint_stderr = \"deny\"\nprint_stdout = \"deny\""
+            "[lints.clippy]\ndbg_macro = \"deny\"\nprint_stderr = \"deny\"\nprint_stdout = \"deny\"\n\n[lints.cargo]\nunused_dependencies = \"allow\""
         );
     }
 
@@ -191,7 +204,7 @@ mod tests {
         assert_eq!(
             rendered,
             "[lints.rust]\nunused_must_use = \"deny\"\n\n[lints.clippy]\ndbg_macro = \"deny\"\n\
-             print_stderr = \"deny\"\nprint_stdout = \"deny\""
+             print_stderr = \"deny\"\nprint_stdout = \"deny\"\n\n[lints.cargo]\nunused_dependencies = \"allow\""
         );
     }
 
@@ -204,7 +217,7 @@ mod tests {
         let cfg: CargoLintsConfig = toml::from_str(toml_src).expect("deserializes");
         assert_eq!(
             cfg.render(),
-            "[lints.clippy]\ndbg_macro = \"deny\"\nprint_stderr = \"deny\"\nprint_stdout = \"deny\""
+            "[lints.clippy]\ndbg_macro = \"deny\"\nprint_stderr = \"deny\"\nprint_stdout = \"deny\"\n\n[lints.cargo]\nunused_dependencies = \"allow\""
         );
     }
 
@@ -222,7 +235,7 @@ mod tests {
         assert_eq!(
             cfg.render(),
             "[lints.clippy]\ndbg_macro = \"deny\"\nprint_stderr = \"deny\"\nprint_stdout = \"deny\"\n\
-             unwrap_used = \"warn\""
+             unwrap_used = \"warn\"\n\n[lints.cargo]\nunused_dependencies = \"allow\""
         );
     }
 
@@ -238,7 +251,7 @@ mod tests {
         let cfg: CargoLintsConfig = toml::from_str(toml_src).expect("deserializes");
         assert_eq!(
             cfg.render(),
-            "[lints.clippy]\ndbg_macro = \"deny\"\nprint_stderr = \"deny\"\nprint_stdout = \"warn\""
+            "[lints.clippy]\ndbg_macro = \"deny\"\nprint_stderr = \"deny\"\nprint_stdout = \"warn\"\n\n[lints.cargo]\nunused_dependencies = \"allow\""
         );
     }
 

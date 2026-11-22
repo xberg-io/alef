@@ -181,7 +181,7 @@ fn cargo_toml_emits_builtin_clippy_denies_when_cargo_lints_unset() {
     assert!(
         content.ends_with(
             "[lints.rust]\nunexpected_cfgs = { level = \"warn\", check-cfg = ['cfg(frb_expand)'] }\n\n\
-                 [lints.clippy]\ndbg_macro = \"deny\"\nprint_stderr = \"deny\"\nprint_stdout = \"deny\"\n"
+                 [lints.clippy]\ndbg_macro = \"deny\"\nprint_stderr = \"deny\"\nprint_stdout = \"deny\"\n\n[lints.cargo]\nunused_dependencies = \"allow\"\n"
         ),
         "got:\n{content}"
     );
