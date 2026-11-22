@@ -52,7 +52,12 @@ fn seed_owned_files(root: &Path) {
     let unselected_orphan = root.join("packages/python/obsolete.py");
     for orphan in [&swift_orphan, &go_orphan, &unselected_orphan] {
         fs::create_dir_all(orphan.parent().expect("orphan parent")).expect("create orphan parent");
-        fs::write(orphan, format!("// {HASH_MARKER}deadbeef\n")).expect("seed orphan");
+        let comment = if orphan.extension().is_some_and(|ext| ext == "py") {
+            "#"
+        } else {
+            "//"
+        };
+        fs::write(orphan, format!("{comment} {HASH_MARKER}deadbeef\n")).expect("seed orphan");
     }
 
     let crate_cache = fs::read_dir(root.join(".alef"))

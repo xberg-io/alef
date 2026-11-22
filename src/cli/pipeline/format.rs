@@ -33,6 +33,13 @@ const MISSING_TOOLCHAIN_REASON: &str = "the formatter's executable is not instal
 /// language's output. Per-language residuals record their own language instead.
 const PACKAGE_TREE_SCOPE: &str = "packages";
 
+/// Reason recorded when `poly fmt` was present and started but failed, so the generated
+/// packages were left unformatted. Unlike [`MISSING_TOOLCHAIN_REASON`] this is always fatal:
+/// a formatter that cannot run on this checkout (an older `poly` reading a newer `poly.lock`,
+/// a broken config) means the written output is not what `alef verify` will expect, and
+/// carrying on only commits unformatted files (alef#934). ~keep
+const FORMATTER_FAILED_REASON: &str = "the formatter ran and failed, so the generated output was written unformatted";
+
 /// One pass of [`format_generated`]: how it resolves executable presence, and every step
 /// it had to skip because that executable was absent.
 ///
@@ -71,6 +78,28 @@ impl<'probe> FormatPass<'probe> {
             language: scope.to_owned(),
             step: format!("{step} (missing: {tool})"),
             reason: MISSING_TOOLCHAIN_REASON.to_owned(),
+        });
+    }
+}
+
+/// Report the skips recorded in a pass. A failed formatter was already warned about, with its
+/// error, where it failed, and [`escalate_missing_toolchains`] turns it into the run's error,
+/// so it must not be re-filed under the reporter's missing-toolchain or unpublished headings. ~keep
+fn warn_skipped(skipped: &[DeferredFormatting]) {
+    let reportable: Vec<DeferredFormatting> = skipped
+        .iter()
+        .filter(|entry| entry.reason != FORMATTER_FAILED_REASON)
+        .cloned()
+        .collect();
+    crate::e2e::format::warn_deferred(&reportable);
+}
+
+impl FormatPass<'_> {
+    fn record_failed(&mut self, scope: &str, step: &str, error: &anyhow::Error) {
+        self.skipped.push(DeferredFormatting {
+            language: scope.to_owned(),
+            step: format!("{step} ({error:#})"),
+            reason: FORMATTER_FAILED_REASON.to_owned(),
         });
     }
 }
@@ -190,15 +219,16 @@ pub fn warn_missing_formatters(languages: &[Language]) {
 /// `mix format` for Elixir's `.ex`/`.exs` source — poly is excluded from those,
 /// see [`owner::POLY_EXCLUDE_GLOBS`]).
 ///
-/// Best-effort: a missing `poly` binary, a poly error, or a missing residual tool
-/// is logged as a warning and never aborts the generate command.
+/// Best-effort for a missing `poly` binary or residual tool, which is logged as a warning. A
+/// `poly fmt` that runs and fails is fatal through the `*_reporting` entry points (alef#934);
+/// this one, which discards the pass record, only warns.
 ///
 /// Callers that expose a `--strict` flag must use [`format_generated_reporting`] instead:
 /// this entry point discards the skip records, which is exactly how the shipped bindings
 /// ended up being the one formatting surface `--strict` did not guard.
 pub fn format_generated(config: &ResolvedCrateConfig, base_dir: &Path, only_languages: Option<&HashSet<Language>>) {
     let skipped = run_format_pass(config, base_dir, only_languages, &[], &is_tool_available);
-    crate::e2e::format::warn_deferred(&skipped);
+    warn_skipped(&skipped);
 }
 
 /// [`format_generated`], returning every step that could not run because its executable is
@@ -232,7 +262,7 @@ pub(crate) fn format_generated_reporting_with_extra_paths(
     strict: bool,
 ) -> anyhow::Result<Vec<DeferredFormatting>> {
     let skipped = run_format_pass(config, base_dir, only_languages, extra_paths, &is_tool_available);
-    crate::e2e::format::warn_deferred(&skipped);
+    warn_skipped(&skipped);
     escalate_missing_toolchains(skipped, strict)
 }
 
@@ -245,11 +275,47 @@ pub(crate) fn format_owned_paths_reporting(
     paths: &std::collections::BTreeSet<PathBuf>,
     strict: bool,
 ) -> anyhow::Result<Vec<DeferredFormatting>> {
-    let mut pass = FormatPass::new(&is_tool_available);
+    format_owned_paths_with(
+        base_dir,
+        paths,
+        strict,
+        &is_tool_available,
+        &poly_format_strict,
+        &poly_paths_dry_run,
+    )
+}
+
+/// Testable seam for [`format_owned_paths_reporting`]. Runs poly over exactly the owned `paths`
+/// until they are clean (bounded by [`MAX_POLY_FMT_PASSES`]), so a non-idempotent engine settles
+/// to the same fixed point `alef verify` computes. ~keep
+fn format_owned_paths_with(
+    base_dir: &Path,
+    paths: &std::collections::BTreeSet<PathBuf>,
+    strict: bool,
+    is_available: &dyn Fn(&str) -> bool,
+    run_poly: &dyn Fn(&[PathBuf], &Path) -> anyhow::Result<()>,
+    paths_dry_run: &dyn Fn(&[PathBuf], &Path) -> PolyDryRun,
+) -> anyhow::Result<Vec<DeferredFormatting>> {
+    let mut pass = FormatPass::new(is_available);
     let existing: Vec<PathBuf> = paths.iter().filter(|path| path.is_file()).cloned().collect();
-    poly_format_pass(&existing, base_dir, &mut pass);
-    crate::e2e::format::warn_deferred(&pass.skipped);
+    // Nothing to format: skip the loop so poly is never run, and never probed with no target (which
+    // it reads as the working directory).
+    if !existing.is_empty() {
+        converge_poly_format(&existing, base_dir, &mut pass, run_poly, &|dir| {
+            paths_dry_run(&existing, dir)
+        });
+    }
+    warn_skipped(&pass.skipped);
     escalate_missing_toolchains(pass.skipped, strict)
+}
+
+/// A poly dry run over exactly `paths`.
+fn poly_paths_dry_run(paths: &[PathBuf], base_dir: &Path) -> PolyDryRun {
+    let mut args = vec!["fmt".to_owned()];
+    args.extend(paths.iter().map(|path| path.to_string_lossy().into_owned()));
+    push_poly_format_excludes(&mut args);
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    run_poly_dry_run(&arg_refs, base_dir)
 }
 
 /// Testable seam for [`format_generated_reporting`]: resolves executable presence through
@@ -263,7 +329,7 @@ pub(crate) fn format_generated_reporting_with(
     is_available: &dyn Fn(&str) -> bool,
 ) -> anyhow::Result<Vec<DeferredFormatting>> {
     let skipped = run_format_pass(config, base_dir, only_languages, &[], is_available);
-    crate::e2e::format::warn_deferred(&skipped);
+    warn_skipped(&skipped);
     escalate_missing_toolchains(skipped, strict)
 }
 
@@ -274,6 +340,19 @@ fn escalate_missing_toolchains(
     skipped: Vec<DeferredFormatting>,
     strict: bool,
 ) -> anyhow::Result<Vec<DeferredFormatting>> {
+    let failed: Vec<String> = skipped
+        .iter()
+        .filter(|entry| entry.reason == FORMATTER_FAILED_REASON)
+        .map(|entry| format!("[{}] {}", entry.language, entry.step))
+        .collect();
+    if !failed.is_empty() {
+        anyhow::bail!(
+            "{} formatting step(s) failed, so the generated packages are NOT formatted and `alef verify` \
+             cannot pass: {}",
+            failed.len(),
+            failed.join("; ")
+        );
+    }
     let missing: Vec<String> = skipped
         .iter()
         .filter(|entry| entry.is_missing_toolchain())
@@ -348,7 +427,7 @@ fn run_format_pass(
             // poly's config, not a hand-picked directory list, decides what it touches.
             let mut paths = vec![base_dir.to_path_buf()];
             paths.extend(extra_paths.iter().filter(|path| path.exists()).cloned());
-            poly_format_pass(&paths, base_dir, &mut pass);
+            converge_poly_format(&paths, base_dir, &mut pass, &poly_format_strict, &poly_fmt_dry_run);
             for &lang in &poly_langs {
                 let lang_str = lang.to_string().to_lowercase();
                 for step in language_residuals(config, lang, base_dir) {
@@ -367,7 +446,7 @@ fn run_format_pass(
 /// leave `poly fmt --check` reporting drift. Looping converges them so a full
 /// regen is committable without a manual cleanup pass downstream (see #184-style
 /// freshness-check failures).
-const MAX_POLY_FMT_PASSES: u32 = 3;
+pub(crate) const MAX_POLY_FMT_PASSES: u32 = 3;
 
 /// Self-cleaning full-regen formatting pass, used on the `alef all` path
 /// (`only_languages = None`).
@@ -398,7 +477,7 @@ const MAX_POLY_FMT_PASSES: u32 = 3;
 pub(crate) fn converge_full_regen_formatting(base_dir: &Path) {
     let mut pass = FormatPass::new(&is_tool_available);
     converge_full_regen(base_dir, &mut pass);
-    crate::e2e::format::warn_deferred(&pass.skipped);
+    warn_skipped(&pass.skipped);
 }
 
 pub(crate) fn format_language_residual(config: &ResolvedCrateConfig, language: Language, base_dir: &Path) {
@@ -407,7 +486,7 @@ pub(crate) fn format_language_residual(config: &ResolvedCrateConfig, language: L
     for step in language_residuals(config, language, base_dir) {
         run_residual(&step, &label, &mut pass);
     }
-    crate::e2e::format::warn_deferred(&pass.skipped);
+    warn_skipped(&pass.skipped);
 }
 
 /// [`converge_full_regen_formatting`]'s body, recording absent executables into `pass`
@@ -420,8 +499,9 @@ fn converge_full_regen(base_dir: &Path, pass: &mut FormatPass<'_>) {
     let root = vec![base_dir.to_path_buf()];
 
     for _iteration in 1..=MAX_POLY_FMT_PASSES {
-        if poly_present {
-            poly_format_pass(&root, base_dir, pass);
+        if poly_present && !poly_format_pass(&root, base_dir, pass) {
+            run_elixir_mix_format(base_dir, pass);
+            return;
         }
         run_cargo_fmt(base_dir, pass);
         run_workspace_cargo_sort(base_dir, pass);
@@ -452,9 +532,13 @@ fn converge_full_regen(base_dir: &Path, pass: &mut FormatPass<'_>) {
 /// stamp from everything this run is allowed to reformat. Adding the flag here would make the loop
 /// spin on stamped files the paired `poly fmt --fix` is not touching, and never report clean. ~keep
 fn poly_fmt_is_clean(base_dir: &Path) -> bool {
+    poly_fmt_dry_run(base_dir) == PolyDryRun::Clean
+}
+
+fn poly_fmt_dry_run(base_dir: &Path) -> PolyDryRun {
     let args = poly_fmt_is_clean_args(base_dir);
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    run_poly_dry_run(&arg_refs, base_dir) == PolyDryRun::Clean
+    run_poly_dry_run(&arg_refs, base_dir)
 }
 
 fn poly_fmt_is_clean_args(base_dir: &Path) -> Vec<String> {
@@ -569,7 +653,7 @@ pub(crate) fn poly_lint_with(base_dir: &Path, is_available: &dyn Fn(&str) -> boo
 pub(crate) fn poly_format(paths: &[PathBuf], config_start: &Path) {
     let mut pass = FormatPass::new(&is_tool_available);
     poly_format_pass(paths, config_start, &mut pass);
-    crate::e2e::format::warn_deferred(&pass.skipped);
+    warn_skipped(&pass.skipped);
 }
 
 /// [`poly_format`] recording an absent `poly` into `pass`.
@@ -577,17 +661,97 @@ pub(crate) fn poly_format(paths: &[PathBuf], config_start: &Path) {
 /// Checked here rather than left to [`poly_format_strict`]'s own bail because that bail
 /// cannot tell an absent executable from poly running and rejecting the code, and only the
 /// first of those is something `--strict` should let an operator escalate separately. ~keep
-fn poly_format_pass(paths: &[PathBuf], config_start: &Path, pass: &mut FormatPass<'_>) {
-    if paths.is_empty() {
+fn poly_format_pass(paths: &[PathBuf], config_start: &Path, pass: &mut FormatPass<'_>) -> bool {
+    poly_format_pass_with(paths, config_start, pass, &poly_format_strict)
+}
+
+/// Run `poly fmt --fix` over `paths` until the tree is clean, at most [`MAX_POLY_FMT_PASSES`]
+/// times: the partial-regen counterpart of [`converge_full_regen`]'s loop. A single pass leaves
+/// the bundled non-idempotent engines (`.java`, `.cs`, `.json`) in an intermediate state, while
+/// `alef verify` formats to a fixed point, so a lone `alef generate` pass would be reported as
+/// drift (alef#934). Stops at once when poly is absent or fails; that is already recorded. ~keep
+fn converge_poly_format(
+    paths: &[PathBuf],
+    config_start: &Path,
+    pass: &mut FormatPass<'_>,
+    run_poly: &dyn Fn(&[PathBuf], &Path) -> anyhow::Result<()>,
+    dry_run: &dyn Fn(&Path) -> PolyDryRun,
+) {
+    // Nothing exists to format, so there is nothing to converge: the dry run would spawn poly in a
+    // missing working directory, and that ENOENT would be recorded as a failed formatter.
+    if !config_start.is_dir() || !paths.iter().any(|path| path.exists()) {
         return;
+    }
+    for _iteration in 1..=MAX_POLY_FMT_PASSES {
+        let skipped_before = pass.skipped.len();
+        if !poly_format_pass_with(paths, config_start, pass, run_poly) || pass.skipped.len() != skipped_before {
+            return;
+        }
+        match dry_run(config_start) {
+            PolyDryRun::Clean => return,
+            PolyDryRun::WouldChange => {}
+            PolyDryRun::Failed => {
+                let error = anyhow::anyhow!("the `poly fmt` dry run that checks for convergence failed");
+                warn!("{error:#}");
+                pass.record_failed(PACKAGE_TREE_SCOPE, POLY_FMT_STEP, &error);
+                return;
+            }
+        }
+    }
+    warn!(
+        "poly fmt did not converge after {MAX_POLY_FMT_PASSES} passes (non-fatal); generated \
+         output may have residual formatting drift"
+    );
+}
+
+/// [`poly_format_pass`] with the poly invocation injected, so the failure policy is provable
+/// without a poly binary. Returns `false` when poly ran and failed; that failure is recorded
+/// into `pass` and escalated by [`escalate_missing_toolchains`]. ~keep
+fn poly_format_pass_with(
+    paths: &[PathBuf],
+    config_start: &Path,
+    pass: &mut FormatPass<'_>,
+    run_poly: &dyn Fn(&[PathBuf], &Path) -> anyhow::Result<()>,
+) -> bool {
+    // A target that does not exist yet (a partial regen over a package directory nothing has
+    // generated) has nothing to format. Without this filter poly's spawn fails with ENOENT on the
+    // missing working directory, which is indistinguishable from a missing `poly` binary.
+    let existing: Vec<PathBuf> = paths.iter().filter(|path| path.exists()).cloned().collect();
+    if existing.is_empty() || !config_start.is_dir() {
+        return true;
     }
     if !pass.available("poly") {
         pass.record_missing(PACKAGE_TREE_SCOPE, "poly", POLY_FMT_STEP);
-        return;
+        return true;
     }
-    if let Err(error) = poly_format_strict(paths, config_start) {
-        warn!("poly fmt failed (non-fatal): {error}");
+    // A first failure may be transient (poly refuses a file that changed while it was being
+    // processed), so a failed run is retried once before it is recorded. A missing executable
+    // is not retried. ~keep
+    let mut outcome = run_poly(&existing, config_start);
+    if outcome.as_ref().is_err_and(|error| !is_not_found(error)) {
+        warn!("poly fmt failed, retrying once: {:#}", outcome.as_ref().unwrap_err());
+        outcome = run_poly(&existing, config_start);
     }
+    if let Err(error) = outcome {
+        // The working directory exists, so a spawn ENOENT means the `poly` executable itself is
+        // gone (removed between the PATH probe and the run): that is a missing toolchain, fatal
+        // only under --strict, not a formatter that ran and failed.
+        if is_not_found(&error) {
+            warn!("poly executable not found: {error:#}");
+            pass.record_missing(PACKAGE_TREE_SCOPE, "poly", POLY_FMT_STEP);
+            return true;
+        }
+        warn!("poly fmt failed: {error:#}");
+        pass.record_failed(PACKAGE_TREE_SCOPE, POLY_FMT_STEP, &error);
+        return false;
+    }
+    true
+}
+
+fn is_not_found(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<std::io::Error>()
+        .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound)
 }
 
 /// Step names recorded when a whole-tree formatter is skipped for want of its executable.
