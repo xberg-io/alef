@@ -99,7 +99,7 @@ pub fn is_python_builtin_name(name: &str) -> bool {
     BUILTINS.contains(&name)
 }
 
-const SHADOWABLE_BUILTIN_TYPES: &[&str] = &[
+pub(super) const SHADOWABLE_BUILTIN_TYPES: &[&str] = &[
     "bytes",
     "str",
     "int",

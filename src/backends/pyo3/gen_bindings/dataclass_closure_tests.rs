@@ -217,3 +217,51 @@ fn gen_init_py_routes_captioning_config_to_options_not_native() {
         );
     }
 }
+
+#[test]
+fn gen_options_py_qualifies_a_field_named_after_its_own_builtin_annotation() {
+    let api = ApiSurface {
+        types: vec![TypeDef {
+            name: "ExtractInput".to_owned(),
+            rust_path: "sample_core::ExtractInput".to_owned(),
+            has_default: true,
+            fields: vec![
+                FieldDef {
+                    name: "bytes".to_owned(),
+                    ty: TypeRef::Optional(Box::new(TypeRef::Bytes)),
+                    optional: true,
+                    ..FieldDef::default()
+                },
+                FieldDef {
+                    name: "label".to_owned(),
+                    ty: TypeRef::Optional(Box::new(TypeRef::Bytes)),
+                    optional: true,
+                    ..FieldDef::default()
+                },
+            ],
+            ..TypeDef::default()
+        }],
+        ..ApiSurface::default()
+    };
+    let options_py = gen_options_py(&api, "_rust", &DtoConfig::default(), &[], false, &[]);
+
+    assert!(
+        options_py.contains("    bytes: builtins.bytes | None = None\n"),
+        "a field named `bytes` must annotate with `builtins.bytes`:\n{options_py}"
+    );
+    assert!(
+        options_py.contains("    label: builtins.bytes | None = None\n"),
+        "a sibling field's bare `bytes` also resolves to the shadowing field, so it is qualified too:\n{options_py}"
+    );
+    assert!(
+        options_py.contains("\nimport builtins\n"),
+        "options.py must import builtins when it uses it:\n{options_py}"
+    );
+}
+
+#[test]
+fn gen_options_py_omits_builtins_import_when_no_field_shadows() {
+    let api = optional_nested_config_api();
+    let options_py = gen_options_py(&api, "_rust", &DtoConfig::default(), &[], false, &[]);
+    assert!(!options_py.contains("import builtins"), "{options_py}");
+}

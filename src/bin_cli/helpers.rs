@@ -91,7 +91,15 @@ fn refresh_ffi_header(
             false,
             &[("ALEF_EXPORT_GENERATED_HEADERS", "1")],
             false,
+        )?;
+        // cbindgen's raw output is unformatted; format every copy so one step yields a header that
+        // passes the repo's format check. Missing formatters degrade to a warning. ~keep
+        crate::cli::pipeline::format_owned_paths_reporting(
+            base_dir,
+            &crate::cli::pipeline::ffi_header_copies(config, base_dir),
+            false,
         )
+        .map(drop)
     })
 }
 

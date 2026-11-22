@@ -35,7 +35,7 @@ pub use diff::diff_files;
 pub use format_config::write_format_config_prepass;
 pub use generation::{generate, generate_public_api, generate_service_api, generate_stubs};
 pub(crate) use generation::{generate_service_api_for_manifest, generate_stubs_for_manifest};
-pub(crate) use header_freshness::{check_ffi_header_freshness, ensure_ffi_header_freshness};
+pub(crate) use header_freshness::{check_ffi_header_freshness, ensure_ffi_header_freshness, ffi_header_copies};
 pub use normalization::normalize_content;
 pub use orphans::{
     collect_alef_headered_paths, generate_sweep_roots, sweep_manifest_orphans, sweep_orphans, targeted_e2e_sweep_roots,
