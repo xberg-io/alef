@@ -604,3 +604,34 @@ fn clear_generation_cache_removes_skip_entries_but_keeps_non_cache_records() {
         "a non-cache record must survive"
     );
 }
+
+fn stamped_python_file(body: &str) -> String {
+    let header = crate::core::hash::header(crate::core::hash::CommentStyle::Hash);
+    let content = format!("{header}{body}");
+    let stamp = crate::core::hash::compute_file_hash(&content);
+    crate::core::hash::inject_hash_line(&content, &stamp)
+}
+
+/// `.alef/` is gitignored and survives `git checkout`. A file swapped in by a checkout is
+/// self-consistent (its stamp matches its own bytes), so the stamp-vs-content check alone
+/// accepted it and generation skipped a tree holding another branch's output (alef#965).
+#[test]
+fn language_cache_misses_when_a_self_consistent_file_is_swapped_in() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let _cwd = crate::test_support::CwdGuard::enter(tmp.path());
+    let generated = tmp.path().join("bindings.py");
+    std::fs::write(&generated, stamped_python_file("a = 1\n")).expect("write generated output");
+    let outputs = vec![generated.clone()];
+    write_lang_hash("sample-crate", "python", &test_key("hash-1"), &outputs).expect("write hash");
+    write_lang_manifest("sample-crate", "python", &outputs).expect("write manifest and stamps");
+    assert!(
+        is_lang_cached("sample-crate", "python", &test_key("hash-1")),
+        "an untouched tree must stay a hit"
+    );
+
+    std::fs::write(&generated, stamped_python_file("a = 2\n")).expect("swap in another checkout's output");
+    assert!(
+        !is_lang_cached("sample-crate", "python", &test_key("hash-1")),
+        "a different but self-consistent stamped file must be a miss"
+    );
+}

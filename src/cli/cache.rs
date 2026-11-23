@@ -204,7 +204,9 @@ pub fn is_lang_cached(crate_name: &str, lang: &str, lang_hash: &CacheKey) -> boo
             if cached.trim() != lang_hash.as_str() {
                 return false;
             }
-            outputs_exist(&manifest_path) && stamped_outputs_agree_with_disk(&manifest_path)
+            outputs_exist(&manifest_path)
+                && stamped_outputs_agree_with_disk(&manifest_path)
+                && recorded_stamps_match_disk(&dir.join(format!("{lang}.stamps")))
         }
         Err(_) => false,
     }
@@ -239,6 +241,7 @@ pub fn write_lang_manifest(crate_name: &str, lang: &str, output_paths: &[PathBuf
     let dir = hashes_dir(crate_name);
     crate::core::cache_dir::ensure_cache_dir_under(Path::new(CACHE_DIR), &dir)?;
     write_manifest(&dir.join(format!("{lang}.manifest")), output_paths)?;
+    write_stamp_record(&dir.join(format!("{lang}.stamps")), output_paths)?;
     tracing::debug!(
         crate_name,
         lang,
@@ -867,6 +870,44 @@ pub fn write_stage_hash(
     fs::write(dir.join(format!("{stage}.hash")), stage_hash)?;
     write_manifest(&dir.join(format!("{stage}.manifest")), output_paths)?;
     Ok(())
+}
+
+/// Record the `alef:hash:` stamp each stamped output carries once generation has finished.
+///
+/// `.alef/` is gitignored, so it outlives a `git checkout`. Files from another branch are
+/// self-consistent (their stamp matches their own content), so [`stamped_outputs_agree_with_disk`]
+/// alone accepts them and the language is skipped while the tree holds another checkout's bytes.
+/// Comparing against the stamp recorded at write time catches that swap. ~keep
+fn write_stamp_record(record_path: &Path, output_paths: &[PathBuf]) -> anyhow::Result<()> {
+    let mut lines: Vec<String> = output_paths
+        .iter()
+        .filter_map(|path| {
+            let content = fs::read_to_string(path).ok()?;
+            let stamp = crate::core::hash::extract_hash(&content)?;
+            Some(format!("{}\t{stamp}", path.to_string_lossy()))
+        })
+        .collect();
+    lines.sort_unstable();
+    lines.dedup();
+    fs::write(record_path, lines.join("\n"))?;
+    Ok(())
+}
+
+/// Whether every stamp recorded by [`write_stamp_record`] still matches the file on disk.
+/// No record (a cache written before this existed) is not evidence of a swap and passes.
+fn recorded_stamps_match_disk(record_path: &Path) -> bool {
+    let Ok(record) = fs::read_to_string(record_path) else {
+        return true;
+    };
+    record
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .all(|(path, stamp)| {
+            fs::read_to_string(path)
+                .ok()
+                .and_then(|content| crate::core::hash::extract_hash(&content))
+                .is_none_or(|current| current == stamp)
+        })
 }
 
 /// Write a manifest of output file paths (one per line).
