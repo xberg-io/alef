@@ -67,8 +67,8 @@ fn stream_error_reads_the_stream_inside_the_error_assertion() {
         let body = test_body(&render(true, declared));
         assert!(body.contains("{:ok, __stream} ->"), "{body}");
         assert!(
-            body.contains("Enum.to_list(__stream)"),
-            "the stream must be read:\n{body}"
+            body.contains("_ = Enum.to_list(__stream)"),
+            "the stream must be read and its result bound, not discarded:\n{body}"
         );
         assert!(body.contains("rescue"), "{body}");
         assert_eq!(body.contains("Rate limit reached"), declared, "{body}");

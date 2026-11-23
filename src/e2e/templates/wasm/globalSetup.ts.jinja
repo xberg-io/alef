@@ -52,7 +52,7 @@ export async function setup() {
   });
 }
 
-export async function teardown() {
+export function teardown() {
   if (serverProcess) {
     serverProcess.stdin.end();
     serverProcess.kill();

@@ -11,6 +11,16 @@ use std::collections::BTreeSet;
 
 use crate::e2e::fixture::Fixture;
 
+/// The base exception class `pytest.raises(...)` names for a fixture that declares an error
+/// without any value to discriminate on: the one `ErrorDef`'s own class, which every variant
+/// class derives from. `None` when the crate has no error type or several (no way to know which
+/// one the call raises), where the caller falls back to a bound `exc_info`.
+pub(crate) fn sole_base_error_type(errors: &[crate::core::ir::ErrorDef]) -> Option<String> {
+    let mut visible = crate::codegen::binding_projection::visible_errors(errors);
+    let first = visible.next()?;
+    visible.next().is_none().then(|| first.name.clone())
+}
+
 /// The typed exception class names `emit_error_assertion` will reference in `pytest.raises(...)`
 /// for any fixture in `fixtures` whose declared `error` value names a real `ErrorVariant`.
 ///
@@ -26,12 +36,19 @@ pub(crate) fn collect_used_error_types(
             used_error_types.insert(branch.host_type);
         }
     }
+    if fixtures
+        .iter()
+        .any(|f| !f.is_http_test() && super::error_assertions::renders_bare_error_catch(f, errors))
+        && let Some(base) = sole_base_error_type(errors)
+    {
+        used_error_types.insert(base);
+    }
     used_error_types
 }
 
 #[cfg(test)]
 mod tests {
-    use super::collect_used_error_types;
+    use super::{collect_used_error_types, sole_base_error_type};
     use crate::core::ir::{ErrorDef, ErrorVariant};
     use crate::e2e::fixture::{Assertion, Fixture};
 
@@ -88,5 +105,27 @@ mod tests {
         let errors = vec![error_def_with_variant("ApiError", "Authentication")];
         let fixtures = vec![&fixture];
         assert!(collect_used_error_types(&fixtures, &errors).is_empty());
+    }
+
+    #[test]
+    fn a_single_error_type_yields_its_base_class_for_bare_error_fixtures() {
+        let errors = vec![error_def_with_variant("CrawlError", "Timeout")];
+        assert_eq!(sole_base_error_type(&errors).as_deref(), Some("CrawlError"));
+        let mut fixture = fixture_declaring("unused");
+        fixture.assertions[0].value = None;
+        let fixtures = vec![&fixture];
+        assert!(collect_used_error_types(&fixtures, &errors).contains("CrawlError"));
+        let message_fixture = fixture_declaring("size must be positive");
+        let message_fixtures = vec![&message_fixture];
+        assert!(collect_used_error_types(&message_fixtures, &errors).is_empty());
+    }
+
+    #[test]
+    fn several_error_types_yield_no_base_class() {
+        let errors = vec![
+            error_def_with_variant("CrawlError", "Timeout"),
+            error_def_with_variant("ConfigError", "Invalid"),
+        ];
+        assert_eq!(sole_base_error_type(&errors), None);
     }
 }

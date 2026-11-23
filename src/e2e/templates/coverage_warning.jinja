@@ -11,7 +11,7 @@
 {% elif language == "csharp" %}
         System.Console.Error.WriteLine({{ reason }});
 {% elif language == "node" or language == "wasm" or language == "typescript" %}
-        console.warn({{ reason }});
+        process.stderr.write({{ reason }} + "\n");
 {% elif language == "python" %}
     __import__("warnings").warn({{ reason }}, stacklevel=1)
 {% elif language == "go" %}

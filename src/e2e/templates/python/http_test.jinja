@@ -82,7 +82,7 @@ def test_{{ fn_name }}() -> None:
 {% elif assertion.assertion_type == "absent" %}
     assert resp_headers.get("{{ assertion.name }}") is None
 {% elif assertion.assertion_type == "uuid" %}
-    assert re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', resp_headers["{{ assertion.name }}"])
+    assert re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", resp_headers["{{ assertion.name }}"])
 {% else %}
     assert resp_headers["{{ assertion.name }}"] == "{{ assertion.value }}"
 {% endif %}

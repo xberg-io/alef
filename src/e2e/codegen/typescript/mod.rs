@@ -453,12 +453,12 @@ fn emit_ts_stub_method(
     use crate::e2e::escape::escape_js;
     use std::fmt::Write as FmtWrite;
 
-    // Build parameter list: `_p0?: any, _p1?: any, ...`
+    // Build parameter list: `_p0?: unknown, _p1?: unknown, ...`
     let params: Vec<String> = method
         .params
         .iter()
         .enumerate()
-        .map(|(i, _)| format!("_p{i}?: any"))
+        .map(|(i, _)| format!("_p{i}?: unknown"))
         .collect();
     let params_str = params.join(", ");
 

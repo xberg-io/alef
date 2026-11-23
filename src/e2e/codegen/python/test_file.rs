@@ -851,11 +851,30 @@ fn build_thirdparty_imports(context: ThirdpartyImportContext<'_>, thirdparty_fro
 }
 
 fn public_import_names<'a>(import_names: &'a [String], native_imports: &BTreeSet<(String, String)>) -> Vec<&'a str> {
-    import_names
+    let mut names: Vec<&str> = import_names
         .iter()
         .filter(|name| !native_imports.iter().any(|(_, native_type)| native_type == *name))
         .map(String::as_str)
-        .collect()
+        .collect();
+    names.sort_by_key(|name| isort_member_key(name));
+    names
+}
+
+/// ruff's isort `order-by-type` ordering of the names inside one `from ... import` line:
+/// constants, then classes, then everything else, each group alphabetical.
+fn isort_member_key(name: &str) -> (u8, &str) {
+    let is_constant = name.len() > 1
+        && name
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+    let rank = if is_constant {
+        0
+    } else if name.chars().next().is_some_and(char::is_uppercase) {
+        1
+    } else {
+        2
+    };
+    (rank, name)
 }
 
 // ---------------------------------------------------------------------------

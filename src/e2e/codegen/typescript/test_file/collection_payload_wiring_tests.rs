@@ -165,7 +165,7 @@ fn mixed_projected_fixture_keeps_real_sibling_assertion() {
     assert!(!output.contains("it.skip("), "{output}");
     assert!(output.contains("expect(result.summary)"), "{output}");
     assert!(
-        output.contains("console.warn(\"alef missing assertion coverage"),
+        output.contains("process.stderr.write(\"alef missing assertion coverage"),
         "{output}"
     );
     assert_projected_test_compiles(&output);

@@ -311,9 +311,48 @@ pub(super) fn strip_redundant_call_arg_parens(expr: &str) -> &str {
     expr
 }
 
+/// Whether `expr` is one list comprehension `[... for ...]` spanning the whole string. Ruff
+/// `F632` treats such an expression as a constant literal and rejects `{expr} is not None`.
+pub(super) fn is_list_comprehension(expr: &str) -> bool {
+    if !expr.starts_with('[') || !expr.ends_with(']') || !expr.contains(" for ") {
+        return false;
+    }
+    let mut depth: i32 = 0;
+    for (index, ch) in expr.char_indices() {
+        match ch {
+            '[' => depth += 1,
+            ']' => {
+                depth -= 1;
+                if depth == 0 {
+                    return index == expr.len() - 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn is_list_comprehension_accepts_a_whole_string_comprehension() {
+        assert!(is_list_comprehension(
+            "[t for c in chunks for t in (c.tool_calls or [])]"
+        ));
+    }
+
+    #[test]
+    fn is_list_comprehension_rejects_an_indexed_comprehension() {
+        assert!(!is_list_comprehension("[t for t in xs][0]"));
+    }
+
+    #[test]
+    fn is_list_comprehension_rejects_a_plain_list_literal() {
+        assert!(!is_list_comprehension("[1, 2]"));
+    }
 
     #[test]
     fn strip_redundant_call_arg_parens_strips_a_narrowing_ternarys_enclosing_parens() {

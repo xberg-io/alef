@@ -306,16 +306,6 @@ pub fn gen_pyo3_error_methods_impl(error: &ErrorDef) -> String {
             slot.extract_ty,
         ));
     }
-    for method in &error.methods {
-        let is_slot = matches!(method.name.as_str(), "status_code" | "is_transient" | "error_type")
-            || super::duration_shape(&method.return_type).is_some();
-        if !is_slot {
-            getters.push(format!(
-                "    // Not emitted: getter for method `{}` on `{struct_name}`",
-                method.name
-            ));
-        }
-    }
 
     let struct_def = format!(
         "#[pyclass(name = \"{struct_name}\")]\npub struct {struct_name} {{\n{}\n}}",

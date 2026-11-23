@@ -59,21 +59,21 @@ pub(super) fn apply_wasm_visitor_arg(args_str: &str, visitor_arg: &str, binding:
 
 /// Build the `(html, opts)` argument list for a Node visitor test. The NAPI binding reads
 /// the visitor from `options.visitor`, so we always synthesize an options object with the
-/// visitor merged in. The `as any` cast keeps strict-mode TypeScript happy because the
+/// visitor merged in. The `as never` cast keeps strict-mode TypeScript happy because the
 /// generated `VisitorHandle` field type is opaque.
 pub(super) fn node_visitor_args(args_str: &str, visitor_arg: &str) -> String {
     if args_str.is_empty() {
-        return format!("{{ visitor: {visitor_arg} as any }}");
+        return format!("{{ visitor: {visitor_arg} as never }}");
     }
     if let Some(head) = args_str.strip_suffix(", undefined") {
-        return format!("{head}, {{ visitor: {visitor_arg} as any }}");
+        return format!("{head}, {{ visitor: {visitor_arg} as never }}");
     }
     // If args_str contains a comma, the last segment is the existing options literal —
     // spread it so the visitor merges into the user's options object.
     if let Some((head, tail)) = split_last_top_level_arg(args_str) {
-        return format!("{head}, {{ ...({tail}), visitor: {visitor_arg} as any }}");
+        return format!("{head}, {{ ...({tail}), visitor: {visitor_arg} as never }}");
     }
-    format!("{args_str}, {{ visitor: {visitor_arg} as any }}")
+    format!("{args_str}, {{ visitor: {visitor_arg} as never }}")
 }
 
 /// Split `args_str` into `(everything-before-last-comma, last-arg)`, respecting nested

@@ -58,7 +58,11 @@
 {# enclosing parens dropped -- safe only in call-argument position (hasattr's/len's sole argument), #}
 {# NOT before `is not None`, where the parens are load-bearing. Falls back to `field_access` when the #}
 {# caller didn't precompute it, so a direct-template caller that only sets `field_access` still works. #}
+{% if field_is_list_comprehension %}
+    assert len({{ field_access }}) > 0
+{% else %}
     assert {{ field_access }} is not None and (not hasattr({{ field_access_arg | default(field_access) }}, "__len__") or len({{ field_access_arg | default(field_access) }}) > 0)
+{% endif %}
 {% elif assertion_type == "is_empty" %}
     assert not {{ field_access }}
 {% elif assertion_type == "contains_any" %}

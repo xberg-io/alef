@@ -353,8 +353,7 @@ pub(super) fn render_test_runner_header(
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
 
-    for (group, fixtures) in active_groups {
-        let _ = writeln!(out, "/* Tests for category: {} */", group.category);
+    for (_, fixtures) in active_groups {
         for fixture in fixtures {
             let fn_name = sanitize_ident(&fixture.id);
             let _ = writeln!(out, "void test_{fn_name}(void);");
@@ -363,7 +362,6 @@ pub(super) fn render_test_runner_header(
     }
 
     if !visitor_fixtures.is_empty() {
-        let _ = writeln!(out, "/* Tests for category: visitor */");
         for fixture in visitor_fixtures {
             let fn_name = sanitize_ident(&fixture.id);
             let _ = writeln!(out, "void test_{fn_name}(void);");
@@ -400,8 +398,7 @@ pub(super) fn render_main_c(
         out.push_str(&env_block);
     }
 
-    for (group, fixtures) in active_groups {
-        let _ = writeln!(out, "    /* Category: {} */", group.category);
+    for (_, fixtures) in active_groups {
         for fixture in fixtures {
             let fn_name = sanitize_ident(&fixture.id);
             let _ = writeln!(out, "    printf(\"  Running test_{fn_name}...\");");
@@ -422,7 +419,6 @@ pub(super) fn render_main_c(
     }
 
     if !visitor_fixtures.is_empty() {
-        let _ = writeln!(out, "    /* Category: visitor */");
         for fixture in visitor_fixtures {
             let fn_name = sanitize_ident(&fixture.id);
             let _ = writeln!(out, "    printf(\"  Running test_{fn_name}...\");");

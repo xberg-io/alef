@@ -7,7 +7,7 @@ use heck::ToSnakeCase;
 use crate::e2e::escape::escape_python;
 use crate::e2e::fixture::FixtureDocsFileInput;
 
-use super::super::json::json_to_python_literal;
+use super::super::json::{json_to_python_literal, python_string_literal};
 
 /// Read-only rendering environment shared, unchanged, across every level of the
 /// `render_kwarg_field_value` recursion (through `render_struct_constructor` and the
@@ -422,9 +422,8 @@ fn emit_json_object_arg_dict_mode(
 /// `options_via = "json"` branch: the value round-trips through `json.loads(...)`.
 fn emit_json_object_arg_json_mode(sink: &mut ArgSink<'_>, value: &serde_json::Value, var_name: &str) -> bool {
     let json_str = serde_json::to_string(value).unwrap_or_default();
-    let escaped = escape_python(&json_str);
-    sink.bindings
-        .push(format!("    {var_name} = json.loads(\"{escaped}\")"));
+    let literal = python_string_literal(&json_str);
+    sink.bindings.push(format!("    {var_name} = json.loads({literal})"));
     sink.kwarg_exprs.push(var_name.to_string());
     true
 }
@@ -442,9 +441,9 @@ fn emit_json_object_arg_from_json_mode(
         return false;
     };
     let json_str = serde_json::to_string(value).unwrap_or_default();
-    let escaped = escape_python(&json_str);
+    let literal = python_string_literal(&json_str);
     sink.bindings
-        .push(format!("    {var_name} = {opts_type}.from_json(\"{escaped}\")"));
+        .push(format!("    {var_name} = {opts_type}.from_json({literal})"));
     sink.kwarg_exprs.push(var_name.to_string());
     true
 }
@@ -551,7 +550,7 @@ fn emit_json_object_arg_with_mock_url(
     context: KwargRenderContext<'_>,
 ) -> bool {
     let json_str = serde_json::to_string(value).unwrap_or_default();
-    let escaped = escape_python(&json_str);
+    let literal = python_string_literal(&json_str);
     let env_key = crate::e2e::codegen::mock_url_env_key(mock.fixture_id);
     let fallback = format!("os.environ['MOCK_SERVER_URL'] + '/fixtures/{}'", mock.fixture_id);
     let base_expr = if mock.has_host_root_route {
@@ -562,7 +561,7 @@ fn emit_json_object_arg_with_mock_url(
     sink.bindings
         .push(format!("    {var_name}_mock_base_url = {base_expr}"));
     sink.bindings.push(format!(
-        "    {var_name}_json = \"{escaped}\".replace(\"{}\", {var_name}_mock_base_url)",
+        "    {var_name}_json = {literal}.replace(\"{}\", {var_name}_mock_base_url)",
         crate::e2e::codegen::MOCK_URL_PLACEHOLDER
     ));
 

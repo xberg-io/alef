@@ -28,7 +28,6 @@ namespace TestCrate
         [Fact]
         public async Task Test_ProcessItemsAsyncValueTypeDefault()
         {
-            // Batch test with omitted config parameter
             var result = await TestCrateConverter.ProcessItemsAsync(new List<string>() { "sample text" }, new BatchConfig());
             Assert.NotNull(result);
 

@@ -7,7 +7,7 @@ use crate::e2e::codegen::field_skip::{FieldSkip, nested_wildcard_skip_line};
 use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::Assertion;
 
-use super::helpers::strip_redundant_call_arg_parens;
+use super::helpers::{is_list_comprehension, strip_redundant_call_arg_parens};
 use super::json::{python_string_literal, value_to_python_string};
 
 mod chunks_synthetic;
@@ -479,6 +479,7 @@ fn render_standard_assertion(
                     assertion_type => "not_empty",
                     field_access => field_access,
                     field_access_arg => strip_redundant_call_arg_parens(field_access),
+                    field_is_list_comprehension => is_list_comprehension(field_access),
                 },
             );
             out.push_str(&rendered);

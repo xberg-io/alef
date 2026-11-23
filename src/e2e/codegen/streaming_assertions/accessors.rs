@@ -203,7 +203,7 @@ impl StreamingFieldResolver {
                 }
                 // node/wasm/typescript
                 _ => {
-                    format!("{chunks_var}.map((c: any) => c.choices?.[0]?.delta?.content ?? '').join('')")
+                    format!("{chunks_var}.map((c) => c.choices?.[0]?.delta?.content ?? '').join('')")
                 }
             }),
 
@@ -448,7 +448,7 @@ impl StreamingFieldResolver {
                     format!("{chunks_var}.flat_map {{ |c| c.choices&.first&.delta&.tool_calls || [] }}")
                 }
                 _ => {
-                    format!("{chunks_var}.flatMap((c: any) => c.choices?.[0]?.delta?.toolCalls ?? [])")
+                    format!("{chunks_var}.flatMap((c) => c.choices?.[0]?.delta?.toolCalls ?? [])")
                 }
             }),
 
@@ -646,7 +646,7 @@ fn has_event_variant_accessor(
         }
         // Node / TypeScript: deserialized union objects expose a `type`
         // discriminator field with the lower-case wire tag.
-        "node" | "typescript" => Some(format!("{chunks_var}.some((e: any) => e?.type === \"{tag}\")")),
+        "node" | "typescript" => Some(format!("{chunks_var}.some((e) => e?.type === \"{tag}\")")),
         // Ruby: each variant class exposes `<tag>?` predicates.
         "ruby" => Some(format!("{chunks_var}.any? {{ |e| e.{tag}? }}")),
         // Go: variants are concrete struct types ({item_type}{Camel}) that

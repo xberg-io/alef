@@ -431,7 +431,7 @@ fn wasm_visitor_snippet_builds_and_attaches_the_real_bridge() {
         config: &config,
     });
 
-    assert!(body.contains("visitText(ctx: any, text: any)"));
+    assert!(body.contains("visitText(ctx: unknown, text: unknown)"));
     assert!(body.contains("new WasmVisitorHandle(_testVisitor)"));
     assert!(body.contains("RenderOptions.default()"));
     assert!(body.contains("VisitorHandle"));

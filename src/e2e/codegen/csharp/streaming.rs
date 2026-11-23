@@ -56,13 +56,11 @@ pub(super) fn render_streaming_test_method(
     item_type: Option<&str>,
 ) {
     let method_name = fixture.id.to_upper_camel_case();
-    let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
     let Some(item_type) = item_type else {
         let _ = writeln!(out, "    [Fact]");
         let _ = writeln!(out, "    public void Test_{method_name}()");
         let _ = writeln!(out, "    {{");
-        let _ = writeln!(out, "        // {description}");
         let _ = writeln!(
             out,
             "        // skipped: streaming fixture requires adapter item_type for C# e2e codegen"
@@ -217,7 +215,6 @@ pub(super) fn render_streaming_test_method(
     let mut fact_attribute = "    [Fact]".to_string();
     let _ = writeln!(body, "    public async Task Test_{method_name}()");
     let _ = writeln!(body, "    {{");
-    let _ = writeln!(body, "        // {description}");
     if !client_factory_setup.is_empty() {
         body.push_str(&client_factory_setup);
     }

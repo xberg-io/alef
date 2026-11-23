@@ -1,11 +1,11 @@
-/// Escape JSDoc block-close sequences (`*/`) by replacing with `* /`.
+/// Escape block-comment terminators (`*/`) by replacing with `* /`.
 ///
-/// JSDoc comments use `/** ... */` blocks. If rustdoc content contains a backtick
-/// code span like `` `/* ... */` ``, the `*/` inside the backticks lands verbatim
-/// in the emitted JSDoc and prematurely closes the comment block, breaking downstream
-/// tools like oxfmt. This function replaces `*/` with `* /` (backslash breaks the
-/// terminator matching) while preserving visual rendering in docs.
-pub(super) fn escape_jsdoc_block_close(s: &str) -> String {
+/// JSDoc and PHPDoc comments use `/** ... */` blocks. If rustdoc content contains a backtick
+/// code span like `` `/** */` ``, the `*/` inside the backticks lands verbatim
+/// in the emitted comment and prematurely closes the block, leaving the rest of the doc
+/// to be parsed as code. Replacing `*/` with `* /` breaks the terminator match while
+/// preserving the visual rendering.
+pub fn escape_block_comment_close(s: &str) -> String {
     s.replace("*/", "* /")
 }
 

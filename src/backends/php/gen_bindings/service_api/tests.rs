@@ -978,3 +978,17 @@ fn make_test_config() -> ResolvedCrateConfig {
         ..ResolvedCrateConfig::default()
     }
 }
+
+#[test]
+fn format_php_comment_neutralises_nested_block_comment_close() {
+    let comment = helpers::format_php_comment("Java (`/** */`).\nSecond line.", 4);
+    assert_eq!(
+        comment.matches("*/").count(),
+        1,
+        "docblock must close exactly once:\n{comment}"
+    );
+    assert!(
+        comment.ends_with(" */\n"),
+        "the only terminator must end the block:\n{comment}"
+    );
+}

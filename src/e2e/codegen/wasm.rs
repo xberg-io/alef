@@ -625,7 +625,7 @@ fn render_setup(
     out.push_str("  }\n");
     out.push_str("} catch (err) {\n");
     out.push_str("  // Module may not require explicit init — continue anyway.\n");
-    out.push_str("  console.warn('[alef wasm setup] init skipped:', (err as Error).message);\n");
+    out.push_str("  process.stderr.write(`[alef wasm setup] init skipped: ${(err as Error).message}\\n`);\n");
     out.push_str("}\n\n");
     if include_file_setup {
         let file_only = render_file_setup(test_documents_dir);
