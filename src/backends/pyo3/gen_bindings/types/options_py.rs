@@ -494,14 +494,37 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
     out.push_str(&gen_from_native_converters(api, dto, reexported_types));
 
     if uses_builtins_import {
-        out = out.replacen(
-            "from dataclasses import dataclass, field\n",
-            "import builtins\nfrom dataclasses import dataclass, field\n",
-            1,
-        );
+        out = import_builtins_for_annotations(out);
     }
 
     out
+}
+
+/// Import `builtins` under `TYPE_CHECKING`: the module-level `from __future__ import annotations`
+/// keeps every `builtins.<name>` annotation unevaluated, so a runtime import would only be
+/// flagged by ruff's TC003. Reuses the existing `TYPE_CHECKING` block and `typing` import
+/// when the header already has them. ~keep
+fn import_builtins_for_annotations(mut source: String) -> String {
+    const BLOCK: &str = "if TYPE_CHECKING:\n";
+    const BUILTINS: &str = "    import builtins\n";
+    if let Some(pos) = source.find(BLOCK) {
+        source.insert_str(pos + BLOCK.len(), BUILTINS);
+        return source;
+    }
+    if let Some(pos) = source.find("from typing import ") {
+        source.insert_str(pos + "from typing import ".len(), "TYPE_CHECKING, ");
+    } else {
+        let anchor = if source.contains("from enum import StrEnum\n") {
+            "from enum import StrEnum\n"
+        } else {
+            "from dataclasses import dataclass, field\n"
+        };
+        source = source.replacen(anchor, &format!("{anchor}from typing import TYPE_CHECKING\n"), 1);
+    }
+    if let Some(pos) = source.find("\n\n\n") {
+        source.insert_str(pos + 1, &format!("\n{BLOCK}{BUILTINS}"));
+    }
+    source
 }
 
 /// Add `repr=False` to a dataclass default without changing its construction semantics. ~keep

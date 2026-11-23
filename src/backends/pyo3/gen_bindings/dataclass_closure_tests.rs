@@ -254,8 +254,12 @@ fn gen_options_py_qualifies_a_field_named_after_its_own_builtin_annotation() {
         "a sibling field's bare `bytes` also resolves to the shadowing field, so it is qualified too:\n{options_py}"
     );
     assert!(
-        options_py.contains("\nimport builtins\n"),
-        "options.py must import builtins when it uses it:\n{options_py}"
+        options_py.contains("if TYPE_CHECKING:\n    import builtins\n"),
+        "options.py must import builtins under TYPE_CHECKING when it uses it:\n{options_py}"
+    );
+    assert!(
+        options_py.contains("from typing import TYPE_CHECKING"),
+        "the TYPE_CHECKING block needs its typing import:\n{options_py}"
     );
 }
 
