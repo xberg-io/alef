@@ -336,3 +336,60 @@ fn data_interface_with_bytes() -> (TypeDef, EnumDef) {
     };
     (type_def, choice)
 }
+
+/// `Option<Vec<T>>` and `Option<HashMap<..>>` must keep `None` (nil) distinct from `Some([])`
+/// (non-nil empty): `omitempty` drops both, `omitzero` drops only nil.
+#[test]
+fn optional_collection_fields_use_omitzero_so_an_empty_value_still_serialises() {
+    for (name, ty) in [
+        (
+            "tags",
+            TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::String)))),
+        ),
+        ("labels", TypeRef::Vec(Box::new(TypeRef::String))),
+        (
+            "extras",
+            TypeRef::Optional(Box::new(TypeRef::Map(
+                Box::new(TypeRef::String),
+                Box::new(TypeRef::String),
+            ))),
+        ),
+    ] {
+        let type_def = envelope_with(FieldDef {
+            name: name.into(),
+            ty,
+            optional: true,
+            ..Default::default()
+        });
+        let output = gen_struct_type(
+            &type_def,
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            (&HashSet::from([type_def.name.as_str()]), &[], &[]),
+            &[],
+        );
+        assert!(output.contains(&format!("json:\"{name},omitzero\"")), "{output}");
+        assert!(!output.contains(&format!("json:\"{name},omitempty\"")), "{output}");
+    }
+}
+
+/// A required collection keeps its existing tag: only optional ones need the nil/empty split.
+#[test]
+fn required_collection_fields_keep_omitempty_or_no_omission() {
+    let type_def = envelope_with(FieldDef {
+        name: "items".into(),
+        ty: TypeRef::Vec(Box::new(TypeRef::String)),
+        optional: false,
+        ..Default::default()
+    });
+    let output = gen_struct_type(
+        &type_def,
+        &HashSet::new(),
+        &HashSet::new(),
+        &HashSet::new(),
+        (&HashSet::from([type_def.name.as_str()]), &[], &[]),
+        &[],
+    );
+    assert!(!output.contains("omitzero"), "{output}");
+}

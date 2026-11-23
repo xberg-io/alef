@@ -287,7 +287,16 @@ fn go_struct_field_json_tag(
         field.serde_rename.as_deref(),
         typ.serde_rename_all.as_deref(),
     );
-    format!("json:\"{json_name}{}\"", if omit { ",omitempty" } else { "" })
+    // An optional slice or map is `nil` for `None` and non-nil-empty for `Some([])`. `omitempty` drops
+    // both, so a caller could never send the empty collection that disables a defaulted list;
+    // `omitzero` (Go 1.24+) drops only the nil value. ~keep
+    let mut collection_ty = &field.ty;
+    while let TypeRef::Optional(inner) = collection_ty {
+        collection_ty = inner;
+    }
+    let option_collection = field.optional && matches!(collection_ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
+    let omit_option = if option_collection { ",omitzero" } else { ",omitempty" };
+    format!("json:\"{json_name}{}\"", if omit { omit_option } else { "" })
 }
 
 struct GoStructTypeSets<'a> {

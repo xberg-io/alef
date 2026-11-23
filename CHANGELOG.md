@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Go bindings tag optional slice and map fields `omitzero` instead of `omitempty`, so `Option<Vec<T>>` keeps `None` (nil) distinct from `Some([])` (an empty value that is still sent). The generated reference docs render those fields as `Option<Vec<T>>` instead of `Vec<T>` (#947).
+
 ## [0.132.4] - 2026-11-23
 
 ### Fixed
