@@ -674,10 +674,16 @@ pub(super) fn emit_converters(
 
             let is_json_field = matches!(field.ty, TypeRef::Json)
                 || matches!(&field.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Json));
+            let json_coerced = format!(
+                "json.dumps({final_accessor}) if isinstance({final_accessor}, (dict, list)) else {final_accessor}"
+            );
+            let call_arg_accessor = if is_json_field {
+                json_coerced.clone()
+            } else {
+                final_accessor.clone()
+            };
             let final_accessor = if is_json_field {
-                format!(
-                    "(json.dumps({final_accessor}) if isinstance({final_accessor}, (dict, list)) else {final_accessor})"
-                )
+                format!("({json_coerced})")
             } else {
                 final_accessor
             };
@@ -744,7 +750,7 @@ pub(super) fn emit_converters(
                     crate::alef_context! {
                         name => &pyo3_param_name,
                         raw_accessor => &raw_field_accessor,
-                        final_accessor => &final_accessor,
+                        final_accessor => &call_arg_accessor,
                         helper_name => helper_name,
                     },
                 ));

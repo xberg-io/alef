@@ -154,6 +154,28 @@ fn test_magnus_registrations_skip_methods_the_struct_cannot_implement() {
     assert!(!gen_magnus_error_methods_struct(&error, "sample_app").contains("pub fn details("));
 }
 
+/// A method no host binding can represent is dropped without a placeholder comment: the comment
+/// named the skipped method and carried nothing a reader of the generated file could act on.
+#[test]
+fn test_unrepresentable_error_methods_leave_no_not_emitted_comment() {
+    let mut error = error_with_duration_methods();
+    error
+        .methods
+        .push(sample_method("details", TypeRef::Vec(Box::new(TypeRef::String))));
+    let outputs = [
+        gen_ffi_error_methods(&error, "sample_app", "sample"),
+        gen_magnus_error_methods_struct(&error, "sample_app"),
+        gen_php_error_methods_impl(&error, "sample_app"),
+        gen_pyo3_error_methods_impl(&error),
+        gen_wasm_error_methods(&error, "sample_app", "Wasm"),
+        gen_napi_error_class(&error, "sample_app"),
+    ];
+    for output in &outputs {
+        assert!(!output.contains("Not emitted"), "{output}");
+        assert!(!output.contains("details"), "{output}");
+    }
+}
+
 #[test]
 fn test_wasm_error_methods_expose_duration_methods_as_milliseconds() {
     let output = gen_wasm_error_methods(&error_with_duration_methods(), "sample_app", "Wasm");

@@ -35,7 +35,7 @@ use super::render_test_file;
 /// own. ~keep
 const RUFF_CONFIG: &str = r#"
 [tool.ruff.lint]
-select = ["S", "PLC0415", "ARG", "UP", "RUF", "I", "F", "N", "SIM", "B", "ANN", "A", "T20"]
+select = ["S", "PLC0415", "ARG", "UP", "RUF", "I", "F", "N", "SIM", "B", "ANN", "A", "T20", "Q"]
 
 [tool.ruff.lint.per-file-ignores]
 "test_*.py" = ["S101"]
@@ -114,6 +114,16 @@ fn mixed_fixtures() -> Vec<Fixture> {
                 {"type": "error"},
                 {"type": "equals", "field": "error.status_code", "value": 429}
             ]
+        }),
+        serde_json::json!({
+            "id": "bare_error",
+            "description": "Raises without naming a variant",
+            "assertions": [{"type": "error"}]
+        }),
+        serde_json::json!({
+            "id": "quoted_unicode_text",
+            "description": "Compares text holding double quotes and ambiguous unicode",
+            "assertions": [{"type": "equals", "field": "title", "value": "say \"hi\" \u{203a} \u{20ac}"}]
         }),
         serde_json::json!({
             "id": "skipped_case",

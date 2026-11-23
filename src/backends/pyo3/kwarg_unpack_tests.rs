@@ -762,7 +762,7 @@ fn should_withhold_a_none_default_from_a_non_option_parameter_that_has_no_serde_
         stub.contains("config: str = ..."),
         "the native parameter is not an `Option`, so the stub must not claim `None` is accepted:\n{stub}"
     );
-    let json_coerced = "(json.dumps(value.config) if isinstance(value.config, (dict, list)) else value.config)";
+    let json_coerced = "json.dumps(value.config) if isinstance(value.config, (dict, list)) else value.config";
     assert_eq!(
         constructor_call_arguments(&facade),
         vec![

@@ -359,9 +359,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_test_case(
             format!(
                 "const apiKey = process.env.{var};\n    \
                  const baseUrl = apiKey ? undefined : {mock_url};\n    \
-                 console.log(`{id}: ${{apiKey ? 'using real API ({var} is set)' : 'using mock server ({var} not set)'}}`);\n    \
-                 const client = {client_call};",
-                id = fixture.id
+                 const client = {client_call};"
             )
         } else if has_mock {
             {

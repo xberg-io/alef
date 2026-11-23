@@ -17,6 +17,34 @@ fn test_phpdoc_escaping() {
 }
 
 #[test]
+fn test_phpdoc_nested_block_comment_has_single_terminator() {
+    let mut out = String::new();
+    emit_phpdoc(
+        &mut out,
+        "Java (`/** */`), and JavaScript/TypeScript (`/** */`).",
+        "",
+        "TestException",
+    );
+    assert_eq!(out.matches("*/").count(), 1, "docblock must close exactly once: {out}");
+    assert!(out.ends_with(" */\n"), "the only terminator must end the block: {out}");
+}
+
+#[test]
+fn test_sanitize_php_doc_escapes_block_comment_close_in_fences_and_prose() {
+    let doc = "Prose `/** */`.\n\n```c\n/* x */\n```";
+    let out = sanitize_rust_idioms(doc, DocTarget::PhpDoc);
+    assert!(!out.contains("*/"), "sanitized PHP doc must not contain `*/`: {out}");
+}
+
+#[test]
+fn test_javadoc_nested_block_comment_has_single_terminator() {
+    let mut out = String::new();
+    emit_javadoc(&mut out, "Java (`/** */`), and JavaScript.", "");
+    assert_eq!(out.matches("*/").count(), 1, "javadoc must close exactly once: {out}");
+    assert!(out.ends_with(" */\n"), "the only terminator must end the block: {out}");
+}
+
+#[test]
 fn test_emit_csharp_doc() {
     let mut out = String::new();
     emit_csharp_doc(&mut out, "C# documentation", "    ", "TestException");

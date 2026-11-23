@@ -10,7 +10,7 @@ pub use emitters::{
     emit_kdoc_ktfmt_canonical, emit_phpdoc, emit_roxygen, emit_rustdoc, emit_swift_doc, emit_yard_doc, emit_zig_doc,
     render_yard_sections,
 };
-pub use sanitize::{DocTarget, sanitize_rust_idioms, sanitize_rust_idioms_keep_sections};
+pub use sanitize::{DocTarget, escape_block_comment_close, sanitize_rust_idioms, sanitize_rust_idioms_keep_sections};
 pub use sections::{
     BOLD_LABEL_ONLY_SECTION_NAMES, RustdocSections, doc_first_paragraph_joined, example_for_target,
     parse_arguments_bullets, parse_rustdoc_sections, render_csharp_xml_sections, render_doxygen_sections,

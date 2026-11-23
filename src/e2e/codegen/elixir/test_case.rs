@@ -116,7 +116,7 @@ fn emit_stream_error_assertion(
     let _ = writeln!(out, "{indent}      reason");
     let _ = writeln!(out, "{indent}    {{:ok, __stream}} ->");
     let _ = writeln!(out, "{indent}      try do");
-    let _ = writeln!(out, "{indent}        Enum.to_list(__stream)");
+    let _ = writeln!(out, "{indent}        _ = Enum.to_list(__stream)");
     let _ = writeln!(out, "{indent}        nil");
     let _ = writeln!(out, "{indent}      rescue");
     let _ = writeln!(out, "{indent}        exception -> exception");

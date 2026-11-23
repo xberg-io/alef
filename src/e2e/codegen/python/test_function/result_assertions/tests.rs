@@ -104,6 +104,24 @@ fn not_empty_for_python_streaming_rejects_empty_chunks_but_accepts_zero() {
     );
 }
 
+#[test]
+fn not_empty_for_python_streaming_list_comprehension_avoids_is_not_none() {
+    let mut out = String::new();
+    let assertion = assertion("not_empty", Some("tool_calls"), None);
+
+    emit_streaming_virtual_assertion(
+        &mut out,
+        &assertion,
+        "tool_calls",
+        "chunks",
+        None,
+        &crate::e2e::field_access::PythonTypedDictMap::default(),
+    );
+
+    assert!(!out.contains("is not None"), "got: {out}");
+    assert!(out.contains("assert len([") && out.contains(") > 0"), "got: {out}");
+}
+
 /// A streaming accessor over a `TypedDict`-classified chunk type subscripts every hop instead
 /// of the pre-existing dotted access — the exact defect this task fixes:
 /// `stream_content`/`stream_complete`/`tool_calls`/`finish_reason`/`usage` are hand-rolled in

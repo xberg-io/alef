@@ -6,7 +6,8 @@ mod references;
 mod type_wrappers;
 mod utf8;
 
-use escaping::{escape_jsdoc_block_close, xml_escape_for_csharp};
+pub use escaping::escape_block_comment_close;
+use escaping::xml_escape_for_csharp;
 use prose::apply_prose_transforms;
 pub(crate) use references::{unlink_intradoc_references, wrap_bare_bracket_references};
 
@@ -159,8 +160,8 @@ fn sanitize_rust_idioms_inner(text: &str, target: DocTarget, drop_csharp_section
         out.pop();
     }
 
-    if matches!(target, DocTarget::TsDoc | DocTarget::JsDoc) {
-        out = escape_jsdoc_block_close(&out);
+    if matches!(target, DocTarget::TsDoc | DocTarget::JsDoc | DocTarget::PhpDoc) {
+        out = escape_block_comment_close(&out);
     }
 
     if matches!(target, DocTarget::CSharpDoc) {

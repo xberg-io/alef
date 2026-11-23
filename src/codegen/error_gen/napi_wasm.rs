@@ -448,9 +448,6 @@ pub fn gen_wasm_error_methods(error: &ErrorDef, core_import: &str, wasm_prefix: 
                 .to_string(),
             other => {
                 let Some((_, optional)) = duration_methods(error).into_iter().find(|(m, _)| m.name == other) else {
-                    method_bodies.push(format!(
-                        "    // Not emitted: binding for method `{other}` on `{wasm_struct_name}`"
-                    ));
                     continue;
                 };
                 format!(
@@ -562,9 +559,6 @@ pub fn gen_napi_error_class(error: &ErrorDef, core_import: &str) -> String {
             }
             other => {
                 let Some((_, optional)) = duration_methods(error).into_iter().find(|(m, _)| m.name == other) else {
-                    methods.push(format!(
-                        "    // Not emitted: #[napi] method `{other}` on `{struct_name}`"
-                    ));
                     continue;
                 };
                 let ty = millis_type(optional, "i64");

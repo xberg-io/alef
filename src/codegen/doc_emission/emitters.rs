@@ -1,6 +1,6 @@
 use super::sanitize::{
-    DocTarget, sanitize_rust_idioms, sanitize_rust_idioms_keep_sections, unlink_intradoc_references,
-    wrap_bare_bracket_references,
+    DocTarget, escape_block_comment_close, sanitize_rust_idioms, sanitize_rust_idioms_keep_sections,
+    unlink_intradoc_references, wrap_bare_bracket_references,
 };
 use super::sections::{
     RustdocSections, example_for_target, parse_arguments_bullets, parse_rustdoc_sections, render_csharp_xml_sections,
@@ -35,16 +35,11 @@ pub fn emit_phpdoc(out: &mut String, doc: &str, indent: &str, exception_class: &
     for line in body.lines() {
         out.push_str(indent);
         out.push_str(" * ");
-        out.push_str(&escape_phpdoc_line(line));
+        out.push_str(&escape_block_comment_close(line));
         out.push('\n');
     }
     out.push_str(indent);
     out.push_str(" */\n");
-}
-
-/// Escape PHPDoc line: handle */ sequences that could close the comment early.
-fn escape_phpdoc_line(s: &str) -> String {
-    s.replace("*/", "* /")
 }
 
 /// Emit C# XML documentation comments (/// <summary> ... </summary>)
@@ -185,7 +180,7 @@ pub fn emit_javadoc(out: &mut String, doc: &str, indent: &str) {
     out.push_str(indent);
     out.push_str("/**\n");
     for line in doc.lines() {
-        let escaped = escape_javadoc_line(line);
+        let escaped = escape_block_comment_close(&escape_javadoc_line(line));
         let trimmed = escaped.trim_end();
         if trimmed.is_empty() {
             out.push_str(indent);

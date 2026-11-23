@@ -1,7 +1,5 @@
 //! JSON-to-Python literal conversion utilities.
 
-use crate::e2e::escape::escape_python;
-
 /// Convert a `serde_json::Value` to a Python literal string.
 pub(super) fn json_to_python_literal(value: &serde_json::Value) -> String {
     match value {
@@ -17,7 +15,7 @@ pub(super) fn json_to_python_literal(value: &serde_json::Value) -> String {
         serde_json::Value::Object(map) => {
             let items: Vec<String> = map
                 .iter()
-                .map(|(k, v)| format!("\"{}\": {}", escape_python(k), json_to_python_literal(v)))
+                .map(|(k, v)| format!("{}: {}", python_string_literal(k), json_to_python_literal(v)))
                 .collect();
             format!("{{{}}}", items.join(", "))
         }
@@ -36,20 +34,34 @@ pub(super) fn value_to_python_string(value: &serde_json::Value) -> String {
 }
 
 /// Produce a quoted Python string literal, choosing single or double quotes
-/// to avoid unnecessary escaping (ruff Q003).
+/// to avoid unnecessary escaping (ruff Q003). Non-ASCII characters are emitted as
+/// `\u`/`\U` escapes so no ambiguous-unicode literal (ruff RUF001) reaches the source.
 pub(super) fn python_string_literal(s: &str) -> String {
-    if s.contains('"') && !s.contains('\'') {
-        // Use single quotes to avoid escaping double quotes.
-        let escaped = s
-            .replace('\\', "\\\\")
-            .replace('\'', "\\'")
-            .replace('\n', "\\n")
-            .replace('\r', "\\r")
-            .replace('\t', "\\t");
-        format!("'{escaped}'")
+    let quote = if s.contains('"') && !s.contains('\'') {
+        '\''
     } else {
-        format!("\"{}\"", escape_python(s))
+        '"'
+    };
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push(quote);
+    for ch in s.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c == quote => {
+                out.push('\\');
+                out.push(c);
+            }
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\x{:02x}", c as u32)),
+            c if c.is_ascii() => out.push(c),
+            c if (c as u32) <= 0xFFFF => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push_str(&format!("\\U{:08x}", c as u32)),
+        }
     }
+    out.push(quote);
+    out
 }
 
 #[cfg(test)]
@@ -70,6 +82,28 @@ mod tests {
     fn python_string_literal_uses_single_quotes_when_has_double_quotes() {
         let out = python_string_literal("say \"hello\"");
         assert!(out.starts_with('\''), "got: {out}");
+    }
+
+    #[test]
+    fn python_string_literal_json_payload_has_no_escaped_quotes() {
+        let out = python_string_literal(r#"{"completion_window":"24h"}"#);
+        assert_eq!(out, r#"'{"completion_window":"24h"}'"#);
+    }
+
+    #[test]
+    fn python_string_literal_mixed_quotes_keeps_double_quotes_with_escapes() {
+        assert_eq!(python_string_literal(r#"a"b'c"#), r#""a\"b'c""#);
+    }
+
+    #[test]
+    fn python_string_literal_escapes_non_ascii_as_unicode_escapes() {
+        assert_eq!(python_string_literal("\u{203a} \u{20ac}"), r#""\u203a \u20ac""#);
+        assert_eq!(python_string_literal("\u{1f600}"), r#""\U0001f600""#);
+    }
+
+    #[test]
+    fn python_string_literal_escapes_control_chars_in_single_quoted_form() {
+        assert_eq!(python_string_literal("\"\u{1}"), r#"'"\x01'"#);
     }
 
     #[test]

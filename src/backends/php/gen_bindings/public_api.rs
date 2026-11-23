@@ -19,8 +19,6 @@ pub(super) fn generate_public_api(
     let deduped_api = api.with_deduped_functions();
     let api = &deduped_api;
 
-    let escape_phpdoc_line = |s: &str| s.replace("*/", "* /");
-
     let extension_name = config.php_extension_name();
     let class_name = crate::backends::php::naming::php_public_class_name(&extension_name);
 
@@ -107,7 +105,7 @@ pub(super) fn generate_public_api(
             let sections = doc_emission::parse_rustdoc_sections(&func.doc);
             for line in sections.summary.lines() {
                 content.push_str("     * ");
-                content.push_str(&escape_phpdoc_line(line));
+                content.push_str(&doc_emission::escape_block_comment_close(line));
                 content.push('\n');
             }
             // Skip Arguments, Returns, Errors, Example — they're emitted as @param/@return/@throws below.

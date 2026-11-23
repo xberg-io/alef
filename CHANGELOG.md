@@ -7,8 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.132.5] - 2026-11-23
+
 ### Fixed
 
+- Generated PHP, Java and other docblocks escape a literal `*/` so the comment is no longer closed early (#960).
+- Generated Node and WASM e2e tests no longer use `any`, `console` or unawaited calls; stream chunk arrays take their type from the stream's element type (#961).
+- Generated Python tests and bindings are ruff-clean: sorted import members, double-quoted string literals, raw-string regexes and no unused base-class import (#962).
+- Generated code no longer carries "Not emitted" comments or section banners flagged by the comment lint (#963).
+- Generated Elixir stream tests discard the drained list explicitly (#964).
 - Go bindings tag optional slice and map fields `omitzero` instead of `omitempty`, so `Option<Vec<T>>` keeps `None` (nil) distinct from `Some([])` (an empty value that is still sent). The generated reference docs render those fields as `Option<Vec<T>>` instead of `Vec<T>` (#947).
 
 ## [0.132.4] - 2026-11-23

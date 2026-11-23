@@ -235,6 +235,19 @@ fn collect_snippet_elixir_uses_enum_to_list() {
 }
 
 #[test]
+fn node_and_wasm_stream_collection_and_accessors_avoid_any() {
+    for lang in ["node", "wasm"] {
+        let snip = StreamingFieldResolver::collect_snippet(lang, "stream", "chunks").unwrap();
+        assert!(!snip.contains("any"), "{lang} collect must not use `any`: {snip}");
+        assert!(snip.contains("const chunks: Array<"), "{lang}: {snip}");
+    }
+    for field in ["stream_content", "tool_calls"] {
+        let acc = StreamingFieldResolver::accessor(field, "node", "chunks").unwrap();
+        assert!(!acc.contains("any"), "node {field} accessor must not use `any`: {acc}");
+    }
+}
+
+#[test]
 fn collect_snippet_rust_uses_tokio_stream() {
     let snip = StreamingFieldResolver::collect_snippet("rust", "result", "chunks").unwrap();
     assert!(snip.contains("tokio_stream::StreamExt::collect"), "rust: {snip}");

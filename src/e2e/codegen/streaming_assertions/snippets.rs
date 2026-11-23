@@ -100,10 +100,10 @@ impl StreamingFieldResolver {
             // throws `TypeError: stream is not async iterable`. Drain via an
             // explicit while/next() loop instead.
             "wasm" => Some(format!(
-                "const {chunks_var}: any[] = [];\n    while (true) {{ const _chunk = await {stream_var}.next(); if (_chunk == null) break; {chunks_var}.push(_chunk); }}"
+                "const {chunks_var}: Array<NonNullable<Awaited<ReturnType<typeof {stream_var}.next>>>> = [];\n    while (true) {{ const _chunk = await {stream_var}.next(); if (_chunk == null) break; {chunks_var}.push(_chunk); }}"
             )),
             "node" | "typescript" => Some(format!(
-                "const {chunks_var}: any[] = [];\n    for await (const _chunk of {stream_var}) {{ {chunks_var}.push(_chunk); }}"
+                "const {chunks_var}: Array<typeof {stream_var} extends AsyncIterable<infer T> ? T : never> = [];\n    for await (const _chunk of {stream_var}) {{ {chunks_var}.push(_chunk); }}"
             )),
             "swift" => {
                 // Swift's chat-stream wrapper returns AsyncThrowingStream<ChunkType, Error>,

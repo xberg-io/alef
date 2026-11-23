@@ -8,7 +8,7 @@ use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::{Assertion, Fixture};
 
 use super::super::assertions::render_assertion;
-use super::super::helpers::{resolve_assert_enum_fields, strip_redundant_call_arg_parens};
+use super::super::helpers::{is_list_comprehension, resolve_assert_enum_fields, strip_redundant_call_arg_parens};
 use super::super::json::value_to_python_string;
 
 /// True when `body` contains at least one line that is not blank and not a
@@ -299,10 +299,14 @@ fn emit_streaming_virtual_assertion(
             // `expr_arg` (not `expr`) inside `hasattr`/`len`: both are call-argument position,
             // where an enclosing paren pair would be redundant; `expr` itself keeps its parens
             // before `is not None`, where they're load-bearing.
-            let _ = writeln!(
-                out,
-                "    assert {expr} is not None and (not hasattr({expr_arg}, \"__len__\") or len({expr_arg}) > 0)"
-            );
+            if is_list_comprehension(&expr) {
+                let _ = writeln!(out, "    assert len({expr}) > 0");
+            } else {
+                let _ = writeln!(
+                    out,
+                    "    assert {expr} is not None and (not hasattr({expr_arg}, \"__len__\") or len({expr_arg}) > 0)"
+                );
+            }
         }
         "is_empty" => {
             let _ = writeln!(out, "    assert not {expr}");

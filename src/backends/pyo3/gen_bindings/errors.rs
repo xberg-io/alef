@@ -122,13 +122,18 @@ pub(super) fn gen_exceptions_py(api: &ApiSurface, module_name: &str) -> String {
     }
     exc_names.sort();
 
-    let import_statement = render_relative_import(module_name, &exc_names);
+    // ruff's isort ordering is case-insensitive (`ParserSetupError` before `ParseTimeoutError`),
+    // while `__all__` keeps the byte order RUF022 expects.
+    let mut import_names = exc_names.clone();
+    import_names.sort_by_key(|name| name.to_lowercase());
+
+    let import_statement = render_relative_import(module_name, &import_names);
     if is_long_import(&import_statement) {
         out.push_str(&crate::backends::pyo3::template_env::render(
             "import_from_relative_module_header.jinja",
             crate::alef_context! { module_name => module_name },
         ));
-        for name in &exc_names {
+        for name in &import_names {
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "trait_bridge/indented_import_item.jinja",
                 crate::alef_context! { name => name },
@@ -597,6 +602,50 @@ mod tests {
             result.contains("__name__.rsplit"),
             "exceptions.py must derive the public package from __name__, got:\n{result}",
         );
+    }
+
+    /// The import list follows ruff's case-insensitive isort order (I001) while `__all__` stays in
+    /// byte order (RUF022).
+    #[test]
+    fn gen_exceptions_py_import_order_is_case_insensitive() {
+        let variant = |name: &str| crate::core::ir::ErrorVariant {
+            name: name.to_string(),
+            is_unit: true,
+            ..Default::default()
+        };
+        let error = crate::core::ir::ErrorDef {
+            exception_base: None,
+            name: "Error".to_string(),
+            rust_path: "lib::Error".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![variant("ParseTimeout"), variant("ParserSetup")],
+            doc: String::new(),
+            methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        };
+        let mut api = empty_api();
+        api.errors.push(error);
+        let result = gen_exceptions_py(&api, "_native");
+
+        let import_block = &result
+            [result.find("from ._native import").expect("native import")..result.find("__all__").expect("__all__")];
+        let import_setup = import_block.find("ParserSetupError").expect("import ParserSetupError");
+        let import_timeout = import_block
+            .find("ParseTimeoutError")
+            .expect("import ParseTimeoutError");
+        assert!(
+            import_setup < import_timeout,
+            "import order must be case-insensitive:\n{result}"
+        );
+        let all_setup = result
+            .find("    \"ParserSetupError\",")
+            .expect("__all__ ParserSetupError");
+        let all_timeout = result
+            .find("    \"ParseTimeoutError\",")
+            .expect("__all__ ParseTimeoutError");
+        assert!(all_timeout < all_setup, "__all__ must stay in byte order:\n{result}");
     }
 
     /// gen_exceptions_py with no errors produces a file with only the header.

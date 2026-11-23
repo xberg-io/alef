@@ -281,6 +281,22 @@ mod tests {
     }
 
     #[test]
+    fn render_global_setup_has_no_any_and_no_awaitless_async_members() {
+        for use_server_pattern in [false, true] {
+            let out = render_global_setup(use_server_pattern, "localhost");
+            assert!(!out.contains("any"), "server={use_server_pattern}, got: {out}");
+            assert!(
+                !out.contains("async request("),
+                "server={use_server_pattern}, got: {out}"
+            );
+            assert!(
+                out.contains("request(path: string, init?: RequestInit): Promise<Response> {"),
+                "{out}"
+            );
+        }
+    }
+
+    #[test]
     fn render_global_setup_mock_server_honors_preset_mock_server_url() {
         let out = render_global_setup(false, "localhost");
         // When MOCK_SERVER_URL is pre-set by the test runner, reuse it and skip

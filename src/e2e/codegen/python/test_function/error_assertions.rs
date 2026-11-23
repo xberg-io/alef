@@ -35,6 +35,14 @@ fn resolved_error_fields<'a>(fixture: &'a Fixture, errors: &'a [ErrorDef]) -> Ve
         .collect()
 }
 
+/// Whether `emit_error_assertion` falls through to the bare `pytest.raises(<base class>)` form for
+/// `fixture`: it expects an error but declares no message value and no resolvable `error.<field>`.
+pub(super) fn renders_bare_error_catch(fixture: &Fixture, errors: &[ErrorDef]) -> bool {
+    fixture.assertions.iter().any(|a| a.assertion_type == "error")
+        && crate::e2e::codegen::declared_error_value(fixture).is_none()
+        && resolved_error_fields(fixture, errors).is_empty()
+}
+
 pub(super) fn emit_error_assertion(
     out: &mut String,
     fixture: &Fixture,
@@ -99,7 +107,7 @@ pub(super) fn emit_error_assertion(
             let exc_info_suffix = if resolved_fields.is_empty() { "" } else { " as exc_info" };
             let _ = writeln!(out, "    with pytest.raises({}){exc_info_suffix}:", branch.host_type);
         } else {
-            // No `# noqa: B017` here, unlike the bare `pytest.raises(Exception):` below: B017
+            // No `# noqa: B017` here: B017
             // does not fire once the exception is BOUND, because binding it is the evidence that
             // the test goes on to inspect what was raised. Emitting the directive anyway made
             // ruff report RUF100 (unused `noqa`) against alef's own generated output -- caught by
@@ -142,7 +150,15 @@ pub(super) fn emit_error_assertion(
         }
         emit_resolved_error_field_assertions(out, &resolved_fields, native_module);
     } else {
-        let _ = writeln!(out, "    with pytest.raises(Exception):  # noqa: B017");
+        let sole_base = super::error_types::sole_base_error_type(errors);
+        match &sole_base {
+            Some(base) => {
+                let _ = writeln!(out, "    with pytest.raises({base}):");
+            }
+            None => {
+                let _ = writeln!(out, "    with pytest.raises(Exception) as exc_info:");
+            }
+        }
         out.push_str(&indented_bindings);
         if is_streaming_error_call {
             let _ = writeln!(out, "        _iterator = {call_expr}");
@@ -150,6 +166,9 @@ pub(super) fn emit_error_assertion(
             let _ = writeln!(out, "            pass");
         } else {
             let _ = writeln!(out, "        {call_expr}");
+        }
+        if sole_base.is_none() {
+            let _ = writeln!(out, "    assert exc_info.value is not None");
         }
     }
 }
@@ -280,10 +299,32 @@ mod tests {
             "native",
         );
 
-        assert!(out.contains("with pytest.raises(Exception):"), "got: {out}");
+        assert!(out.contains("with pytest.raises(Exception) as exc_info:"), "got: {out}");
+        assert!(out.contains("    assert exc_info.value is not None"), "got: {out}");
+        assert!(!out.contains("noqa: B017"), "got: {out}");
         assert!(out.contains("        payload = {}"), "got: {out}");
         assert!(out.contains("        client.create(payload)"), "got: {out}");
         assert!(!out.contains("async for _ in _iterator"), "got: {out}");
+    }
+
+    #[test]
+    fn bare_error_assertion_names_the_sole_base_exception() {
+        let fixture = fixture_with_error(None);
+        let mut out = String::new();
+        let errors = vec![error_def_with_variant("CrawlError", "Timeout")];
+
+        emit_error_assertion(
+            &mut out,
+            &fixture,
+            "    payload = {}\n",
+            "client.create(payload)",
+            false,
+            &errors,
+            "native",
+        );
+
+        assert!(out.contains("with pytest.raises(CrawlError):"), "got: {out}");
+        assert!(!out.contains("pytest.raises(Exception)"), "got: {out}");
     }
 
     fn assertion(

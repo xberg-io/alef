@@ -58,7 +58,6 @@ pub fn gen_magnus_error_methods_struct(error: &ErrorDef, core_import: &str) -> S
             }
             other => {
                 let Some((_, optional)) = duration_methods(error).into_iter().find(|(m, _)| m.name == other) else {
-                    methods.push(format!("    // Not emitted: method `{other}` on `{struct_name}`"));
                     continue;
                 };
                 let ty = millis_type(optional, "u64");
@@ -204,7 +203,6 @@ pub fn gen_php_error_methods_impl(error: &ErrorDef, core_import: &str) -> String
             }
             other => {
                 let Some((_, optional)) = duration_methods(error).into_iter().find(|(m, _)| m.name == other) else {
-                    methods.push(format!("    // Not emitted: method for `{other}` on `{struct_name}`"));
                     continue;
                 };
                 let ty = millis_type(optional, "i64");
@@ -360,11 +358,7 @@ pub fn gen_ffi_error_methods(error: &ErrorDef, core_import: &str, api_prefix: &s
                      }}"
                 ));
             }
-            other => {
-                items.push(format!(
-                    "// Not emitted: FFI helper for method `{other}` on `{rust_path}`"
-                ));
-            }
+            _ => {}
         }
     }
 

@@ -1,3 +1,4 @@
+use crate::codegen::doc_emission::escape_block_comment_close;
 use crate::core::ir::{EntrypointDef, ServiceDef, TypeRef};
 
 /// Format a Rust doc comment as a PHP docblock at the given column indent.
@@ -21,7 +22,7 @@ pub(super) fn format_php_comment(text: &str, indent: usize) -> String {
         } else {
             out.push_str(&pad);
             out.push_str(" * ");
-            out.push_str(line);
+            out.push_str(&escape_block_comment_close(line));
             out.push('\n');
         }
     }

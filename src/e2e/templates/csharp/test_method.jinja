@@ -32,13 +32,11 @@
     [Fact(Skip = "{{ skip_reason }}")]
     public void Test_{{ method_name }}()
     {
-        // {{ description }}
     }
 {%- elif expects_error %}
     [Fact]
     public {{ return_type }} Test_{{ method_name }}()
     {
-        // {{ description }}
 {% if client_factory_setup %}
 {{ client_factory_setup }}
 {% endif %}
@@ -98,7 +96,6 @@
 {% endif %}
     public {{ return_type }} Test_{{ method_name }}()
     {
-        // {{ description }}
 {% if client_factory_setup %}
 {{ client_factory_setup }}
 {% endif %}

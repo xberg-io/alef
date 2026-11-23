@@ -993,3 +993,22 @@ fn php_free_function_let_binding_uses_real_type_path_for_non_root_type() {
         "crate-root fallback path must not be emitted for a non-root type, got:\n{generated}"
     );
 }
+
+#[test]
+fn test_php_property_phpdoc_neutralises_nested_block_comment_close() {
+    use super::php_types::php_property_phpdoc;
+
+    let single = php_property_phpdoc("string", "Java (`/** */`).", "    ");
+    assert_eq!(
+        single.matches("*/").count(),
+        1,
+        "single-line docblock closes once: {single}"
+    );
+
+    let multi = php_property_phpdoc("string", "Java (`/** */`).\nSecond line.", "    ");
+    assert_eq!(
+        multi.matches("*/").count(),
+        1,
+        "multi-line docblock closes once: {multi}"
+    );
+}

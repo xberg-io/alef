@@ -1,3 +1,4 @@
+use crate::codegen::doc_emission::escape_block_comment_close;
 use crate::core::ir::{PrimitiveType, TypeRef};
 use ahash::AHashSet;
 
@@ -94,7 +95,7 @@ pub(super) fn php_property_phpdoc(var_type: &str, doc: &str, indent: &str) -> St
             crate::alef_context! {
                 indent => indent,
                 var_type => var_type,
-                doc => line,
+                doc => escape_block_comment_close(line),
             },
         );
     }
@@ -111,7 +112,7 @@ pub(super) fn php_property_phpdoc(var_type: &str, doc: &str, indent: &str) -> St
                 "php_prefixed_phpdoc_line.jinja",
                 crate::alef_context! {
                     indent => indent,
-                    line => trimmed,
+                    line => escape_block_comment_close(trimmed),
                 },
             ));
         }

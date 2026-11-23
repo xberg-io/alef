@@ -303,3 +303,18 @@ fn real_generator_preserves_error_registry_for_variant_and_message_assertions() 
     assert!(!output.contains("/Authentication/"), "{output}");
     assert!(output.contains(r"/invalid \(key\)/.test(_message)"), "{output}");
 }
+
+#[test]
+fn render_setup_reports_init_skip_without_console() {
+    let setup = render_setup(
+        "fixtures",
+        false,
+        "@sample_core/wasm",
+        &std::collections::BTreeMap::new(),
+    );
+    assert!(!setup.contains("console."), "setup must not call console: {setup}");
+    assert!(
+        setup.contains("process.stderr.write(`[alef wasm setup] init skipped:"),
+        "{setup}"
+    );
+}

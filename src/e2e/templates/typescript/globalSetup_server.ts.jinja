@@ -1,15 +1,17 @@
-{{ header }}import { spawn } from 'child_process';
+{{ header }}import { spawn, ChildProcess } from 'child_process';
 import { resolve } from 'path';
 import { createConnection } from 'net';
 
-let serverProcess: any;
+let serverProcess: ChildProcess | undefined;
+
+type AppHandle = { request(path: string, init?: RequestInit): Promise<Response> };
 
 export async function setup() {
   // Honor a pre-set SUT_URL: when a parent test runner has already
   // started the SUT app, reuse it and skip spawning our own.
   if (process.env.SUT_URL) {
-    (globalThis as any).app = {
-      async request(path: string, init?: RequestInit): Promise<Response> {
+    (globalThis as unknown as { app: AppHandle }).app = {
+      request(path: string, init?: RequestInit): Promise<Response> {
         const url = new URL(path, process.env.SUT_URL);
         return fetch(url.toString(), init);
       },
@@ -75,8 +77,8 @@ export async function setup() {
   process.env.SUT_URL = url;
 
   // Make app available globally to all tests
-  (globalThis as any).app = {
-    async request(path: string, init?: RequestInit): Promise<Response> {
+  (globalThis as unknown as { app: AppHandle }).app = {
+    request(path: string, init?: RequestInit): Promise<Response> {
       const fullUrl = new URL(path, url);
       return fetch(fullUrl.toString(), init);
     },
