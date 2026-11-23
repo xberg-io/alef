@@ -33,6 +33,7 @@ pub(super) fn binding_config(core_import: &str, has_serde: bool) -> RustBindingC
         emit_delegating_default_for_types: None,
         delegate_deserialize_to_core_for_types: None,
         error_converters: None,
+        type_paths: None,
     }
 }
 

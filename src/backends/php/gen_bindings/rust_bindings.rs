@@ -95,6 +95,7 @@ fn binding_config(core_import: &str, has_serde: bool) -> RustBindingConfig<'_> {
         emit_delegating_default_for_types: None,
         delegate_deserialize_to_core_for_types: None,
         error_converters: None,
+        type_paths: None,
     }
 }
 
@@ -207,7 +208,9 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         .collect();
     opaque_names_vec_php.extend(bridge_type_aliases_php);
 
+    let type_paths = crate::codegen::generators::type_paths::build_type_path_lookup(api);
     let mut cfg = binding_config(&core_import, has_serde);
+    cfg.type_paths = Some(&type_paths);
     cfg.opaque_type_names = &opaque_names_vec_php;
     let mut never_skip_cfg_field_names: Vec<String> = crate::backends::php::trait_bridge::active_bridges(config)
         .filter_map(|b| {
@@ -525,6 +528,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                         opaque: &opaque_types,
                         default: &default_types,
                         enums: &enum_names,
+                        type_paths: Some(&type_paths),
                     },
                     PhpFunctionTarget {
                         core_import: &core_import,
@@ -542,6 +546,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                         opaque: &opaque_types,
                         default: &default_types,
                         enums: &enum_names,
+                        type_paths: Some(&type_paths),
                     },
                     PhpFunctionTarget {
                         core_import: &core_import,

@@ -408,6 +408,7 @@ pub(crate) fn gen_php_struct(
             emit_delegating_default_for_types: cfg.emit_delegating_default_for_types,
             delegate_deserialize_to_core_for_types: cfg.delegate_deserialize_to_core_for_types,
             error_converters: cfg.error_converters,
+            type_paths: cfg.type_paths,
         };
         generators::gen_struct_with_per_field_attrs(binding_type.as_ref(), mapper, &modified_cfg, field_attrs_fn)
     } else {
@@ -626,7 +627,22 @@ fn gen_struct_methods_impl(
                         )
                     })
                 {
-                    if let TypeRef::Vec(inner) = &f.ty
+                    if let Some(name) = crate::backends::php::gen_bindings::helpers::nested_vec_plain_struct_name(
+                        &f.ty,
+                        opaque_types,
+                        enum_names,
+                    ) {
+                        let php_param_name = crate::codegen::naming::to_php_name(&f.name);
+                        let_bindings.push_str(&crate::backends::php::template_env::render(
+                            "php_vec_vec_named_struct_let_binding.jinja",
+                            crate::alef_context! {
+                                php_name => php_param_name.as_str(),
+                                struct_name => name,
+                                is_optional => effective_optional(f),
+                                to_core => false,
+                            },
+                        ));
+                    } else if let TypeRef::Vec(inner) = &f.ty
                         && let TypeRef::Named(name) = inner.as_ref()
                         && !opaque_types.contains(name.as_str())
                         && !enum_names.contains(name.as_str())

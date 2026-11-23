@@ -10,7 +10,7 @@ pub(crate) use enum_defaults::{gen_convertible_enum_tainted, gen_enum_tainted_fr
 pub(crate) use params::{
     gen_php_call_args, gen_php_call_args_with_let_bindings, gen_php_call_args_with_let_bindings_vec,
     gen_php_function_params, gen_php_named_let_bindings, has_enum_named_field, has_json_param,
-    param_conversion_is_fallible, references_named_type, wrap_body_in_ok,
+    nested_vec_plain_struct_name, param_conversion_is_fallible, references_named_type, wrap_body_in_ok,
 };
 #[allow(unused_imports)]
 pub(crate) use primitives::core_prim_str;

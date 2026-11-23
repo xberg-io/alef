@@ -1,7 +1,7 @@
 use crate::codegen::conversions::ConversionConfig;
 use crate::codegen::conversions::config::WasmCamelRecasedEnum;
 use crate::codegen::conversions::helpers::{
-    core_prim_str, is_tuple_type_name, needs_f64_cast, needs_i32_cast, needs_i64_cast,
+    core_prim_str, is_tuple_type_name, is_vec_of_named, needs_f64_cast, needs_i32_cast, needs_i64_cast,
 };
 use crate::codegen::json_wire_types::in_pipeline_expr;
 use crate::core::ir::{PrimitiveType, TypeRef};
@@ -226,6 +226,17 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
                     format!("{name}: val.{name}.map(|v| v.into_iter().map(Into::into).collect())")
                 } else {
                     format!("{name}: val.{name}.into_iter().map(Into::into).collect()")
+                }
+            }
+            nested if is_vec_of_named(nested) => {
+                if optional {
+                    format!(
+                        "{name}: val.{name}.map(|v| v.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect())"
+                    )
+                } else {
+                    format!(
+                        "{name}: val.{name}.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect()"
+                    )
                 }
             }
             _ => {

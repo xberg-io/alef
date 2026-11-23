@@ -19,10 +19,19 @@ fn emit_function_shim(
     opaque_type_names: &std::collections::HashSet<&str>,
     capsule_types: &std::collections::HashMap<String, crate::core::config::FfiCapsuleTypeConfig>,
     core_crate_prefix: &str,
+    type_paths: &std::collections::HashMap<String, String>,
 ) {
     let shape = function_return_shape(&function.return_type, opaque_type_names, capsule_types);
     let return_null = function_return_null(&function.return_type, &shape);
-    let (param_sigs, unmarshal, call_args) = project_function_params(&function.params, opaque_type_names, return_null);
+    let (param_sigs, unmarshal, call_args) = project_function_params(
+        &function.params,
+        opaque_type_names,
+        return_null,
+        &CoreTypePaths {
+            crate_prefix: core_crate_prefix,
+            type_paths,
+        },
+    );
     out.push_str(&template_env::render(
         "function_shim_open.rs.jinja",
         crate::alef_context! {
@@ -95,16 +104,24 @@ fn core_function_path(rust_path: &str, core_crate_prefix: &str) -> String {
     }
 }
 
+/// Real module paths of core types, so a deserialization target outside the crate root is named
+/// by its own path rather than `core_crate::{Name}`.
+struct CoreTypePaths<'a> {
+    crate_prefix: &'a str,
+    type_paths: &'a std::collections::HashMap<String, String>,
+}
+
 fn project_function_params(
     params: &[ParamDef],
     opaque_type_names: &std::collections::HashSet<&str>,
     return_null: &str,
+    paths: &CoreTypePaths<'_>,
 ) -> (String, String, String) {
     let mut signatures = String::new();
     let mut unmarshal = String::new();
     let mut call_args = Vec::new();
     for param in params {
-        let projection = project_function_param(param, opaque_type_names, return_null);
+        let projection = project_function_param(param, opaque_type_names, return_null, paths);
         signatures.push_str(&projection.signature);
         unmarshal.push_str(&projection.unmarshal);
         call_args.push(projection.call_arg);
@@ -116,6 +133,7 @@ fn project_function_param(
     param: &ParamDef,
     opaque_type_names: &std::collections::HashSet<&str>,
     return_null: &str,
+    paths: &CoreTypePaths<'_>,
 ) -> FunctionParamProjection {
     let rust_name = param.name.replace('-', "_");
     let base_type = method_param_base_type(param);
@@ -130,7 +148,7 @@ fn project_function_param(
         TypeRef::Named(type_name) if opaque_type_names.contains(type_name.as_str()) => {
             project_opaque_function_param(type_name, &rust_name, return_null)
         }
-        _ => project_complex_function_param(param, base_type, &rust_name, return_null),
+        _ => project_complex_function_param(param, base_type, &rust_name, return_null, paths),
     };
     project_function_newtype_param(param, base_type, &rust_name, projection)
 }
@@ -277,8 +295,9 @@ fn project_complex_function_param(
     base_type: &TypeRef,
     rust_name: &str,
     return_null: &str,
+    paths: &CoreTypePaths<'_>,
 ) -> FunctionParamProjection {
-    let type_path = type_ref_to_core_path_with_btree(base_type, "core_crate", param.map_is_btree);
+    let type_path = type_ref_to_core_path_resolved(base_type, param.map_is_btree, paths);
     let mut unmarshal = render_complex_unmarshal(rust_name, &type_path, return_null, param.optional);
     if param.is_ref && param.is_mut && !param.optional {
         unmarshal.push_str(&format!("    let mut {rust_name} = {rust_name};\n"));

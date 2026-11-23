@@ -359,3 +359,71 @@ fn constructor_vec_of_plain_struct_collects_the_binding_element_type() {
         "a binding-typed element needs no conversion; `.into()` targets the core type:\n{out}"
     );
 }
+
+/// `Vec<Vec<Named>>` has no ext-php-rs `FromZval` impl, so the constructor must take a
+/// `ZendHashTable` of `ZendHashTable`s and decode each row, not declare the nested `Vec`
+/// as the parameter type.
+#[test]
+fn nested_vec_of_plain_struct_field_decodes_rows_through_zend_hash_table() {
+    let typ = TypeDef {
+        name: "Annotation".to_string(),
+        rust_path: "test_lib::Annotation".to_string(),
+        fields: vec![
+            field("kind", TypeRef::String, false),
+            field("profile", TypeRef::Named("Outcome".to_string()), false),
+            field(
+                "ink_list",
+                TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::Named("Point".to_string()))))),
+                true,
+            ),
+        ],
+        has_default: false,
+        has_serde: true,
+        ..Default::default()
+    };
+
+    let out = gen_struct_methods_with_exclude(
+        &typ,
+        &mapper(),
+        true,
+        "test_lib",
+        &AHashSet::new(),
+        &AHashSet::new(),
+        &[],
+        &[],
+        &AHashSet::new(),
+        &[],
+        &AHashSet::new(),
+        &[],
+    )
+    .expect("struct methods generate");
+
+    let ctor = out
+        .split("#[php(constructor)]")
+        .nth(1)
+        .unwrap_or_else(|| panic!("no #[php(constructor)] fn emitted:\n{out}"))
+        .split("\n\n")
+        .next()
+        .unwrap();
+
+    assert!(
+        ctor.contains("inkList: Option<&ext_php_rs::types::ZendHashTable>"),
+        "nested Vec must be a ZendHashTable parameter, got:\n{ctor}"
+    );
+    assert!(
+        !ctor.contains("inkList: Option<Vec<Vec<Point>>>"),
+        "Vec<Vec<Point>> has no FromZval impl and must not be a parameter type, got:\n{ctor}"
+    );
+    assert!(
+        ctor.contains("let ink_list_core") || ctor.contains("let inkList_core"),
+        "rows must be decoded into a `_core` binding, got:\n{ctor}"
+    );
+    assert!(
+        ctor.contains(") -> PhpResult<Self>"),
+        "row decoding is fallible, got:\n{ctor}"
+    );
+    assert!(
+        ctor.contains("ink_list: inkList_core"),
+        "field must use the decoded binding, got:\n{ctor}"
+    );
+}

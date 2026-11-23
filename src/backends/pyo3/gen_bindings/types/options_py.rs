@@ -1,6 +1,7 @@
 //! Python options dataclass rendering, split out of types.rs.
 
 use super::*;
+use crate::backends::pyo3::gen_stubs::{SHADOWABLE_BUILTIN_TYPES, qualify_shadowed_builtin_types};
 
 pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
     api: &ApiSurface,
@@ -159,6 +160,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
     type_checking_only_imports.sort();
     type_checking_only_imports.dedup();
 
+    let mut uses_builtins_import = false;
     let mut out = String::with_capacity(4096);
     out.push_str(&hash::header(CommentStyle::Hash));
     out.push_str("\"\"\"Configuration options for the conversion API.\"\"\"\n\n");
@@ -381,6 +383,17 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
             .then(|| bridge.resolved_options_field())
             .flatten()
         });
+        // A field named after a builtin type shadows it inside the class body, so an annotation
+        // naming that builtin resolves to the field itself (pyrefly: circular reference). ~keep
+        let shadowed_builtins: Vec<&str> = SHADOWABLE_BUILTIN_TYPES
+            .iter()
+            .copied()
+            .filter(|builtin| {
+                ordered_fields
+                    .iter()
+                    .any(|f| crate::core::keywords::python_ident(&f.name) == *builtin)
+            })
+            .collect();
         for field in ordered_fields.iter().copied() {
             let type_hint = if bridge_field == Some(field.name.as_str()) {
                 "object | None".to_string()
@@ -393,6 +406,14 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
                     &str_coercible_data_enums,
                     EmitContext::OptionsModule,
                 )
+            };
+
+            let type_hint = if shadowed_builtins.is_empty() {
+                type_hint
+            } else {
+                let qualified = qualify_shadowed_builtin_types(&type_hint, &shadowed_builtins);
+                uses_builtins_import |= qualified != type_hint;
+                qualified
             };
 
             // Only a closure-only type's genuinely required fields skip the default entirely --
@@ -471,6 +492,14 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_options_py(
     }
 
     out.push_str(&gen_from_native_converters(api, dto, reexported_types));
+
+    if uses_builtins_import {
+        out = out.replacen(
+            "from dataclasses import dataclass, field\n",
+            "import builtins\nfrom dataclasses import dataclass, field\n",
+            1,
+        );
+    }
 
     out
 }

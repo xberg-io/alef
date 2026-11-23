@@ -115,7 +115,7 @@ pub(crate) fn gen_instance_method(
             )
         }
     } else if is_opaque {
-        let let_bindings = gen_php_named_let_bindings(&method.params, opaque_types, enum_names, core_import);
+        let let_bindings = gen_php_named_let_bindings(&method.params, opaque_types, enum_names, core_import, None);
         let call_args = gen_php_call_args_with_let_bindings(&method.params, opaque_types, mutex_types);
         let needs_lock = mutex_types.contains(type_name);
         let core_call = if needs_lock {
@@ -609,7 +609,13 @@ fn gen_function_body(
     if can_delegate {
         let promoted_params = promote_default_params(&func.params, type_sets.default, type_sets.opaque);
         let promoted_names = promoted_default_param_names(&func.params, type_sets.default, type_sets.opaque);
-        let let_bindings = gen_php_named_let_bindings(&promoted_params, type_sets.opaque, type_sets.enums, core_import);
+        let let_bindings = gen_php_named_let_bindings(
+            &promoted_params,
+            type_sets.opaque,
+            type_sets.enums,
+            core_import,
+            type_sets.type_paths,
+        );
         let raw_call_args = gen_php_call_args_with_let_bindings(&promoted_params, type_sets.opaque, mutex_types);
         let raw_call_args = apply_default_param_substitutions(&raw_call_args, &promoted_params, &promoted_names);
         let call_args = apply_bridge_none_substitutions(&raw_call_args, func, &bridge_names);
@@ -709,9 +715,21 @@ fn gen_function_body(
         let needs_serde = func.error_type.is_some()
             && (has_ref_named_params(&func.params, type_sets.opaque) || has_sanitized_recoverable(&func.params));
         let let_bindings = if has_serde && needs_serde {
-            gen_php_serde_let_bindings(&promoted_params, type_sets.opaque, type_sets.enums, core_import)
+            gen_php_serde_let_bindings(
+                &promoted_params,
+                type_sets.opaque,
+                type_sets.enums,
+                core_import,
+                type_sets.type_paths,
+            )
         } else {
-            gen_php_named_let_bindings(&promoted_params, type_sets.opaque, type_sets.enums, core_import)
+            gen_php_named_let_bindings(
+                &promoted_params,
+                type_sets.opaque,
+                type_sets.enums,
+                core_import,
+                type_sets.type_paths,
+            )
         };
         let raw_call_args = gen_php_call_args_with_let_bindings(&promoted_params, type_sets.opaque, mutex_types);
         let raw_call_args = apply_default_param_substitutions(&raw_call_args, &promoted_params, &promoted_names);

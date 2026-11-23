@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Go bindings tag optional slice and map fields `omitzero` instead of `omitempty`, so `Option<Vec<T>>` keeps `None` (nil) distinct from `Some([])` (an empty value that is still sent). The generated reference docs render those fields as `Option<Vec<T>>` instead of `Vec<T>` (#947).
 
+## [0.132.4] - 2026-11-23
+
+### Fixed
+
+- Generated Python `options.py` no longer shadows builtin type names (`bytes` and similar) with option fields; it qualifies them through `builtins`, which fixes pyrefly circular-reference errors.
+- Generated API docs escape `*` in type tables.
+- The FFI header refresh formats the exported header and prints a hint when the header is absent.
+
 ## [0.132.2] - 2026-11-22
 
 ### Fixed

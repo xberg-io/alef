@@ -78,6 +78,7 @@ impl NapiBackend {
             emit_delegating_default_for_types: None,
             delegate_deserialize_to_core_for_types: None,
             error_converters: None,
+            type_paths: None,
         }
     }
 }
@@ -140,7 +141,9 @@ impl Backend for NapiBackend {
 
         let output_dir = resolve_output_dir(config.output_paths.get("node"), &config.name, "crates/{name}-node/src/");
         let has_serde = crate::core::config::detect_serde_available(&output_dir);
+        let type_paths = crate::codegen::generators::type_paths::build_type_path_lookup(api);
         let mut cfg = Self::binding_config(&core_import, &prefix, has_serde);
+        cfg.type_paths = Some(&type_paths);
         let never_skip_cfg_field_names: Vec<String> = active_trait_bridges
             .iter()
             .filter_map(|b| {

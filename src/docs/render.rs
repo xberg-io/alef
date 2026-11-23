@@ -1,4 +1,5 @@
 use super::context::{CliCommand, CliSurface, DocsRenderContext, McpItem, McpSurface};
+use super::formatting::escape_table_cell;
 use crate::core::backend::GeneratedFile;
 use crate::core::config::{DocsLlmsConfig, DocsSkillsConfig};
 use crate::core::hash;
@@ -453,13 +454,13 @@ fn render_options(out: &mut String, title: &str, options: &[crate::docs::context
         }
         out.push_str(&format!(
             "| `{}` | {} | `{}` | {} | {} |\n",
-            escape_table(&option.name),
+            escape_table_code(&option.name),
             flags.join(", "),
-            escape_table(&option.ty),
+            escape_table_code(&option.ty),
             option
                 .default
                 .as_ref()
-                .map(|value| format!("`{}`", escape_table(value)))
+                .map(|value| format!("`{}`", escape_table_code(value)))
                 .unwrap_or_default(),
             escape_table(&option.help)
         ));
@@ -477,11 +478,11 @@ fn render_mcp_items(out: &mut String, title: &str, items: &[McpItem]) {
     for item in items {
         out.push_str(&format!(
             "| `{}` | {} | {} | {} |\n",
-            escape_table(&item.name),
+            escape_table_code(&item.name),
             escape_table(&item.title),
             item.params_type
                 .as_ref()
-                .map(|ty| format!("`{}`", escape_table(ty)))
+                .map(|ty| format!("`{}`", escape_table_code(ty)))
                 .unwrap_or_default(),
             escape_table(&item.description)
         ));
@@ -490,5 +491,19 @@ fn render_mcp_items(out: &mut String, title: &str, items: &[McpItem]) {
 }
 
 fn escape_table(value: &str) -> String {
+    escape_table_cell(&value.replace('\n', "<br>")).trim().to_string()
+}
+
+fn escape_table_code(value: &str) -> String {
     value.replace('|', "\\|").replace('\n', "<br>").trim().to_string()
+}
+
+#[cfg(test)]
+mod escape_table_tests {
+    use super::escape_table;
+
+    #[test]
+    fn escapes_asterisks_in_prose_cells() {
+        assert_eq!(escape_table("height * width * 3 | x"), "height \\* width \\* 3 \\| x");
+    }
 }

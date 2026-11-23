@@ -48,3 +48,12 @@ pub fn resolve_type_path(name: &str, source_crate: &str, type_paths: &HashMap<St
         None => format!("{source_crate}::{name}"),
     }
 }
+
+/// Like [`resolve_type_path`] for callers that may have no lookup: `None` falls back to
+/// `{source_crate}::{name}`.
+pub fn resolve_type_path_opt(name: &str, source_crate: &str, type_paths: Option<&HashMap<String, String>>) -> String {
+    match type_paths.and_then(|paths| paths.get(name)) {
+        Some(path) => path.clone(),
+        None => format!("{source_crate}::{name}"),
+    }
+}

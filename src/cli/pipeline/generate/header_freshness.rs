@@ -170,8 +170,30 @@ fn drift_message(
             message.push_str(&format!("\n    {problem}"));
         }
     }
-    message.push_str("\n  Run a cargo build so cbindgen regenerates the header, then re-run generation.");
+    let ffi_crate = header_path
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::file_name)
+        .map_or_else(|| "<ffi-crate>".to_owned(), |name| name.to_string_lossy().into_owned());
+    message.push_str(&format!(
+        "\n  Run `ALEF_EXPORT_GENERATED_HEADERS=1 cargo build -p {ffi_crate}` so cbindgen regenerates the header \
+         (a plain cargo build leaves it untouched), then re-run generation."
+    ));
     message
+}
+
+/// Every on-disk copy of the cbindgen header: the canonical one in the FFI crate and, when Go is
+/// targeted, the copy the generated `build.rs` vendors next to the Go sources. Both are written
+/// by the header refresh and must go through the formatter, or a repo that formats `include/*.h`
+/// sees a diff right after a clean generate. ~keep
+pub(crate) fn ffi_header_copies(config: &ResolvedCrateConfig, base_dir: &Path) -> BTreeSet<PathBuf> {
+    let mut copies = BTreeSet::from([ffi_header_path(config, base_dir)]);
+    if config.targets(crate::core::config::Language::Go)
+        && let Some(go_dir) = config.output_for("go")
+    {
+        copies.insert(base_dir.join(go_dir).join("include").join(config.ffi_header_name()));
+    }
+    copies
 }
 
 fn ffi_source_root(config: &ResolvedCrateConfig, base_dir: &Path) -> PathBuf {
@@ -1344,6 +1366,40 @@ void sample_options_default_suffix(void);
         assert!(
             message.contains("cbindgen"),
             "the failure must explain that a build regenerates the header, got:\n{message}"
+        );
+    }
+
+    #[test]
+    fn should_name_the_env_gated_build_command_in_the_drift_hint() {
+        let missing = ["my_lib_close".to_owned()];
+        let missing: Vec<&String> = missing.iter().collect();
+        let message = drift_message(Path::new("include/my_lib.h"), &missing, &[], &[], &[]);
+        assert!(
+            message.contains("ALEF_EXPORT_GENERATED_HEADERS=1 cargo build -p"),
+            "a plain cargo build does not refresh the header; the hint must name the env var, got:\n{message}"
+        );
+    }
+
+    #[test]
+    fn should_list_the_canonical_header_and_the_go_copy_for_formatting() {
+        let directory = tempfile::tempdir().expect("temporary project");
+        let (mut config, crate_root) = sample_config(directory.path());
+        assert_eq!(
+            ffi_header_copies(&config, directory.path()),
+            BTreeSet::from([crate_root.join("include/sample.h")]),
+            "without a Go target only the canonical header exists"
+        );
+
+        config.languages.push(crate::core::config::Language::Go);
+        config
+            .output_paths
+            .insert("go".to_owned(), PathBuf::from("packages/go"));
+        assert_eq!(
+            ffi_header_copies(&config, directory.path()),
+            BTreeSet::from([
+                crate_root.join("include/sample.h"),
+                directory.path().join("packages/go/include/sample.h"),
+            ]),
         );
     }
 

@@ -14,6 +14,9 @@ pub(crate) struct PhpParamTypeSets<'a> {
     /// Flat/unit enum names (surfaced as String in PHP). Used to select the
     /// correct Vec<T> let-binding template (From<String> vs FromZval).
     pub(crate) enums: &'a AHashSet<String>,
+    /// Real module paths of core types, so let-bindings name a param type that is not
+    /// re-exported at the crate root correctly. `None` falls back to `{core_import}::{Name}`.
+    pub(crate) type_paths: Option<&'a std::collections::HashMap<String, String>>,
 }
 
 pub(crate) struct PhpEnumReturnSets<'a> {
@@ -178,6 +181,7 @@ pub(super) fn gen_php_serde_let_bindings(
     opaque_types: &AHashSet<String>,
     enum_names: &AHashSet<String>,
     core_import: &str,
+    type_paths: Option<&std::collections::HashMap<String, String>>,
 ) -> String {
     let mut out = String::new();
     for p in params {
@@ -190,6 +194,7 @@ pub(super) fn gen_php_serde_let_bindings(
                             "php_serde_ref_named_optional_let_binding.jinja",
                             crate::alef_context! {
                                 pname => &php_param_name,
+                                core_path => crate::codegen::generators::type_paths::resolve_type_path_opt(name, core_import, type_paths),
                                 core_import => core_import,
                                 name => name,
                             },
@@ -205,6 +210,7 @@ pub(super) fn gen_php_serde_let_bindings(
                             "php_serde_ref_named_let_binding.jinja",
                             crate::alef_context! {
                                 pname => &php_param_name,
+                                core_path => crate::codegen::generators::type_paths::resolve_type_path_opt(name, core_import, type_paths),
                                 core_import => core_import,
                                 name => name,
                             },
@@ -216,6 +222,7 @@ pub(super) fn gen_php_serde_let_bindings(
                             "php_let_binding_named_optional.jinja",
                             crate::alef_context! {
                                 pname => &php_param_name,
+                                core_path => crate::codegen::generators::type_paths::resolve_type_path_opt(name, core_import, type_paths),
                                 core_import => core_import,
                                 name => name,
                             },
@@ -225,6 +232,7 @@ pub(super) fn gen_php_serde_let_bindings(
                             "php_let_binding_named.jinja",
                             crate::alef_context! {
                                 pname => &php_param_name,
+                                core_path => crate::codegen::generators::type_paths::resolve_type_path_opt(name, core_import, type_paths),
                                 core_import => core_import,
                                 name => name,
                             },

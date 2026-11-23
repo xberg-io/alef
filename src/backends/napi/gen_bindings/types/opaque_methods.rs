@@ -310,13 +310,15 @@ pub(in crate::backends::napi::gen_bindings) fn gen_opaque_instance_method(
                     opaque_types,
                     &ahash::AHashSet::new(),
                     cfg.core_import,
+                    cfg.type_paths,
                 )
             } else {
-                generators::gen_named_let_bindings_pub(
+                generators::gen_named_let_bindings_pub_with_paths(
                     &method.params,
                     opaque_types,
                     &ahash::AHashSet::new(),
                     cfg.core_import,
+                    cfg.type_paths,
                 )
             };
             let args = napi_apply_primitive_casts_to_call_args(

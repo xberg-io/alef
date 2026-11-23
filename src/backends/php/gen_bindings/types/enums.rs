@@ -789,7 +789,8 @@ pub(crate) fn gen_flat_data_enum_variant_constructors(
             };
             let let_binding_params: Vec<crate::core::ir::ParamDef> =
                 ctor.params.iter().filter(|p| inline(p).is_none()).cloned().collect();
-            let let_bindings = gen_php_named_let_bindings(&let_binding_params, opaque_types, enum_names, core_import);
+            let let_bindings =
+                gen_php_named_let_bindings(&let_binding_params, opaque_types, enum_names, core_import, None);
             let arg_exprs = gen_php_call_args_with_let_bindings_vec(&ctor.params, opaque_types, &mutex_types);
             let field_inits: Vec<String> = ctor
                 .params
