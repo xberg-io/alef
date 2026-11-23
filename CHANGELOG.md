@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.132.6] - 2026-11-23
+
 ### Fixed
 
+- Generated `options.py` imports `builtins` under `TYPE_CHECKING` instead of at module level, so ruff's TC003 no longer flags the qualified `builtins.<name>` annotations.
 - `alef generate` no longer skips a language whose generated files were swapped by a `git checkout` while the gitignored `.alef/` cache survived. The cache records each output's `alef:hash:` stamp when the manifest is written and misses when a file on disk carries a different one (#965).
 
 ## [0.132.5] - 2026-11-23
