@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `alef scaffold` generates a `build.rs` for the Python (pyo3), PHP (ext-php-rs) and Ruby (magnus) binding crates that passes `-Wl,-undefined,dynamic_lookup` to that crate's cdylib only, on macOS targets. Node (`napi_build::setup()`), Elixir (rustler 0.36+) and the other bindings need no flag. A binding crate that already has a hand-written `build.rs` keeps it; alef warns unless it already mentions `dynamic_lookup`, and on macOS it must gain `if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") { println!("cargo:rustc-link-arg-cdylib=-Wl,-undefined,dynamic_lookup"); }`.
+- `alef scaffold` generates a `build.rs` for the Python (pyo3), PHP (ext-php-rs) and Ruby (magnus) binding crates that passes `-Wl,-undefined,dynamic_lookup` on macOS targets to that crate's cdylib, tests, benches and examples, never to `[[bin]]` executables. Node (`napi_build::setup()`), Elixir (rustler 0.36+) and the other bindings need no flag. A crate with a `[package_metadata.cargo] include` list must list `build.rs`. A binding crate that already has a hand-written `build.rs` keeps it; alef warns unless it already passes `dynamic_lookup` through `rustc-link-arg-cdylib` (or the legacy `rustc-cdylib-link-arg`), and on macOS it must gain `if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") { println!("cargo:rustc-link-arg-cdylib=-Wl,-undefined,dynamic_lookup"); }`.
 
 ## [0.132.7] - 2026-11-26
 

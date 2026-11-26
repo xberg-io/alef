@@ -137,10 +137,11 @@ impl Default for ScaffoldCargo {
 #[serde(deny_unknown_fields)]
 pub struct ScaffoldCargoTargets {
     /// Emit `-C link-arg=-Wl,-undefined,dynamic_lookup` for every macOS target in the
-    /// workspace. Defaults to `false`: the Python, PHP and Ruby extension crates get the flag
-    /// from their generated `build.rs` as a cdylib-only link argument, so executables and
-    /// unrelated crates keep the default ld64 behaviour (chained fixups, link-time errors for
-    /// unresolved symbols). Set to `true` only for a workspace that needs it everywhere.
+    /// workspace. Defaults to `false`. The Python, PHP and Ruby extension crates get the flag
+    /// from their generated `build.rs` for their cdylib, test, bench and example targets only.
+    /// `[[bin]]` executables and unrelated crates keep the default ld64 behaviour: chained
+    /// fixups and link-time errors for unresolved symbols. Set to `true` only for a workspace
+    /// that needs it everywhere.
     #[serde(default)]
     pub macos_dynamic_lookup: bool,
     #[serde(default = "default_true")]
