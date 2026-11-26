@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.132.7] - 2026-11-26
+
+### Fixed
+
+- The generated-output gate test looks for the `polylint/polylint` install step that CI uses since poly moved repositories, instead of the old `Goldziher/poly` step, so the gate no longer fails on every OS. Test fixtures are formatted for poly 0.36.1; the Freezed fixture stays verbatim generator output and is excluded from poly.
+
+### Changed
+
+- Dependency updates: clap 4.6.10, toml 1.2.3, toml_edit 0.25.21, ahash 0.8.14, sha2 0.11.2, jsonschema 0.63.2, pest 2.9.7, zerocopy 0.8.66, zlib-rs 0.6.9, and the Android Gradle plugin 9.5.3 in generated Android projects.
+
 ## [0.132.6] - 2026-11-23
 
 ### Fixed
