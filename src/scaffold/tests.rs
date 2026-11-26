@@ -107,6 +107,8 @@ fn language_files(files: &[GeneratedFile]) -> Vec<&GeneratedFile> {
                 && p != "rustfmt.toml"
                 && !p.ends_with("rust-toolchain.toml")
                 && !p.ends_with(".cargo/config.toml")
+                // Extension-crate build scripts are covered by `tests::extension_build_rs`. ~keep
+                && !p.ends_with("/build.rs")
                 && p != ".gitattributes"
                 && p != ".clang-format"
                 // LICENSE files are synced from the workspace root; the consolidated
@@ -123,6 +125,7 @@ mod cargo_table_order;
 mod components_only;
 mod core_deps;
 mod dependency_key_order;
+mod extension_build_rs;
 mod extra_deps;
 mod ffi_core_dep_features;
 mod ffi_go_java_ruby;

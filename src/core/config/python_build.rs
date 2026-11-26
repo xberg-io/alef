@@ -25,7 +25,10 @@ pub const PYO3_EXTENSION_MODULE_FEATURE: &str = "extension-module";
 ///
 /// `pyo3/extension-module` is what stops pyo3's build script from linking libpython
 /// (`pyo3_build_config::is_linking_libpython_for_target` returns true for *every* target when the
-/// feature is off) and, on Darwin, what adds `-undefined dynamic_lookup`. `pyo3/abi3-py311` is
+/// feature is off). It does not add `-undefined dynamic_lookup` on Darwin: pyo3 leaves that to
+/// the extension crate's own build script (`pyo3_build_config::add_extension_module_link_args`),
+/// so maturin passes the flag itself and a plain `cargo build` gets it from the crate's generated
+/// `build.rs` (`scaffold::extension_build_rs`). `pyo3/abi3-py311` is
 /// what makes the artifact stable-ABI, so one wheel per platform covers Python 3.11+. Neither is
 /// on by default, so a build that omits the feature silently produces a libpython-linked,
 /// version-locked module wherever the link happens to succeed. ~keep

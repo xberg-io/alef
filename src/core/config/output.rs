@@ -103,8 +103,9 @@ pub struct GeneratedHeaderConfig {
 #[serde(deny_unknown_fields)]
 pub struct ScaffoldCargo {
     /// Per-target cross-compile / rustflags overrides. Defaults emit the canonical
-    /// 6-target template (macOS dynamic_lookup, Windows MSVC rust-lld x64+i686,
-    /// aarch64-linux-gnu cross-gcc, x86_64-linux-musl, wasm32 bulk-memory).
+    /// 5-target template (Windows MSVC rust-lld x64+i686, aarch64-linux-gnu cross-gcc,
+    /// x86_64-linux-musl, wasm32 bulk-memory); the workspace-wide macOS
+    /// `-undefined dynamic_lookup` block is opt-in via `macos_dynamic_lookup`.
     #[serde(default)]
     pub targets: ScaffoldCargoTargets,
     /// Limit concurrent rustc jobs to prevent OOM during large builds.
@@ -131,11 +132,16 @@ impl Default for ScaffoldCargo {
     }
 }
 
-/// Per-target opt-out flags. All default to `true`.
+/// Per-target flags. All default to `true` except `macos_dynamic_lookup`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ScaffoldCargoTargets {
-    #[serde(default = "default_true")]
+    /// Emit `-C link-arg=-Wl,-undefined,dynamic_lookup` for every macOS target in the
+    /// workspace. Defaults to `false`: the Python, PHP and Ruby extension crates get the flag
+    /// from their generated `build.rs` as a cdylib-only link argument, so executables and
+    /// unrelated crates keep the default ld64 behaviour (chained fixups, link-time errors for
+    /// unresolved symbols). Set to `true` only for a workspace that needs it everywhere.
+    #[serde(default)]
     pub macos_dynamic_lookup: bool,
     #[serde(default = "default_true")]
     pub x86_64_pc_windows_msvc: bool,
@@ -152,7 +158,7 @@ pub struct ScaffoldCargoTargets {
 impl Default for ScaffoldCargoTargets {
     fn default() -> Self {
         Self {
-            macos_dynamic_lookup: true,
+            macos_dynamic_lookup: false,
             x86_64_pc_windows_msvc: true,
             i686_pc_windows_msvc: true,
             aarch64_unknown_linux_gnu: true,

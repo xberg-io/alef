@@ -9,6 +9,7 @@ mod cargo_deps;
 mod cargo_lints;
 mod core_features;
 pub(crate) mod dependency_versions;
+mod extension_build_rs;
 mod generated_files;
 pub(crate) mod languages;
 mod manifest_header;
@@ -89,6 +90,7 @@ pub fn scaffold(
     // `verify` -- agrees that a version alef would have lowered is not a difference. ~keep
     version_floor::apply_version_floors(&mut files, config);
     files.extend(scaffold_poly_config(config, languages));
+    files.extend(extension_build_rs::extension_build_scripts(config, languages));
 
     // LICENSE sync — copy the workspace-root LICENSE into every per-language
     // package directory so ecosystems like pub.dev (Dart) that require a LICENSE

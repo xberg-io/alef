@@ -38,7 +38,7 @@ pub(crate) fn rust_toolchain_file(languages: &[Language]) -> GeneratedFile {
 ///
 /// Section order is fixed: header comment → `[build]` → `[net]` →
 /// `[registries.crates-io]` → `[target.*]` blocks (in declaration order:
-/// macOS dynamic_lookup, Windows MSVC x64+i686, aarch64-linux-gnu, x86_64-linux-musl,
+/// opt-in macOS dynamic_lookup, Windows MSVC x64+i686, aarch64-linux-gnu, x86_64-linux-musl,
 /// wasm32) → optional `[env]`. `inject_hash_line` will insert the hash comment
 /// directly after the marker line.
 pub fn render_cargo_config(cargo: &ScaffoldCargo) -> String {
@@ -60,9 +60,9 @@ pub fn render_cargo_config(cargo: &ScaffoldCargo) -> String {
     let t = &cargo.targets;
     if t.macos_dynamic_lookup {
         out.push_str(
-            "\n# Required for PyO3 / ext-php-rs cdylibs: Python and Zend C-API symbols are\n\
-             # resolved at runtime when the host loads the extension, not at link time.\n\
-             # macOS ld is strict and rejects unresolved symbols by default.\n\
+            "\n# Opt-in (`macos_dynamic_lookup = true`): applies to every crate and executable in\n\
+             # the workspace, not only extension cdylibs. Generated Python, PHP and Ruby binding\n\
+             # crates already pass it to their own cdylib from build.rs.\n\
              [target.'cfg(target_os = \"macos\")']\n\
              rustflags = [\"-C\", \"link-arg=-Wl,-undefined,dynamic_lookup\"]\n",
         );

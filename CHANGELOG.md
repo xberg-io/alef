@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The `alef` binary formats its build timestamp and the citation release date with `jiff` instead of `chrono`, dropping `chrono` (RUSTSEC-2026-0543) from the dependency tree. Output is unchanged.
+- `[scaffold.cargo]` no longer writes a workspace-wide `[target.'cfg(target_os = "macos")'] rustflags = ["-C", "link-arg=-Wl,-undefined,dynamic_lookup"]` block into `.cargo/config.toml`. The flag reached every executable and crate in the workspace, which made ld64 drop chained fixups (slower process start) and turned unresolved-symbol link errors into runtime crashes. `targets.macos_dynamic_lookup` now defaults to `false` and still restores the old block when set to `true`.
+
+### Fixed
+
+- `alef scaffold` generates a `build.rs` for the Python (pyo3), PHP (ext-php-rs) and Ruby (magnus) binding crates that passes `-Wl,-undefined,dynamic_lookup` to that crate's cdylib only, on macOS targets. Node (`napi_build::setup()`), Elixir (rustler 0.36+) and the other bindings need no flag. A binding crate that already has a hand-written `build.rs` keeps it; alef warns unless it already mentions `dynamic_lookup`, and on macOS it must gain `if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") { println!("cargo:rustc-link-arg-cdylib=-Wl,-undefined,dynamic_lookup"); }`.
 
 ## [0.132.7] - 2026-11-26
 
