@@ -1181,15 +1181,15 @@ fn task_and_ci_serialize_ignored_generated_output_lanes() {
     task_serialization::assert_serialized(&tasks, &workflow);
 }
 
-/// Whether `block` has an actual `uses:` step line installing `Goldziher/poly`.
+/// Whether `block` has an actual `uses:` step line installing `polylint/polylint`.
 ///
-/// Line-scoped rather than a whole-block `contains("Goldziher/poly")`: the surrounding
-/// comments on the `Install poly` step mention `Goldziher/poly` several times in prose (the
-/// pin rationale, the SHA-vs-tag explanation, the version-mismatch error message), so a bare
-/// substring search would still pass with the real `uses:` line deleted. Only a line whose
-/// trimmed text starts with `uses: Goldziher/poly@` counts. ~keep
+/// Line-scoped rather than a whole-block `contains("polylint/polylint")`: the surrounding
+/// comments on the `Install poly` step mention `polylint/polylint` in prose (the pin
+/// rationale, the docs link, the version-mismatch error message), so a bare substring search
+/// would still pass with the real `uses:` line deleted. Only a line whose trimmed text starts
+/// with `uses: polylint/polylint@` counts. ~keep
 fn gate_job_installs_poly(block: &str) -> bool {
-    const USES_PREFIX: &str = "uses: Goldziher/poly@";
+    const USES_PREFIX: &str = "uses: polylint/polylint@";
     block.lines().any(|line| line.trim_start().starts_with(USES_PREFIX))
 }
 
@@ -1199,8 +1199,8 @@ fn gate_job_installs_poly(block: &str) -> bool {
 fn assert_gate_job_installs_poly(block: &str, workflow_path: &Path) {
     assert!(
         gate_job_installs_poly(block),
-        "the `{GATE_JOB}` job in {} must have a `uses: Goldziher/poly@...` step, not just prose \
-         mentioning `Goldziher/poly` -- the poly fmt lane fails on a missing tool if the real \
+        "the `{GATE_JOB}` job in {} must have a `uses: polylint/polylint@...` step, not just prose \
+         mentioning `polylint/polylint` -- the poly fmt lane fails on a missing tool if the real \
          install step is gone:\n\
          --- job block as parsed ---\n{block}",
         workflow_path.display()

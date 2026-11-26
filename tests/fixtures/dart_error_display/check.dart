@@ -34,19 +34,19 @@ Future<void> main(List<String> args) async {
     }
     switch (failure) {
       case SampleError_Missing(:final message, :final status):
-      if (message != 'missing payload' || status != 404) throw StateError('changed raw payload');
+        if (message != 'missing payload' || status != 404) throw StateError('changed raw payload');
       case SampleError_Policy(:final url, :final reason):
-      if (url != 'https://example.test/' || reason != 'denied') throw StateError('changed policy payload');
+        if (url != 'https://example.test/' || reason != 'denied') throw StateError('changed policy payload');
       case SampleError_Numbers(:final count, :final enabled):
-      if (count != 7 || !enabled) throw StateError('changed numeric payload');
+        if (count != 7 || !enabled) throw StateError('changed numeric payload');
       case SampleError_Escaped(:final message):
-      if (message != r'raw $ {value}') throw StateError('changed escaped payload');
+        if (message != r'raw $ {value}') throw StateError('changed escaped payload');
       case SampleError_Unit():
-      break;
+        break;
       case SampleError_Keyword(:final required_):
-      if (required_ != 'required raw') throw StateError('changed keyword payload');
+        if (required_ != 'required raw') throw StateError('changed keyword payload');
       default:
-      throw StateError('typed variant matching was lost');
+        throw StateError('typed variant matching was lost');
     }
     checked++;
   }

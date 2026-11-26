@@ -15,6 +15,8 @@ exclude = [
   "schemas/**",
   "target/**",
   "tests/snapshots/**",
+  # Verbatim Freezed output: the rewriter tests run against the generator's exact layout. ~keep
+  "tests/fixtures/dart_single_error.freezed.dart",
   "/.ai-rulez/.generated-manifest.json",
   "/.mcp.json",
   # adrlint owns ADR Markdown with its own rumdl config and content-hash lock; poly would

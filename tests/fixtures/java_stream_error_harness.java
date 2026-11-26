@@ -29,5 +29,5 @@ final class StreamHarness {
         throw NativeLib.lastErrorException(code, context.reinterpret(Long.MAX_VALUE).getString(0));
     }
 
-GENERATED_METHOD
+    GENERATED_METHOD
 }

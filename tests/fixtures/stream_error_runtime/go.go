@@ -18,6 +18,7 @@ func (s *stream) Err() error {
 	}
 	return s.terminal
 }
+
 func ChatStreamWithContext(_ context.Context) (*stream, error) {
 	mode := os.Getenv("STREAM_MODE")
 	if mode == "immediate" {
