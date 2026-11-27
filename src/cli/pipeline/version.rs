@@ -864,7 +864,7 @@ fn sync_citation_file(
 ) -> anyhow::Result<()> {
     if let Some(citation_config) = config.citation.as_ref() {
         let fallback_license = read_workspace_license(&config.version_from);
-        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let today = jiff::ZonedDateTime::now().strftime("%Y-%m-%d").to_string();
         let owned_config_with_override;
         let effective_citation = if let Some(date) = release_date_override {
             owned_config_with_override = crate::core::config::CitationConfig {

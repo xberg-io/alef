@@ -166,10 +166,10 @@ fn render_timestamp(epoch_seconds: &str) -> String {
     epoch_seconds
         .parse::<i64>()
         .ok()
-        .and_then(|seconds| chrono::DateTime::from_timestamp(seconds, 0))
+        .and_then(|seconds| jiff::Timestamp::from_second(seconds).ok())
         .map_or_else(
             || UNKNOWN.to_string(),
-            |instant| instant.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            |instant| instant.strftime("%Y-%m-%dT%H:%M:%SZ").to_string(),
         )
 }
 
@@ -258,6 +258,7 @@ mod tests {
         assert_eq!(render_timestamp(EPOCH), "2001-09-09T01:46:40Z");
         assert_eq!(render_timestamp(UNKNOWN), UNKNOWN);
         assert_eq!(render_timestamp(""), UNKNOWN);
+        assert_eq!(render_timestamp(&i64::MAX.to_string()), UNKNOWN);
     }
 
     /// Guards the vars `build.rs` actually stamped into this build: whatever the environment was,

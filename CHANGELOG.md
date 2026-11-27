@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The `alef` binary formats its build timestamp and the citation release date with `jiff` instead of `chrono`, dropping `chrono` (RUSTSEC-2026-0543) from the dependency tree. Output is unchanged.
+
 ## [0.132.7] - 2026-11-26
 
 ### Fixed
